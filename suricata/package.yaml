@@ -1,0 +1,41 @@
+name: suricata
+
+title: Suricata
+author: tenzir
+
+description: blabla
+
+inputs:
+  eve-path:
+    description: A path where suricata writes eve.json formatted logs
+    type: string
+    default: /var/lib/suricata/eve.sock
+  restart-on-failure:
+    description: Whether the import should be restarted if a failure occurs in the pipeline.
+    type: bool
+    default: true
+
+pipelines:
+  import:
+    name: Suricata Import
+    description: Show the alerts from the last 24 hours
+    definition: |
+      from file ${{ inputs.eve-path }} --follow read suricata
+      | import
+    autostart:
+      created: true
+      failed: ${{ inputs.restart-on-failure }}
+    labels:
+      - Suricata
+
+
+charts:
+
+
+snippets:
+  - name: Todays Alerts
+    description: Show the alerts from the last 24 hours
+    definition: |
+      export
+      | where #schema == "suricata.alert"
+      | where #import_time > 1 day ago
