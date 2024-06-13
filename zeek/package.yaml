@@ -1,0 +1,66 @@
+id: zeek
+name: Zeek
+author: Tenzir
+
+description: |
+  The Zeek Package. Simplify connection Zeek as a data source and normalize Zeek events into OCSF.
+
+inputs:
+  listen-endpoint:
+    name: Listen Endpoint
+    description: A tcp endpoint where Zeek sends its logs
+    type: string
+    default: none,
+  log-directory:
+    name: Log Directory
+    description: The local filesystem path where Zeek logs are written
+    type: string
+    default: /opt/zeek/spool,
+  log-format:
+    name: Log Format
+    description: The log format that is configured in your Zeek deployment
+    type: string
+    default: zeek-tsv,
+
+pipelines:
+  onboard-from-interface:
+    name: Onboard Zeek via TCP
+    description: Connects a Zeek data source on the network.
+    definition: |
+      from tcp://{{ inputs.listen-endpoint }} read {{ inputs.log-format }}
+      | publish zeek/inbound
+    disabled: true
+    retry_on_error: 10s
+
+  onboard-from-logs:
+    name: Onboard Zeek via local log files
+    description: Reads Zeek logs from the local filesystem.
+    definition: |
+      load directory {{ inputs.log.directory }}
+      | read {{ inputs.log-format }}
+      | publish zeek/inbound
+    disabled: true
+    retry_on_error: 10s
+
+  conn-to-ocsf:
+    name: Zeek Conn -> OCSF Network Activity
+    description: Convert Zeek Conn logs to OCSF Network Activity.
+    definition: |
+      TODO
+    retry_on_error: 1s
+
+  smb-to-ocsf:
+    name: Zeek SMB -> OCSF SMB Activity
+    description: Convert Zeek SMB logs to OCSF Network Activity.
+    definition: |
+      TODO
+    retry_on_error: 1s
+
+snippets:
+  - name: Zeek log volume from the last hour
+    description: A line chart displaying how many Zeek events arrived in the last hour.
+    definition: |
+      metrics
+      | where #schema == "tenzir.metrics.operator"
+      ...
+      TODO
