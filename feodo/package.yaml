@@ -1,5 +1,6 @@
+id: feodo
 name: Feodo Abuse Blocklist
-author: tenzir
+author: Tenzir
 
 description: |
   Feodo Tracker is a project of abuse.ch with the goal of sharing botnet C&C
@@ -17,26 +18,24 @@ pipelines:
   update-context:
     name: Update Feodo Context
     description: A pipeline that periodically refreshes the Feodo lookup-table context.
-    autostart:
-      created: true
-    definition: |
-      every 1 hour { 
+    definition: |-
+      every 1 hour
         from https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv read csv --allow-comments
         | context update feodo --key=dst_ip --clear
-      } | discard
-
-charts:
-  feodo:
-    description: A gauge that shows the number of entries in the Feodo IP Blocklist lookup-table.
-    definition: |
-      show contexts | where name == "feodo" | chart gauge --value=num_entries
+    retry_on_error: 1 hour
 
 snippets:
   - name: Lookup Feodo
     description: Evaluate all stored data with a `src_ip` field against the Feodo IP Blocklist.
-    definition: |
+    definition: |-
       lookup feodo --field=dst_ip
+
   - name: Enrich Feodo
     description: Evaluate the `src_ip` field of the input data against the Feodo IP Blocklist.
-    definition: |
+    definition: |-
       export | enrich feodo --field=dst_ip
+
+  - name: Feodo Table Entries
+    description: A gauge that shows the number of entries in the Feodo IP Blocklist lookup-table.
+    definition: |
+      show contexts | where name == "feodo" | chart gauge --value=num_entries
