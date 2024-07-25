@@ -1,5 +1,5 @@
 id: zeek
-name: Zeek
+name: Zeek Integration
 author: Tenzir
 
 description: |
@@ -10,17 +10,17 @@ inputs:
     name: Listen Endpoint
     description: A tcp endpoint where Zeek sends its logs
     type: string
-    default: none,
+    default: 127.0.0.1:5555
   log-directory:
     name: Log Directory
     description: The local filesystem path where Zeek logs are written
     type: string
-    default: /opt/zeek/spool,
+    default: /opt/zeek/spool
   log-format:
     name: Log Format
     description: The log format that is configured in your Zeek deployment
     type: string
-    default: zeek-tsv,
+    default: zeek-tsv
 
 pipelines:
   onboard-from-interface:
@@ -29,38 +29,50 @@ pipelines:
     definition: |
       from tcp://{{ inputs.listen-endpoint }} read {{ inputs.log-format }}
       | publish zeek/inbound
-    disabled: true
-    retry_on_error: 10s
+    disabled: false
 
-  onboard-from-logs:
+  onboard-from-file:
     name: Onboard Zeek via local log files
     description: Reads Zeek logs from the local filesystem.
     definition: |
-      load directory {{ inputs.log.directory }}
-      | read {{ inputs.log-format }}
-      | publish zeek/inbound
+        load directory {{ inputs.log-directory }}
+        | read {{ inputs.log-format }}
+        | publish zeek/inbound
     disabled: true
-    retry_on_error: 10s
 
-  conn-to-ocsf:
-    name: Zeek Conn -> OCSF Network Activity
-    description: Convert Zeek Conn logs to OCSF Network Activity.
+  flow-to-ocsf:
+    name: Zeek Flow -> OCSF Network Activity
+    description: Convert Zeek Flow logs to OCSF Network Activity.
     definition: |
-      TODO
-    retry_on_error: 1s
+      subscribe zeek/inbound
+      | publish ocsf.network_activity
+    disabled: false
 
   smb-to-ocsf:
     name: Zeek SMB -> OCSF SMB Activity
     description: Convert Zeek SMB logs to OCSF Network Activity.
     definition: |
-      TODO
-    retry_on_error: 1s
+      subscribe zeek/inbound
+      | publish ocsf.network_activity
+    disabled: true
 
 snippets:
-  - name: Zeek log volume from the last hour
-    description: A line chart displaying how many Zeek events arrived in the last hour.
+  - name: Zeek log volume from the last 3 hours
+    description: A line chart displaying how many Zeek events arrived in the last 3 hours.
     definition: |
-      metrics
-      | where #schema == "tenzir.metrics.operator"
-      ...
-      TODO
+        // experimental tql2
+        metrics
+        | where timestamp > 3 hour ago
+        | where #schema == "tenzir.metrics.operator"
+        | where pipeline_id == "zeek/onboard-from-interface"
+                || pipeline_id == "zeek/onboard-from-file"
+        | where source == true
+        | summarize elements=sum(output.elements),
+            approx_bytes=sum(output.approx_bytes),
+            duration=sum(duration) by timestamp resolution 2 min
+        | python '
+          self.elements /= self.duration.total_seconds()
+          self.approx_bytes /= self.duration.total_seconds()
+        '
+        | sort timestamp
+        | legacy "chart area -x timestamp -y elements"
