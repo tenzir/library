@@ -24,6 +24,49 @@ pipelines:
       from file {{ inputs.eve-path }} --follow read suricata
       | publish suricata
 
+  suricata-flow-to-ocsf:
+    name: Suricata Flow to OCSF Network Activity
+    description: Maps Suricata Flow events to an OCSF Network Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.flow"
+      this = {
+        type_uid: 400106,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: "" + flow_id,
+        },
+        time: timestamp,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        traffic: {
+          bytes_in: flow.bytes_toclient,
+          bytes_out: flow.bytes_toserver,
+          packets_in: flow.pkts_toclient,
+          packets_out: flow.pkts_toserver,
+          bytes: flow.bytes_toclient + flow.bytes_toserver,
+          packets: flow.pkts_toclient + flow.pkts_toserver,
+        },
+        status_id: 99,
+        status: flow.state,
+      }
+
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
