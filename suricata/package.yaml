@@ -31,6 +31,7 @@ pipelines:
     definition: |
       subscribe "suricata"
       where @name == "suricata.flow"
+      python "self.flow_uid = str(self.flow_id)"
       this = {
         type_uid: 400106,
         src_endpoint: {
@@ -48,7 +49,7 @@ pipelines:
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
-          uid: "" + flow_id,
+          uid: flow_uid,
         },
         time: timestamp,
         class_uid: 4001,
@@ -66,6 +67,113 @@ pipelines:
         status: flow.state,
       }
 
+  suricata-dns-to-ocsf:
+    name: Suricata DNS to OCSF Network Activity
+    description: Maps Suricata DNS events to an OCSF DNS Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.dns"
+      python "self.flow_uid = str(self.flow_id)"
+      if (dns.rcode == "NOERROR") {
+        rcode_id = 0
+        rcode = "NoError"
+      } else if (dns.rcode == "FORMERROR") {
+        rcode_id = 1
+        rcode = "FormError"
+      } else if (dns.rcode == "SERVERROR") {
+        rcode_id = 2
+        rcode = "ServError"
+      } else if (dns.rcode == "NXDOMAIN") {
+        rcode_id = 3
+        rcode = "NxDomain"
+      } else if (dns.rcode == "NOTIMP") {
+        rcode_id = 4
+        rcode = "NotImp"
+      } else if (dns.rcode == "REFUSED") {
+        rcode_id = 5
+        rcode = "Refused"
+      } else if (dns.rcode == "YXDOMAIN") {
+        rcode_id = 6
+        rcode = "YXDomain"
+      } else if (dns.rcode == "YXRRSET") {
+        rcode_id = 7
+        rcode = "YXRRSet"
+      } else if (dns.rcode == "NXRRSET") {
+        rcode_id = 8
+        rcode = "NXRRSet"
+      } else if (dns.rcode == "NOTAUTH") {
+        rcode_id = 9
+        rcode = "NotAuth"
+      } else if (dns.rcode == "NOTZONE") {
+        rcode_id = 10
+        rcode = "NotZone"
+      } else if (dns.rcode == "DSOTYPENI") {
+        rcode_id = 11
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADSIG_VERS") {
+        rcode_id = 16
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADKEY") {
+        rcode_id = 17
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADTIME") {
+        rcode_id = 18
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADMODE") {
+        rcode_id = 19
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADNAME") {
+        rcode_id = 20
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADALG") {
+        rcode_id = 21
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADTRUNC") {
+        rcode_id = 22
+        rcode = dns.rcode
+      } else if (dns.rcode == "BADCOOKIE") {
+        rcode_id = 23
+        rcode = dns.rcode
+      } else {
+        rcode_id = 99
+        rcode = dns.rcode
+      }
+      this = {
+        type_uid: 400306,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        class_uid: 4003,
+        category_uid: 4,
+        activity_id: 6,
+        status_id: 1,
+        rcode_id: rcode_id,
+        rcode: rcode,
+        query: {
+          hostname: dns.queries[0].rrname,
+          type: dns.queries[0].rrtype,
+        },
+        unmapped: {
+          grouped: dns.grouped,
+          answers: dns.answers
+        },
+      }
 
 snippets:
   - name: Todays Alerts
