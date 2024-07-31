@@ -175,6 +175,87 @@ pipelines:
         },
       }
 
+  suricata-smb-to-ocsf:
+    name: Suricata SMB to OCSF Network Activity
+    description: Maps Suricata SMB events to an OCSF SMB Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.smb"
+      python "self.flow_uid = str(self.flow_id)"
+      if smb.status_code == "0x0" {
+        status_id = 1
+        status = "Success"
+      } else {
+        status_id = 99
+        status = smb.status
+      }
+      if smb.disposition == "FILE_SUPERSEDE" {
+        type_uid = 400601
+        activity_id = 1
+        activity_name = "File Supersede"
+      } else if smb.disposition == "FILE_OPEN" {
+        type_uid = 400602
+        activity_id = 2
+        activity_name = "File Open"
+      } else if smb.disposition == "FILE_CREATE" {
+        type_uid = 400603
+        activity_id = 3
+        activity_name = "File Create"
+      } else if smb.disposition == "FILE_OPEN_IF" {
+        type_uid = 400604
+        activity_id = 4
+        activity_name = "File Open If"
+      } else if smb.disposition == "FILE_OVERWRITE" {
+        type_uid = 400605
+        activity_id = 5
+        activity_name = "File Overwrite"
+      } else if smb.disposition == "FILE_OVERWRITE_IF" {
+        type_uid = 400606
+        activity_id = 6
+        activity_name = "File Overwrite If"
+      } else {
+        type_uid = 400699
+        activity_id = 99
+        activity_name = smb.command
+      }
+      this = {
+        type_uid: 400699,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        status_id: status_id,
+        status: status,
+        class_uid: 4006,
+        category_uid: 4,
+        activity_id: activity_id,
+        activity_name: activity_name,
+        file: {
+          type_id: 0,
+          name: smb.filename,
+          created_time: smb.created,
+          modified_time: smb.modified,
+          accessed_time: smb.accessed,
+        },
+        tree_uid: smb.tree_id,
+        dialect: smb.dialect,
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
