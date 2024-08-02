@@ -303,6 +303,103 @@ pipelines:
         },
       }
 
+  suricata-http-to-ocsf:
+    name: Suricata HTTP to OCSF HTTP Activity
+    description: Maps Suricata Alert events to an OCSF HTTP Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.http"
+      python "self.flow_uid = str(self.flow_id)"
+      if http.http_method == null {
+        type_uid = 400200
+        activity_id = 0
+        activity_name = "Unknown"
+      } else if http.http_method == "CONNECT" {
+        type_uid = 400201
+        activity_id = 1
+        activity_name = "Connect"
+      } else if http.http_method == "DELETE" {
+        type_uid = 400202
+        activity_id = 2
+        activity_name = "Delete"
+      } else if http.http_method == "GET" {
+        type_uid = 400203
+        activity_id = 3
+        activity_name = "Get"
+      } else if http.http_method == "HEAD" {
+        type_uid = 400204
+        activity_id = 4
+        activity_name = "Head"
+      } else if http.http_method == "OPTIONS" {
+        type_uid = 400205
+        activity_id = 5
+        activity_name = "Options"
+      } else if http.http_method == "POST" {
+        type_uid = 400206
+        activity_id = 6
+        activity_name = "Post"
+      } else if http.http_method == "PUT" {
+        type_uid = 400207
+        activity_id = 7
+        activity_name = "Put"
+      } else if http.http_method == "TRACE" {
+        type_uid = 400208
+        activity_id = 8
+        activity_name = "Trace"
+      } else {
+        type_uid = 400299
+        activity_id = 99
+        activity_name = http.http_method
+      }
+      if http.status == null {
+        status_id = 0
+      } else if http.status >= 200 and http.status < 400 {
+        status_id = 1
+      } else if http.status >= 400 and http.status < 600 {
+        status_id = 2
+      }
+      this = {
+        type_uid: type_uid,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        status_id: status_id,
+        class_uid: 4002,
+        category_uid: 4,
+        activity_id: activity_id,
+        activity_name: activity_name,
+        http_request: {
+          url: {
+            hostname: http.hostname,
+            url_string: http.url,
+          },
+          version: http.protocol,
+          http_method: http.http_method,
+          user_agent: http.http_user_agent,
+        },
+        http_response: {
+          code: http.status,
+          length: http.length,
+          content_type: http.http_content_type,
+        },
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
