@@ -256,6 +256,53 @@ pipelines:
         dialect: smb.dialect,
       }
 
+  suricata-alert-to-ocsf:
+    name: Suricata Alert to OCSF Detection Finding Activity
+    description: Maps Suricata Alert events to an OCSF Detection Finding Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.alert"
+      python "self.flow_uid = str(self.flow_id)"
+      if alert.severity == null {
+        severity_id = 0
+      } else if alert.severity == 1 {
+        severity_id = 4
+      } else if alert.severity == 2 {
+        severity_id = 3
+      } else if alert.severity == 3 {
+        severity_id = 2
+      }
+      this = {
+        type_uid: 200401,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: severity_id,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        activity_id: 1,
+        time: timestamp,
+        status_id: 1,
+        class_uid: 2004,
+        category_uid: 2,
+        finding_info: {
+          title: alert.category,
+          desc: alert.signature,
+        },
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
