@@ -3,32 +3,33 @@ name: Zeek Integration
 author: Tenzir
 
 description: |
-  The Zeek Package. Simplify connection Zeek as a data source and normalize Zeek events into OCSF.
+  The Zeek package makes it easy to onboard Zeek logs in various ways and
+  provides pipelines that map the logs to OCSF.
 
 inputs:
   listen-endpoint:
     name: Listen Endpoint
-    description: A tcp endpoint where Zeek sends its logs
+    description: A TCP endpoint where Zeek sends its logs
     type: string
     default: 127.0.0.1:5555
   log-directory:
     name: Log Directory
-    description: The local filesystem path where Zeek logs are written
+    description: The local filesystem path where Zeek writes its logs
     type: string
     default: /opt/zeek/spool
   log-format:
     name: Log Format
     description: The log format that is configured in your Zeek deployment
     type: string
-    default: zeek-tsv
+    default: zeek-json
 
 pipelines:
   onboard-from-interface:
-    name: Onboard Zeek via TCP
+    name: Onboard Zeek Logs via TCP
     description: Connects a Zeek data source on the network.
     definition: |
       from tcp://{{ inputs.listen-endpoint }} read {{ inputs.log-format }}
-      | publish zeek/inbound
+      | publish zeek
     disabled: false
 
   onboard-from-file:
@@ -37,30 +38,142 @@ pipelines:
     definition: |
         load directory {{ inputs.log-directory }}
         | read {{ inputs.log-format }}
-        | publish zeek/inbound
+        | publish zeek
     disabled: true
 
-  flow-to-ocsf:
-    name: Zeek Flow -> OCSF Network Activity
-    description: Convert Zeek Flow logs to OCSF Network Activity.
+  map-conn-to-ocsf:
+    name: conn.log to OCSF Network Activity
+    description: Maps Zeek connection logs to OCSF Network Activity.
     definition: |
-      subscribe zeek/inbound
-      | publish ocsf.network_activity
+      // tql2
+      subscribe "zeek"
+      where @name == "zeek.conn"
+      if local_orig == true and local_resp == true {
+        set direction = "Lateral", direction_id = 3
+      } else if local_orig == true {
+        set direction = "Outbound", direction_id = 2
+      } else if local_resp == true {
+        set direction = "Inbound", direction_id = 1
+      } else {
+        set direction = "Unknown", direction_id = 0
+      }
+      if proto == "tcp" {
+        set protocol_num = 6
+      } else if proto == "udp" {
+        set protocol_num = 17
+      } else if proto == "icmp" {
+        set protocol_num = 1
+      } else {
+        set protocol_num = -1
+      }
+      if id.orig_h.is_v6() or id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      set class_uid = 4001, activity_id = 6, activity_name = "Traffic"
+      set this = {
+        // ----------------------
+        // Base Event (Required)
+        // ----------------------
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        metadata: {
+          log_name: "conn", // Zeek calls it "path"
+          logged_time: _write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+          },
+          uid: uid,
+          version: "1.3.0",
+        },
+        time: ts,
+        type_id: class_uid * 100 + activity_id,
+        // -------------------------
+        // Base Event (Recommended)
+        // -------------------------
+        // TODO: we actually could go deeper into the `conn_state` field and
+        // choose a more accurate status. But this would require string
+        // manipulations and/or regex matching, which TQL doesn't have yet.
+        status: "Other",
+        status_code: conn_state,
+        status_id: 99,
+        // ----------------------
+        // Base Event (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "Network Activity",
+        duration: duration,
+        end_time: ts + duration,
+        start_time: ts,
+        // TODO: provide a function for this and make it possible to reference
+        // `type_id` from the same assignment.
+        //type_name: ocsf_type_name(type_id)
+        unmapped: {
+          history: history,
+          missed_bytes: missed_bytes,
+          orig_ip_bytes: orig_ip_bytes,
+          resp_ip_bytes: resp_ip_bytes,
+          // TODO: should we map these to `intermediate_ips` in Network
+          // Endpoint?
+          tunnel_parents: tunnel_parents,
+        }
+        // -----------------------
+        // Event Class (Required)
+        // -----------------------
+        dst_endpoint: {
+          ip: id.resp_h,
+          port: id.resp_p,
+          // TODO: start a conversation in the OCSF Slack to figure out how to
+          // assign the entire connection a protocol. We use svc_name as the
+          // next best thing, but it clearly can't be different between
+          // endpoints for the service semantics that Zeek has.
+          svc_name: service,
+        },
+        // -------------------------
+        // Event Class (Recommended)
+        // --------------------------
+        connection_info: {
+          uid: community_id,
+          direction: direction,
+          direction_id: direction_id,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: proto,
+          protocol_num: protocol_num,
+        },
+        src_endpoint: {
+          ip: id.orig_h,
+          port: id.orig_p,
+          svc_name: service,
+        },
+        traffic: {
+          bytes_in: resp_bytes,
+          bytes_out: orig_bytes,
+          packets_in: resp_pkts,
+          packets_out: orig_pkts,
+          total_bytes: orig_bytes + resp_bytes,
+          total_packets: orig_pkts + resp_pkts,
+        },
+        // -----------------------
+        // Event Class (Optional)
+        // -----------------------
+        // TODO
+        // - `ja4_fingerprint_list`: once we have some sample logs with JA4
+        //   fingerprints, we should populate them here.
+        // - `tls`: if we buffer ssl log for this connection, we could add the
+        //    information in here.
+      }
+      publish "zeek.conn"
     disabled: false
-
-  smb-to-ocsf:
-    name: Zeek SMB -> OCSF SMB Activity
-    description: Convert Zeek SMB logs to OCSF Network Activity.
-    definition: |
-      subscribe zeek/inbound
-      | publish ocsf.network_activity
-    disabled: true
 
 snippets:
   - name: Zeek log volume from the last 3 hours
     description: A line chart displaying how many Zeek events arrived in the last 3 hours.
     definition: |
-        // experimental tql2
+        // tql2
         metrics
         | where timestamp > 3 hour ago
         | where #schema == "tenzir.metrics.operator"
