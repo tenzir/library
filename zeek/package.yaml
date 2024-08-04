@@ -91,6 +91,7 @@ pipelines:
         },
         time: ts,
         type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
         // -------------------------
         // Base Event (Recommended)
         // -------------------------
@@ -109,6 +110,7 @@ pipelines:
         duration: duration,
         end_time: ts + duration,
         start_time: ts,
+        severity: "Informational",
         // TODO: provide a function for this and make it possible to reference
         // `type_id` from the same assignment.
         //type_name: ocsf_type_name(type_id)
@@ -120,7 +122,7 @@ pipelines:
           // TODO: should we map these to `intermediate_ips` in Network
           // Endpoint?
           tunnel_parents: tunnel_parents,
-        }
+        },
         // -----------------------
         // Event Class (Required)
         // -----------------------
@@ -168,6 +170,115 @@ pipelines:
       }
       publish "zeek.conn"
     disabled: false
+
+  map-dns-to-ocsf:
+    name: dns.log to OCSF DNS Activity
+    description: Maps Zeek DNS logs to OCSF DNS Activity.
+    definition: |
+      // tql2
+      subscribe "zeek"
+      where @name == "zeek.dns"
+      set class_uid = 4003, activity_id = 6, activity_name = "Traffic"
+      if proto == "tcp" {
+        set protocol_num = 6
+      } else if proto == "udp" {
+        set protocol_num = 17
+      } else if proto == "icmp" {
+        set protocol_num = 1
+      } else {
+        set protocol_num = -1
+      }
+      if id.orig_h.is_v6() or id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      set this = {
+        // ----------------------
+        // Base Event (Required)
+        // ----------------------
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        metadata: {
+          log_name: "dns", // Zeek calls it "path"
+          logged_time: _write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+          },
+          uid: uid,
+          version: "1.3.0",
+        },
+        time: ts,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // -------------------------
+        // Base Event (Recommended)
+        // -------------------------
+        status: "Other",
+        status_id: 99,
+        // ----------------------
+        // Base Event (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "Network Activity",
+        start_time: ts,
+        severity: "Informational",
+        unmapped: {
+          AA: AA,
+          TC: TC,
+          RD: RD,
+          RA: RA,
+          Z: Z,
+          qclass: qclass,
+          qtype: qtype,
+          rtt: rtt,
+          rejected: rejected,
+          trans_id: trans_id,
+        },
+        // -----------------------
+        // Event Class (Required)
+        // -----------------------
+        // -------------------------
+        // Event Class (Recommended)
+        // --------------------------
+        query: {
+          class: qclass_name,
+          hostname: query,
+          // TODO: go deeper and extract the log semantics.
+          //opcode_id: 0,
+          type: qtype_name,
+        },
+        // TODO: we need an array construction here.
+        answers: [],
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: proto,
+          protocol_num: protocol_num,
+        },
+        dst_endpoint: {
+          ip: id.resp_h,
+          port: id.resp_p,
+        },
+        src_endpoint: {
+          ip: id.orig_h,
+          port: id.orig_p,
+        },
+        query_time: ts,
+        rcode: rcode_name,
+        rcode_id: rcode,
+        response_time: ts,
+        // -----------------------
+        // Event Class (Optional)
+        // -----------------------
+      }
+      publish "zeek.dns"
+    disabled: false
+
 
 snippets:
   - name: Zeek log volume from the last 3 hours
