@@ -753,6 +753,43 @@ pipelines:
         },
       }
 
+  suricata-sip-to-ocsf:
+    name: Suricata SIP to OCSF Network Activity
+    description: Maps Suricata SIP events to an OCSF Network Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.sip"
+      python "self.flow_uid = str(self.flow_id)"
+      this = {
+        type_uid: 400106,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        status_id: 0,
+        unmapped: {
+          sip: sip
+        },
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
