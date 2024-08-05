@@ -614,6 +614,48 @@ pipelines:
         port: ftp.dynamic_port,
       }
 
+  suricata-mail-to-ocsf:
+    name: Suricata SMTP to OCSF Email Activity
+    description: Maps Suricata SMTP events to an OCSF Email Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.smtp"
+      where smtp.mail_from != null
+      where smtp.rcpt_to != null
+      python "self.flow_uid = str(self.flow_id)"
+      this = {
+        type_uid: 400900,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        status_id: 0,
+        class_uid: 4009,
+        category_uid: 4,
+        activity_id: 0,
+        email: {
+          from: smtp.mail_from,
+          to: smtp.rcpt_to
+        },
+        direction_id: 0,
+        smtp_hello: smtp.helo
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
