@@ -33,17 +33,19 @@ pipelines:
       where @name == "suricata.flow"
       python "self.flow_uid = str(self.flow_id)"
       this = {
-        type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
+        activity_id: 6,
+        category_uid: 4,
+        class_uid: 4001,
         severity_id: 1,
+        type_uid: 400106,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.flow",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -51,10 +53,24 @@ pipelines:
           },
           uid: flow_uid,
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
         time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
         traffic: {
           bytes_in: flow.bytes_toclient,
           bytes_out: flow.bytes_toserver,
@@ -66,7 +82,7 @@ pipelines:
         status_id: 99,
         status: flow.state,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-dns-to-ocsf:
@@ -77,6 +93,24 @@ pipelines:
       subscribe "suricata"
       where @name == "suricata.dns"
       python "self.flow_uid = str(self.flow_id)"
+      // TODO: Proper request/response event splitting.
+      if dns.queries[0].rrname != null {
+        query = {
+          hostname: dns.queries[0].rrname,
+          type: dns.queries[0].rrtype,
+        }
+        activity_id = 6
+        type_uid = 400306
+      } else {
+        query = null
+        if dns.answers[0] != null {
+          activity_id = 2
+          type_uid = 400302
+        } else {
+          activity_id = 0
+          type_uid = 400300
+        }
+      }
       if (dns.rcode == "NOERROR") {
         rcode_id = 0
         rcode = "NoError"
@@ -142,7 +176,33 @@ pipelines:
         rcode = dns.rcode
       }
       this = {
-        type_uid: 400306,
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
+        type_uid: type_uid,
+        severity_id: 1,
+        class_uid: 4003,
+        category_uid: 4,
+        activity_id: activity_id,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
+        metadata: {
+          log_name: "suricata.dns",
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
         src_endpoint: {
           ip: src_ip,
           port: src_port,
@@ -151,32 +211,16 @@ pipelines:
           ip: dest_ip,
           port: dest_port,
         },
-        severity_id: 1,
-        metadata: {
-          version: "v1.3.0",
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: flow_uid,
-        },
-        time: timestamp,
-        class_uid: 4003,
-        category_uid: 4,
-        activity_id: 6,
         status_id: 1,
         rcode_id: rcode_id,
         rcode: rcode,
-        query: {
-          hostname: dns.queries[0].rrname,
-          type: dns.queries[0].rrtype,
-        },
+        query: query,
         unmapped: {
           grouped: dns.grouped,
           answers: dns.answers
         },
       }
-      @name = ocsf.dns_activity
+      @name = "ocsf.dns_activity"
       publish "ocsf.dns_activity"
 
   suricata-smb-to-ocsf:
@@ -186,7 +230,19 @@ pipelines:
     definition: |
       subscribe "suricata"
       where @name == "suricata.smb"
-      python "self.flow_uid = str(self.flow_id)"
+      python "self.flow_uid = str(self.flow_id)
+      self.tree_uid = str(self.smb.tree_id)"
+      if smb.filename == null {
+        file = null
+      } else {
+        file = {
+          type_id: 0,
+          name: smb.filename,
+          created_time: smb.created,
+          modified_time: smb.modified,
+          accessed_time: smb.accessed,
+        }
+      }
       if smb.status_code == "0x0" {
         status_id = 1
         status = "Success"
@@ -224,17 +280,27 @@ pipelines:
         activity_name = smb.command
       }
       this = {
-        type_uid: 400699,
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
+        type_uid: type_uid,
+        severity_id: 1,
+        class_uid: 4006,
+        category_uid: 4,
         src_endpoint: {
           ip: src_ip,
           port: src_port,
         },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
-        severity_id: 1,
+        activity_id: activity_id,
+        // ----------------------
+        // Classification (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.smb",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -242,24 +308,30 @@ pipelines:
           },
           uid: flow_uid,
         },
+        // ----------------------
+        // Context (Recommended)
+        // ----------------------
+        dialect: smb.dialect,
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
         time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
         status_id: status_id,
         status: status,
-        class_uid: 4006,
-        category_uid: 4,
-        activity_id: activity_id,
-        activity_name: activity_name,
-        file: {
-          type_id: 0,
-          name: smb.filename,
-          created_time: smb.created,
-          modified_time: smb.modified,
-          accessed_time: smb.accessed,
-        },
-        tree_uid: smb.tree_id,
-        dialect: smb.dialect,
+        file: file,
+        tree_uid: tree_uid,
       }
-      @name = ocsf.smb_activity
+      @name = "ocsf.smb_activity"
       publish "ocsf.smb_activity"
 
   suricata-alert-to-ocsf:
@@ -280,17 +352,19 @@ pipelines:
         severity_id = 2
       }
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 200401,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: severity_id,
+        class_uid: 2004,
+        category_uid: 2,
+        activity_id: 1,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.alert",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -298,17 +372,24 @@ pipelines:
           },
           uid: flow_uid,
         },
-        activity_id: 1,
-        time: timestamp,
+        // ----------------------
+        // Context (Recommended)
+        // ----------------------
         status_id: 1,
-        class_uid: 2004,
-        category_uid: 2,
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
         finding_info: {
+          uid: flow_uid,
           title: alert.category,
           desc: alert.signature,
         },
       }
-      @name = ocsf.detection_finding
+      @name = "ocsf.detection_finding"
       publish "ocsf.detection_finding"
 
   suricata-http-to-ocsf:
@@ -368,17 +449,23 @@ pipelines:
         status_id = 2
       }
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: type_uid,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4002,
+        category_uid: 4,
+        activity_id: activity_id,
+        // ----------------------
+        // Classification (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.http",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -386,12 +473,17 @@ pipelines:
           },
           uid: flow_uid,
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
         time: timestamp,
-        status_id: status_id,
-        class_uid: 4002,
-        category_uid: 4,
-        activity_id: activity_id,
-        activity_name: activity_name,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
         http_request: {
           url: {
             hostname: http.hostname,
@@ -406,8 +498,16 @@ pipelines:
           length: http.length,
           content_type: http.http_content_type,
         },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: status_id,
       }
-      @name = ocsf.http_activity
+      @name = "ocsf.http_activity"
       publish "ocsf.http_activity"
 
   suricata-fileinfo-to-ocsf:
@@ -467,17 +567,23 @@ pipelines:
         status_id = 2
       }
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: type_uid,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4002,
+        category_uid: 4,
+        activity_id: activity_id,
+        // ----------------------
+        // Classification (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.fileinfo",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -485,12 +591,25 @@ pipelines:
           },
           uid: flow_uid,
         },
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
+        file: {
+          type_id: 0,
+          name: fileinfo.filename,
+          size: fileinfo.size,
+        },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
         time: timestamp,
-        status_id: status_id,
-        class_uid: 4002,
-        category_uid: 4,
-        activity_id: activity_id,
-        activity_name: activity_name,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
         http_request: {
           url: {
             hostname: http.hostname,
@@ -505,13 +624,16 @@ pipelines:
           length: http.length,
           content_type: http.http_content_type,
         },
-        file: {
-          type_id: 0,
-          name: fileinfo.filename,
-          size: fileinfo.size,
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
         },
+        status_id: status_id,
       }
-      @name = ocsf.http_activity
+      @name = "ocsf.http_activity"
       publish "ocsf.http_activity"
 
   suricata-ssh-to-ocsf:
@@ -520,20 +642,22 @@ pipelines:
     restart-on-error: 5m
     definition: |
       subscribe "suricata"
-      where @name == "suricata.fileinfo"
+      where @name == "suricata.ssh"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400706,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4007,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.ssh",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -541,18 +665,38 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        status_id: 0,
-        class_uid: 4007,
-        category_uid: 4,
-        activity_id: 6,
-        protocl_ver: ssh.server.proto_version,
+        // ----------------------
+        // Context (Recommended)
+        // ----------------------
+        protocol_ver: ssh.server.proto_version,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           client: ssh.client,
           server: ssh.server,
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.ssh_activity
+      @name = "ocsf.ssh_activity"
       publish "ocsf.ssh_activity"
 
   suricata-ftp-to-ocsf:
@@ -598,17 +742,23 @@ pipelines:
       }
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: type_uid,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4008,
+        category_uid: 4,
+        activity_id: activity_id,
+        // ----------------------
+        // Classification (Optional)
+        // ----------------------
+        activity_name: activity_name,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.ftp",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -616,18 +766,31 @@ pipelines:
           },
           uid: flow_uid,
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
         time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
         status_id: 0,
-        class_uid: 4008,
-        category_uid: 4,
-        activity_id: activity_id,
-        activity_name: activity_name,
         command: ftp.command,
         command_responses: ftp.reply,
         codes: ftp.completion_code,
         port: ftp.dynamic_port,
       }
-      @name = ocsf.ftp_activity
+      @name = "ocsf.ftp_activity"
       publish "ocsf.ftp_activity"
 
   suricata-mail-to-ocsf:
@@ -641,7 +804,44 @@ pipelines:
       where smtp.rcpt_to != null
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400900,
+        severity_id: 1,
+        class_uid: 4009,
+        category_uid: 4,
+        // ----------------------
+        // Classification (Optional)
+        // ----------------------
+        activity_id: 0,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
+        metadata: {
+          log_name: "suricata.smtp",
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        direction_id: 0,
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        email: {
+          from: smtp.mail_from,
+          to: smtp.rcpt_to
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
         src_endpoint: {
           ip: src_ip,
           port: src_port,
@@ -650,28 +850,10 @@ pipelines:
           ip: dest_ip,
           port: dest_port,
         },
-        severity_id: 1,
-        metadata: {
-          version: "v1.3.0",
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: flow_uid,
-        },
-        time: timestamp,
         status_id: 0,
-        class_uid: 4009,
-        category_uid: 4,
-        activity_id: 0,
-        email: {
-          from: smtp.mail_from,
-          to: smtp.rcpt_to
-        },
-        direction_id: 0,
         smtp_hello: smtp.helo
       }
-      @name = ocsf.email_activity
+      @name = "ocsf.email_activity"
       publish "ocsf.email_activity"
 
   suricata-tls-to-flow:
@@ -702,17 +884,19 @@ pipelines:
         certificate = null
       }
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.tls",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -720,11 +904,9 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         tls: {
           version: "Unknown",
           sni: tls.sni,
@@ -732,8 +914,27 @@ pipelines:
           ja3_hash: tls.ja3,
           certificate: certificate,
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-snmp-to-ocsf:
@@ -745,17 +946,19 @@ pipelines:
       where @name == "suricata.snmp"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.snmp",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -763,16 +966,33 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           snmp: snmp
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-sip-to-ocsf:
@@ -784,17 +1004,19 @@ pipelines:
       where @name == "suricata.sip"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.sip",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -802,16 +1024,33 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           sip: sip
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-ikev2-to-ocsf:
@@ -823,17 +1062,19 @@ pipelines:
       where @name == "suricata.ikev2"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.ikev2",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -841,16 +1082,33 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           ikev2: ikev2
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-mqtt-to-ocsf:
@@ -862,17 +1120,19 @@ pipelines:
       where @name == "suricata.mqtt"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.mqtt",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -880,16 +1140,33 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           mqtt: mqtt
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
+      @name = "ocsf.network_activity"
       publish "ocsf.network_activity"
 
   suricata-krb5-to-ocsf:
@@ -903,17 +1180,19 @@ pipelines:
       where @name == "suricata.krb5"
       python "self.flow_uid = str(self.flow_id)"
       this = {
+        // ----------------------
+        // Classification (Required)
+        // ----------------------
         type_uid: 400106,
-        src_endpoint: {
-          ip: src_ip,
-          port: src_port,
-        },
-        dst_endpoint: {
-          ip: dest_ip,
-          port: dest_port,
-        },
         severity_id: 1,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        // ----------------------
+        // Context (Required)
+        // ----------------------
         metadata: {
+          log_name: "suricata.krb5",
           version: "v1.3.0",
           product: {
             name: "Suricata",
@@ -921,17 +1200,32 @@ pipelines:
           },
           uid: flow_uid,
         },
-        time: timestamp,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        status_id: 0,
+        // ----------------------
+        // Context (Optional)
+        // ----------------------
         unmapped: {
           krb5: krb5
         },
+        // ----------------------
+        // Occurrence (Required)
+        // ----------------------
+        time: timestamp,
+        // ----------------------
+        // Primary (Required)
+        // ----------------------
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        // ----------------------
+        // Primary (Recommended)
+        // ----------------------
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        status_id: 0,
       }
-      @name = ocsf.network_activity
-      publish "ocsf.network_activity"
     disabled: true
 
 snippets:
