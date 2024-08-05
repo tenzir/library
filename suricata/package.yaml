@@ -541,6 +541,79 @@ pipelines:
         },
       }
 
+  suricata-ftp-to-ocsf:
+    name: Suricata FTP to OCSF FTP Activity
+    description: Maps Suricata FTP events to an OCSF FTP Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.ftp"
+      python "self.flow_uid = str(self.flow_id)"
+      if ftp.command == null {
+        type_uid = 400800
+        activity_id = 0
+        activity_name = "Unknown"
+      } else if ftp.command == "STOR" or ftp.command == "STOU" or ftp.command == "PUT" or ftp.command == "APPE" {
+        type_uid = 400801
+        activity_id = 1
+        activity_name = "Put"
+      } else if ftp.command == "GET" or ftp.command == "RETR" {
+        type_uid = 400802
+        activity_id = 2
+        activity_name = "Get"
+      } else if ftp.command == "MLST" {
+        type_uid = 400803
+        activity_id = 3
+        activity_name = "Poll"
+      } else if ftp.command == "DELE" {
+        type_uid = 400804
+        activity_id = 4
+        activity_name = "Delete"
+      } else if ftp.command == "RNFR" or ftp.command == "RNTO" {
+        type_uid = 400805
+        activity_id = 5
+        activity_name = "Rename"
+      } else if ftp.command == "NLST" or ftp.command == "LIST" or ftp.command == "MLSD" {
+        type_uid = 400806
+        activity_id = 6
+        activity_name = "List"
+      } else {
+        type_uid = 400899
+        activity_id = 99
+        activity_name = ftp.command
+      }
+      python "self.flow_uid = str(self.flow_id)"
+      this = {
+        type_uid: type_uid,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        status_id: 0,
+        class_uid: 4008,
+        category_uid: 4,
+        activity_id: activity_id,
+        activity_name: activity_name,
+        command: ftp.command,
+        command_responses: ftp.reply,
+        codes: ftp.completion_code,
+        port: ftp.dynamic_port,
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
