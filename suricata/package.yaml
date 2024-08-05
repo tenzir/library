@@ -656,6 +656,66 @@ pipelines:
         smtp_hello: smtp.helo
       }
 
+  suricata-tls-to-flow:
+    name: Suricata TLS to OCSF Network Activity
+    description: |
+      Maps Suricata TLS events to an OCSF Network Activity event.
+      Experimental and to be merged with the suricata.flow events.
+    restart-on-error: 5m
+    disabled: false
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.tls"
+      python "self.flow_uid = str(self.flow_id)"
+      if tls.version != null {
+        tls_version = tls.version
+      } else {
+        tls_version = "Unknown"
+      }
+      if tls.issuerdn != null {
+          certificate = {
+          issuer: tls.issuerdn,
+          fingerprints: [{algorithm_id: 2, value: tls.fingerprint}],
+          serial_number: tls.serial,
+          expiration_time: tls.notafter,
+          creation_time: tls.notbefore,
+        }
+      } else {
+        certificate = null
+      }
+      this = {
+        type_uid: 400106,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        class_uid: 4001,
+        category_uid: 4,
+        activity_id: 6,
+        status_id: 0,
+        tls: {
+          version: "Unknown",
+          sni: tls.sni,
+          ja3s_hash: tls.ja3s,
+          ja3_hash: tls.ja3,
+          certificate: certificate,
+        },
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
