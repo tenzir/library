@@ -502,6 +502,45 @@ pipelines:
         },
       }
 
+  suricata-ssh-to-ocsf:
+    name: Suricata SSH to OCSF SSH Activity
+    description: Maps Suricata SSH events to an OCSF SSH Activity event.
+    restart-on-error: 5m
+    definition: |
+      subscribe "suricata"
+      where @name == "suricata.fileinfo"
+      python "self.flow_uid = str(self.flow_id)"
+      this = {
+        type_uid: 400706,
+        src_endpoint: {
+          ip: src_ip,
+          port: src_port,
+        },
+        dst_endpoint: {
+          ip: dest_ip,
+          port: dest_port,
+        },
+        severity_id: 1,
+        metadata: {
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+          uid: flow_uid,
+        },
+        time: timestamp,
+        status_id: 0,
+        class_uid: 4007,
+        category_uid: 4,
+        activity_id: 6,
+        protocl_ver: ssh.server.proto_version,
+        unmapped: {
+          client: ssh.client,
+          server: ssh.server,
+        },
+      }
+
 snippets:
   - name: Todays Alerts
     description: Display all Suricata alerts from the last 24 hours.
