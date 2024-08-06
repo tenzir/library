@@ -14,15 +14,30 @@ inputs:
     description: A path where suricata writes eve.json formatted logs
     type: string
     default: /var/lib/suricata/eve.sock
+  eve-address:
+    name: EVE Address
+    description: A network address that suricata forwards formatted logs to
+    type: string
+    default: tcp://0.0.0.0:0000
 
 pipelines:
-  publish:
+  publish-from-file:
     name: Suricata Publish
-    description: Ingest Suricata events into a subscription topic.
+    description: Ingest Suricata events from a fileinto a subscription topic.
     restart-on-error: 5m
     definition: |
       from file {{ inputs.eve-path }} --follow read suricata
       | publish suricata
+
+  publish-from-network:
+    name: Suricata Publish
+    description: Ingest Suricata events from a network source into a subscription topic.
+    restart-on-error: 5m
+    definition: |
+      from {{ inputs.eve-address }} read suricata
+      | buffer 16Mi --policy drop
+      | publish suricata
+    disabled: true
 
   suricata-flow-to-ocsf:
     name: Suricata Flow to OCSF Network Activity
