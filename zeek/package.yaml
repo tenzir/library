@@ -419,6 +419,136 @@ pipelines:
       @name = "ocsf.http_activity"
       publish "ocsf.http_activity"
 
+  map-dhcp-to-ocsf:
+    name: dhcp.log to OCSF DHCP Activity
+    description: Maps Zeek DHCP logs to OCSF DHCP Activity.
+    definition: |
+      // tql2
+      subscribe "zeek"
+      where @name == "zeek.dhcp"
+      // Zeek's DHCP log is an aggregation of multiple packets that constitute a
+      // DORA "session". See https://docs.zeek.org/en/master/logs/dhcp.html for
+      // details. In OCSF, an event represents a single DORA message, which is
+      // why we simply unroll the array.
+      // Note that doesn't emit an event when DHCP lease expires, so there is no
+      // EXPIRE message type.
+      legacy "unroll msg_types"
+      this = { event: this }
+      class_uid = 4004
+      if event.msg_types == "DISCOVER" {
+        activity_id = 1
+        activity_name = "Discover"
+      } else if event.msg_types == "OFFER" {
+        activity_id = 2
+        activity_name = "Offer"
+      } else if event.msg_types == "REQUEST" {
+        activity_id = 3
+        activity_name = "Request"
+      } else if event.msg_types == "DECLINE" {
+        activity_id = 4
+        activity_name = "Decline"
+      } else if event.msg_types == "ACK" {
+        activity_id = 5
+        activity_name = "Ack"
+      } else if event.msg_types == "NAK" {
+        activity_id = 6
+        activity_name = "Nak"
+      } else if event.msg_types == "RELEASE" {
+        activity_id = 7
+        activity_name = "Release"
+      } else if event.msg_types == "INFORM" {
+        activity_id = 8
+        activity_name = "Inform"
+      } else {
+        activity_id = 0
+        activity_name = "Other"
+      }
+      if event.id.orig_h.is_v6() or event.id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "DHCP Activity",
+        severity: "Informational",
+        // --- Occurrence (required) ---
+        time: event.ts,
+        // --- Occurrence (optional) ---
+        // The duration is the time from the first to the last DORA message that
+        // Zeek aggregates into a single log.
+        duration: event.duration,
+        end_time: event.ts + event.duration,
+        start_time: event.ts,
+        // --- Context (required) ---
+        metadata: {
+          log_name: "dhcp",
+          logged_time: event._write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+          },
+          version: "1.3.0",
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (recommended) ---
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: "udp",
+          protocol_num: 17,
+        },
+        dst_endpoint: {
+          ip: event.server_addr,
+          domain: event.domain,
+        },
+        src_endpoint: {
+          hostname: event.host_name,
+          ip: event.client_addr,
+          domain: event.client_fqdn,
+          mac: event.mac,
+        },
+        lease_duration: event.lease_time,
+        status: "Other",
+        status_id: 99,
+        transaction_uid: trans_id,
+      }
+      // Drop all the mapped fields.
+      drop (
+        // TODO: find a better way to map the *set* of UIDs. Since there are
+        // multiple per DORA session, we can't just map them to the singleton
+        // `metadata.uid`.
+        unmapped.uids,
+        unmapped.msg_types,
+        unmapped.ts,
+        unmapped.duration,
+        unmapped.lease_time,
+        unmapped.trans_id,
+        unmapped.server_addr,
+        unmapped.client_addr,
+        unmapped.mac,
+        unmapped.host_name,
+        unmapped._write_ts,
+        unmapped.domain,
+        unmapped.client_fqdn,
+        // TODO: we could map client and server message to the single primary
+        // attribute `message` in the event class.
+        unmapped.client_message,
+        unmapped.server_message,
+      )
+      @name = "ocsf.dhcp_activity"
+      publish "ocsf.dhcp_activity"
+
 snippets:
   - name: Zeek log volume from the last 3 hours
     description: |
