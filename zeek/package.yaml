@@ -14,24 +14,37 @@ inputs:
     description: A TCP endpoint where Zeek sends its logs
     type: string
     default: 127.0.0.1:5555
-  log-directory:
-    name: Log Directory
-    description: The local filesystem path where Zeek writes its logs
+  log-file:
+    name: Log File Path
+    description: The path to the Zeek log to read.
     type: string
-    default: /opt/zeek/spool
   log-format:
     name: Log Format
-    description: The log format that is configured in your Zeek deployment
+    description:
+      The log format that is configured in your Zeek deployment (`json` or
+      `tsv`)
     type: string
-    default: zeek-json
+    default: json
 
 pipelines:
-  onboard-from-interface:
+  onboard-from-file:
     name: Onboard Zeek Logs via TCP
     description: Connects a Zeek data source on the network.
     definition: |
-      from tcp://{{ inputs.listen-endpoint }} read {{ inputs.log-format }}
-      | publish zeek
+      // tql2
+      load_file {{ inputs.log-file }}
+      read_zeek_{{ inputs.log-format }}
+      publish "zeek"
+    disabled: false
+
+  onboard-from-tcp-socket:
+    name: Onboard Zeek Logs via TCP
+    description: Connects a Zeek data source on the network.
+    definition: |
+      // tql2
+      legacy "from tcp://{{ inputs.listen-endpoint }} read zeek-{{ inputs.log-format }}"
+      publish "zeek"
+    disabled: false
 
   onboard-from-file:
     name: Onboard Zeek via single file
