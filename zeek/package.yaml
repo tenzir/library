@@ -11,7 +11,7 @@ description: |
 inputs:
   listen-endpoint:
     name: Listen Endpoint
-    description: A TCP endpoint where Zeek sends its logs
+    description: A TCP endpoint where Zeek sends its logs.
     type: string
     default: 127.0.0.1:5555
   log-file:
@@ -20,15 +20,15 @@ inputs:
     type: string
   log-format:
     name: Log Format
-    description:
+    description: |
       The log format that is configured in your Zeek deployment (`json` or
-      `tsv`)
+      `tsv`).
     type: string
     default: json
 
 pipelines:
   onboard-from-file:
-    name: Onboard Zeek Logs via TCP
+    name: Onboard Zeek Logs from a File
     description: Connects a Zeek data source on the network.
     definition: |
       // tql2
@@ -44,17 +44,6 @@ pipelines:
       // tql2
       legacy "from tcp://{{ inputs.listen-endpoint }} read zeek-{{ inputs.log-format }}"
       publish "zeek"
-    disabled: false
-
-  onboard-from-file:
-    name: Onboard Zeek via single file
-    description: Reads Zeek logs from the local filesystem.
-    definition: |
-        // TODO: implement the directory loader. This pipeline illustrates
-        // currently how we'd want to have it written in TQL.
-        load directory {{ inputs.log-directory }}
-        | read {{ inputs.log-format }}
-        | publish zeek
     disabled: true
 
   map-conn-to-ocsf:
@@ -179,7 +168,7 @@ pipelines:
         //   information in here.
       }
       // Drop all the mapped fields.
-      drop (
+      drop(
         unmapped._write_ts,
         unmapped.community_id,
         unmapped.conn_state,
@@ -294,7 +283,7 @@ pipelines:
       //  self.answers = xs
       //"
       // Drop all the mapped fields.
-      drop (
+      drop(
         unmapped._write_ts,
         unmapped.answers,
         unmapped.id,
@@ -415,7 +404,7 @@ pipelines:
         status_id: 99,
       }
       // Drop all the mapped fields.
-      drop (
+      drop(
         unmapped.method,
         unmapped.id,
         unmapped.ts,
@@ -537,7 +526,7 @@ pipelines:
         transaction_uid: trans_id,
       }
       // Drop all the mapped fields.
-      drop (
+      drop(
         // TODO: find a better way to map the *set* of UIDs. Since there are
         // multiple per DORA session, we can't just map them to the singleton
         // `metadata.uid`.
@@ -568,18 +557,15 @@ snippets:
       A line chart displaying how many Zeek events arrived in the last 3 hours.
     definition: |
         // tql2
-        metrics
-        | where timestamp > 3 hour ago
-        | where #schema == "tenzir.metrics.operator"
-        | where pipeline_id == "zeek/onboard-from-interface"
-                || pipeline_id == "zeek/onboard-from-file"
-        | where source == true
-        | summarize elements=sum(output.elements),
-            approx_bytes=sum(output.approx_bytes),
-            duration=sum(duration) by timestamp resolution 2 min
-        | python '
-          self.elements /= self.duration.total_seconds()
-          self.approx_bytes /= self.duration.total_seconds()
-        '
+        metrics "operator"
+        let $ts = now() - 3h
+        where timestamp > $ts
+        where pipeline_id == "zeek/onboard-from-interface" or pipeline_id == "zeek/onboard-from-file"
+        where source == true
+        legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp resolution 2 min"
+        this = {
+          timestamp: timestamp,
+          ingress_per_second: bytes / duration.as_secs(),
+        }
         | sort timestamp
-        | legacy "chart area -x timestamp -y elements"
+        | legacy "chart area"
