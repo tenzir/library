@@ -21,22 +21,83 @@ inputs:
     default: "3"
 
 contexts:
-  threatfox:
+  threatfox_ipports:
     type: lookup-table
-    description: The ThreatFox IOC Database
+    description: The subset of the ThreatFox IOC Database for (IP, port) tuples.
+
+  threatfox_domains:
+    type: lookup-table
+    description: The subset of the ThreatFox IOC Database for domains.
+
+  threatfox_urls:
+    type: lookup-table
+    description: The subset of the ThreatFox IOC Database for URLs.
+
+  threatfox_hashes:
+    type: lookup-table
+    description: The subset of the ThreatFox IOC Database for hashes.
 
 pipelines:
-  update-context:
+  fetch-threatfox-ioc-database:
     name: Update ThreatFox context
     description: |
       A pipeline that periodically fetches the ThreatFox IOC database and
-      updates the `threafox` context from this package.
+      publishes the feed to the `threatfox` topic.
     definition: |
       every 1 hour
         from https://threatfox-api.abuse.ch/api/v1/ query=get_iocs days:={{ inputs.days }}
-        | yield data[]
-        | context update threatfox --key=ioc --clear
-    restart-on-error: 1 hour
+      | yield data[]
+      // This is a hack that we need because there are no union types. We
+      // roundtrip via the JSON parser which does per-event type inference for
+      // us.
+      | write json -c
+      | read json --ndjson --precise
+      | publish threatfox
+
+  # We are currently creating one pipeline per IOC type. Once we have a more
+  # powerful group operator, it would be nice to write some thing like
+  # `group ioc_type { ... }` and then update the corresponding context
+  # dynamically.
+  populate-context-ipports:
+    name: Update the ThreatFox context for (IP, port) tuples
+    description: |
+      A pipeline that puts (IP, port) tuples into the corresponding context.
+    definition: |
+      // tql2
+      | subscribe "threatfox"
+      | where ioc_type == "ip:port"
+      | ioc = ioc.grok("%{IP:ip}:%{NUMBER:port}")
+      | legacy "context update threatfox_ipports --key=ioc"
+
+  populate-context-domains:
+    name: Update the ThreatFox context for domains
+    description: |
+      A pipeline that puts domains into the corresponding context.
+    definition: |
+      // tql2
+      | subscribe "threatfox"
+      | where ioc_type == "domain"
+      | legacy "context update threatfox_domains --key=ioc"
+
+  populate-context-urls:
+    name: Update the ThreatFox context for domains
+    description: |
+      A pipeline that puts domains into the corresponding context.
+    definition: |
+      // tql2
+      | subscribe "threatfox"
+      | where ioc_type == "url"
+      | legacy "context update threatfox_domains --key=ioc"
+
+  populate-context-hashes:
+    name: Update the ThreatFox context for domains
+    description: |
+      A pipeline that puts domains into the corresponding context.
+    definition: |
+      // tql2
+      | subscribe "threatfox"
+      | where ioc_type.ends_with("hash")
+      | legacy "context update threatfox_hashes --key=ioc"
 
 snippets:
   - name: Enrich Zeek DNS logs with ThreatFox domains
@@ -45,22 +106,30 @@ snippets:
     definition: |
       subscribe zeek
       | where #schema == "zeek.dns"
-      | enrich threatfox --field=query
+      | enrich threatfox_domains --field=query
 
   - name: ThreatFox IOCs by confidence
     description: |
       Shows a bar chart that plots the number of IOCs per confidence level.
     definition: |
-      context inspect threatfox
+      from https://threatfox-api.abuse.ch/api/v1/ query=get_iocs days:={{ inputs.days }}
       | yield value
       | summarize count(.) by confidence_level
       | sort confidence_level desc
+      | chart bar
+
+  - name: ThreatFox IOCs by type
+    description: |
+      Shows a bar chart that plots the number of IOCs per confidence level.
+    definition: |
+      from https://threatfox-api.abuse.ch/api/v1/ query=get_iocs days:={{ inputs.days }}
+      | yield data[]
+      | top ioc_type
       | chart bar
 
   - name: Show all ThreatFox domains
     description: |
       Shows a table of all ThreatFox IOCs of type `domain`.
     definition: |
-      context inspect threatfox
-      | where ioc_type == "domain"
+      context inspect threatfox_domains
       | yield value
