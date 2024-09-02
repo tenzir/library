@@ -1,0 +1,66 @@
+id: threatfox
+name: ThreatFox
+author: Tenzir
+author_icon: https://github.com/tenzir.png
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/threatfox/package.svg
+
+description: |
+  [ThreatFox](https://threatfox.abuse.ch/) is a free platform from abuse.ch with
+  the goal of sharing indicators of compromise (IOCs) associated with malware
+  with the infosec community, AV vendors and threat intelligence providers.
+
+  This package provides a `threatfox context` for enrichment with a copy of the
+  ThreatFox IOC database, and a pipeline that periodically refreshes the context.
+
+inputs:
+  days:
+    name: Number of days
+    description: |
+      Number of days to filter IOCs for (min: 1, max: 7)
+    type: string
+    default: "3"
+
+contexts:
+  threatfox:
+    type: lookup-table
+    description: The ThreatFox IOC Database
+
+pipelines:
+  update-context:
+    name: Update ThreatFox context
+    description: |
+      A pipeline that periodically fetches the ThreatFox IOC database and
+      updates the `threafox` context from this package.
+    definition: |
+      every 1 hour
+        from https://threatfox-api.abuse.ch/api/v1/ query=get_iocs days:={{ inputs.days }}
+        | yield data[]
+        | context update threatfox --key=ioc --clear
+    restart-on-error: 1 hour
+
+snippets:
+  - name: Enrich Zeek DNS logs with ThreatFox domains
+    description: |
+      Enriches Zeek DNS logs with the ThreatFox IOCs of type `domain`.
+    definition: |
+      subscribe zeek
+      | where #schema == "zeek.dns"
+      | enrich threatfox --field=query
+
+  - name: ThreatFox IOCs by confidence
+    description: |
+      Shows a bar chart that plots the number of IOCs per confidence level.
+    definition: |
+      context inspect threatfox
+      | yield value
+      | summarize count(.) by confidence_level
+      | sort confidence_level desc
+      | chart bar
+
+  - name: Show all ThreatFox domains
+    description: |
+      Shows a table of all ThreatFox IOCs of type `domain`.
+    definition: |
+      context inspect threatfox
+      | where ioc_type == "domain"
+      | yield value
