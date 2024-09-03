@@ -27,8 +27,14 @@ inputs:
     name: Number of days
     description: |
       Number of days to filter IOCs for (min: 1, max: 7)
-    type: string
-    default: "3"
+    default: 3
+
+  refresh-interval:
+    name: Time between context updates
+    description: |
+      The duration between context updates that fetch the ThreatFox database via
+      the API.
+    default: 1 hour
 
 contexts:
   threatfox_ipports:
@@ -54,7 +60,7 @@ pipelines:
       A pipeline that periodically fetches the ThreatFox IOC database and
       publishes the feed to the `threatfox` topic.
     definition: |
-      every 1 hour
+      every {{ inputs.refresh-interval }}
         from https://threatfox-api.abuse.ch/api/v1/ query=get_iocs days:={{ inputs.days }}
       | yield data[]
       // This is a hack that we need because there are no union types. We
