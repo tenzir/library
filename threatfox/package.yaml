@@ -38,19 +38,19 @@ inputs:
     default: 1 hour
 
 contexts:
-  threatfox_ipports:
+  threatfox-ipports:
     type: lookup-table
     description: The subset of the ThreatFox IOC Database for (IP, port) tuples.
 
-  threatfox_domains:
+  threatfox-domains:
     type: lookup-table
     description: The subset of the ThreatFox IOC Database for domains.
 
-  threatfox_urls:
+  threatfox-urls:
     type: lookup-table
     description: The subset of the ThreatFox IOC Database for URLs.
 
-  threatfox_hashes:
+  threatfox-hashes:
     type: lookup-table
     description: The subset of the ThreatFox IOC Database for hashes.
 
@@ -86,7 +86,7 @@ pipelines:
       | subscribe "threatfox"
       | where ioc_type == "ip:port"
       | ioc = ioc.grok("%{IP:ip}:%{NUMBER:port}")
-      | legacy "context update threatfox_ipports --key=ioc"
+      | legacy "context update threatfox-ipports --key=ioc"
 
   populate-context-domains:
     name: Update the ThreatFox context for domains
@@ -96,7 +96,7 @@ pipelines:
       // tql2
       | subscribe "threatfox"
       | where ioc_type == "domain"
-      | legacy "context update threatfox_domains --key=ioc"
+      | legacy "context update threatfox-domains --key=ioc"
 
   populate-context-urls:
     name: Update the ThreatFox context for domains
@@ -106,7 +106,7 @@ pipelines:
       // tql2
       | subscribe "threatfox"
       | where ioc_type == "url"
-      | legacy "context update threatfox_domains --key=ioc"
+      | legacy "context update threatfox-domains --key=ioc"
 
   populate-context-hashes:
     name: Update the ThreatFox context for domains
@@ -116,7 +116,7 @@ pipelines:
       // tql2
       | subscribe "threatfox"
       | where ioc_type.ends_with("hash")
-      | legacy "context update threatfox_hashes --key=ioc"
+      | legacy "context update threatfox-hashes --key=ioc"
 
 snippets:
   - name: Enrich Zeek DNS logs with ThreatFox domains
@@ -125,7 +125,7 @@ snippets:
     definition: |
       subscribe zeek
       | where #schema == "zeek.dns"
-      | enrich threatfox_domains --field=query
+      | enrich threatfox-domains --field=query
 
   - name: ThreatFox IOCs by confidence
     description: |
@@ -154,5 +154,5 @@ snippets:
     description: |
       Shows a table of all ThreatFox IOCs of type `domain`.
     definition: |
-      context inspect threatfox_domains
+      context inspect threatfox-domains
       | yield value
