@@ -1,0 +1,99 @@
+id: alphamountain
+name: alphaMountain
+author: Tenzir
+author_icon: https://github.com/tenzir.png
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/alphamountain/package.png
+
+description: |
+  [alphaMountain](https://alphamountain.ai) provides up-to-date domain and IP
+  intelligence for cybersecurity investigational and protection platforms.  
+
+  This package provides the `alphamountain-threats` context for enrichment and
+  pipelines that constantly update the feed.
+
+inputs:
+  license:
+    name: License key
+    description: |
+      Your alphaMountain batch API key.
+    type: string
+    default: 00000000-0000-0000-0000-000000000000
+
+  refresh-interval:
+    name: Time between context updates
+    description: |
+      The duration between context updates that fetch the alphaMountain database via
+      the API.
+    type: string
+    default: 1h
+
+  threat-expiry:
+    name: Threats expire after
+    description: |
+      The time after which threats get removed from the context.
+    type: string
+    default: 7d
+
+  min-risk:
+    name: Minimum risk level
+    description: |
+      The minimum risk level for threats. Must be between 0.0 and 10.0, with
+      0.0 being the must trusted, 5.0 being unknown, and 10.0 being the most
+      malicious.
+    type: string
+    default: 8.5
+
+contexts:
+  alphamountain-threats:
+    type: lookup-table
+    description: |
+      Threats from the alphaMountain database. The lookup key is of type
+      `string` for hostnames and URLs or `ip` for IP addresses.
+
+pipelines:
+  publish-threats:
+    name: Publish alphaMountain Threats Feed
+    description: |
+      A pipeline that periodically fetches the alphaMountain Threats Feed and
+      publishes it to the `alphamountain` topic.
+    definition: |
+      // tql2
+      every {{ inputs.refresh-interval }} {
+        legacy "load https://batch.alphamountain.ai/threat/feed/csv
+          'version:=1'
+          'license:=\"{{ inputs.license }}\"'
+          'risk_min:={{ inputs.min-risk }}'
+          'risk_max:=10.0'"
+        read_csv
+      }
+      @name = "alphamountain.threat"
+      publish "alphamountain"
+    restart-on-error: true
+
+  update-threats-context:
+    name: Update the alphaMountain Threats Context
+    description: |
+      A pipeline that updates the `alphamountain-threats` context.
+    definition: |
+      // tql2
+      | subscribe "alphamountain"
+      | where @name == "alphamountain.threat"
+      | legacy "context update alphamountain-threats --key=url --create-timeout {{ inputs.threat-expiry }}"
+
+snippets:
+  - name: Match all string and IP fields
+    description: |
+      Starts a lookup that matches all historic and newly arriving events
+      against the `alphamountain-threats` context.
+    definition: |
+      lookup alphamountain-threats --field :string,:ip
+
+  - name: Show top alphaMountain threats by score
+    description: |
+      Shows the top ten threats from alphaMountain by score.
+    definition: |
+      context inspect alphamountain-threats
+      | yield value
+      | sort score desc
+      | head 10
