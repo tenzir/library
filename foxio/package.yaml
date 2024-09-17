@@ -1,0 +1,150 @@
+id: foxio
+name: FoxIO JA4+
+author: Tenzir
+author_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/foxio/package.svg
+
+description: |
+  The [FoxIO JA+ Database](https://ja4db.com/) provides context for various JA+
+  fingerprints, such as operating system, device, library, user agent.
+
+  This package provides multiple contexts for enrichment, each of which contains
+  a subset of the JA4+ database for a particular JA4+ type and a corresponding
+  pipeline that periodically refreshes the context.
+
+inputs:
+  refresh-interval:
+    name: Time between context updates
+    description: |
+      The duration between context updates that fetch the FoxIO JA4+ database.
+    type: string
+    default: 1 hour
+
+contexts:
+  ja4:
+    type: lookup-table
+    description: |
+      The JA4 lookup table containing keyed by TLS client fingerprint.
+      Example: `t13d1517h2_8daaf6152771_b0da82dd1658`.
+  ja4s:
+    type: lookup-table
+    description: |
+      The JA4Server (JA4S) lookup table keyed by TLS server response / session
+      fingerpint.
+      Example: `t120300_c030_52d195ce1d92`.
+  ja4h:
+    type: lookup-table
+    description: |
+      The JA4HTTP (JA4H) lookup table keyed by HTTP client fingerpint.
+      Example: `ge11nr20enus_f36bf6dfba1c_000000000000_e3b0c44298fc`.
+  ja4x:
+    type: lookup-table
+    description: |
+      The JA4X509 (JA4X) lookup table keyed by X.509 TLS certificate fingerpint.
+      Example: `d55f458d5a6c_d55f458d5a6c_0fc8c171b6ae`.
+  ja4t:
+    type: lookup-table
+    description: |
+      The JA4TCP (JA4T) lookup table keyed by passive TCP client fingerprint.
+      Example: `1024_2_1460_00`.
+  ja4ts:
+    type: lookup-table
+    description: |
+      The JA4TCPServer (JA4TS) lookup table keyed by passive TCP server response
+      fingerprint.
+      Example: `14600_2-1-3-4-0-0_1460_0`.
+  ja4tscan:
+    type: lookup-table
+    description: |
+      The JA4TCPScan (JA4TScan) lookup table keyed by active TCP server
+      fingerprint.
+      Example: `28960_2-4-8-1-3_1460_3_1-4-8-16`.
+
+pipelines:
+  downlaod-foxio-ja4-database:
+    name: Download FoxIO JA4+ database
+    description: |
+      A pipeline that periodically fetches the FoxIO JA4+ database and
+      publishes it to the `foxio` topic.
+    definition: |
+      // tql2
+      every {{ inputs.refresh-interval }} {
+        load_http "https://ja4db.com/api/read/"
+        read_json arrays_of_objects=true
+      }
+      @name = "foxio.ja4+"
+      publish "foxio"
+
+  populate-ja4-contexts:
+    name: Update the JA4 context
+    description: |
+      A pipeline that extracts JA4 fingerprints and updates the corresponding
+      context.
+    definition: |
+      // tql2
+      subscribe "foxio"
+      where @name == "foxio.ja4+"
+      if (ja4_fingerprint != null) {
+        legacy "context update ja4 --key=ja4_fingerprint"
+      }
+      if (ja4s_fingerprint != null) {
+        legacy "context update ja4s --key=ja4s_fingerprint"
+      }
+      if (ja4h_fingerprint != null) {
+        legacy "context update ja4h --key=ja4h_fingerprint"
+      }
+      if (ja4x_fingerprint != null) {
+        legacy "context update ja4x --key=ja4x_fingerprint"
+      }
+      if (ja4t_fingerprint != null) {
+        legacy "context update ja4t --key=ja4t_fingerprint"
+      }
+      if (ja4ts_fingerprint != null) {
+        legacy "context update ja4ts --key=ja4ts_fingerprint"
+      }
+      if (ja4tscan_fingerprint != null) {
+        legacy "context update ja4tscan --key=ja4tscan_fingerprint"
+      }
+      discard
+
+examples:
+  - name: Enrich Zeek conn logs with JA4 fingerpints
+    description: |
+      Enriches Zeek conn logs with JA4T and JA4TS fingerprints. Use [FoxIO's JA4
+      package](https://github.com/FoxIO-LLC/ja4/tree/main/zeek) to enrich your
+      Zeek logs with JA4+ fingerprints.
+    definition: |
+      subscribe zeek
+      | where #schema == "zeek.conn"
+      | enrich ja4t --field=ja4t
+      | enrich ja4ts --field=ja4ts
+
+  - name: FoxIO database top-10 operating systems
+    description: |
+      Shows a bar chart of the top-10 most common operating systems in the JA4+
+      database.
+    definition: |
+      from "https://ja4db.com/api/read/" read json --arrays-of-objects
+      | where os != null
+      | top os
+      | head
+      | chart bar
+
+  - name: FoxIO database top-10 applications
+    description: |
+      Shows a bar chart of the top-10 most common applications in the JA4+
+      database.
+    definition: |
+      from "https://ja4db.com/api/read/" read json --arrays-of-objects
+      | where application != null
+      | top application
+      | head
+      | chart bar
+
+  - name: Show the contents of the JA4 context.
+    description: |
+      Shows all entries of the FoxIO JA+s database.
+    definition: |
+      context inspect ja4
