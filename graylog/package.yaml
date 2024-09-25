@@ -1,0 +1,81 @@
+---
+id: graylog
+name: Graylog
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+description: |
+  [Graylog](https://graylog.org/) is an open-core log management platform
+  with a focus on security operations.
+
+  This package allows onboarding graylog data from local files or from the
+  network.
+
+inputs:
+  filename:
+    name: Graylog filename
+    description: The location of a local file containing graylog data
+    type: string
+    default: "/tmp/example.data"
+
+  listen-address:
+    name: Graylog listen address
+    description: |
+      The network interface and port on which graylog data arrives over
+      the network.
+    type: string
+    default: 0.0.0.0:9000
+
+pipelines:
+  import-graylog:
+    name: Import Graylog data
+    description: |
+      Reads graylog data from the topic "graylog" and imports the data
+      into the node.
+    definition: |
+      // tql2
+      subscribe "graylog"
+      import
+
+  onboard-from-network:
+    name: Read Graylog from Network
+    description: |
+      Reads graylog events from the network and publishes them
+      on the topic `graylog`.
+    disabled: true
+    definition: |
+      from {{ inputs.listen-address }} read lines --null
+      | buffer 1Mi --policy drop
+      | write lines | read json --ndjson
+      | set #schema="graylog.log"
+      | publish graylog
+
+  onboard-from-file:
+    name: Read Graylog from File
+    description: |
+      Reads graylog events from the network and publishes them
+      on the topic `graylog`.
+    definition: |
+      from {{ inputs.filename }} read lines --null
+      | write lines | read json --ndjson
+      | set #schema="graylog.log"
+      | publish graylog 
+
+examples:
+  - name: Display
+    description: |
+      View all Graylog data that arrived in the last day.
+    definition: |
+      // tql2
+      let $ts = now() - 1d
+      metrics "operator"
+      where timestamp > $ts and source
+      legacy "where pipeline_id == \"graylog/onboard-from-file\" or pipeline_id == \"graylog/onboard-from-network\""
+      legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp, pipeline_id resolution 15min"
+      this = {
+        timestamp: timestamp,
+        data: bytes / duration.as_secs(),
+      }
+      legacy "summarize data=sum(data) by timestamp"
+      legacy "sort timestamp"
+      @name = "Graylog Ingress (1d, bytes/s)"
+      legacy "chart area"
