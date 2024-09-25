@@ -3,24 +3,20 @@ id: graylog
 name: Graylog
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/graylog/package.svg
 description: |
   [Graylog](https://graylog.org/) is an open-core log management platform
   with a focus on security operations.
 
-  This package allows onboarding graylog data from local files or from the
+  This package supports onboarding Graylog data from local files or from the
   network.
 
 inputs:
-  filename:
-    name: Graylog filename
-    description: The location of a local file containing graylog data
-    type: string
-    default: "/tmp/example.data"
-
   listen-address:
     name: Graylog listen address
     description: |
-      The network interface and port on which graylog data arrives over
+      The network interface and port on which Graylog data arrives over
       the network.
     type: string
     default: 0.0.0.0:9000
@@ -29,7 +25,7 @@ pipelines:
   import-graylog:
     name: Import Graylog data
     description: |
-      Reads graylog data from the topic "graylog" and imports the data
+      Reads Graylog events from the topic `graylog` and imports the data
       into the node.
     definition: |
       // tql2
@@ -39,29 +35,22 @@ pipelines:
   onboard-from-network:
     name: Read Graylog from Network
     description: |
-      Reads graylog events from the network and publishes them
+      Reads graylog data from the network and publishes them
       on the topic `graylog`.
-    disabled: true
+      
+      Note that this pipeline does not support incoming TLS connections,
+      so for production instances of graylog an external reverse proxy
+      is recommended.
     definition: |
-      from {{ inputs.listen-address }} read lines --null
-      | buffer 1Mi --policy drop
-      | write lines | read json --ndjson
-      | set #schema="graylog.log"
-      | publish graylog
-
-  onboard-from-file:
-    name: Read Graylog from File
-    description: |
-      Reads graylog events from the network and publishes them
-      on the topic `graylog`.
-    definition: |
-      from {{ inputs.filename }} read lines --null
-      | write lines | read json --ndjson
-      | set #schema="graylog.log"
-      | publish graylog 
+      // tql2
+      load_tcp "{{ inputs.listen-address }}" {
+        read_gelf
+      }
+      @name = "graylog"
+      publish "graylog"
 
 examples:
-  - name: Display
+  - name: Display Graylog Ingest
     description: |
       View all Graylog data that arrived in the last day.
     definition: |
