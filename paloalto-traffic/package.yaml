@@ -1,0 +1,60 @@
+id: paloalto-traffic
+name: PaloAlto Traffic
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/paloalto-traffic/package.svg
+
+description: |
+  [Palo Alto Networks](https://www.paloaltonetworks.com) is a cybersecurity company 
+  offering a wide range of products and services to protect organizations from cyber threats.
+
+  This package parses PaloAlto Traffic logs from a specified URI.
+
+inputs:
+  uri:
+    name: Traffic Logs URI
+    description: The URI to read the PaloAlto Traffic logs from. Can either be a file path or a web link.
+    type: string
+
+pipelines:
+  read_traffic:
+    name: Parse PaloAlto Traffic Logs
+    description: Loads PaloAlto Traffic logs from a URI and parses them.
+    definition: |
+      // tql2
+      legacy "from {{ inputs.uri }} read syslog"
+      legacy r#"parse content csv --header "FUTURE_USE, receive_time, serial, type, subtype, time_generated, src, dst, natsrc, natdst, rule, srcuser, dstuser, app, vsys, from, to, inbound_if, outbound_if, logset, sessionid, repeatcnt, sport, dport, natsport, natdport, flags, proto, action, bytes, bytes_sent, bytes_received, packets, start, elapsed, category, seqno, actionflags, srcloc, dstloc, pkts_sent, pkts_received, session_end_reason, dg_hier_level_1, dg_hier_level_2, dg_hier_level_3, dg_hier_level_4, vsys_name, device_name, action_source, src_uuid, dst_uuid, tunnelid, monitortag, parent_session_id, parent_start_time, tunnel, assoc_id, chunks, chunks_sent, chunks_received, rule_uuid, http2_connection, link_change_count, policy_id, link_switches, sdwan_cluster, sdwan_device_type, sdwan_cluster_type, sdwan_site, dynusergroup_name, xff_ip, src_category, src_profile, src_model, src_vendor, src_osfamily, src_osversion, src_host, src_mac, dst_category, dst_profile, dst_model, dst_vendor, dst_osfamily, dst_osversion, dst_host, dst_mac, container_id, pod_namespace, pod_name, src_edl, dst_edl, hostid, serialnumber, src_dag, dst_dag, session_owner, high_res_timestamp, nssai_sst, nssai_sd, subcategory_of_app, category_of_app, technology_of_app, risk_of_app, characteristic_of_app, container_of_app, tunneled_app, is_saas_of_app, sanctioned_state_of_app, offloaded""#
+      this = {
+      ...this,
+      ...content.drop_matching("FUTURE_USE"),
+      }
+      drop content
+      @name = "paloalto.traffic"
+      publish "paloalto"
+
+examples:
+  - name: Unique Source Hostnames
+    description: Extract all unique source hostnames from PaloAlto logs
+    definition: |
+      // tql2
+      subscribe "paloalto"
+      where @name == "paloalto.traffic"
+      summarize distinct(src_host)
+
+  - name: Traffic log volume from the last 3 hours
+    description: |
+      A line chart displaying how many PaloAlto Traffic events arrived in the last 3 hours.
+    definition: |
+    // tql2
+    metrics "operator"
+    let $ts = now() - 3h
+    where timestamp > $ts
+    where pipeline_id == "paloalto-traffic/read_traffic"
+    where source == true
+    legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp resolution 2 min"
+    this = {
+      timestamp: timestamp,
+      ingress_per_second: bytes / duration.as_secs(),
+    }
+    sort timestamp
+    legacy "chart area"

@@ -1,0 +1,61 @@
+id: paloalto-globalprotect
+name: PaloAlto GlobalProtect
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/paloalto-globalprotect/package.svg
+
+description: |
+  [Palo Alto Networks](https://www.paloaltonetworks.com) is a cybersecurity company 
+  offering a wide range of products and services to protect organizations from cyber threats.
+
+  This package parses PaloAlto GlobalProtect logs from a specified URI.
+
+inputs:
+  uri:
+    name: GlobalProtect Logs URI
+    description: |
+      The URI to read the PaloAlto GlobalProtect logs from. Can either be a file path or a web link.
+    type: string
+  
+pipelines:
+  read_globalprotect:
+    name: Parse PaloAlto GlobalProtect Logs
+    description: Loads PaloAlto GlobalProtect Logs from a URI and parses them.
+    definition: |
+      // tql2
+      legacy "from {{ inputs.uri }} read syslog"
+      legacy r#"parse content csv --header "FUTURE_USE, receive_time,serial,type,subtype,time_generated,vsys,eventid,stage,auth_method,tunnel_type,srcuser,srcregion,machinename,public_ip,public_ipv6,private_ip,private_ipv6,hostid,serialnumber,client_ver,client_os,client_os_ver,repeatcnt,reason,error,opaque,status,location,login_duration,connect_method,error_code,portal,seqno,actionflags,selection_type,response_time,priority,attempted_gateways,gateway,dg_hier_level_1,dg_hier_level_2,dg_hier_level_3,dg_hier_level_4,vsys_name,device_name,vsys_id""#
+      this = {
+      ...this,
+      ...content.drop_matching("FUTURE_USE"),
+      }
+      drop content
+      @name = "paloalto.globalprotect"
+      publish "paloalto"
+
+examples:
+  - name: Unique Serial Number
+    description: Extract all unique serial number from PaloAlto logs
+    definition: |
+      // tql2
+      subscribe "paloalto"
+      where @name == "paloalto.globalprotect"
+      summarize distinct(serial)
+
+  - name: GlobalProtect log volume from the last 3 hours
+    description: |
+      A line chart displaying how many PaloAlto GlobalProtect events arrived in the last 3 hours.
+    definition: |
+    // tql2
+    metrics "operator"
+    let $ts = now() - 3h
+    where timestamp > $ts
+    where pipeline_id == "paloalto-globalprotect/read_globalprotect"
+    where source == true
+    legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp resolution 2 min"
+    this = {
+      timestamp: timestamp,
+      ingress_per_second: bytes / duration.as_secs(),
+    }
+    sort timestamp
+    legacy "chart area"
