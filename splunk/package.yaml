@@ -1,0 +1,52 @@
+id: splunk
+name: Splunk
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/splunk/package.svg
+
+description: |
+  A package to send data to a Splunk cluster.
+
+inputs:
+  splunk_host:
+    name: Splunk Host
+    description: The hostname of the Splunk instance.
+    type: string
+
+  splunk_token:
+    name: Splunk Token
+    description: The token for accessing the Splunk instance.
+    type: string
+
+  splunk_port:
+    name: Splunk Port
+    description: The port of the Splunk instance.
+    type: string
+    default: 8088
+
+  event_index:
+    name: Splunk Event Index
+    description: The name of the index by which the event data is to be indexed.
+    type: string
+    default: main
+
+  events_topic:
+    name: Incoming Events Topic
+    description: The topic on which to listen for incoming events.
+    type: string
+    default: "splunk"
+
+pipelines:
+  send_to_splunk:
+    name: Send data to Splunk
+    description: Send data to a Splunk instance.
+    definition: |
+      subscribe {{ inputs.event_topic }}
+      | fluent-bit
+          splunk
+          host={{ inputs.splunk_host }}
+          port={{ inputs.splunk_port }}
+          tls=on
+          tls.verify=off
+          splunk_token={{ inputs.splunk_token }}
+          event_index={{ inputs.event_index }}
