@@ -1389,3 +1389,103 @@ pipelines:
       )
       @name = "ocsf.network_activity"
       publish "ocsf"
+
+  suricata-dhcp-to-ocsf:
+    name: Suricata DHCP to OCSF Network Activity
+    description: |
+      Maps Suricata DHCP events to an OCSF DHCP Activity event.
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      // tql2
+      subscribe "suricata"
+      where @name == "suricata.dhcp"
+      this = { event: this }
+      class_uid = 4004
+      type = str(event.dhcp.dhcp_type)
+      if type == "discover" {
+        activity_id = 1
+        activity_name = "Discover"
+      } else if type == "offer" {
+        activity_id = 2
+        activity_name = "Offer"
+      } else if type == "request" {
+        activity_id = 3
+        activity_name = "Request"
+      } else if type == "decline" {
+        activity_id = 4
+        activity_name = "Decline"
+      } else if type == "ack" {
+        activity_id = 5
+        activity_name = "Ack"
+      } else if type == "nak" {
+        activity_id = 6
+        activity_name = "Nak"
+      } else if type == "release" {
+        activity_id = 7
+        activity_name = "Release"
+      } else if type == "inform" {
+        activity_id = 8
+        activity_name = "Inform"
+      } else {
+        activity_id = 0
+        activity_name = "Other"
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "DHCP Activity",
+        severity: "Informational",
+        // --- Occurrence (required) ---
+        time: event.timestamp,
+        // --- Context (required) ---
+        metadata: {
+          log_name: "suricata.dhcp",
+          version: "v1.3.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (recommended) ---
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: 0,
+          protocol_name: "udp",
+          protocol_num: 17,
+        },
+        dst_endpoint: {
+          ip: event.dest_ip,
+        },
+        src_endpoint: {
+          hostname: event.dhcp.hostname,
+          ip: event.dhcp.assigned_ip,
+          mac: event.dhcp.client_mac,
+          type_id: 0
+        },
+        lease_duration: event.dhcp.lease_time,
+        status: "Other",
+        status_id: 99,
+        transaction_uid: event.dhcp.id
+      }
+      // Drop all the mapped fields.
+      drop(
+        unmapped.timestamp,
+        unmapped.dhcp.assigned_ip,
+        unmapped.dhcp.client_mac,
+        unmapped.dhcp.hostname,
+        unmapped.dhcp.type,
+        unmapped.dhcp.lease_time,
+      )
+      @name = "ocsf.dhcp_activity"
+      publish "ocsf"
