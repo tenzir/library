@@ -110,9 +110,50 @@ pipelines:
         }
         has_query = true
       }
-      if event.dns.answers[0] != null {
-        // TODO: Iterate through all answers and assign them to the OCSF DNS Answer field.
+      if event.dns.answers != null {
+        // Extract up to 5 answers and add them to OCSF's "answers" field.
+        // TODO: Very simplistic and potentially lossy, this needs to be made
+        // more flexible once the required means in TQL are in place.
+        answers = []
+        answer0 = {
+          type: event.dns.answers[0].rrtype,
+          rdata: event.dns.answers[0].rdata,
+          ttl: event.dns.answers[0].ttl,
+        }
+        answers = [answer0]
         has_response = true
+        if event.dns.answers.length() > 1 {
+          answer1 = {
+            type: event.dns.answers[1].rrtype,
+            rdata: event.dns.answers[1].rdata,
+            ttl: event.dns.answers[1].ttl,
+          }
+          answers = [answer0,answer1]
+        }
+        if event.dns.answers.length() > 2 {
+          answer2 = {
+            type: event.dns.answers[2].rrtype,
+            rdata: event.dns.answers[2].rdata,
+            ttl: event.dns.answers[2].ttl,
+          }
+          answers = [answer0,answer1,answer2]
+        }
+        if event.dns.answers.length() > 3 {
+          answer3 = {
+            type: event.dns.answers[3].rrtype,
+            rdata: event.dns.answers[3].rdata,
+            ttl: event.dns.answers[3].ttl,
+          }
+          answers = [answer0,answer1,answer2,answer3]
+        }
+        if event.dns.answers.length() > 4 {
+          answer4 = {
+            type: event.dns.answers[4].rrtype,
+            rdata: event.dns.answers[4].rdata,
+            ttl: event.dns.answers[4].ttl,
+          }
+          answers = [answer0,answer1,answer2,answer3,answer4]
+        }
       }
       if (has_query and has_response) {
         activity_id = 6
@@ -212,6 +253,7 @@ pipelines:
         rcode_id: rcode_id,
         rcode: rcode,
         query: query,
+        answers: answers,
       }
       drop(
         unmapped.timestamp,
@@ -222,6 +264,7 @@ pipelines:
         unmapped.dns.rcode,
         unmapped.dns.rrtype,
         unmapped.dns.rrname,
+        unmapped.dns.answers
       )
       @name = "ocsf.dns_activity"
       publish "ocsf"
@@ -236,7 +279,7 @@ pipelines:
       subscribe "suricata"
       where @name == "suricata.smb"
       this = { event: this }
-      python "self.tree_uid = str(self.event.smb.tree_id)"
+      tree_uid = str(event.smb.tree_id)
       if event.smb.filename != null {
         file = {
           type_id: 0,
@@ -353,7 +396,7 @@ pipelines:
       subscribe "suricata"
       where @name == "suricata.alert"
       this = { event: this }
-      python "self.flow_uid = str(self.event.flow_id)"
+      this.flow_uid = str(event.flow_id)
       if event.alert.severity == null {
         severity_id = 0
       } else if event.alert.severity == 1 {
@@ -882,7 +925,7 @@ pipelines:
       @name = "ocsf.email_activity"
       publish "ocsf"
 
-  suricata-tls-to-flow:
+  suricata-tls-to-ocsf:
     name: Suricata TLS to OCSF Network Activity
     description: |
       Maps Suricata TLS events to an OCSF Network Activity event.
@@ -1348,4 +1391,105 @@ pipelines:
         unmapped.flow.state,
       )
       @name = "ocsf.network_activity"
+      publish "ocsf"
+
+  suricata-dhcp-to-ocsf:
+    name: Suricata DHCP to OCSF Network Activity
+    description: |
+      Maps Suricata DHCP events to an OCSF DHCP Activity event.
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      // tql2
+      subscribe "suricata"
+      where @name == "suricata.dhcp"
+      this = { event: this }
+      class_uid = 4004
+      type = str(event.dhcp.dhcp_type)
+      if type == "discover" {
+        activity_id = 1
+        activity_name = "Discover"
+      } else if type == "offer" {
+        activity_id = 2
+        activity_name = "Offer"
+      } else if type == "request" {
+        activity_id = 3
+        activity_name = "Request"
+      } else if type == "decline" {
+        activity_id = 4
+        activity_name = "Decline"
+      } else if type == "ack" {
+        activity_id = 5
+        activity_name = "Ack"
+      } else if type == "nak" {
+        activity_id = 6
+        activity_name = "Nak"
+      } else if type == "release" {
+        activity_id = 7
+        activity_name = "Release"
+      } else if type == "inform" {
+        activity_id = 8
+        activity_name = "Inform"
+      } else {
+        activity_id = 0
+        activity_name = "Other"
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "DHCP Activity",
+        severity: "Informational",
+        // --- Occurrence (required) ---
+        time: event.timestamp,
+        // --- Context (required) ---
+        metadata: {
+          log_name: "suricata.dhcp",
+          version: "v1.4.0",
+          product: {
+            name: "Suricata",
+            vendor_name: "Open Information Security Foundation",
+          },
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (recommended) ---
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: 0,
+          protocol_name: "udp",
+          protocol_num: 17,
+          community_uid: event.community_id,
+        },
+        dst_endpoint: {
+          ip: event.dest_ip,
+        },
+        src_endpoint: {
+          hostname: event.dhcp.hostname,
+          ip: event.dhcp.assigned_ip,
+          mac: event.dhcp.client_mac,
+          type_id: 0
+        },
+        lease_duration: event.dhcp.lease_time,
+        status: "Other",
+        status_id: 99,
+        transaction_uid: event.dhcp.id
+      }
+      // Drop all the mapped fields.
+      drop(
+        unmapped.timestamp,
+        unmapped.dhcp.assigned_ip,
+        unmapped.dhcp.client_mac,
+        unmapped.dhcp.hostname,
+        unmapped.dhcp.type,
+        unmapped.dhcp.lease_time,
+      )
+      @name = "ocsf.dhcp_activity"
       publish "ocsf"
