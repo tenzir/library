@@ -23,6 +23,20 @@ pipelines:
       subscribe "suricata"
       where @name == "suricata.flow"
       this = { event: this }
+      if event.proto == "TCP" {
+        protocol_num = 6
+      } else if event.proto == "UDP" {
+        protocol_num = 17
+      } else if event.proto == "ICMP" {
+        protocol_num = 1
+      } else {
+        protocol_num = -1
+      }
+      if event.src_ip.is_v6() or event.dest_ip.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
       this = {
         // --- Classification (required) ---
         activity_id: 6,
@@ -33,7 +47,7 @@ pipelines:
         // --- Context (required) ---
         metadata: {
           log_name: "suricata.flow",
-          version: "v1.3.0",
+          version: "v1.4.0",
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
@@ -49,6 +63,12 @@ pipelines:
           port: event.dest_port,
         },
         // --- Primary (recommended) ---
+        connection_info: {
+          community_uid: event.community_id,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: event.proto.to_lower(),
+          protocol_num: protocol_num,
+        },
         src_endpoint: {
           ip: event.src_ip,
           port: event.src_port,
@@ -70,6 +90,8 @@ pipelines:
         unmapped.dest_port,
         unmapped.src_ip,
         unmapped.src_port,
+        unmapped.proto,
+        unmapped.community_id,
         unmapped.flow.bytes_toclient,
         unmapped.flow.bytes_toserver,
         unmapped.flow.pkts_toclient,
