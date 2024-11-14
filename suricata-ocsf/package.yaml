@@ -46,17 +46,22 @@ pipelines:
         type_uid: 400106,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.flow",
-          version: "v1.4.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.4.0",
         },
         // --- Context (optional) ---
         unmapped: event,
         // --- Occurrence (required) ---
         time: event.timestamp,
+        // --- Occurrence (optional) ---
+        duration: event.flow.end - event.flow.start,
+        end_time: event.flow.end,
+        start_time: event.flow.start,
         // --- Primary (required) ---
         dst_endpoint: {
           ip: event.dest_ip,
@@ -85,8 +90,9 @@ pipelines:
         status: event.flow.state,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -98,6 +104,8 @@ pipelines:
         unmapped.flow.pkts_toclient,
         unmapped.flow.pkts_toserver,
         unmapped.flow.state,
+        unmapped.flow.start,
+        unmapped.flow.end,
       )
       @name = "ocsf.network_activity"
       publish "ocsf"
@@ -252,12 +260,13 @@ pipelines:
         activity_id: activity_id,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.dns",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -279,8 +288,9 @@ pipelines:
         answers: answers,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -366,12 +376,13 @@ pipelines:
         activity_name: activity_name,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.smb",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (recommended) ---
         dialect: event.smb.dialect,
@@ -391,8 +402,9 @@ pipelines:
         tree_uid: tree_uid,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -421,7 +433,6 @@ pipelines:
       subscribe "suricata"
       where @name == "suricata.alert"
       this = { event: this }
-      this.flow_uid = str(event.flow_id)
       if event.alert.severity == null {
         severity_id = 0
       } else if event.alert.severity == 1 {
@@ -440,12 +451,13 @@ pipelines:
         activity_id: 1,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.alert",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (recommended) ---
         status_id: 1,
@@ -544,12 +556,13 @@ pipelines:
         activity_name: activity_name,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.http",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         file: {
@@ -587,8 +600,9 @@ pipelines:
         status_id: status_id,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -675,12 +689,13 @@ pipelines:
         activity_name: activity_name,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.fileinfo",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         file: {
@@ -718,8 +733,9 @@ pipelines:
         status_id: status_id,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -758,12 +774,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.ssh",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (recommended) ---
         protocol_ver: event.ssh.server.proto_version,
@@ -784,8 +801,9 @@ pipelines:
         status_id: 0,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -849,12 +867,13 @@ pipelines:
         activity_name: activity_name,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.ftp",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -877,8 +896,9 @@ pipelines:
         port: event.ftp.dynamic_port,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -913,12 +933,13 @@ pipelines:
         activity_id: 0,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.smtp",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         direction_id: 0,
         // --- Context (optional) ---
@@ -943,8 +964,9 @@ pipelines:
         smtp_hello: event.smtp.helo
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -999,12 +1021,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.tls",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         tls: {
@@ -1039,8 +1062,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1088,12 +1112,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.snmp",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1121,8 +1146,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1161,12 +1187,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.sip",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1194,8 +1221,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1234,12 +1262,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.ikev2",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1267,8 +1296,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1307,12 +1337,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.mqtt",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1340,8 +1371,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1382,12 +1414,13 @@ pipelines:
         activity_id: 6,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.krb5",
-          version: "v1.3.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.3.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1415,8 +1448,9 @@ pipelines:
         status: status,
       }
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dest_ip,
         unmapped.dest_port,
         unmapped.src_ip,
@@ -1487,12 +1521,13 @@ pipelines:
         time: event.timestamp,
         // --- Context (required) ---
         metadata: {
-          log_name: "suricata.dhcp",
-          version: "v1.4.0",
+          log_name: event.event_type,
           product: {
             name: "Suricata",
             vendor_name: "Open Information Security Foundation",
           },
+          uid: str(event.flow_id),
+          version: "v1.4.0",
         },
         // --- Context (optional) ---
         unmapped: event,
@@ -1521,8 +1556,9 @@ pipelines:
       }
       // Drop all the mapped fields.
       drop(
-        unmapped.event_type,
         unmapped.timestamp,
+        unmapped.flow_id,
+        unmapped.event_type,
         unmapped.dhcp.assigned_ip,
         unmapped.dhcp.client_mac,
         unmapped.dhcp.hostname,
