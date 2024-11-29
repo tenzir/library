@@ -137,7 +137,7 @@ pipelines:
         // - `tls`: if we buffer ssl log for this connection, we could add the
         //   information in here.
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -258,7 +258,7 @@ pipelines:
       //  xs = [{'rdata': a, 'ttl': t} for a, t in zip(self.event.answers, self.event.TTLs)]
       //  self.answers = xs
       //"
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -381,7 +381,7 @@ pipelines:
         status: "Other",
         status_id: 99,
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -505,7 +505,7 @@ pipelines:
         status_id: 99,
         transaction_uid: trans_id,
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -716,7 +716,7 @@ pipelines:
         status_id: 99,
         // --- Primary (optional) ---
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop (
         unmapped._path,
         unmapped._write_ts,
@@ -827,7 +827,7 @@ pipelines:
         status_id: 99,
         // --- Primary (optional) ---
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop (
         unmapped._write_ts,
         unmapped.id,
@@ -839,4 +839,109 @@ pipelines:
         unmapped.path,
       )
       @name = "ocsf.smb_activity"
+      publish "ocsf"
+
+  # TODO:
+  # - We need to generate one Email URL Activity event for each element in the
+  #   `url` array. This means that must generate a UUID in this event and use
+  #   the same UUID in all URL Activity events so that they become linked.
+  # - The Zeek log contains file UIDs (fuids) that may be relevant for
+  #   corresponding Network File Activity events.
+  map-smtp-to-ocsf:
+    name: smtp.log to OCSF Email Activity
+    description: Maps Zeek SMTP logs to OCSF Email Activity.
+    definition: |
+      // tql2
+      subscribe "zeek"
+      where @name == "zeek.smtp"
+      this = { event: this }
+      class_uid = 4009
+      activity_id = 1
+      activity_name = "Send"
+      if event.id.orig_h.is_v6() or event.id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "Email Activity",
+        severity: "Informational",
+        // --- Occurrence (required) ---
+        time: event.ts,
+        // --- Occurrence (optional) ---
+        start_time: event.ts,
+        // --- Context (required) ---
+        direction_id: 0,
+        metadata: {
+          log_name: "smtp.log",
+          logged_time: event._write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
+          },
+          uid: event.uid,
+          version: "1.3.0",
+        },
+        // --- Context (optional) ---
+        direction: "Unknown",
+        unmapped: event,
+        // --- Primary (required) ---
+        // --- Primary (recommended) ---
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: "tcp",
+          protocol_num: 6,
+        },
+        dst_endpoint: {
+          ip: event.id.resp_h,
+          port: event.id.resp_p,
+          intermediate_ips: event.path,
+        },
+        email: {
+           from: event.from,
+           to: event.to,
+           message_uid: event.msg_id,
+           smtp_from: event.mailfrom,
+           smtp_to: event.rcptto,
+           subject: event.subject,
+        },
+        smtp_hello: event.helo,
+        src_endpoint: {
+          ip: event.id.orig_h,
+          port: event.id.orig_p,
+        },
+        status: "Other",
+        status_id: 99,
+        status_detail: event.last_reply,
+        // --- Primary (optional) ---
+      }
+      // Drop all mapped fields.
+      drop (
+        unmapped._write_ts,
+        unmapped.ts,
+        unmapped.uid,
+        unmapped.id,
+        unmapped.path,
+        unmapped.from,
+        unmapped.to,
+        unmapped.msg_id,
+        unmapped.mailfrom,
+        unmapped.rcptto,
+        unmapped.subject,
+        unmapped.helo,
+        unmapped.last_reply,
+      )
+      @name = "ocsf.email_activity"
       publish "ocsf"
