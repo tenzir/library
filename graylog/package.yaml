@@ -1,0 +1,70 @@
+---
+id: graylog
+name: Graylog
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/graylog/package.svg
+description: |
+  [Graylog](https://graylog.org/) is an open-core log management platform
+  with a focus on security operations.
+
+  This package supports onboarding Graylog data from local files or from the
+  network.
+
+inputs:
+  listen-address:
+    name: Graylog listen address
+    description: |
+      The network interface and port on which Graylog data arrives over
+      the network.
+    type: string
+    default: 0.0.0.0:9000
+
+pipelines:
+  import-graylog:
+    name: Import Graylog data
+    description: |
+      Reads Graylog events from the topic `graylog` and imports the data
+      into the node.
+    definition: |
+      // tql2
+      subscribe "graylog"
+      import
+
+  onboard-from-network:
+    name: Read Graylog from Network
+    description: |
+      Reads graylog data from the network and publishes them
+      on the topic `graylog`.
+      
+      Note that this pipeline does not support incoming TLS connections,
+      so for production instances of graylog an external reverse proxy
+      is recommended.
+    definition: |
+      // tql2
+      load_tcp "{{ inputs.listen-address }}" {
+        read_gelf
+      }
+      @name = "graylog"
+      publish "graylog"
+
+examples:
+  - name: Display Graylog Ingest
+    description: |
+      View all Graylog data that arrived in the last day.
+    definition: |
+      // tql2
+      let $ts = now() - 1d
+      metrics "operator"
+      where timestamp > $ts and source
+      legacy "where pipeline_id == \"graylog/onboard-from-file\" or pipeline_id == \"graylog/onboard-from-network\""
+      legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp, pipeline_id resolution 15min"
+      this = {
+        timestamp: timestamp,
+        data: bytes / duration.as_secs(),
+      }
+      legacy "summarize data=sum(data) by timestamp"
+      legacy "sort timestamp"
+      @name = "Graylog Ingress (1d, bytes/s)"
+      legacy "chart area"
