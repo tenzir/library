@@ -1,0 +1,158 @@
+id: sophos
+name: Sophos
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/sophos/package.svg
+
+description: |
+  The [Sophos](https://sophos.com) package onboards data from various [Sophos
+  APIs](https://developer.sophos.com/apis) into pipelines.
+
+inputs:
+  poll-frequency:
+    name: The poll frequency for the SIEM Integration API
+    description: |
+      How to often call the Sophos API
+    default: 1m
+  x-api-key:
+    name: X-API-Key Header
+    description: |
+      The `X-API-Key` header value
+    #default: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  authorization:
+    name: Authorization Header
+    description: |
+      The `X-API-Key` header value
+    #default: Basic <Base64>
+
+# TODO: the two onboarding pipelines differ only in the API endpint that they
+# call. To date, Tenzir's HTTP loader doesn't support pagination, which is why
+# we use Python to workaround that.
+pipelines:
+  onboard-sophos-events:
+    name: Onboard Sophos SIEM Integration API (Events)
+    description: |
+      The pipeline performs periodic calls to the [SIEM Integration
+      API](https://developer.sophos.com/docs/siem-v1/1/overview) for the
+      `/events` endpoint, which offers events from the last 24h.
+    definition: |
+      // tql2
+      every {{ inputs.poll-frequency }} {
+      shell r#"
+      python <<END
+      import json
+      import sys
+      import time
+      import urllib.parse
+      import urllib.request
+      from urllib.error import HTTPError, URLError
+
+      x_api_key = '{{ inputs.x-api-key }}'
+      authorization = '{{ inputs.authorization }}'
+      url = "https://api4.central.sophos.com/gateway/siem/v1/events"
+      params = {'limit': 1000, 'cursor': '', 'other_param': 'value'}
+      headers = {'x-api-key': x_api_key, 'Authorization': authorization}
+      error_threshold = 3
+      num_errors = 0
+      has_more = True
+      while has_more:
+          # Encode parameters
+          query_string = urllib.parse.urlencode(params)
+          full_url = f"{url}?{query_string}"
+          # Create request object with headers
+          request = urllib.request.Request(full_url, headers=headers)
+          # Get response
+          try:
+              with urllib.request.urlopen(request) as response:
+                  data = json.load(response)
+                  for item in data["items"]:
+                      print(json.dumps(item, separators=(',', ':')))
+                  has_more = data.get('has_more', False)
+                  params['cursor'] = data.get('next_cursor')
+          except (HTTPError, URLError):
+              num_errors += 1
+              if num_errors > error_threshold:
+                  break
+              # Try again
+              time.sleep(5)
+      END
+      "#
+      read_ndjson
+      }
+      legacy "deduplicate id --timeout 25h"
+      @name = "sophos.event"
+      publish "sophos"
+
+  onboard-sophos-alerts:
+    name: Onboard Sophos SIEM Integration API (Alerts)
+    description: |
+      The pipeline performs periodic calls to the [SIEM Integration
+      API](https://developer.sophos.com/docs/siem-v1/1/overview) for the
+      `/alerts` endpoint, which offers alerts from the last 24h.
+    definition: |
+      // tql2
+      every {{ inputs.poll-frequency }} {
+      shell r#"
+      python <<END
+      import json
+      import sys
+      import time
+      import urllib.parse
+      import urllib.request
+      from urllib.error import HTTPError, URLError
+
+      x_api_key = '{{ inputs.x-api-key }}'
+      authorization = '{{ inputs.authorization }}'
+      url = "https://api4.central.sophos.com/gateway/siem/v1/alerts"
+      params = {'limit': 1000, 'cursor': '', 'other_param': 'value'}
+      headers = {'x-api-key': x_api_key, 'Authorization': authorization}
+      error_threshold = 3
+      num_errors = 0
+      has_more = True
+      while has_more:
+          # Encode parameters
+          query_string = urllib.parse.urlencode(params)
+          full_url = f"{url}?{query_string}"
+          # Create request object with headers
+          request = urllib.request.Request(full_url, headers=headers)
+          # Get response
+          try:
+              with urllib.request.urlopen(request) as response:
+                  data = json.load(response)
+                  for item in data["items"]:
+                      print(json.dumps(item, separators=(',', ':')))
+                  has_more = data.get('has_more', False)
+                  params['cursor'] = data.get('next_cursor')
+          except (HTTPError, URLError):
+              num_errors += 1
+              if num_errors > error_threshold:
+                  break
+              # Try again
+              time.sleep(5)
+      END
+      "#
+      read_ndjson
+      }
+      legacy "deduplicate id --timeout 25h"
+      @name = "sophos.alert"
+      publish "sophos"
+
+examples:
+  - name: Tap into high-severity events
+    description: |
+      Filter out high-severity events and project key columns.
+    definition: |
+      // tql2
+      subscribe "sophos"
+      where @name == "sophos.event" and severity == "high"
+      select user_id, endpoint_type, type, source, name, location
+  - name: Show the top threats
+    description: |
+      Show once per day the top values of the field `threat`.
+    definition: |
+      // tql2
+      subscribe "sophos"
+      where @name == "sophos.alert" and threat != null
+      every 1d {
+        top threat
+      }
