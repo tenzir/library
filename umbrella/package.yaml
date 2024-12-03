@@ -1,0 +1,134 @@
+id: umbrella
+name: Umbrella
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+# package_icon: https://raw.githubusercontent.com/tenzir/library/main/umbrella/package.svg
+
+description: |
+  The [Umbrella](https://docs.umbrella.com/deployment-umbrella/docs/welcome-to-cisco-umbrella) package
+  onboards [DNS Log data](https://docs.umbrella.com/deployment-umbrella/docs/dns-log-formats) from
+  a [Cisco Umbrella S3 Bucket](https://docs.umbrella.com/deployment-umbrella/docs/log-management#logging-to-amazon-s3).
+
+inputs:
+  aws-access-key-id:
+    name: AWS Access Key ID
+    description: |
+      The AWS access key id.
+    # default: "XXXXXXXXXXXXXXXXXXXX"
+  aws-secret-access-key:
+    name: AWS Secret Access Key
+    description: |
+      The AWS secret access key.
+    # default: "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+  aws-region:
+    name: AWS Region
+    description: |
+      The AWS Region of the log bucket.
+    default: eu-central-1
+  s3-url:
+    name: Prefix
+    description: |
+      The prefix (ie. subdirectory) under which to look for files in the S3 bucket.
+    # default: s3://cisco-managed-eu-central-1/0000000_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  poll-frequency:
+    name: The poll frequency for the SIEM Integration API
+    description: |
+      How to often to check for new files
+    default: 15m
+
+pipelines:
+  onboard-umbrella-events:
+    name: Onboard Umbrealla DNS logs
+    description: |
+      The pipeline periodically checks the configured S3 bucket for new log files,
+      onboarding any that are detected. Any new files are downloaded, decompressed,
+      parsed, and published onto the `tenzir.umbrella-dns` channel.
+    definition: |
+      // tql2
+      every 15m {
+        shell r#"
+          export UV_CACHE_DIR=/tmp/cache/uv
+          cat >/tmp/script.py <<END
+
+      import boto3
+      import io
+      import json
+      import sys
+      import re
+      from datetime import datetime, timezone
+
+      # TODO: Figure out the correct location for persistent data.
+      STATE_FILE = '/var/lib/tenzir/umbrella_file_list.json'
+
+      def list_s3_files(s3, bucket_name: str, prefix: str) -> list[str]:
+          files = []
+          
+          paginator = s3.get_paginator('list_objects_v2')
+          for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+              if 'Contents' in page:
+                  files.extend([obj['Key'] for obj in page['Contents']])
+          
+          return files
+
+      def download_s3_file(s3, bucket: str, key: str):
+          with io.BytesIO() as inmemory_file:
+              s3.download_fileobj(bucket, key, inmemory_file)
+              return inmemory_file.getvalue()
+
+
+      def main():
+          session = boto3.Session(
+              region_name="{{ inputs.aws-region }}",
+              aws_access_key_id="{{ inputs.aws-access-key-id }}",
+              aws_secret_access_key="{{ inputs.aws-secret-access-key }}",
+          )
+          s3 = session.client('s3')
+          now = datetime.now(timezone.utc).isoformat()
+
+          s3_url = "{{ inputs.s3-url }}"
+          pattern = r'^s3://([^/]+)/(.+)$'
+          match = re.match(pattern, s3_url)
+          if not match:
+              raise ValueError(f"Invalid S3 URL, expected something like 's3://bucket/prefix': {s3_url}")
+          bucket, prefix = match.groups()
+
+          # On cisco-managed buckets, permissions are set up so that you cannot 'list' the customer-specific
+          # directory as a file within the top-level bucket, only the contents of the directory.
+          if not prefix.endswith('/'):
+              prefix += '/'
+
+          file_list = list_s3_files(s3, bucket, prefix)
+          
+          try:
+              with open(STATE_FILE, 'r') as f:
+                  old_file_list = json.load(f)
+                  known_filenames = set(f['key'] for f in old_file_list)
+          except FileNotFoundError:
+              old_file_list = []
+              known_filenames = {}
+
+          for filename in file_list:
+              if filename not in known_filenames:
+                  old_file_list.append({"bucket": bucket, "key": filename, "accessed": now})
+                  file = download_s3_file(s3, bucket, filename)
+                  sys.stdout.buffer.write(file)
+
+          with open(STATE_FILE, 'w') as f:
+              json.dump(old_file_list, f, indent=0)
+
+
+      if __name__ == "__main__":
+        main()
+
+      END
+
+          /opt/tenzir/libexec/uv run --no-project --with boto3 /tmp/script.py
+      "#
+
+        // The data is stored as compressed csv, see also https://docs.umbrella.com/deployment-umbrella/docs/dns-log-formats
+        decompress "gzip"
+        read_csv header="timestamp,most_granular_identity,identities,internal_ip,external_ip,action,query_type,response_code,domain,categories,most_granular_identity_type,identity_types,blocked_categories,rule_id,destination_countries,organization_id"
+      }
+      @name = "tenzir.umbrella-dns"
+      publish "tenzir.umbrella-dns"
+
