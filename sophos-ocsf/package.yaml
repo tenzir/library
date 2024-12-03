@@ -18,15 +18,15 @@ pipelines:
       // Additional information about the different severity levels:
       // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
       let $severity = {
-        "low": {name: "Low", id: 2},
-        "medium": {name: "Medium", id: 3},
-        "high": {name: "High", id: 4},
-        "critical": {name: "Critical", id: 5},
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
       }
       // The origin field in the event that maps to the analytic type in the
       // detection finding.
       let $origin = {
-        "ML": {name: "Learning (ML/DL)", id: 4},
+        ML: {name: "Learning (ML/DL)", id: 4},
       }
       subscribe "sophos"
       where @name == "sophos.event"
@@ -133,6 +133,131 @@ pipelines:
         unmapped.customer_id,
       )
       @name = "ocsf.detection_finding"
+      publish "ocsf"
+    restart-on-error: true
+    labels:
+      - Sophos
+      - OCSF
+
+  publish-sophos-core-pua-cleanup:
+    name: Sophos PUA Clean to OCSF File Remediation Activity
+    definition: |
+      // tql2
+      // Additional information about the different severity levels:
+      // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
+      let $severity = {
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
+      }
+      let $remedy_result = {
+        SUCCESS: {name: "Success", id: 1},
+        NOT_APPLICABLE: {name: "Unsupported", id: 5},
+        NOT_FOUND: {name: "Does Not Exist", id: 3},
+        DELETED: {name: "Success", id: 1},
+        FAILED_TO_DELETE: {name: "Failure", id: 2},
+        WHITELISTED: {name: "Other", id: 99},
+        OTHER_ERROR: {name: "Error", id: 6},
+        FAILED_TO_DELETE_SYSTEM_PROTECTED: {name: "Failure", id: 2},
+      }
+      let $file_type = {
+        file: {name: "Regular File", id: 1},
+        regkey: {name: "Other", id: 99},
+        process: {name: "Other", id: 99},
+        thread: {name: "Other", id: 99},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type == "Event::Endpoint::CorePuaClean"
+      this = { event: this }
+      class_uid = 7002
+      activity_id = 2
+      // TODO: in theory there can be more items than one. In practice, we
+      // haven't seen more. This is tricky to deal with, because we would have to
+      // unroll the array and create multiple events, but that require generate
+      // new, distinct values for `metadata.uid`, making the events not joinable
+      // anymore.
+      first_remedy_item = event.core_remedy_items.items[0]
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 7,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Evict",
+        category_name: "Remediation",
+        class_name: "File Remediation Activity",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "File Remediation: Evict",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Occurrence (recommended) ---
+        // --- Occurrence (optional) ---
+        // --- Context (required) ---
+        metadata: {
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        command_uid: "CorePuaClean",
+        file: {
+          path: first_remedy_item.descriptor,
+          name: file_name(first_remedy_item.descriptor),
+          type_id: $file_type[first_remedy_item.type].id,
+          type: $file_type[first_remedy_item.type].name,
+        },
+        // --- Primary (recommended) ---
+        message: event.threat,
+        status: $remedy_result[first_remedy_item.result].name.otherwise("Unknown"),
+        status_id: $remedy_result[first_remedy_item.result].id.otherwise(0),
+        status_code: first_remedy_item.result,
+        status_detail: event.type,
+        // --- Primary (optional) ---
+        // --- Host Profile ---
+        device: {
+          // We should dig deeper here using the `endpoint_type`.
+          type_id: 99,
+          type: "Other",
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.threat,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.file_remediation_activity"
       publish "ocsf"
     restart-on-error: true
     labels:
