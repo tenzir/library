@@ -1,0 +1,140 @@
+id: sophos-ocsf
+name: Sophos OCSF Mappings
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/sophos-ocsf/package.svg
+description: |
+  The Sophos OCSF Mappings package maps Sophos events and alerts to OCSF events.
+
+  This package converts all events published on the topic `sophos` to OCSF
+  and publishes the converted events on the topic `ocsf`.
+
+pipelines:
+  map-core-pua-to-ocsf:
+    name: Sophos PUA Detection Events to OCSF Detection Findings
+    definition: |
+      // tql2
+      // Additional information about the different severity levels:
+      // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
+      let $severity = {
+        "low": {name: "Low", id: 2},
+        "medium": {name: "Medium", id: 3},
+        "high": {name: "High", id: 4},
+        "critical": {name: "Critical", id: 5},
+      }
+      // The origin field in the event that maps to the analytic type in the
+      // detection finding.
+      let $origin = {
+        "ML": {name: "Learning (ML/DL)", id: 4},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type == "Event::Endpoint::CorePuaDetection"
+      this = { event: this }
+      class_uid = 2004
+      activity_id = 1
+      // TODO: this is currently overfitted for German customers and needs to be
+      // generalized.
+      grokked_file_info = event.name.parse_grok("%{GREEDYDATA} bei '%{GREEDYDATA:path}'")
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 2,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Create",
+        category_name: "Findings",
+        class_name: "Detection Finding",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "Detection Finding: Create",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Occurrence (recommended) ---
+        // --- Occurrence (optional) ---
+        // --- Context (required) ---
+        metadata: {
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        finding_info: {
+          // required
+          title: event.name,
+          uid: event.id,
+          // recommended
+          analytic: {
+            type_id: $origin[event.origin].id.otherwise(99),
+            type: $origin[event.origin].name.otherwise("Other"),
+          },
+          // optional
+          category: event.group,
+        },
+        // --- Primary (recommended) ---
+        is_alert: true,
+        evidences: [{
+          file: {
+            type_id: 1,
+            type: "Regular File",
+            name: grokked_file_info.path,
+            hashes: [{
+              algorithm_id: 3,
+              algorithm: "SHA-256",
+              value: event.appSha256,
+            }],
+          },
+        }],
+        message: event.threat,
+        status_detail: event.type,
+        // --- Primary (optional) ---
+        // --- Host Profile ---
+        device: {
+          // We should dig deeper here using the `endpoint_type`.
+          type_id: 99,
+          type: "Other",
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.group,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.appSha256,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.threat,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.detection_finding"
+      publish "ocsf"
+    restart-on-error: true
+    labels:
+      - Sophos
+      - OCSF
