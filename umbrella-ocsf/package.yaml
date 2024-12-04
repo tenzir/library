@@ -1,5 +1,5 @@
 ---
-id: umbrella-ocsf
+id: cisco-umbrella-ocsf
 name: Cisco Umbrella OCSF Mappings
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
@@ -21,17 +21,16 @@ pipelines:
       // tql2
       subscribe "cisco"
       where @name == "cisco.umbrella.dns"
-
       // Move original event into dedicated field.
       this = { event: this }
-
       // Assign some intermediate values for use in the next step, e.g., because
       // they're used multiple times.
       activity_id = 1
-      legacy "parse query_type grok \"%{NUMBER:value} \\(%{WORD:name}\\)\""
+      // event.query_type looks like e.g. `16 (TXT)`
+      query_type = event.query_type.parse_grok("%{NUMBER:value} \\(%{WORD:name}\\)")
       query = {
         hostname: event.domain,
-        type: event.query_type.name, 
+        type: query_type.name, 
       }
       let $ocsf_rcode_mapping = {
         NOERROR: {
@@ -127,16 +126,14 @@ pipelines:
         action_id = 0
         action = event.action
       }
-
       // Populate the OCSF event.
       this = {
         // --- Classification (required) ---
-        type_uid: 400301, // DNS Activity: Query
-        severity_id: 1, // Informational
+        type_uid: 400301,
+        severity_id: 1,
         class_uid: 4003,
         category_uid: 4,
         activity_id: activity_id,
-        
         // --- Context ---
         metadata: {
           product: {
@@ -146,9 +143,7 @@ pipelines:
           version: "v1.3.0",
           profiles: ["security_control"]
         },
-
         unmapped: event,
-        
         // --- Primary ---
         time: time(event.timestamp),
         src_endpoint: {
@@ -163,14 +158,14 @@ pipelines:
         rcode_id: rcode_id,
         rcode: rcode,
         query: query,
-
         // --- Security Control Profile ---
         action_id: action_id,
         action: action,
       }
-
       // Drop all mapped fields, with the effect that the remaining fields remain
       // in unmapped.
+      // TODO: Should we drop `unmapped.internal_ip` if its the same as external_ip?
+      //       Should we drop `identities` if its identical to `most_granular_identity`?
       drop(
         unmapped.timestamp,
         unmapped.most_granular_identity,
@@ -180,9 +175,6 @@ pipelines:
         unmapped.query_type,
         unmapped.domain,
       )
-      // TODO: Should we drop `unmapped.internal_ip` if its the same as external_ip?
-      //       Should we drop `identities` if its identical to `most_granular_identity`?
-
       // Assign a new schema name to the transformed event.
       @name = "ocsf.dns_activity"
       publish "ocsf"
