@@ -3,8 +3,7 @@ id: umbrella-ocsf
 name: Umbrella OCSF Mappings
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
-package_icon: |
-  https://raw.githubusercontent.com/tenzir/library/main/umbrella-ocsf/package.svg
+#package_icon: https://raw.githubusercontent.com/tenzir/library/main/umbrella-ocsf/package.svg
 description: |
   [Umbrella](https://umbrella.cisco.com/) is modern cybersecurity made easy.
 
@@ -20,106 +19,170 @@ pipelines:
     disabled: false
     definition: |
       // tql2
-      subscribe "tenzir.umbrella-dns"
-      // (1) Move original event into dedicated field.
+      subscribe "cisco"
+      where @name == "cisco.umbrella.dns"
+
+      // Move original event into dedicated field.
       this = { event: this }
-      // (2) Assign some intermediate values for use in the next step, e.g., because
-      //     they're used multiple times.
+
+      // Assign some intermediate values for use in the next step, e.g., because
+      // they're used multiple times.
       activity_id = 1
+      legacy "parse query_type grok \"%{NUMBER:value} \\(%{WORD:name}\\)\""
       query = {
-        hostname: event.dns.queries[0].rrname,
-        type: event.dns.queries[0].rrtype,
+        hostname: event.domain,
+        type: event.query_type.name, 
       }
-      has_query = true
-      rcode = event.dns.rcode
-      if (rcode == "NOERROR") {
-        rcode_id = 0
-        rcode = "NoError"
-      } else if (rcode == "FORMERROR") {
-        rcode_id = 1
-        rcode = "FormError"
-      } else if (rcode == "SERVERROR") {
-        rcode_id = 2
-        rcode = "ServError"
-      } else if (rcode == "NXDOMAIN") {
-        rcode_id = 3
-        rcode = "NxDomain"
-      } else if (rcode == "NOTIMP") {
-        rcode_id = 4
-        rcode = "NotImp"
-      } else if (rcode == "REFUSED") {
-        rcode_id = 5
-        rcode = "Refused"
-      } else if (rcode == "YXDOMAIN") {
-        rcode_id = 6
-        rcode = "YXDomain"
-      } else if (rcode == "YXRRSET") {
-        rcode_id = 7
-        rcode = "YXRRSet"
-      } else if (rcode == "NXRRSET") {
-        rcode_id = 8
-        rcode = "NXRRSet"
-      } else if (rcode == "NOTAUTH") {
-        rcode_id = 9
-        rcode = "NotAuth"
-      } else if (rcode == "NOTZONE") {
-        rcode_id = 10
-        rcode = "NotZone"
-      } else if (rcode == "DSOTYPENI") {
-        rcode_id = 11
-      } else if (rcode == "BADSIG_VERS") {
-        rcode_id = 16
-      } else if (rcode == "BADKEY") {
-        rcode_id = 17
-      } else if (rcode == "BADTIME") {
-        rcode_id = 18
-      } else if (rcode == "BADMODE") {
-        rcode_id = 19
-      } else if (rcode == "BADNAME") {
-        rcode_id = 20
-      } else if (rcode == "BADALG") {
-        rcode_id = 21
-      } else if (rcode == "BADTRUNC") {
-        rcode_id = 22
-      } else if (rcode == "BADCOOKIE") {
-        rcode_id = 23
+      let $ocsf_rcode_mapping = {
+        NOERROR: {
+          rcode_id: 0,
+          rcode: "NoError",
+        },
+        FORMERROR: {
+          rcode_id: 1,
+          rcode: "FormError",
+        },
+        SERVERROR: {
+          rcode_id: 2,
+          rcode: "ServError",
+        },
+        NXDOMAIN: {
+          rcode_id: 3,
+          rcode: "NxDomain",
+        },
+        NOTIMP: {
+          rcode_id: 4,
+          rcode: "NotImp",
+        },
+        REFUSED: {
+          rcode_id: 5,
+          rcode: "Refused",
+        },
+        YXDOMAIN: {
+          rcode_id: 6,
+          rcode: "YXDomain",
+        },
+        YXRRSET: {
+          rcode_id: 7,
+          rcode: "YXRRSet",
+        },
+        NXRRSET: {
+          rcode_id: 8,
+          rcode: "NXRRSet",
+        },
+        NOTAUTH: {
+          rcode_id: 9,
+          rcode: "NotAuth",
+        },
+        NOTZONE: {
+          rcode_id: 10,
+          rcode: "NotZone",
+        },
+        DSOTYPENI: {
+          rcode_id: 11,
+          rcode: "DSOTYPENI",
+        },
+        BADSIG_VERS: {
+          rcode_id: 16,
+          rcode: "BADSIG_VERS",
+        },
+        BADKEY: {
+          rcode_id: 17,
+          rcode: "BADKEY",
+        },
+        BADTIME: {
+          rcode_id: 18,
+          rcode: "BADTIME",
+        },
+        BADMODE: {
+          rcode_id: 19,
+          rcode: "BADMODE",
+        },
+        BADNAME: {
+          rcode_id: 20,
+          rcode: "BADNAME",
+        },
+        BADALG: {
+          rcode_id: 21,
+          rcode: "BADALG",
+        },
+        BADTRUNC: {
+          rcode_id: 22,
+          rcode: "BADTRUNC",
+        },
+        BADCOOKIE: {
+          rcode_id: 23,
+          rcode: "BADCOOKIE",
+        },
+      }
+      rcode_id = $ocsf_rcode_mapping[event.response_code].rcode_id.otherwise(99)
+      rcode = $ocsf_rcode_mapping[event.response_code].rcode.otherwise(event.response_code)
+      if event.action == "Denied" {
+        action_id = 2
+        action = "Denied"
+      } else if event.action == "Allowed" {
+        action_id = 1
+        action = "Allowed"
       } else {
-        rcode_id = 99
+        action_id = 0
+        action = event.action
       }
-      ...
-      // (3) Populate the OCSF event.
+
+      // Populate the OCSF event.
       this = {
         // --- Classification (required) ---
-        type_uid: 400301,
-        severity_id: 1,
+        type_uid: 400301, // DNS Activity: Query
+        severity_id: 1, // Informational
         class_uid: 4003,
         category_uid: 4,
         activity_id: activity_id,
-        ...
-        // --- Occurrence ---
-        time: time(event.timestamp),
+        
         // --- Context ---
-        unmapped: event, // (4) Explicitly assign unmapped.
-        ...
+        metadata: {
+          product: {
+            name: "Umbrella",
+            vendor_name: "Cisco",
+          },
+          version: "v1.3.0",
+          profiles: ["security_control"]
+        },
+
+        unmapped: event,
+        
         // --- Primary ---
+        time: time(event.timestamp),
         src_endpoint: {
           ip: event.external_ip,
+          // TODO: Check (assert?) that `most_granular_identity_type == Networks` when
+          // setting this as a subnet.
+          subnet_uid: event.most_granular_identity,
         },
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
+        // TODO: Should we hardcode the ip of the Cisco Umbrella DNS server
+        // as `dst_endpoint`?
         status_id: 1,
         rcode_id: rcode_id,
         rcode: rcode,
         query: query,
-        answers: answers,
+
+        // --- Security Control Profile ---
+        action_id: action_id,
+        action: action,
       }
-      // (5) Drop all mapped fields, with the effect that the remaining fields remain
-      //     in unmapped.
+
+      // Drop all mapped fields, with the effect that the remaining fields remain
+      // in unmapped.
       drop(
-        unmapped.id,
+        unmapped.timestamp,
+        unmapped.most_granular_identity,
+        unmapped.external_ip,
+        unmapped.response_code,
+        unmapped.action,
+        unmapped.query_type,
+        unmapped.domain,
       )
-      // (6) Assign a new schema name to the transformed event.
+      // TODO: Should we drop `unmapped.internal_ip` if its the same as external_ip?
+      //       Should we drop `identities` if its identical to `most_granular_identity`?
+
+      // Assign a new schema name to the transformed event.
       @name = "ocsf.dns_activity"
       publish "ocsf"
