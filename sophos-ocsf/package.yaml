@@ -10,13 +10,13 @@ description: |
   This package converts all events published on the topic `sophos` to OCSF
   and publishes the converted events on the topic `ocsf`.
 
+# Additional information about the different severity levels:
+# https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
 pipelines:
-  map-core-pua-to-ocsf:
+  map-core-pua-detection-to-ocsf:
     name: Sophos PUA Detection Events to OCSF Detection Findings
     definition: |
       // tql2
-      // Additional information about the different severity levels:
-      // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
       let $severity = {
         low: {name: "Low", id: 2},
         medium: {name: "Medium", id: 3},
@@ -27,6 +27,21 @@ pipelines:
       // detection finding.
       let $origin = {
         ML: {name: "Learning (ML/DL)", id: 4},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
       }
       subscribe "sophos"
       where @name == "sophos.event"
@@ -56,6 +71,7 @@ pipelines:
         // --- Occurrence (optional) ---
         // --- Context (required) ---
         metadata: {
+          log_name: event.type,
           logged_time: event.created_at,
           product: {
             name: "Sophos",
@@ -94,14 +110,13 @@ pipelines:
             }],
           },
         }],
-        message: event.threat,
-        status_detail: event.type,
+        message: event.name,
         // --- Primary (optional) ---
         // --- Host Profile ---
         device: {
-          // We should dig deeper here using the `endpoint_type`.
-          type_id: 99,
-          type: "Other",
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
           uid: event.endpoint_id,
           name: event.location,
         },
@@ -126,6 +141,7 @@ pipelines:
         unmapped.appSha256,
         unmapped.location,
         unmapped.endpoint_id,
+        unmapped.endpoint_type,
         unmapped.source,
         unmapped.user_id,
         unmapped.type,
@@ -139,12 +155,10 @@ pipelines:
       - Sophos
       - OCSF
 
-  publish-sophos-core-pua-cleanup:
+  map-core-pua-clean-to-ocsf:
     name: Sophos PUA Clean to OCSF File Remediation Activity
     definition: |
       // tql2
-      // Additional information about the different severity levels:
-      // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
       let $severity = {
         low: {name: "Low", id: 2},
         medium: {name: "Medium", id: 3},
@@ -166,6 +180,21 @@ pipelines:
         regkey: {name: "Other", id: 99},
         process: {name: "Other", id: 99},
         thread: {name: "Other", id: 99},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
       }
       subscribe "sophos"
       where @name == "sophos.event"
@@ -198,6 +227,7 @@ pipelines:
         // --- Occurrence (optional) ---
         // --- Context (required) ---
         metadata: {
+          log_name: event.type,
           logged_time: event.created_at,
           product: {
             name: "Sophos",
@@ -210,7 +240,7 @@ pipelines:
         // --- Context (optional) ---
         unmapped: event,
         // --- Primary (required) ---
-        command_uid: "CorePuaClean",
+        command_uid: event.type.split("::")[-1],
         file: {
           path: first_remedy_item.descriptor,
           name: file_name(first_remedy_item.descriptor),
@@ -218,17 +248,13 @@ pipelines:
           type: $file_type[first_remedy_item.type].name,
         },
         // --- Primary (recommended) ---
-        message: event.threat,
-        status: $remedy_result[first_remedy_item.result].name.otherwise("Unknown"),
-        status_id: $remedy_result[first_remedy_item.result].id.otherwise(0),
-        status_code: first_remedy_item.result,
-        status_detail: event.type,
+        message: event.name,
         // --- Primary (optional) ---
         // --- Host Profile ---
         device: {
-          // We should dig deeper here using the `endpoint_type`.
-          type_id: 99,
-          type: "Other",
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
           uid: event.endpoint_id,
           name: event.location,
         },
@@ -251,6 +277,7 @@ pipelines:
         unmapped.severity,
         unmapped.location,
         unmapped.endpoint_id,
+        unmapped.endpoint_type,
         unmapped.source,
         unmapped.user_id,
         unmapped.type,
@@ -258,6 +285,115 @@ pipelines:
         unmapped.customer_id,
       )
       @name = "ocsf.file_remediation_activity"
+      publish "ocsf"
+    restart-on-error: true
+    labels:
+      - Sophos
+      - OCSF
+
+  map-web-filtering-blocked-to-ocsf:
+    name: Sophos Web Filtering Blocked to OCSF Remediation Activity
+    definition: |
+      // tql2
+      let $severity = {
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type == "Event::Endpoint::WebFilteringBlocked"
+      this = { event: this }
+      class_uid = 7001
+      activity_id = 1
+      // TODO: how do we use this rather valuable information properly?
+      //xs = event.name.parse_grok("%{DATA}\\\"%{DATA:subject}\\\"%{DATA}\\\"%{DATA:malware}\\\".")
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 7,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Isolate",
+        category_name: "Remediation",
+        class_name: "Remediation Activity",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "Remediation: Isolate",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Occurrence (recommended) ---
+        // --- Occurrence (optional) ---
+        // --- Context (required) ---
+        metadata: {
+          log_name: event.type,
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        command_uid: event.type.split("::")[-1],
+        // --- Primary (recommended) ---
+        message: event.name,
+        // --- Primary (optional) ---
+        // --- Host Profile ---
+        device: {
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.endpoint_type,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.remediation_activity"
       publish "ocsf"
     restart-on-error: true
     labels:
