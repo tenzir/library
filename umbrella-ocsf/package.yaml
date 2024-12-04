@@ -26,6 +26,66 @@ pipelines:
       // (2) Assign some intermediate values for use in the next step, e.g., because
       //     they're used multiple times.
       activity_id = 1
+      query = {
+        hostname: event.dns.queries[0].rrname,
+        type: event.dns.queries[0].rrtype,
+      }
+      has_query = true
+      rcode = event.dns.rcode
+      if (rcode == "NOERROR") {
+        rcode_id = 0
+        rcode = "NoError"
+      } else if (rcode == "FORMERROR") {
+        rcode_id = 1
+        rcode = "FormError"
+      } else if (rcode == "SERVERROR") {
+        rcode_id = 2
+        rcode = "ServError"
+      } else if (rcode == "NXDOMAIN") {
+        rcode_id = 3
+        rcode = "NxDomain"
+      } else if (rcode == "NOTIMP") {
+        rcode_id = 4
+        rcode = "NotImp"
+      } else if (rcode == "REFUSED") {
+        rcode_id = 5
+        rcode = "Refused"
+      } else if (rcode == "YXDOMAIN") {
+        rcode_id = 6
+        rcode = "YXDomain"
+      } else if (rcode == "YXRRSET") {
+        rcode_id = 7
+        rcode = "YXRRSet"
+      } else if (rcode == "NXRRSET") {
+        rcode_id = 8
+        rcode = "NXRRSet"
+      } else if (rcode == "NOTAUTH") {
+        rcode_id = 9
+        rcode = "NotAuth"
+      } else if (rcode == "NOTZONE") {
+        rcode_id = 10
+        rcode = "NotZone"
+      } else if (rcode == "DSOTYPENI") {
+        rcode_id = 11
+      } else if (rcode == "BADSIG_VERS") {
+        rcode_id = 16
+      } else if (rcode == "BADKEY") {
+        rcode_id = 17
+      } else if (rcode == "BADTIME") {
+        rcode_id = 18
+      } else if (rcode == "BADMODE") {
+        rcode_id = 19
+      } else if (rcode == "BADNAME") {
+        rcode_id = 20
+      } else if (rcode == "BADALG") {
+        rcode_id = 21
+      } else if (rcode == "BADTRUNC") {
+        rcode_id = 22
+      } else if (rcode == "BADCOOKIE") {
+        rcode_id = 23
+      } else {
+        rcode_id = 99
+      }
       ...
       // (3) Populate the OCSF event.
       this = {
@@ -54,13 +114,11 @@ pipelines:
         rcode: rcode,
         query: query,
         answers: answers,
-        ...
       }
       // (5) Drop all mapped fields, with the effect that the remaining fields remain
       //     in unmapped.
       drop(
         unmapped.id,
-        ...
       )
       // (6) Assign a new schema name to the transformed event.
       @name = "ocsf.dns_activity"
