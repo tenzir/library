@@ -1,11 +1,11 @@
-id: umbrella
-name: Umbrella
+id: cisco-umbrella
+name: Cisco Umbrella
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
 # package_icon: https://raw.githubusercontent.com/tenzir/library/main/umbrella/package.svg
 
 description: |
-  The [Umbrella](https://docs.umbrella.com/deployment-umbrella/docs/welcome-to-cisco-umbrella) package
+  The [Cisco Umbrella](https://docs.umbrella.com/deployment-umbrella/docs/welcome-to-cisco-umbrella) package
   onboards [DNS Log data](https://docs.umbrella.com/deployment-umbrella/docs/dns-log-formats) from
   a [Cisco Umbrella S3 Bucket](https://docs.umbrella.com/deployment-umbrella/docs/log-management#logging-to-amazon-s3).
 
@@ -38,7 +38,7 @@ inputs:
 
 pipelines:
   onboard-umbrella-events:
-    name: Onboard Umbrealla DNS logs
+    name: Onboard Umbrella DNS logs
     description: |
       The pipeline periodically checks the configured S3 bucket for new log files,
       onboarding any that are detected. Any new files are downloaded, decompressed,
@@ -47,6 +47,9 @@ pipelines:
       // tql2
       every 15m {
         shell r#"
+          # TODO: We want to switch to `remote {config}` as the first operator for
+          # more robust results.
+          export TENZIR_STATE_DIR=`tenzir --tql2 'config | select tenzir["state-directory"] | write_lines'`
           export UV_CACHE_DIR=/tmp/cache/uv
           cat >/tmp/script.py <<END
 
@@ -55,10 +58,11 @@ pipelines:
       import json
       import sys
       import re
+      import os
       from datetime import datetime, timezone
 
-      # TODO: Figure out the correct location for persistent data.
-      STATE_FILE = '/var/lib/tenzir/umbrella_file_list.json'
+      STATE_DIR = os.environ['TENZIR_STATE_DIR']
+      STATE_FILE = STATE_DIR + 'umbrella_file_list.json'
 
       def list_s3_files(s3, bucket_name: str, prefix: str) -> list[str]:
           files = []
@@ -69,6 +73,7 @@ pipelines:
                   files.extend([obj['Key'] for obj in page['Contents']])
           
           return files
+
 
       def download_s3_file(s3, bucket: str, key: str):
           with io.BytesIO() as inmemory_file:
