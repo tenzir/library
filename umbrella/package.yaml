@@ -37,15 +37,15 @@ inputs:
     default: 15m
 
 pipelines:
-  onboard-umbrella-events:
-    name: Onboard Umbrella DNS logs
+  onboard-events:
+    name: Onboard Cisco Umbrella DNS logs
     description: |
       The pipeline periodically checks the configured S3 bucket for new log files,
       onboarding any that are detected. Any new files are downloaded, decompressed,
-      parsed, and published onto the `tenzir.umbrella-dns` channel.
+      parsed, and published as `cisco.umbrella.dns` events onto the `cisco` topic.
     definition: |
       // tql2
-      every 15m {
+      every {{ inputs.poll-frequency }} {
         shell r#"
           # TODO: We want to switch to `remote {config}` as the first operator for
           # more robust results.
@@ -134,6 +134,6 @@ pipelines:
         decompress "gzip"
         read_csv header="timestamp,most_granular_identity,identities,internal_ip,external_ip,action,query_type,response_code,domain,categories,most_granular_identity_type,identity_types,blocked_categories,rule_id,destination_countries,organization_id"
       }
-      @name = "tenzir.umbrella-dns"
-      publish "tenzir.umbrella-dns"
+      @name = "cisco.umbrella.dns"
+      publish "cisco"
 
