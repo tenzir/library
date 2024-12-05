@@ -76,11 +76,12 @@ pipelines:
         start_time: event.ts,
         // --- Context (required) ---
         metadata: {
-          log_name: "conn", // Zeek calls it "path"
+          log_name: "conn.log",
           logged_time: event._write_ts,
           product: {
             name: "Zeek",
             vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
           },
           uid: event.uid,
           version: "1.4.0",
@@ -136,7 +137,7 @@ pipelines:
         // - `tls`: if we buffer ssl log for this connection, we could add the
         //   information in here.
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -211,11 +212,12 @@ pipelines:
         start_time: event.ts,
         // --- Context (required) ---
         metadata: {
-          log_name: "dns", // Zeek calls it "path"
+          log_name: "dns.log",
           logged_time: event._write_ts,
           product: {
             name: "Zeek",
             vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
           },
           uid: event.uid,
           version: "1.3.0",
@@ -223,6 +225,10 @@ pipelines:
         // --- Context (optional) ---
         unmapped: event,
         // --- Primary (recommended) ---
+        answers: zip(event.answers, event.TTLs).map(x, {
+          rdata: x.left,
+          ttl: x.right,
+        }),
         query: {
           class: event.qclass_name,
           hostname: event.query,
@@ -252,11 +258,7 @@ pipelines:
         status: "Other",
         status_id: 99,
       }
-      //python "
-      //  xs = [{'rdata': a, 'ttl': t} for a, t in zip(self.event.answers, self.event.TTLs)]
-      //  self.answers = xs
-      //"
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -330,11 +332,12 @@ pipelines:
         start_time: event.ts,
         // --- Context (required) ---
         metadata: {
-          log_name: "http", // Zeek calls it "path"
+          log_name: "http.log",
           logged_time: event._write_ts,
           product: {
             name: "Zeek",
             vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
           },
           uid: event.uid,
           version: "1.3.0",
@@ -378,7 +381,7 @@ pipelines:
         status: "Other",
         status_id: 99,
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -468,11 +471,12 @@ pipelines:
         start_time: event.ts,
         // --- Context (required) ---
         metadata: {
-          log_name: "dhcp",
+          log_name: "dhcp.log",
           logged_time: event._write_ts,
           product: {
             name: "Zeek",
             vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
           },
           version: "1.3.0",
         },
@@ -501,7 +505,7 @@ pipelines:
         status_id: 99,
         transaction_uid: trans_id,
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop(
         unmapped._path,
         unmapped._write_ts,
@@ -526,6 +530,211 @@ pipelines:
         unmapped.server_message,
       )
       @name = "ocsf.dhcp_activity"
+      publish "ocsf"
+
+  map-ssh-to-ocsf:
+    name: ssh.log to OCSF SSH Activity
+    description: Maps Zeek SSH logs to OCSF SSH Activity.
+    definition: |
+      // tql2
+      // The Direction enum in Zeek can be INBOUND, OUTBOUND, BIDIRECTIONAL, or
+      // NO_DIRECTION. NB: there is no equivalent to Lateral in Zeek, so we
+      // cannot map to it.
+      let $direction = {
+        // The connection originator is not within the locally-monitored
+        // network, but the other endpoint is.
+        INBOUND: {
+          id: 1,
+          name: "Inbound",
+        },
+        // The connection originator is within the locally-monitored network,
+        // but the other endpoint is not.
+        OUTBOUND: {
+          id: 2,
+          name: "Outbound",
+        },
+        // Only one endpoint is within the locally-monitored network, meaning
+        // the connection is either outbound or inbound.
+        BIDIRECTIONAL: {
+          id: 0,
+          name: "Unknown"
+        },
+        // This value doesn't match any connection.
+        NO_DIRECTION: {
+          id: 0,
+          name: "Unknown"
+        },
+      }
+      subscribe "zeek"
+      where @name == "zeek.ssh"
+      // The Authentication Type can be deduced if we have the `inferences`
+      // package.
+      if "KS" in event.inferences {
+        auth_type_id = 4
+        auth_type = "Keyboard Interactive"
+      } else {
+        auth_type = 0
+        auth_type = "Unknown"
+      }
+      this = { event: this }
+      class_uid = 4007
+      // The activity attributes relate to the underlying TCP connection. Since
+      // we have a ssh.log entry, it means we already have an established
+      // connection and must assume data is being exchanged, even if it's just
+      // the SSH handshake.
+      activity_id = 6
+      activity_name = "Traffic"
+      // The Authentication Type can be deduced if we have the `inferences`
+      // package.
+      if "KS" in event.inferences {
+        auth_type_id = 4
+        auth_type = "Keyboard Interactive"
+      } else {
+        auth_type_id = 0
+        auth_type = "Unknown"
+      }
+      // Map direction.
+      // The activity attributes relate to the underlying TCP connection. Since
+      // we have a ssh.log entry, it means we already have an established
+      // connection and must assume data is being exchanged, even if it's just
+      // the SSH handshake.
+      direction = $direction[event.direction].name
+      direction_id = $direction[event.direction].id
+      // Map network layer protocol version.
+      if event.id.orig_h.is_v6() or event.id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      // Adjust the severity.
+      if "ABP" in event.inferences or "BFS" in event.inferences {
+        // Client authentication bypass (ABP) or brute force success (BFS) are
+        // worthwhile escalating.
+        severity_id = 4
+        severity = "High"
+      } else if "BF" in event.inferences \
+        or "SV" in event.inferences \
+        or "SC" in event.inferences \
+        or "SC" in event.inferences {
+        // Noteworthy are brute force attempts (BF), version scanning (SV),
+        // capability scanning (SC), or other scanning (SP).
+        severity_id = 3
+        severity = "Medium"
+      } else {
+        // Every thing else is standard.
+        severity_id = 1
+        severity = "Informational"
+      }
+      // Adjust the severity.
+      if "ABP" in event.inferences or "BFS" in event.inferences {
+        // Client authentication bypass (ABP) or brute force success (BFS) are
+        // worthwhile escalating.
+        severity_id = 4
+        severity = "High"
+      } else if "BF" in event.inferences \
+        or "SV" in event.inferences \
+        or "SC" in event.inferences \
+        or "SC" in event.inferences {
+        // Noteworthy are brute force attempts (BF), version scanning (SV),
+        // capability scanning (SC), or other scanning (SP).
+        severity_id = 3
+        severity = "Medium"
+      } else {
+        // Every thing else is standard.
+        severity_id = 1
+        severity = "Informational"
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: severity_id,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "SSH Activity",
+        severity: severity,
+        // --- Occurrence (required) ---
+        time: event.ts,
+        // --- Occurrence (optional) ---
+        count: event.auth_attempts,
+        start_time: event.ts,
+        // --- Context (required) ---
+        metadata: {
+          log_name: "ssh.log",
+          logged_time: event._write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
+          },
+          uid: event.uid,
+          version: "1.3.0",
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        dst_endpoint: {
+          ip: event.id.resp_h,
+          port: event.id.resp_p,
+          agent_list: [{
+            name: event.server,
+            type: "Remote Access",
+            type_id: 9,
+          }]
+        },
+        // --- Primary (recommended) ---
+        auth_type: auth_type,
+        auth_type_id: auth_type_id,
+        client_hassh: {
+          algorithm: event.hasshAlgorithms,
+          fingerprint: event.hassh,
+        },
+        connection_info: {
+          direction: direction,
+          direction_id: direction_id,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: "tcp",
+          protocol_num: 6,
+        },
+        server_hassh: {
+          algorithm: event.hasshServerAlgorithms,
+          fingerprint: event.hasshServer,
+        },
+        src_endpoint: {
+          ip: event.id.orig_h,
+          port: event.id.orig_p,
+          agent_list: [{
+            name: event.client,
+            type: "Remote Access",
+            type_id: 9,
+          }]
+        },
+        status: "Other",
+        status_id: 99,
+        // --- Primary (optional) ---
+      }
+      // Drop all mapped fields.
+      drop (
+        unmapped._path,
+        unmapped._write_ts,
+        unmapped.auth_attempts,
+        unmapped.client,
+        unmapped.direction,
+        unmapped.hassh,
+        unmapped.hasshAlgorithms,
+        unmapped.hasshServer,
+        unmapped.hasshServerAlgorithms,
+        unmapped.id,
+        unmapped.proto,
+        unmapped.server,
+        unmapped.service,
+        unmapped.ts,
+        unmapped.uid,
+      )
+      @name = "ocsf.ssh_activity"
       publish "ocsf"
 
   map-smb-files-to-ocsf:
@@ -583,11 +792,12 @@ pipelines:
         start_time: event.ts,
         // --- Context (required) ---
         metadata: {
-          log_name: "smb_files",
+          log_name: "smb_files.log",
           logged_time: event._write_ts,
           product: {
             name: "Zeek",
             vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
           },
           uid: event.uid,
           version: "1.3.0",
@@ -617,7 +827,7 @@ pipelines:
         status_id: 99,
         // --- Primary (optional) ---
       }
-      // Drop all the mapped fields.
+      // Drop all mapped fields.
       drop (
         unmapped._write_ts,
         unmapped.id,
@@ -629,4 +839,109 @@ pipelines:
         unmapped.path,
       )
       @name = "ocsf.smb_activity"
+      publish "ocsf"
+
+  # TODO:
+  # - We need to generate one Email URL Activity event for each element in the
+  #   `url` array. This means that must generate a UUID in this event and use
+  #   the same UUID in all URL Activity events so that they become linked.
+  # - The Zeek log contains file UIDs (fuids) that may be relevant for
+  #   corresponding Network File Activity events.
+  map-smtp-to-ocsf:
+    name: smtp.log to OCSF Email Activity
+    description: Maps Zeek SMTP logs to OCSF Email Activity.
+    definition: |
+      // tql2
+      subscribe "zeek"
+      where @name == "zeek.smtp"
+      this = { event: this }
+      class_uid = 4009
+      activity_id = 1
+      activity_name = "Send"
+      if event.id.orig_h.is_v6() or event.id.resp_h.is_v6() {
+        protocol_ver_id = 6
+      } else {
+        protocol_ver_id = 4
+      }
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 4,
+        class_uid: class_uid,
+        type_id: class_uid * 100 + activity_id,
+        severity_id: 1,
+        // --- Classification (optional) ---
+        activity_name: activity_name,
+        category_name: "Network Activity",
+        class_name: "Email Activity",
+        severity: "Informational",
+        // --- Occurrence (required) ---
+        time: event.ts,
+        // --- Occurrence (optional) ---
+        start_time: event.ts,
+        // --- Context (required) ---
+        direction_id: 0,
+        metadata: {
+          log_name: "smtp.log",
+          logged_time: event._write_ts,
+          product: {
+            name: "Zeek",
+            vendor_name: "Zeek",
+            cpe_name: "cpe:2.3:a:zeek:zeek",
+          },
+          uid: event.uid,
+          version: "1.3.0",
+        },
+        // --- Context (optional) ---
+        direction: "Unknown",
+        unmapped: event,
+        // --- Primary (required) ---
+        // --- Primary (recommended) ---
+        connection_info: {
+          direction: "Other",
+          direction_id: 99,
+          protocol_ver_id: protocol_ver_id,
+          protocol_name: "tcp",
+          protocol_num: 6,
+        },
+        dst_endpoint: {
+          ip: event.id.resp_h,
+          port: event.id.resp_p,
+          intermediate_ips: event.path,
+        },
+        email: {
+           from: event.from,
+           to: event.to,
+           message_uid: event.msg_id,
+           smtp_from: event.mailfrom,
+           smtp_to: event.rcptto,
+           subject: event.subject,
+        },
+        smtp_hello: event.helo,
+        src_endpoint: {
+          ip: event.id.orig_h,
+          port: event.id.orig_p,
+        },
+        status: "Other",
+        status_id: 99,
+        status_detail: event.last_reply,
+        // --- Primary (optional) ---
+      }
+      // Drop all mapped fields.
+      drop (
+        unmapped._write_ts,
+        unmapped.ts,
+        unmapped.uid,
+        unmapped.id,
+        unmapped.path,
+        unmapped.from,
+        unmapped.to,
+        unmapped.msg_id,
+        unmapped.mailfrom,
+        unmapped.rcptto,
+        unmapped.subject,
+        unmapped.helo,
+        unmapped.last_reply,
+      )
+      @name = "ocsf.email_activity"
       publish "ocsf"
