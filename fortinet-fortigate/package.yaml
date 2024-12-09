@@ -1,0 +1,28 @@
+id: fortinet-fortigate
+name: Fortinet FortiGate
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/fortinet-fortigate/package.svg
+
+description: |
+  [Fortinet FortiGate](https://www.fortinet.com/products/next-generation-firewall) appliances provide network security by combining firewall, VPN, and intrusion prevention features.
+
+  This package makes it easy to onboard the logs that FortiGate generates, publishing the events to the `fortinet` topic.
+
+inputs:
+  syslog-url:
+    name: Syslog URL
+    description: The endpoint (including URL scheme) to which FortiGate sends syslog.
+    type: string
+    default: udp://0.0.0.0:514
+
+pipelines:
+ onboard-fortigate:
+    name: Onboard FortiGate logs via UDP
+    description: A pipeline for ingesting and processing FortiGate logs received via UDP.
+    definition: |
+      from "{{ inputs.syslog-url }}" read syslog
+      | parse content kv
+      | yield content
+      | set #schema = "fortinet.fortigate"
+      | publish "fortinet"
