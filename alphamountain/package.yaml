@@ -68,11 +68,12 @@ pipelines:
     definition: |
       // tql2
       every {{ inputs.refresh-interval }} {
-        legacy "load https://batch.alphamountain.ai/threat/feed/csv
-          'version:=1'
-          'license:=\"{{ inputs.license }}\"'
-          'risk_min:={{ inputs.min-risk }}'
-          'risk_max:=10.0'"
+        from "https://batch.alphamountain.ai/threat/feed/csv", data = {
+          version: 1,
+          license: "{{ inputs.license }}",
+          risk_min: {{ inputs.min-risk }},
+          risk_max: 10.0
+        }
         read_csv
       }
       @name = "alphamountain.threat"
@@ -87,7 +88,7 @@ pipelines:
       // tql2
       subscribe "alphamountain"
       where @name == "alphamountain.threat"
-      legacy "context update alphamountain-threats --key=hostname --create-timeout {{ inputs.threat-expiry }}"
+      context::update "alphamountain-threats", key=hostname, create_timeout={{ inputs.threat-expiry }}
 
   publish-categories:
     name: Publish alphaMountain Categories Feed
@@ -97,9 +98,10 @@ pipelines:
     definition: |
       // tql2
       every {{ inputs.refresh-interval }} {
-        legacy "load https://batch.alphamountain.ai/category/feed/csv
-          'version:=1'
-          'license:=\"{{ inputs.license }}\"'
+        from "https://batch.alphamountain.ai/category/feed/csv", data = {
+          version: 1,
+          license: "{{ inputs.license }}",
+        }
         read_csv
       }
       @name = "alphamountain.category"
@@ -114,21 +116,15 @@ pipelines:
       // tql2
       subscribe "alphamountain"
       where @name == "alphamountain.category"
-      legacy "context update alphamountain-categories --key=hostname --create-timeout {{ inputs.threat-expiry }}"
+      context::update "alphamountain-categories", key=hostname, create_timeout={{ inputs.threat-expiry }}
 
 examples:
-  - name: Match all string and IP fields
-    description: |
-      Starts a lookup that matches all historic and newly arriving events
-      against the `alphamountain-threats` context.
-    definition: |
-      lookup alphamountain-threats --field :string,:ip
-
   - name: Show top alphaMountain threats by score
     description: |
       Shows the top ten threats from alphaMountain by score.
     definition: |
-      context inspect alphamountain-threats
-      | yield value
-      | sort score desc
-      | head 10
+      // tql2
+      context::inspect "alphamountain-threats"
+      this = value
+      sort -score
+      head 10
