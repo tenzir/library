@@ -91,9 +91,13 @@ pipelines:
   onboard-from-url:
     name: Onboard and parse Palo Alto logs
     description: |
-      Onboards and parses Palo Alto Networks logs from the provided URL and publishes them to "paloalto". It expects data to arrive in a Syslog framing and but provides an output without it. 
+      Onboards and parses Palo Alto Networks logs from the provided URL and
+      publishes them to the topic `paloalto`.
+
+      The package removes all reserved fields (starting with `future_use`) from
+      the event and removes the Syslog framing.
       
-       The package supports the following content types:
+       The package supports the following log types:
        - Traffic
        - GlobalProtect
        - Data Filtering
@@ -106,11 +110,13 @@ pipelines:
        - User-ID
        - Decryption
        - Authentication
-       - Unknown.
+
+       All other log types get forwarded including their raw Syslog framing as
+       `paloalto.unknown` events.
     definition: |
       // tql2
       from "{{ inputs.url }}" {
-      read_syslog
+        read_syslog
       }
       if ",TRAFFIC," in content {
         legacy "parse content csv --header '{{ inputs.traffic }}'"
