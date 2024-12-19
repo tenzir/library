@@ -34,7 +34,7 @@ pipelines:
         load_http "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
         read_csv comments=true, header="timestamp,SHA1,reason"
       }
-      legacy "context update sslbl --key=SHA1"
+      context::update "sslbl", key=SHA1
     restart-on-error: 1h
 
 examples:
@@ -47,15 +47,16 @@ examples:
       subscribe "suricata"
       where @name == "suricata.tls"
       sha1 = tls.fingerprint.replace(":", "")
-      legacy "enrich sha1 sslbl"
+      context::enrich "sha1", key=sslbl
 
   - name: Display top-10 listing reasons
     description: |
       Shows a bar chart of the top-10 reasons why a certificate is in the
       dataset.
     definition: |
-      context inspect sslbl
-      | yield value
-      | top reason
-      | head
-      | chart bar
+      // tql2
+      context::inspect "sslbl"
+      this = value
+      top reason
+      head
+      legacy "chart bar"
