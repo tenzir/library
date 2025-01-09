@@ -21,23 +21,18 @@ pipelines:
     name: Update Feodo Context
     description: A pipeline that periodically refreshes the Feodo lookup-table context.
     definition: |
-      every 1h
-        from https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv read csv --allow-comments
-        | context update feodo --key=dst_ip --clear
+      // tql2
+      every 1h {
+        load_http "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv"
+        read_csv allow_comments=true
+      }
+      context::update "feodo", key="dst_ip"
     restart-on-error: 1h
 
 examples:
-  - name: Lookup Feodo
-    description: Evaluate all stored data with a `src_ip` field against the Feodo IP Blocklist.
-    definition: |
-      lookup feodo --field=dst_ip
-
   - name: Enrich Feodo
     description: Evaluate the `src_ip` field of the input data against the Feodo IP Blocklist.
     definition: |
-      export | enrich feodo --field=dst_ip
-
-  - name: Feodo Table Entries
-    description: A gauge that shows the number of entries in the Feodo IP Blocklist lookup-table.
-    definition: |
-      show contexts | where name == "feodo" | chart gauge --value=num_entries
+      // tql2
+      export
+      context::enrich "feodo", key=dst_ip

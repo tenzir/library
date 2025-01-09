@@ -21,17 +21,11 @@ inputs:
     type: string
     default: splunk
 
-  splunk_host:
-    name: Splunk host
-    description: The hostname or IP address of the Splunk instance.
+  splunk_url:
+    name: URL for the Splunk Indexer
+    description: URL for the Splunk Indexer
     type: string
-    default: localhost
-
-  splunk_port:
-    name: Splunk port
-    description: The port where Splunk HEC listens.
-    type: string
-    default: 8088
+    default: https://localhost:8080
 
   event_index:
     name: Splunk event index
@@ -44,12 +38,9 @@ pipelines:
     name: Send data to Splunk
     description: Send data to a Splunk instance.
     definition: |
-      subscribe {{ inputs.events_topic }}
-      | fluent-bit
-          splunk
-          host={{ inputs.splunk_host }}
-          port={{ inputs.splunk_port }}
-          tls=on
-          tls.verify=off
-          splunk_token={{ inputs.splunk_token }}
-          event_index={{ inputs.event_index }}
+      // tql2
+      subscribe "{{ inputs.events_topic }}"
+      to_splunk "{{ inputs.splunk_url }}",
+        hec_token="{{ inputs.splunk_token }}",
+        index="{{ inputs.event_index }}",
+        skip_peer_verification = true
