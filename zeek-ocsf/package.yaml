@@ -814,3 +814,107 @@ pipelines:
       this = {...ocsf, unmapped: zeek}
       @name = "ocsf.email_activity"
       publish "ocsf"
+
+  map-rdp-to-ocsf:
+    name: rdp.log to OCSF RDP Activity
+    description: Maps Zeek RDP logs to OCSF RDP Activity.
+    definition: |
+      let $results = {
+        "encrypted": 0,
+        "Success": 1,
+        "User rejected": 2,
+        "Resources not available": 2,
+        "Rejected for symmetry breaking": 2,
+        "Locked conference": 2,
+      }
+      subscribe "zeek"
+      where @name == "zeek.rdp"
+      this = { zeek: this }
+      // === Classification ===
+      ocsf.activity_id = 6
+      ocsf.activity_name = "Traffic"
+      ocsf.category_uid = 4
+      ocsf.category_name = "Network Activity"
+      ocsf.class_uid = 4005
+      ocsf.class_name = "RDP Activity"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = zeek.ts
+      drop zeek.ts
+      // === Context ===
+      ocsf.metadata = {
+        log_name: "rdp.log",
+        logged_time: zeek._write_ts,
+        product: {
+          name: "Zeek",
+          vendor_name: "Zeek",
+          cpe_name: "cpe:2.3:a:zeek:zeek",
+        },
+        profiles: ["host"],
+        uid: zeek.uid,
+        version: "1.4.0",
+      }
+      drop zeek._path, zeek._write_ts, zeek.uid
+      ocsf.protocol_ver = zeek.client_build
+      drop zeek.client_build
+      ocsf.identifier_cookie = zeek.cookie
+      drop zeek.cookie
+      ocsf.keyboard_info = {
+        keyboard_layout: zeek.keyboard_layout,
+      }
+      drop zeek.keyboard_layout
+      // === Primary ===
+      ocsf.src_endpoint = {
+        ip: zeek.id.orig_h,
+        port: zeek.id.orig_p,
+      }
+      ocsf.dst_endpoint = {
+        ip: zeek.id.resp_h,
+        port: zeek.id.resp_p,
+      }
+      ocsf.connection_info = {
+        protocol_name: "tcp",
+        protocol_num: 6,
+      }
+      if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
+        ocsf.connection_info.protocol_ver_id = 6
+      } else {
+        ocsf.connection_info.protocol_ver_id = 4
+      }
+      drop zeek.id
+      ocsf.display = {
+        physical_height: zeek.desktop_height,
+        physical_width: zeek.desktop_width,
+        color_depth: int(zeek.requested_color_depth.replace("bit", "")),
+      }
+      drop zeek.desktop_height, zeek.desktop_width, zeek.requested_color_depth
+      ocsf.tls = {
+        key_length: int(zeek.encryption_method.replace("bit", "")),
+        // The version is required, but not present in the data.
+        version: null,
+      }
+      drop zeek.encryption_method
+      ocsf.status = zeek.result
+      ocsf.status_id = $results[zeek.result].otherwise(0)
+      drop zeek.result
+      // === Profile: Host ===
+      ocsf.host = {
+        name: zeek.client_name,
+        os: {
+          name: "Windows",
+          vendor_name: "Microsoft",
+          cpe_name: "cpe:2.3:o:microsoft:windows",
+          type_id: 100,
+          type: "Windows",
+        },
+        // 64-byte clientDigProductId
+        uid: zeek.client_dig_product_id,
+        type_id: 2,
+        type: "Desktop",
+      }
+      drop zeek.client_name, zeek.client_dig_product_id
+      this = {...ocsf, unmapped: zeek}
+      @name = "ocsf.rdp_activity"
+      publish "ocsf"
