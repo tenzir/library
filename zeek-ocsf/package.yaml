@@ -1063,3 +1063,62 @@ pipelines:
       this = {...ocsf, unmapped: zeek}
       @name = "ocsf.network_activity"
       publish "ocsf"
+
+  map-x509-to-ocsf:
+    name: x509.log to OCSF Network Activity
+    description: Maps Zeek x509 logs to OCSF Network Activity.
+    definition: |
+      subscribe "zeek"
+      where @name == "zeek.x509"
+      this = { zeek: this }
+      // === Classification ===
+      ocsf.activity_id = 6
+      ocsf.activity_name = "Traffic"
+      ocsf.category_uid = 4
+      ocsf.category_name = "Network Activity"
+      ocsf.class_uid = 4001
+      ocsf.class_name = "Network Activity"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = zeek.ts
+      drop zeek.ts
+      // === Context ===
+      ocsf.metadata = {
+        log_name: "x509.log",
+        logged_time: zeek._write_ts,
+        product: {
+          name: "Zeek",
+          vendor_name: "Zeek",
+          cpe_name: "cpe:2.3:a:zeek:zeek",
+        },
+        version: "1.4.0",
+      }
+      drop zeek._path, zeek._write_ts
+      ocsf.tls = {
+        certificate: {
+          serial_number: zeek.certificate.serial,
+          created_time: zeek.certificate.not_valid_before,
+          expiration_time: zeek.certificate.not_valid_after,
+          issuer: zeek.certificate.issuer,
+          subject: zeek.certificate.subject,
+          fingerprints: [zeek.fingerprint],
+          version: zeek.certificate.version,
+        },
+        sans: zeek.san.dns,
+        version: null,
+      }
+      drop (
+        zeek.certificate.serial,
+        zeek.certificate.issuer,
+        zeek.certificate.not_valid_before,
+        zeek.certificate.not_valid_after,
+        zeek.certificate.subject,
+        zeek.certificate.version,
+        zeek.fingerprint,
+        zeek.san.dns,
+      )
+      this = {...ocsf, unmapped: zeek}
+      @name = "ocsf.network_activity"
+      publish "ocsf"
