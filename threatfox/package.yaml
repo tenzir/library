@@ -64,17 +64,20 @@ pipelines:
       A pipeline that periodically fetches the ThreatFox IOC database and
       publishes the feed to the `threatfox` topic.
     definition: |
-      every {{ inputs.refresh-interval }}
-        from https://threatfox-api.abuse.ch/api/v1/
-          query=get_iocs
-          days:={{ inputs.days }}
-      | yield data[]
+      every {{ inputs.refresh-interval }} {
+        from "https://threatfox-api.abuse.ch/api/v1/", method="POST",
+            data={query: "get_iocs"}, headers={days: "{{ inputs.days }}"} {
+          read_json
+        }
+      }
+      unroll data
+      this = data
       // This is a hack that we need because there are no union types. We
       // roundtrip via the JSON parser which does per-event type inference for
       // us.
-      | write json -c
-      | read json --ndjson --precise
-      | publish threatfox
+      write_ndjson
+      read_ndjson
+      publish "threatfox"
 
   # We are currently creating one pipeline per IOC type. Once we have a more
   # powerful group operator, it would be nice to write some thing like
