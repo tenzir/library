@@ -34,7 +34,7 @@ pipelines:
     description: Connects a Zeek data source on the network.
     definition: |
       // tql2
-      load_file {{ inputs.log-file }}
+      load_file "{{ inputs.log-file }}"
       read_zeek_{{ inputs.log-format }}
       publish "zeek"
     disabled: false
@@ -44,7 +44,7 @@ pipelines:
     description: Connects a Zeek data source on the network.
     definition: |
       // tql2
-      legacy "from tcp://{{ inputs.listen-endpoint }} read zeek-{{ inputs.log-format }}"
+      from "tcp://{{ inputs.listen-endpoint }}" { read_zeek_{{ inputs.log-format }} }
       publish "zeek"
     disabled: true
 
@@ -59,10 +59,6 @@ examples:
         where timestamp > $ts
         where pipeline_id == "zeek/onboard-from-interface" or pipeline_id == "zeek/onboard-from-file"
         where source == true
-        legacy "summarize bytes=sum(output.approx_bytes), duration=sum(duration) by timestamp resolution 2 min"
-        this = {
-          timestamp: timestamp,
-          ingress_per_second: bytes / duration.as_secs(),
-        }
-        | sort timestamp
-        | legacy "chart area"
+        timestamp = timestamp.floor(1min)
+        summarize timestamp, bytes=output.approx_bytes.sum(), duration = duration.sum()
+        chart_area x=timestamp, y={ingress_per_second:bytes / duration.as_secs()}
