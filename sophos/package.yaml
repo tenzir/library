@@ -41,10 +41,12 @@ pipelines:
       shell r#"
       python3 <<END
       import json
+      import sys
       import time
       import urllib.parse
       import urllib.request
       from urllib.error import HTTPError, URLError
+      from json import JSONDecodeError
 
       x_api_key = '{{ inputs.x-api-key }}'
       authorization = '{{ inputs.authorization }}'
@@ -68,7 +70,9 @@ pipelines:
                       print(json.dumps(item, separators=(',', ':')))
                   has_more = data.get('has_more', False)
                   params['cursor'] = data.get('next_cursor')
-          except (HTTPError, URLError):
+          except (HTTPError, URLError, JSONDecodeError) as e:
+              if isinstance(e, JSONDecodeError):
+                  print(f"sophos: got invalid json: {e}", file=sys.stderr)
               num_errors += 1
               if num_errors > error_threshold:
                   break
