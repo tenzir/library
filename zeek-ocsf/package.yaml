@@ -17,6 +17,42 @@ pipelines:
     description: Maps Zeek connection logs to OCSF Network Activity.
     definition: |
       // tql2
+      // The ground truth for connection state mapping is here:
+      // https://github.com/zeek/zeek/blob/6671e95c6b07dfd59a12ec5507a5c3eb91f163ef/scripts/base/protocols/conn/main.zeek#L184
+      let $conn_states = {
+        // S0 means only a SYN seen and S1 the full handshake.
+        S0: 1,
+        S1: 1,
+        // Only SF means Close.
+        SF: 2,
+        // The RST* states imply connection reset.
+        RSTO: 3,
+        RSTOH: 3,
+        RSTOS0: 3,
+        RSTR: 3,
+        RSTRH: 3,
+        // SH, SHR, S2, and S3 correspond to one-sided closure, which we
+        // treat as Fail to be able to differentiate in analytics.
+        S2: 4,
+        S3: 4,
+        SH: 4,
+        SHR: 4,
+        // Only REJ is rejection at the beginning of the connection.
+        REJ: 5,
+        // Connections Zeek couldn't classify.
+        OTH: 6,
+      }
+      let $activity_names = [
+        "Unknown",
+        "Open",
+        "Close",
+        "Reset",
+        "Fail",
+        "Refuse",
+        "Traffic",
+        "Listen",
+        "Other",
+      ]
       let $proto_nums = {
         tcp: 6,
         udp: 17,
@@ -28,8 +64,8 @@ pipelines:
       where @name == "zeek.conn"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = 6
-      ocsf.activity_name = "Traffic"
+      ocsf.activity_id = $conn_states[zeek.conn_state].otherwise(6)
+      ocsf.activity_name = $activity_names[ocsf.activity_id].otherwise("Other")
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4001
