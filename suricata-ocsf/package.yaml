@@ -219,8 +219,6 @@ pipelines:
     disabled: false
     definition: |
       // tql2
-      subscribe "suricata"
-      where @name == "suricata.smb"
       let $activity_id = {
         FILE_SUPERSEDE: 1,
         FILE_OPEN: 2,
@@ -237,6 +235,8 @@ pipelines:
         FILE_OVERWRITE: "File Overwrite",
         FILE_OVERWRITE_IF: "File Overwrite If",
       }
+      subscribe "suricata"
+      where @name == "suricata.smb"
       this = { suricata: this }
       // === Classification ===
       ocsf.severity_id = 1
@@ -368,9 +368,6 @@ pipelines:
     disabled: false
     definition: |
       // tql2
-      subscribe "suricata"
-      where @name == "suricata.http"
-      this = { suricata: this }
       let $activity_id = {
         CONNECT: 1,
         DELETE: 2,
@@ -391,6 +388,9 @@ pipelines:
         PUT: "Put",
         TRACE: "Trace",
       }
+      subscribe "suricata"
+      where @name == "suricata.http"
+      this = { suricata: this }
       // === Classification ===
       ocsf.severity_id = 1
       ocsf.class_uid = 4002
@@ -473,9 +473,6 @@ pipelines:
     disabled: false
     definition: |
       // tql2
-      subscribe "suricata"
-      where @name == "suricata.fileinfo"
-      this = { suricata: this }
       let $activity_id = {
         CONNECT: 1,
         DELETE: 2,
@@ -496,13 +493,26 @@ pipelines:
         PUT: "Put",
         TRACE: "Trace",
       }
+      subscribe "suricata"
+      where @name == "suricata.fileinfo"
+      this = { suricata: this }
+      if suricata.has("http") {
+        suricata.http = suricata.http
+      } else {
+        suricata.http = null
+      }
       // === Classification ===
       ocsf.severity_id = 1
       ocsf.class_uid = 4002
       ocsf.category_uid = 4
-      if suricata.http.http_method != null {
-        ocsf.activity_id = $activity_id[suricata.http.http_method].otherwise(99)
-        ocsf.activity_name = $activity_name[suricata.http.http_method].otherwise(suricata.http.http_method)
+      if suricata.http != null {
+        if suricata.http.http_method != null {
+          ocsf.activity_id = $activity_id[suricata.http.http_method].otherwise(99)
+          ocsf.activity_name = $activity_name[suricata.http.http_method].otherwise(suricata.http.http_method)
+        } else {
+          ocsf.activity_id = 99
+          ocsf.activity_name = null
+        }
       } else {
         ocsf.activity_id = 99
         ocsf.activity_name = null
@@ -522,7 +532,7 @@ pipelines:
         version: "v1.3.0",
       }
       drop suricata.flow_id, suricata.event_type
-      if suricata.http.has("fileinfo") {
+      if suricata.has("fileinfo") {
         ocsf.file = {
           type_id: 0,
           name: suricata.fileinfo.filename,
@@ -538,6 +548,7 @@ pipelines:
         port: suricata.dest_port,
       }
       drop suricata.dest_ip, suricata.dest_port
+      if suricata.http != null {
       ocsf.http_request = {
         url: {
           hostname: suricata.http.hostname,
@@ -561,6 +572,11 @@ pipelines:
         content_type: suricata.http.http_content_type, 
       }
       drop suricata.http.status, suricata.http.length, suricata.http.http_content_type
+      } else {
+        ocsf.http_request = null
+        ocsf.status_id = 0
+        ocsf.http_response = null
+      }
       ocsf.src_endpoint = {
         ip: suricata.src_ip,
         port: suricata.src_port,
@@ -626,9 +642,6 @@ pipelines:
     disabled: false
     definition: |
       // tql2
-      subscribe "suricata"
-      where @name == "suricata.ftp"
-      this = { suricata: this }
       let $activity_id = {
         STOR: 1,
         STOU: 1,
@@ -659,7 +672,9 @@ pipelines:
         LIST: "List",
         MLSD: "List",
       }
-      // add more ftp commands for less errors
+      subscribe "suricata"
+      where @name == "suricata.ftp"
+      this = { suricata: this }
       // === Classification ===
       ocsf.severity_id = 1
       ocsf.class_uid = 4008
@@ -830,7 +845,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.tls.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -840,17 +855,19 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
-      if suricata.tls.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
-      } 
       ocsf.status_id = status_id
       ocsf.status = status
       this = {...ocsf, unmapped: suricata}
@@ -898,7 +915,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.snmp.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -908,16 +925,18 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
-      }
-      if suricata.snmp.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
@@ -964,7 +983,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.sip.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -974,16 +993,18 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
-      }
-      if suricata.sip.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
@@ -1030,7 +1051,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.ikev2.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -1040,16 +1061,18 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
-      }
-      if suricata.ikev2.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
@@ -1096,7 +1119,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.mqtt.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -1106,16 +1129,18 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+        if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
-      }
-      if suricata.mqtt.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
@@ -1164,7 +1189,7 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      if suricata.krb5.has("flow") {
+      if suricata.has("flow") {
         ocsf.traffic = {
           bytes_in: suricata.flow.bytes_toclient,
           bytes_out: suricata.flow.bytes_toserver,
@@ -1174,16 +1199,18 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+        if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
       } else {
         ocsf.traffic = null
-      }
-      if suricata.krb5.has("flow.state") {
-        status_id = 99
-        status = suricata.flow.state
-        drop suricata.flow.state 
-      } else {
-        status_id = 0
-        status = "Unknown"
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
       }
       this = {...ocsf, unmapped: suricata}  
       @name = "ocsf.network_activity"
@@ -1197,9 +1224,6 @@ pipelines:
     disabled: true
     definition: |
       // tql2
-      subscribe "suricata"
-      where @name == "suricata.dhcp"
-      this = { suricata: this }
       let $activity_id = {
         discover: 1,
         offer: 2,
@@ -1220,6 +1244,9 @@ pipelines:
         release: "Release",
         inform: "Inform",
       }
+      subscribe "suricata"
+      where @name == "suricata.dhcp"
+      this = { suricata: this }
       // === Classification ===
       ocsf.category_uid = 4
       ocsf.class_uid = 4004
@@ -1255,16 +1282,19 @@ pipelines:
         community_uid: suricata.community_id,
       }
       drop suricata.community_id
-      ocsf.dst_endpoint = {
-        ip: suricata.dest_ip,
-      }
       ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.dst_endpoint = {
         hostname: suricata.dhcp.hostname,
         ip: suricata.dhcp.assigned_ip,
         mac: suricata.dhcp.client_mac,
+        port: suricata.dest_port,
         type_id: 0
       }
-      drop suricata.dhcp.hostname, suricata.dhcp.assigned_ip, suricata.dhcp.client_mac
+      drop suricata.dhcp.hostname, suricata.dhcp.assigned_ip, suricata.dhcp.client_mac, suricata.dest_port
       ocsf.lease_duration = suricata.dhcp.lease_time
       drop suricata.dhcp.lease_time
       ocsf.status = "Other"
