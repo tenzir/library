@@ -247,8 +247,13 @@ pipelines:
         port: suricata.src_port,
       }
       drop suricata.src_ip, suricata.src_port
-      ocsf.activity_id = $activity_id[suricata.smb.disposition].otherwise(99)
-      ocsf.activity_name = $activity_name[suricata.smb.disposition].otherwise(suricata.smb.command)
+      if suricata.smb.disposition != null {
+        ocsf.activity_id = $activity_id[suricata.smb.disposition].otherwise(99)
+        ocsf.activity_name = $activity_name[suricata.smb.disposition].otherwise(suricata.smb.command)
+      } else {
+        ocsf.activity_id = 99
+        ocsf.activity_name = suricata.smb.command
+      }
       drop suricata.smb.disposition, suricata.smb.command
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
@@ -338,7 +343,7 @@ pipelines:
         uid: string(suricata.flow_id),
         version: "v1.3.0",
       }
-      drop suricata.event_type, suricata.flow_id
+      drop suricata.event_type
       ocsf.status_id = 1
       // === Primary ===
        ocsf.src_endpoint = {
@@ -352,11 +357,11 @@ pipelines:
       }
       drop suricata.dest_ip, suricata.dest_port
       ocsf.finding_info = {
-        uid: suricata.flow_uid,
+        uid: suricata.flow_id,
         title: suricata.alert.category,
         desc: suricata.alert.signature,
       }
-      drop suricata.alert.category, suricata.alert.signature
+      drop suricata.flow_id, suricata.alert.category, suricata.alert.signature
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.detection_finding"
       publish "ocsf"
@@ -679,8 +684,13 @@ pipelines:
       ocsf.severity_id = 1
       ocsf.class_uid = 4008
       ocsf.category_uid = 4
-      ocsf.activity_id = $activity_id[suricata.ftp.command].otherwise(99)
-      ocsf.activity_name = $activity_name[suricata.ftp.command].otherwise(suricata.ftp.command)
+      if suricata.ftp.command != null {
+        ocsf.activity_id = $activity_id[suricata.ftp.command].otherwise(99)
+        ocsf.activity_name = $activity_name[suricata.ftp.command].otherwise(suricata.ftp.command)
+      } else {
+        ocsf.activity_id = 99
+        ocsf.activity_name = suricata.ftp.command
+      }
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
       ocsf.time = suricata.timestamp
@@ -868,8 +878,6 @@ pipelines:
         ocsf.status_id = 0
         ocsf.status = "Unknown"
       }
-      ocsf.status_id = status_id
-      ocsf.status = status
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
@@ -1061,7 +1069,7 @@ pipelines:
           packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
         }
         drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
-       if suricata.flow.has("state") {
+        if suricata.flow.has("state") {
           ocsf.status_id = 99
           ocsf.status = suricata.flow.state
           drop suricata.flow.state 
