@@ -35,7 +35,7 @@ pipelines:
       ocsf.severity_id = 1
       ocsf.type_uid = 400106
       // === Occurrence ===
-      time = suricata.timestamp
+      ocsf.time = suricata.timestamp
       drop suricata.timestamp
       ocsf.duration = suricata.flow.end - suricata.flow.start
       ocsf.end_time = suricata.flow.end
@@ -53,18 +53,15 @@ pipelines:
       }
       drop suricata.event_type, suricata.flow_id
       // === Primary ===
-       if suricata.src_ip.is_v6() or suricata.dest_ip.is_v6() {
-      suricata.protocol_ver_id = 6
+      ocsf.connection_info.community_uid = suricata.community_id
+      if suricata.src_ip.is_v6() or suricata.dest_ip.is_v6() {
+        ocsf.connection_info.protocol_ver_id = 6
       } else {
-        suricata.protocol_ver_id = 4
+        ocsf.connection_info.protocol_ver_id = 4
       }
-      ocsf.connection_info = {
-        community_uid: suricata.community_id,
-        protocol_ver_id: suricata.protocol_ver_id,
-        protocol_name: suricata.proto.to_lower(),
-        protocol_num: $proto_nums[suricata.proto].otherwise(-1),
-      }
-      drop suricata.community_id, suricata.protocol_ver_id, suricata.proto
+      ocsf.connection_info.protocol_name = suricata.proto.to_lower()
+      ocsf.connection_info.protocol_num = $proto_nums.get(suricata.proto, -1)
+      drop suricata.community_id, suricata.proto
       ocsf.dst_endpoint = {
         ip: suricata.dest_ip,
         port: suricata.dest_port,
@@ -85,7 +82,6 @@ pipelines:
       drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
       ocsf.status_id = 99
       ocsf.status = "Other"
-      drop suricata.flow.age
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
