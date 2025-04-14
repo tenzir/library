@@ -66,8 +66,8 @@ pipelines:
       where @name == "zeek.conn"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $conn_states[zeek.conn_state].otherwise(6)
-      ocsf.activity_name = $activity_names[ocsf.activity_id].otherwise("Other")
+      ocsf.activity_id = $conn_states.get(zeek.conn_state, 6)
+      ocsf.activity_name = $activity_names.get(ocsf.activity_id, "Other")
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4001
@@ -94,25 +94,25 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       ocsf.app_name = zeek.service
       drop zeek.service
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
-        mac: zeek.orig_l2_addr,
+        mac: zeek.?orig_l2_addr,
         location: {
-          country: zeek.orig_cc,
+          country: zeek.?orig_cc,
         }
       }
       drop zeek.orig_l2_addr, zeek.orig_cc
       ocsf.dst_endpoint = {
         ip: zeek.id.resp_h,
         port: zeek.id.resp_p,
-        mac: zeek.resp_l2_addr,
+        mac: zeek.?resp_l2_addr,
         location: {
-          country: zeek.resp_cc,
+          country: zeek.?resp_cc,
         }
       }
       drop zeek.resp_l2_addr, zeek.resp_cc
@@ -120,7 +120,7 @@ pipelines:
         community_uid: zeek.community_id,
         flag_history: zeek.history,
         protocol_name: zeek.proto,
-        protocol_num: $proto_nums[zeek.proto].otherwise(-1),
+        protocol_num: $proto_nums.get(zeek.proto, -1),
       }
       drop zeek.history
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
@@ -213,7 +213,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       // === Primary ===
       ocsf.answers = zip(zeek.answers, zeek.TTLs).map(x, {
         rdata: x.left,
@@ -246,7 +246,7 @@ pipelines:
         direction: "Other",
         direction_id: 99,
         protocol_name: zeek.proto,
-        protocol_num: $proto_nums[zeek.proto].otherwise(-1),
+        protocol_num: $proto_nums.get(zeek.proto, -1),
       }
       drop zeek.proto
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
@@ -292,8 +292,8 @@ pipelines:
       where @name == "zeek.ftp"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $commands[zeek.command].otherwise(0)
-      ocsf.activity_name = $activity_names[ocsf.activity_id]
+      ocsf.activity_id = $commands.get(zeek.command, 0)
+      ocsf.activity_name = $activity_names.get(ocsf.activity_id)
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4008
@@ -316,7 +316,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       ocsf.file = {
         name: zeek.arg,
         size: zeek.file_size,
@@ -380,7 +380,7 @@ pipelines:
       where @name == "zeek.http"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $methods[zeek.method].otherwise(0)
+      ocsf.activity_id = $methods.get(zeek.method, 0)
       ocsf.activity_name = zeek.method
       drop zeek.method
       ocsf.category_uid = 4
@@ -406,7 +406,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       // === Primary ===
       if zeek.has("dest_host") {
         host = zeek.dest_host
@@ -489,7 +489,7 @@ pipelines:
       this = { zeek: this }
       unroll zeek.msg_types
       // === Classification ===
-      ocsf.activity_id = $msg_types[zeek.msg_types].otherwise(0)
+      ocsf.activity_id = $msg_types.get(zeek.msg_types, 0)
       if ocsf.activity_id == 0 {
         ocsf.activity_name = "Other"
       } else {
@@ -525,7 +525,7 @@ pipelines:
         uid: zeek.uids.sort().join(","),
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uids
+      drop zeek._write_ts, zeek.uids
       // === Primary ===
       ocsf.connection_info = {
         protocol_name: "udp",
@@ -597,7 +597,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -722,7 +722,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -823,7 +823,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -906,7 +906,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       ocsf.protocol_ver = zeek.client_build
       drop zeek.client_build
       ocsf.identifier_cookie = zeek.cookie
@@ -947,7 +947,7 @@ pipelines:
       }
       drop zeek.encryption_method
       ocsf.status = zeek.result
-      ocsf.status_id = $results[zeek.result].otherwise(0)
+      ocsf.status_id = $results.get(zeek.result, 0)
       drop zeek.result
       // === Profile: Host ===
       ocsf.host = {
@@ -1040,7 +1040,7 @@ pipelines:
         uid: zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek._write_ts, zeek.uid
       ocsf.tls = {
         certificate: {
           issuer: zeek.issuer,
@@ -1053,7 +1053,7 @@ pipelines:
         },
         ja3s_hash: {
           algorithm: 1,
-          value: zeek.ja3s,
+          value: zeek.?ja3s,
         },
         sni: zeek.server_name,
         version: zeek.version,
@@ -1069,7 +1069,7 @@ pipelines:
       )
       // NB: If we have an alert, `ssl_history` also contains [lL].
       if zeek.last_alert != null {
-        ocsf.tls.alert = $alert_codes[zeek.last_alert].otherwise(null)
+        ocsf.tls.alert = $alert_codes.get(zeek.last_alert, null)
       }
       // === Primary ===
       ocsf.src_endpoint = {
@@ -1094,7 +1094,7 @@ pipelines:
         ocsf.status_id = 2
         ocsf.status = "Failure"
         ocsf.status_detail = zeek.last_alert
-      } else if validation_status == "ok" {
+      } else if zeek.validation_status == "ok" {
         // There could be more `validation_status` values that mean success,
         // but it's difficult to find them. In Zeek, we'd need to grep through
         // all invocations of `x509_result_record` and trace the arguments.
@@ -1147,7 +1147,7 @@ pipelines:
         },
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts
+      drop zeek._write_ts
       ocsf.tls = {
         certificate: {
           serial_number: zeek.certificate.serial,
@@ -1155,7 +1155,7 @@ pipelines:
           expiration_time: zeek.certificate.not_valid_after,
           issuer: zeek.certificate.issuer,
           subject: zeek.certificate.subject,
-          fingerprints: [zeek.fingerprint],
+          fingerprints: [zeek.?fingerprint],
           version: zeek.certificate.version,
         },
         sans: zeek.san.dns,
