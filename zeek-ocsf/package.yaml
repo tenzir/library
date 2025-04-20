@@ -18,7 +18,6 @@ pipelines:
     name: conn.log to OCSF Network Activity
     description: Maps Zeek connection logs to OCSF Network Activity.
     definition: |
-      // tql2
       // The ground truth for connection state mapping is here:
       // https://github.com/zeek/zeek/blob/6671e95c6b07dfd59a12ec5507a5c3eb91f163ef/scripts/base/protocols/conn/main.zeek#L184
       let $conn_states = {
@@ -66,8 +65,8 @@ pipelines:
       where @name == "zeek.conn"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $conn_states[zeek.conn_state].otherwise(6)
-      ocsf.activity_name = $activity_names[ocsf.activity_id].otherwise("Other")
+      ocsf.activity_id = $conn_states.get(zeek.conn_state, 6)
+      ocsf.activity_name = $activity_names.get(ocsf.activity_id, "Other")
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4001
@@ -76,53 +75,47 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
-      ocsf.duration = zeek.duration
-      drop zeek.duration
+      move ocsf.time = zeek.ts
+      move ocsf.duration = zeek.duration
       ocsf.end_time = ocsf.time + ocsf.duration
       ocsf.start_time = ocsf.time
       // === Context ===
       ocsf.metadata = {
         log_name: "conn.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
-      ocsf.app_name = zeek.service
-      drop zeek.service
+      drop zeek.?_path // implied in metadata.log_name
+      move ocsf.app_name = zeek.service
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
-        mac: zeek.orig_l2_addr,
+        mac: move zeek.?orig_l2_addr,
         location: {
-          country: zeek.orig_cc,
+          country: move zeek.?orig_cc,
         }
       }
-      drop zeek.orig_l2_addr, zeek.orig_cc
       ocsf.dst_endpoint = {
         ip: zeek.id.resp_h,
         port: zeek.id.resp_p,
-        mac: zeek.resp_l2_addr,
+        mac: move zeek.?resp_l2_addr,
         location: {
-          country: zeek.resp_cc,
+          country: move zeek.?resp_cc,
         }
       }
-      drop zeek.resp_l2_addr, zeek.resp_cc
       ocsf.connection_info = {
-        community_uid: zeek.community_id,
-        flag_history: zeek.history,
-        protocol_name: zeek.proto,
-        protocol_num: $proto_nums[zeek.proto].otherwise(-1),
+        community_uid: move zeek.?community_id,
+        flag_history: move zeek.history,
+        protocol_name: move zeek.proto,
+        protocol_num: $proto_nums.get(zeek.proto, -1)
       }
-      drop zeek.history
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
         ocsf.connection_info.protocol_ver_id = 6
       } else {
@@ -142,15 +135,9 @@ pipelines:
         ocsf.connection_info.direction = "Unknown"
         ocsf.connection_info.direction_id = 0
       }
-      drop (
-        zeek.community_id,
-        zeek.proto,
-        zeek.local_orig,
-        zeek.local_resp,
-      )
+      drop zeek.local_orig, zeek.local_resp
       ocsf.status = "Other"
-      ocsf.status_code = zeek.conn_state
-      drop zeek.conn_state
+      move ocsf.status_code = zeek.conn_state
       ocsf.status_id = 99
       ocsf.traffic = {
         bytes_in: zeek.resp_bytes,
@@ -168,7 +155,7 @@ pipelines:
         zeek.resp_pkts,
         zeek.orig_pkts,
       )
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -176,7 +163,6 @@ pipelines:
     name: dns.log to OCSF DNS Activity
     description: Maps Zeek DNS logs to OCSF DNS Activity.
     definition: |
-      // tql2
       let $proto_nums = {
         tcp: 6,
         udp: 17,
@@ -198,42 +184,37 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       ocsf.start_time = ocsf.time
       // === Context ===
       ocsf.metadata = {
         log_name: "dns.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
-      ocsf.answers = zip(zeek.answers, zeek.TTLs).map(x, {
+      ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x, {
         rdata: x.left,
         ttl: x.right,
       })
-      drop zeek.answers, zeek.TTLs
       ocsf.query = {
-        class: zeek.qclass_name,
-        hostname: zeek.query,
+        class: move zeek.qclass_name,
+        hostname: move zeek.query,
         // TODO: go deeper and extract the log semantics.
         //opcode_id: 0,
-        type: zeek.qtype_name,
+        type: move zeek.qtype_name,
       }
       ocsf.query_time = ocsf.time
       ocsf.response_time = ocsf.time
-      ocsf.rcode = zeek.rcode_name
-      drop zeek.rcode_name
-      ocsf.rcode_id = zeek.rcode
-      drop zeek.rcode
-      drop zeek.qclass_name, zeek.query, zeek.qtype_name
+      move ocsf.rcode = zeek.rcode_name
+      move ocsf.rcode_id = zeek.rcode
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
@@ -245,10 +226,9 @@ pipelines:
       ocsf.connection_info = {
         direction: "Other",
         direction_id: 99,
-        protocol_name: zeek.proto,
-        protocol_num: $proto_nums[zeek.proto].otherwise(-1),
+        protocol_name: move zeek.proto,
+        protocol_num: $proto_nums.get(zeek.proto, -1),
       }
-      drop zeek.proto
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
         ocsf.connection_info.protocol_ver_id = 6
       } else {
@@ -265,7 +245,6 @@ pipelines:
     name: ftp.log to OCSF FTP Activity
     description: Maps Zeek FTP logs to OCSF FTP Activity.
     definition: |
-      // tql2
       let $commands = {
         STOR: 1,
         APPE: 1,
@@ -292,7 +271,7 @@ pipelines:
       where @name == "zeek.ftp"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $commands[zeek.command].otherwise(0)
+      ocsf.activity_id = $commands.get(zeek.command, 0)
       ocsf.activity_name = $activity_names[ocsf.activity_id]
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
@@ -302,21 +281,20 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       // === Context ===
       ocsf.metadata = {
         log_name: "ftp.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       ocsf.file = {
         name: zeek.arg,
         size: zeek.file_size,
@@ -342,22 +320,18 @@ pipelines:
         ocsf.connection_info.protocol_ver_id = 4
       }
       drop zeek.id
-      ocsf.command = zeek.command
-      drop zeek.command
+      move ocsf.command = zeek.command
       ocsf.codes = [zeek.reply_code]
-      ocsf.status_code = zeek.reply_code
-      drop zeek.reply_code
-      ocsf.status_detail = zeek.reply_msg
-      drop zeek.reply_msg
+      move ocsf.status_code = zeek.reply_code
+      move ocsf.status_detail = zeek.reply_msg
       if zeek.data_channel.passive {
         ocsf.type = "passive"
       } else {
         ocsf.type = "active"
       }
       drop zeek.data_channel.passive
-      ocsf.port = zeek.data_channel.resp_p
-      drop zeek.data_channel.resp_p
-      this = {...ocsf, unmapped: zeek}
+      move ocsf.port = zeek.data_channel.resp_p
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.ftp_activity"
       publish "ocsf"
 
@@ -365,7 +339,6 @@ pipelines:
     name: http.log to OCSF HTTP Activity
     description: Maps Zeek HTTP logs to OCSF HTTP Activity.
     definition: |
-      // tql2
       let $methods = {
         CONNECT: 1,
         DELETE: 2,
@@ -380,9 +353,8 @@ pipelines:
       where @name == "zeek.http"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $methods[zeek.method].otherwise(0)
-      ocsf.activity_name = zeek.method
-      drop zeek.method
+      ocsf.activity_id = $methods.get(zeek.method, 0)
+      move ocsf.activity_name = zeek.method
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4002
@@ -391,22 +363,21 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       ocsf.start_time = ocsf.time
       // === Context ===
       ocsf.metadata = {
         log_name: "http.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
       if zeek.has("dest_host") {
         host = zeek.dest_host
@@ -415,28 +386,20 @@ pipelines:
       }
       ocsf.http_request = {
           http_method: ocsf.activity_name,
-          referrer: zeek.referrer,
+          referrer: move zeek.referrer,
           url: {
-            hostname: host,
+            hostname: move host,
             // TODO: Zeek's uri field is actually the path plus all
             // parameters. Take this apart with string or URL functions.
-            path: zeek.uri,
+            path: move zeek.uri,
           },
-          user_agent: zeek.user_agent,
-          version: zeek.version,
+          user_agent: move zeek.user_agent,
+          version: move zeek.version,
       }
-      drop (
-        zeek.referrer,
-        zeek.host,
-        zeek.uri,
-        zeek.user_agent,
-        zeek.version,
-      )
       ocsf.http_response = {
-        code: zeek.status_code,
-        status: zeek.status_msg,
+        code: move zeek.status_code,
+        status: move zeek.status_msg,
       }
-      drop zeek.status_code, zeek.status_msg
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
@@ -459,7 +422,7 @@ pipelines:
       drop zeek.id
       ocsf.status = "Unknown"
       ocsf.status_id = 0
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.http_activity"
       publish "ocsf"
 
@@ -467,7 +430,6 @@ pipelines:
     name: dhcp.log to OCSF DHCP Activity
     description: Maps Zeek DHCP logs to OCSF DHCP Activity.
     definition: |
-      // tql2
       let $msg_types = {
         DISCOVER: 1,
         OFFER: 2,
@@ -489,13 +451,12 @@ pipelines:
       this = { zeek: this }
       unroll zeek.msg_types
       // === Classification ===
-      ocsf.activity_id = $msg_types[zeek.msg_types].otherwise(0)
+      ocsf.activity_id = $msg_types.get(zeek.msg_types, 0)
       if ocsf.activity_id == 0 {
         ocsf.activity_name = "Other"
       } else {
-        ocsf.activity_name = zeek.msg_types.to_title()
+        ocsf.activity_name = (move zeek.msg_types).to_title()
       }
-      drop zeek.msg_types
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4004
@@ -504,28 +465,26 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       // The duration is the time from the first to the last DORA message that
       // Zeek aggregates into a single log.
-      ocsf.duration = zeek.duration
-      drop zeek.duration
+      move ocsf.duration = zeek.duration
       ocsf.start_time = ocsf.time
       ocsf.end_time = ocsf.time + ocsf.duration
       // === Context ===
       ocsf.metadata = {
         log_name: "dhcp.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
         // The `uids` field in the DHCP log is an array of all conn UIDs.
-        uid: zeek.uids.sort().join(","),
+        uid: (move zeek.uids).sort().join(","),
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uids
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
       ocsf.connection_info = {
         protocol_name: "udp",
@@ -537,22 +496,18 @@ pipelines:
         ocsf.connection_info.protocol_ver_id = 4
       }
       ocsf.src_endpoint = {
-        hostname: zeek.host_name,
-        ip: zeek.client_addr,
-        domain: zeek.client_fqdn,
-        mac: zeek.mac,
+        hostname: move zeek.host_name,
+        ip: move zeek.client_addr,
+        domain: move zeek.client_fqdn,
+        mac: move zeek.mac,
       }
-      drop zeek.host_name, zeek.client_addr, zeek.client_fqdn, zeek.mac
       ocsf.dst_endpoint = {
-        ip: zeek.server_addr,
-        domain: zeek.domain,
+        ip: move zeek.server_addr,
+        domain: move zeek.domain,
       }
-      drop zeek.server_addr, zeek.domain
-      ocsf.lease_dur = zeek.lease_time
-      drop zeek.lease_time
-      ocsf.transaction_uid = zeek.trans_id
-      drop zeek.trans_id
-      this = {...ocsf, unmapped: zeek}
+      move ocsf.lease_dur = zeek.lease_time
+      move ocsf.transaction_uid = zeek.trans_id
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.dhcp_activity"
       publish "ocsf"
 
@@ -560,7 +515,6 @@ pipelines:
     name: smb_files.log to OCSF SMB Activity
     description: Maps Zeek SMB files logs to OCSF SMB Activity.
     definition: |
-      // tql2
       subscribe "zeek"
       where @name == "zeek.smb_files"
       this = { zeek: this }
@@ -588,16 +542,16 @@ pipelines:
       // === Context ===
       ocsf.metadata = {
         log_name: "smb_files.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -617,10 +571,8 @@ pipelines:
         ocsf.connection_info.protocol_ver_id = 4
       }
       drop zeek.id
-      ocsf.file = zeek.path
-      drop zeek.path
-      ocsf.share = zeek.name
-      drop zeek.name
+      move ocsf.file = zeek.path
+      move ocsf.share = zeek.name
       if zeek.action.starts_with("SMB::FILE") {
         ocsf.share_type_id = 1
         ocsf.share_type = "File"
@@ -635,7 +587,7 @@ pipelines:
         ocsf.share_type = "Unknown"
       }
       drop zeek.action
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.smb_activity"
       publish "ocsf"
 
@@ -643,7 +595,6 @@ pipelines:
     name: ssh.log to OCSF SSH Activity
     description: Maps Zeek SSH logs to OCSF SSH Activity.
     definition: |
-      // tql2
       // The Direction enum in Zeek can be INBOUND, OUTBOUND, BIDIRECTIONAL, or
       // NO_DIRECTION. NB: there is no equivalent to Lateral in Zeek, so we
       // cannot map to it.
@@ -706,44 +657,40 @@ pipelines:
         ocsf.severity = "Informational"
       }
       // === Occurrence ===
-      ocsf.count = zeek.auth_attempts
-      drop zeek.auth_attempts
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.count = zeek.auth_attempts
+      move ocsf.time = zeek.ts
       // === Context ===
       ocsf.metadata = {
         log_name: "ssh.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
         agent_list: [{
-          name: zeek.client,
+          name: move zeek.client,
           type: "Remote Access",
           type_uid: 9,
         }]
       }
-      drop zeek.client
       ocsf.dst_endpoint = {
         ip: zeek.id.resp_h,
         port: zeek.id.resp_p,
         agent_list: [{
-          name: zeek.server,
+          name: move zeek.server,
           type: "Remote Access",
           type_uid: 9,
         }]
       }
-      drop zeek.server
       ocsf.connection_info = {
         protocol_name: "tcp",
         protocol_num: 6,
@@ -762,15 +709,13 @@ pipelines:
       ocsf.connection_info.direction_id = $direction[zeek.direction].id
       drop zeek.direction
       ocsf.server_hassh = {
-        algorithm: zeek.hasshServerAlgorithms,
-        fingerprint: zeek.hasshServer,
+        algorithm: move zeek.hasshServerAlgorithms,
+        fingerprint: move zeek.hasshServer,
       }
-      drop zeek.hasshServer, zeek.hasshServerAlgorithms
       ocsf.client_hassh = {
-        algorithm: zeek.hasshAlgorithms,
-        fingerprint: zeek.hassh,
+        algorithm: move zeek.hasshAlgorithms,
+        fingerprint: move zeek.hassh,
       }
-      drop zeek.hassh, zeek.hasshAlgorithms
       // The Authentication Type can be deduced if we have the `inferences`
       // package.
       if "KS" in zeek.inferences {
@@ -780,7 +725,7 @@ pipelines:
         ocsf.auth_type_uid = 0
         ocsf.auth_type = "Unknown"
       }
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.ssh_activity"
       publish "ocsf"
 
@@ -794,7 +739,6 @@ pipelines:
     name: smtp.log to OCSF Email Activity
     description: Maps Zeek SMTP logs to OCSF Email Activity.
     definition: |
-      // tql2
       subscribe "zeek"
       where @name == "zeek.smtp"
       this = { zeek: this }
@@ -809,21 +753,20 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       // === Context ===
       ocsf.metadata = {
         log_name: "smtp.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -832,9 +775,8 @@ pipelines:
       ocsf.dst_endpoint = {
         ip: zeek.id.resp_h,
         port: zeek.id.resp_p,
-        intermediate_ips: zeek.path,
+        intermediate_ips: move zeek.path,
       }
-      drop zeek.path
       ocsf.connection_info = {
         protocol_name: "tcp",
         protocol_num: 6,
@@ -846,21 +788,18 @@ pipelines:
       }
       drop zeek.id
       ocsf.email = {
-        from: zeek.from,
-        to: zeek.to,
-        cc: zeek.cc,
-        reply_to: zeek.reply_to,
-        message_uid: zeek.msg_id,
-        smtp_from: zeek.mailfrom,
-        smtp_to: zeek.rcptto,
-        subject: zeek.subject,
+        from: move zeek.from,
+        to: move zeek.to,
+        cc: move zeek.cc,
+        reply_to: move zeek.reply_to,
+        message_uid: move zeek.msg_id,
+        smtp_from: move zeek.mailfrom,
+        smtp_to: move zeek.rcptto,
+        subject: move zeek.subject,
       }
-      drop zeek.from, zeek.to, zeek.cc, zeek.reply_to, zeek.msg_id, zeek.mailfrom, zeek.rcptto, zeek.subject
-      ocsf.smtp_hello = zeek.helo
-      drop zeek.helo
-      ocsf.status_detail = zeek.last_reply
-      drop zeek.last_reply
-      this = {...ocsf, unmapped: zeek}
+      move ocsf.smtp_hello = zeek.helo
+      move ocsf.status_detail = zeek.last_reply
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.email_activity"
       publish "ocsf"
 
@@ -868,7 +807,6 @@ pipelines:
     name: rdp.log to OCSF RDP Activity
     description: Maps Zeek RDP logs to OCSF RDP Activity.
     definition: |
-      // tql2
       let $results = {
         "encrypted": 0,
         "Success": 1,
@@ -891,30 +829,26 @@ pipelines:
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
-      ocsf.time = zeek.ts
-      drop zeek.ts
+      move ocsf.time = zeek.ts
       // === Context ===
       ocsf.metadata = {
         log_name: "rdp.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
         profiles: ["host"],
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
-      ocsf.protocol_ver = zeek.client_build
-      drop zeek.client_build
-      ocsf.identifier_cookie = zeek.cookie
-      drop zeek.cookie
+      drop zeek.?_path // implied in metadata.log_name
+      move ocsf.protocol_ver = zeek.client_build
+      move ocsf.identifier_cookie = zeek.cookie
       ocsf.keyboard_info = {
-        keyboard_layout: zeek.keyboard_layout,
+        keyboard_layout: move zeek.keyboard_layout,
       }
-      drop zeek.keyboard_layout
       // === Primary ===
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
@@ -935,23 +869,20 @@ pipelines:
       }
       drop zeek.id
       ocsf.display = {
-        physical_height: zeek.desktop_height,
-        physical_width: zeek.desktop_width,
-        color_depth: int(zeek.requested_color_depth.replace("bit", "")),
+        physical_height: move zeek.desktop_height,
+        physical_width: move zeek.desktop_width,
+        color_depth: int(move(zeek.requested_color_depth).replace("bit", "")),
       }
-      drop zeek.desktop_height, zeek.desktop_width, zeek.requested_color_depth
       ocsf.tls = {
-        key_length: int(zeek.encryption_method.replace("bit", "")),
+        key_length: int((move zeek.encryption_method).replace("bit", "")),
         // The version is required, but not present in the data.
         version: null,
       }
-      drop zeek.encryption_method
       ocsf.status = zeek.result
-      ocsf.status_id = $results[zeek.result].otherwise(0)
-      drop zeek.result
+      ocsf.status_id = $results.get(move zeek.result, 0)
       // === Profile: Host ===
       ocsf.host = {
-        name: zeek.client_name,
+        name: move zeek.client_name,
         os: {
           name: "Windows",
           vendor_name: "Microsoft",
@@ -960,12 +891,11 @@ pipelines:
           type: "Windows",
         },
         // 64-byte clientDigProductId
-        uid: zeek.client_dig_product_id,
+        uid: move zeek.client_dig_product_id,
         type_id: 2,
         type: "Desktop",
       }
-      drop zeek.client_name, zeek.client_dig_product_id
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.rdp_activity"
       publish "ocsf"
 
@@ -973,7 +903,6 @@ pipelines:
     name: ssl.log to OCSF Network Activity
     description: Maps Zeek SSL logs to OCSF Network Activity.
     definition: |
-      // tql2
       // Converted from:
       // https://github.com/zeek/zeek/blob/fdf887ce3bd80e0b466a973d5063c5882303d282/scripts/base/protocols/ssl/consts.zeek#L113
       let $alert_codes = {
@@ -1031,45 +960,36 @@ pipelines:
       // === Context ===
       ocsf.metadata = {
         log_name: "ssl.log",
-        logged_time: zeek._write_ts,
+        logged_time: move zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
           cpe_name: "cpe:2.3:a:zeek:zeek",
         },
-        uid: zeek.uid,
+        uid: move zeek.uid,
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts, zeek.uid
+      drop zeek.?_path // implied in metadata.log_name
       ocsf.tls = {
         certificate: {
-          issuer: zeek.issuer,
-          subject: zeek.subject,
+          issuer: move zeek.issuer,
+          subject: move zeek.subject,
         },
-        cipher: zeek.cipher,
+        cipher: move zeek.cipher,
         ja3_hash: {
           algorithm: 1,
-          value: zeek.ja3,
+          value: move zeek.ja3,
         },
         ja3s_hash: {
           algorithm: 1,
-          value: zeek.ja3s,
+          value: move zeek.ja3s,
         },
-        sni: zeek.server_name,
-        version: zeek.version,
+        sni: move zeek.server_name,
+        version: move zeek.version,
       }
-      drop (
-        zeek.issuer,
-        zeek.subject,
-        zeek.cipher,
-        zeek.ja3,
-        zeek.ja3s,
-        zeek.server_name,
-        zeek.version,
-      )
       // NB: If we have an alert, `ssl_history` also contains [lL].
       if zeek.last_alert != null {
-        ocsf.tls.alert = $alert_codes[zeek.last_alert].otherwise(null)
+        ocsf.tls.alert = $alert_codes.get(zeek.last_alert)
       }
       // === Primary ===
       ocsf.src_endpoint = {
@@ -1102,16 +1022,14 @@ pipelines:
         // Going with just "ok" here is simply going off empirical data.
         ocsf.status_id = 1
         ocsf.status = "Success"
-        ocsf.status_detail = zeek.validation_status
-        drop zeek.validation_status
+        move ocsf.status_detail = zeek.validation_status
       } else {
         ocsf.status_id = 0
         ocsf.status = "Unknown"
-        ocsf.status_detail = zeek.validation_status
-        drop zeek.validation_status
+        move ocsf.status_detail = zeek.validation_status
       }
       drop zeek.last_alert
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1119,7 +1037,6 @@ pipelines:
     name: x509.log to OCSF Network Activity
     description: Maps Zeek x509 logs to OCSF Network Activity.
     definition: |
-      // tql2
       subscribe "zeek"
       where @name == "zeek.x509"
       this = { zeek: this }
@@ -1139,7 +1056,7 @@ pipelines:
       // === Context ===
       ocsf.metadata = {
         log_name: "x509.log",
-        logged_time: zeek._write_ts,
+        logged_time: zeek.?_write_ts,
         product: {
           name: "Zeek",
           vendor_name: "Zeek",
@@ -1147,30 +1064,20 @@ pipelines:
         },
         version: "1.4.0",
       }
-      drop zeek._path, zeek._write_ts
+      drop zeek.?_path // implied in metadata.log_name
       ocsf.tls = {
         certificate: {
-          serial_number: zeek.certificate.serial,
-          created_time: zeek.certificate.not_valid_before,
-          expiration_time: zeek.certificate.not_valid_after,
-          issuer: zeek.certificate.issuer,
-          subject: zeek.certificate.subject,
-          fingerprints: [zeek.fingerprint],
-          version: zeek.certificate.version,
+          serial_number: move zeek.certificate.serial,
+          created_time: move zeek.certificate.not_valid_before,
+          expiration_time: move zeek.certificate.not_valid_after,
+          issuer: move zeek.certificate.issuer,
+          subject: move zeek.certificate.subject,
+          fingerprints: [move zeek.fingerprint],
+          version: move zeek.certificate.version,
         },
-        sans: zeek.san.dns,
+        sans: move zeek.san.dns,
         version: null,
       }
-      drop (
-        zeek.certificate.serial,
-        zeek.certificate.issuer,
-        zeek.certificate.not_valid_before,
-        zeek.certificate.not_valid_after,
-        zeek.certificate.subject,
-        zeek.certificate.version,
-        zeek.fingerprint,
-        zeek.san.dns,
-      )
-      this = {...ocsf, unmapped: zeek}
+      this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.network_activity"
       publish "ocsf"
