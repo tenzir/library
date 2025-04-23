@@ -22,93 +22,69 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $proto_nums = {
+        TCP: 6,
+        UDP: 17,
+        ICMP: 1,
+      }
       subscribe "suricata"
       where @name == "suricata.flow"
-      this = { event: this }
-      if event.proto == "TCP" {
-        protocol_num = 6
-      } else if event.proto == "UDP" {
-        protocol_num = 17
-      } else if event.proto == "ICMP" {
-        protocol_num = 1
+      this = { suricata: this }
+       // === Classification ===
+      ocsf.activity_id = 6
+      ocsf.category_uid = 4
+      ocsf.class_uid = 4001
+      ocsf.severity_id = 1
+      ocsf.type_uid = 400106
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      ocsf.duration = suricata.flow.end - suricata.flow.start
+      ocsf.end_time = suricata.flow.end
+      ocsf.start_time = suricata.flow.start
+      drop suricata.flow.end, suricata.flow.start
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
+      }
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.connection_info.community_uid = suricata.community_id
+      if suricata.src_ip.is_v6() or suricata.dest_ip.is_v6() {
+        ocsf.connection_info.protocol_ver_id = 6
       } else {
-        protocol_num = -1
+        ocsf.connection_info.protocol_ver_id = 4
       }
-      if event.src_ip.is_v6() or event.dest_ip.is_v6() {
-        protocol_ver_id = 6
-      } else {
-        protocol_ver_id = 4
+      ocsf.connection_info.protocol_name = suricata.proto.to_lower()
+      ocsf.connection_info.protocol_num = $proto_nums.get(suricata.proto, -1)
+      drop suricata.community_id, suricata.proto
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      this = {
-        // --- Classification (required) ---
-        activity_id: 6,
-        category_uid: 4,
-        class_uid: 4001,
-        severity_id: 1,
-        type_uid: 400106,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.4.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Occurrence (optional) ---
-        duration: event.flow.end - event.flow.start,
-        end_time: event.flow.end,
-        start_time: event.flow.start,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        connection_info: {
-          community_uid: event.community_id,
-          protocol_ver_id: protocol_ver_id,
-          protocol_name: event.proto.to_lower(),
-          protocol_num: protocol_num,
-        },
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: 99,
-        status: "Other",
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.proto,
-        unmapped.community_id,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.start,
-        unmapped.flow.end,
-        unmapped.flow.age,
-      )
+      drop suricata.dest_ip, suricata.dest_port, suricata.src_ip, suricata.src_port
+      ocsf.traffic = {
+        bytes_in: suricata.flow.bytes_toclient,
+        bytes_out: suricata.flow.bytes_toserver,
+        packets_in: suricata.flow.pkts_toclient,
+        packets_out: suricata.flow.pkts_toserver,
+        bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+        packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+      }
+      drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+      ocsf.status_id = 99
+      ocsf.status = "Other"
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -119,36 +95,72 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $rcode_id = {
+        NOERROR: 0,
+        FORMERROR: 1,
+        SERVERROR: 2,
+        NXDOMAIN: 3,
+        NOTIMP: 4,
+        REFUSED: 5,
+        YXDOMAIN: 6,
+        YXRRSET: 7,
+        NXRRSET: 8,
+        NOTAUTH: 9,
+        NOTZONE: 10,
+        DSOTYPENI: 11,
+        BADSIG_VERS: 16,
+        BADKEY: 17,
+        BADTIME: 18,
+        BADMODE: 19,
+        BADNAME: 20,
+        BADALG: 21,
+        BADTRUNC: 22,
+        BADCOOKIE: 23,
+      }
+      let $rcode = {
+        NOERROR: "NoError",
+        FORMERROR: "FormError",
+        SERVERROR: "ServError",
+        NXDOMAIN: "NxDomain",
+        NOTIMP: "NotImp",
+        REFUSED: "Refused",
+        YXDOMAIN: "YXDomain",
+        YXRRSET: "YXRRSet",
+        NXRRSET: "NXRRSet",
+        NOTAUTH: "NotAuth",
+        NOTZONE: "NotZone",
+      }
       subscribe "suricata"
       where @name == "suricata.dns"
-      this = { event: this }
+      this = { suricata: this }
+      // === Classification ===
       // TODO: Proper request/response event splitting.
       has_query = false
       has_response = false
-      if event.dns.rrname != null {
-        // Version <=7.0 DNS query logs.
+      if suricata.dns.has("queries") {
+        // Version >=8 DNS query logs.
         // See https://docs.suricata.io/en/latest/upgrade/8.0-dns-logging-changes.html
-        query = {
-          hostname: event.dns.rrname,
-          type: event.dns.rrtype,
+        ocsf.query = {
+          hostname: suricata.dns.queries.first().rrname,
+          type: suricata.dns.queries.first().rrtype,
+        }
+        has_query = true
+      } else {
+        // Version <=7 DNS query logs.
+        // See https://docs.suricata.io/en/latest/upgrade/8.0-dns-logging-changes.html
+        ocsf.query = {
+          hostname: suricata.dns.rrname,
+          type: suricata.dns.rrtype,
         }
         has_query = true
       }
-      if event.dns.queries[0].rrname != null {
-        // Version >=8.0 DNS query logs.
-        // See https://docs.suricata.io/en/latest/upgrade/8.0-dns-logging-changes.html
-        query = {
-          hostname: event.dns.queries[0].rrname,
-          type: event.dns.queries[0].rrtype,
-        }
-        has_query = true
-      }
-      answers = event.dns.answers.map(answer, {
+      drop suricata.dns.rrname, suricata.dns.rrtype
+      ocsf.answers = suricata.dns.answers.map(answer, {
         type: answer.rrtype,
         rdata: answer.rdata,
         ttl: answer.ttl,
       })
-      has_response = event.dns.answers.length().otherwise(0) > 0
+      has_response = suricata.dns.length() != null and suricata.dns.answers.length() > 0
       if (has_query and has_response) {
         activity_id = 6
         type_uid = 400306
@@ -159,110 +171,42 @@ pipelines:
         activity_id = 2
         type_uid = 400302
       }
-      rcode = event.dns.rcode
-      if (rcode == "NOERROR") {
-        rcode_id = 0
-        rcode = "NoError"
-      } else if (rcode == "FORMERROR") {
-        rcode_id = 1
-        rcode = "FormError"
-      } else if (rcode == "SERVERROR") {
-        rcode_id = 2
-        rcode = "ServError"
-      } else if (rcode == "NXDOMAIN") {
-        rcode_id = 3
-        rcode = "NxDomain"
-      } else if (rcode == "NOTIMP") {
-        rcode_id = 4
-        rcode = "NotImp"
-      } else if (rcode == "REFUSED") {
-        rcode_id = 5
-        rcode = "Refused"
-      } else if (rcode == "YXDOMAIN") {
-        rcode_id = 6
-        rcode = "YXDomain"
-      } else if (rcode == "YXRRSET") {
-        rcode_id = 7
-        rcode = "YXRRSet"
-      } else if (rcode == "NXRRSET") {
-        rcode_id = 8
-        rcode = "NXRRSet"
-      } else if (rcode == "NOTAUTH") {
-        rcode_id = 9
-        rcode = "NotAuth"
-      } else if (rcode == "NOTZONE") {
-        rcode_id = 10
-        rcode = "NotZone"
-      } else if (rcode == "DSOTYPENI") {
-        rcode_id = 11
-      } else if (rcode == "BADSIG_VERS") {
-        rcode_id = 16
-      } else if (rcode == "BADKEY") {
-        rcode_id = 17
-      } else if (rcode == "BADTIME") {
-        rcode_id = 18
-      } else if (rcode == "BADMODE") {
-        rcode_id = 19
-      } else if (rcode == "BADNAME") {
-        rcode_id = 20
-      } else if (rcode == "BADALG") {
-        rcode_id = 21
-      } else if (rcode == "BADTRUNC") {
-        rcode_id = 22
-      } else if (rcode == "BADCOOKIE") {
-        rcode_id = 23
-      } else {
-        rcode_id = 99
+      drop suricata.dns.answers
+      ocsf.type_uid = type_uid
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4003
+      ocsf.category_uid = 4
+      ocsf.activity_id = activity_id
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: type_uid,
-        severity_id: 1,
-        class_uid: 4003,
-        category_uid: 4,
-        activity_id: activity_id,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        status_id: 1,
-        rcode_id: rcode_id,
-        rcode: rcode,
-        query: query,
-        answers: answers,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.dns.rcode,
-        unmapped.dns.rrtype,
-        unmapped.dns.rrname,
-        unmapped.dns.answers
-      )
+      drop suricata.src_ip, suricata.src_port
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.status_id = 1
+      ocsf.rcode_id = $rcode_id.get(suricata.dns.rcode, 99)
+      ocsf.rcode = $rcode.get(suricata.dns.rcode, "Unknown")
+      drop suricata.dns.rcode
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.dns_activity"
       publish "ocsf"
 
@@ -273,115 +217,83 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $activity_id = {
+        FILE_SUPERSEDE: 1,
+        FILE_OPEN: 2,
+        FILE_CREATE: 3,
+        FILE_OPEN_IF: 4,
+        FILE_OVERWRITE: 5,
+        FILE_OVERWRITE_IF: 6,
+      }
+      let $activity_name = {
+        FILE_SUPERSEDE: "File Supersede",
+        FILE_OPEN: "File Open",
+        FILE_CREATE: "File Create",
+        FILE_OPEN_IF: "File Open If",
+        FILE_OVERWRITE: "File Overwrite",
+        FILE_OVERWRITE_IF: "File Overwrite If",
+      }
       subscribe "suricata"
       where @name == "suricata.smb"
-      this = { event: this }
-      tree_uid = string(event.smb.tree_id)
-      if event.smb.filename != null {
-        file = {
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4006
+      ocsf.category_uid = 4
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.activity_id = $activity_id.get(suricata.smb.disposition, 99)
+      ocsf.activity_name = $activity_name.get(suricata.smb.disposition, suricata.smb.command)
+      drop suricata.smb.disposition, suricata.smb.command
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
+      }
+      drop suricata.event_type, suricata.flow_id
+      ocsf.dialect = suricata.smb.dialect
+      drop suricata.smb.dialect
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      if suricata.smb.status_code == "0x0" {
+        ocsf.status_id = 1
+        ocsf.status = "Success"
+      } else {
+        ocsf.status_id = 99
+        ocsf.status = suricata.smb.status
+      }
+      drop suricata.smb.status_code, suricata.smb.status
+      if suricata.smb.filename != null {
+        ocsf.file = {
           type_id: 0,
-          name: event.smb.filename,
-          created_time: event.smb.created,
-          modified_time: event.smb.modified,
-          accessed_time: event.smb.accessed,
+          name: suricata.smb.filename,
+          created_time: suricata.smb.created,
+          modified_time: suricata.smb.modified,
+          accessed_time: suricata.smb.accessed,
         }
       } else {
-        file = null
+        ocsf.file = null
       }
-      if event.smb.status_code == "0x0" {
-        status_id = 1
-        status = "Success"
-      } else {
-        status_id = 99
-        status = event.smb.status
-      }
-      if event.smb.disposition == "FILE_SUPERSEDE" {
-        type_uid = 400601
-        activity_id = 1
-        activity_name = "File Supersede"
-      } else if event.smb.disposition == "FILE_OPEN" {
-        type_uid = 400602
-        activity_id = 2
-        activity_name = "File Open"
-      } else if event.smb.disposition == "FILE_CREATE" {
-        type_uid = 400603
-        activity_id = 3
-        activity_name = "File Create"
-      } else if event.smb.disposition == "FILE_OPEN_IF" {
-        type_uid = 400604
-        activity_id = 4
-        activity_name = "File Open If"
-      } else if event.smb.disposition == "FILE_OVERWRITE" {
-        type_uid = 400605
-        activity_id = 5
-        activity_name = "File Overwrite"
-      } else if event.smb.disposition == "FILE_OVERWRITE_IF" {
-        type_uid = 400606
-        activity_id = 6
-        activity_name = "File Overwrite If"
-      } else {
-        type_uid = 400699
-        activity_id = 99
-        activity_name = event.smb.command
-      }
-      this = {
-        // --- Classification (required) ---
-        type_uid: type_uid,
-        severity_id: 1,
-        class_uid: 4006,
-        category_uid: 4,
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        activity_id: activity_id,
-        // --- Classification (optional) ---
-        activity_name: activity_name,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (recommended) ---
-        dialect: event.smb.dialect,
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        status_id: status_id,
-        status: status,
-        file: file,
-        tree_uid: tree_uid,
-      }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.smb.tree_id,
-        unmapped.smb.dialect,
-        unmapped.smb.disposition,
-        unmapped.smb.filename,
-        unmapped.smb.created,
-        unmapped.smb.modified,
-        unmapped.smb.accessed,
-        unmapped.smb.status_code,
-        unmapped.smb.status,
-      )
+      drop suricata.smb.filename, suricata.smb.created, suricata.smb.modified, suricata.smb.accessed
+      ocsf.tree_uid = string(suricata.smb.tree_id)
+      drop suricata.smb.tree_id
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.smb_activity"
       publish "ocsf"
 
@@ -395,58 +307,55 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.alert"
-      this = { event: this }
-      if event.alert.severity == null {
-        severity_id = 0
-      } else if event.alert.severity == 1 {
-        severity_id = 4
-      } else if event.alert.severity == 2 {
-        severity_id = 3
-      } else if event.alert.severity == 3 {
-        severity_id = 2
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 200401
+      if suricata.alert.severity == null {
+        ocsf.severity_id = 0
+      } else if suricata.alert.severity == 1 {
+        ocsf.severity_id = 4
+      } else if suricata.alert.severity == 2 {
+        ocsf.severity_id = 3
+      } else if suricata.alert.severity == 3 {
+        ocsf.severity_id = 2
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 200401,
-        severity_id: severity_id,
-        class_uid: 2004,
-        category_uid: 2,
-        activity_id: 1,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
+      drop suricata.alert.severity
+      ocsf.class_uid = 2004
+      ocsf.category_uid = 2
+      ocsf.activity_id = 1
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
         },
-        // --- Context (recommended) ---
-        status_id: 1,
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        finding_info: {
-          uid: flow_uid,
-          title: event.alert.category,
-          desc: event.alert.signature,
-        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      drop(
-        unmapped.event_type,
-        unmapped.flow_id,
-        unmapped.timestamp,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.alert.severity,
-        unmapped.alert.category,
-        unmapped.alert.signature,
-      )
+      drop suricata.event_type
+      ocsf.status_id = 1
+      // === Primary ===
+       ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.finding_info = {
+        uid: suricata.flow_id,
+        title: suricata.alert.category,
+        desc: suricata.alert.signature,
+      }
+      drop suricata.flow_id, suricata.alert.category, suricata.alert.signature
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.detection_finding"
       publish "ocsf"
 
@@ -457,129 +366,96 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $activity_id = {
+        CONNECT: 1,
+        DELETE: 2,
+        GET: 3,
+        HEAD: 4,
+        OPTIONS: 5,
+        POST: 6,
+        PUT: 7,
+        TRACE: 8,
+      }
+      let $activity_name = {
+        CONNECT: "Connect",
+        DELETE: "Delete",
+        GET: "Get",
+        HEAD: "Head",
+        OPTIONS: "Options",
+        POST: "Post",
+        PUT: "Put",
+        TRACE: "Trace",
+      }
       subscribe "suricata"
       where @name == "suricata.http"
-      this = { event: this }
-      if event.http.http_method == null {
-        type_uid = 400200
-        activity_id = 0
-        activity_name = "Unknown"
-      } else if event.http.http_method == "CONNECT" {
-        type_uid = 400201
-        activity_id = 1
-        activity_name = "Connect"
-      } else if event.http.http_method == "DELETE" {
-        type_uid = 400202
-        activity_id = 2
-        activity_name = "Delete"
-      } else if event.http.http_method == "GET" {
-        type_uid = 400203
-        activity_id = 3
-        activity_name = "Get"
-      } else if event.http.http_method == "HEAD" {
-        type_uid = 400204
-        activity_id = 4
-        activity_name = "Head"
-      } else if event.http.http_method == "OPTIONS" {
-        type_uid = 400205
-        activity_id = 5
-        activity_name = "Options"
-      } else if event.http.http_method == "POST" {
-        type_uid = 400206
-        activity_id = 6
-        activity_name = "Post"
-      } else if event.http.http_method == "PUT" {
-        type_uid = 400207
-        activity_id = 7
-        activity_name = "Put"
-      } else if event.http.http_method == "TRACE" {
-        type_uid = 400208
-        activity_id = 8
-        activity_name = "Trace"
-      } else {
-        type_uid = 400299
-        activity_id = 99
-        activity_name = event.http.http_method
-      }
-      if event.http.status == null {
-        status_id = 0
-      } else if event.http.status >= 200 and event.http.status < 400 {
-        status_id = 1
-      } else if event.http.status >= 400 and event.http.status < 600 {
-        status_id = 2
-      }
-      this = {
-        // --- Classification (required) ---
-        type_uid: type_uid,
-        severity_id: 1,
-        class_uid: 4002,
-        category_uid: 4,
-        activity_id: activity_id,
-        // --- Classification (optional) ---
-        activity_name: activity_name,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4002
+      ocsf.category_uid = 4
+      ocsf.activity_id = $activity_id.get(suricata.http.http_method, 99)
+      ocsf.activity_name = $activity_name.get(suricata.http.http_method, suricata.http.http_method)
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
         },
-        // --- Context (optional) ---
-        file: {
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
+      }
+      drop suricata.event_type, suricata.flow_id
+       if suricata.http.has("fileinfo") {
+        ocsf.file = {
           type_id: 0,
-          name: event.fileinfo.filename,
-          size: event.fileinfo.size,
-        },
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        http_request: {
-          url: {
-            hostname: event.http.hostname,
-            url_string: event.http.url,
-          },
-          version: event.http.protocol,
-          http_method: event.http.http_method,
-          user_agent: event.http.http_user_agent,
-        },
-        http_response: {
-          code: event.http.status,
-          length: event.http.length,
-          content_type: event.http.http_content_type,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        status_id: status_id,
+          name: suricata.fileinfo.filename,
+          size: suricata.fileinfo.size,
+        }
+        drop suricata.fileinfo.filename, suricata.fileinfo.size
+      } else {
+        ocsf.file = null
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.http.http_method,
-        unmapped.http.status,
-        unmapped.http.hostname,
-        unmapped.http.url,
-        unmapped.http.protocol,
-        unmapped.http.http_user_agent,
-        unmapped.http.length,
-        unmapped.http.http_content_type,
-      )
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.http_request = {
+        url: {
+          hostname: suricata.http.hostname,
+          url_string: suricata.http.url,
+        },
+        version: suricata.http.protocol,
+        http_method: suricata.http.http_method,
+        user_agent: suricata.http.http_user_agent,
+      }
+      drop suricata.http.hostname, suricata.http.url, suricata.http.protocol, suricata.http.http_method, suricata.http.http_user_agent
+      if suricata.http.status == null {
+        ocsf.status_id = 0
+      } else if suricata.http.status >= 200 and suricata.http.status < 400 {
+        ocsf.status_id = 1
+      } else if suricata.http.status >= 400 and suricata.http.status < 600 {
+        ocsf.status_id = 2
+      }
+      ocsf.http_response = {
+        code: suricata.http.status,
+        length: suricata.http.length,
+        content_type: suricata.http.http_content_type,
+      }
+      drop suricata.http.status, suricata.http.length, suricata.http.http_content_type
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
       // TODO: Homogenize all HTTP Activity events.
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.http_activity"
       publish "ocsf"
 
@@ -590,131 +466,107 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $activity_id = {
+        CONNECT: 1,
+        DELETE: 2,
+        GET: 3,
+        HEAD: 4,
+        OPTIONS: 5,
+        POST: 6,
+        PUT: 7,
+        TRACE: 8,
+      }
+      let $activity_name = {
+        CONNECT: "Connect",
+        DELETE: "Delete",
+        GET: "Get",
+        HEAD: "Head",
+        OPTIONS: "Options",
+        POST: "Post",
+        PUT: "Put",
+        TRACE: "Trace",
+      }
       subscribe "suricata"
       where @name == "suricata.fileinfo"
-      this = { event: this }
-      if event.http.http_method == null {
-        type_uid = 400200
-        activity_id = 0
-        activity_name = "Unknown"
-      } else if event.http.http_method == "CONNECT" {
-        type_uid = 400201
-        activity_id = 1
-        activity_name = "Connect"
-      } else if event.http.http_method == "DELETE" {
-        type_uid = 400202
-        activity_id = 2
-        activity_name = "Delete"
-      } else if event.http.http_method == "GET" {
-        type_uid = 400203
-        activity_id = 3
-        activity_name = "Get"
-      } else if event.http.http_method == "HEAD" {
-        type_uid = 400204
-        activity_id = 4
-        activity_name = "Head"
-      } else if event.http.http_method == "OPTIONS" {
-        type_uid = 400205
-        activity_id = 5
-        activity_name = "Options"
-      } else if event.http.http_method == "POST" {
-        type_uid = 400206
-        activity_id = 6
-        activity_name = "Post"
-      } else if event.http.http_method == "PUT" {
-        type_uid = 400207
-        activity_id = 7
-        activity_name = "Put"
-      } else if event.http.http_method == "TRACE" {
-        type_uid = 400208
-        activity_id = 8
-        activity_name = "Trace"
+      this = { suricata: this }
+      if suricata.has("http") {
+        suricata.http = suricata.http
       } else {
-        type_uid = 400299
-        activity_id = 99
-        activity_name = event.http.http_method
+        suricata.http = null
       }
-      if event.http.status == null {
-        status_id = 0
-      } else if event.http.status >= 200 and event.http.status < 400 {
-        status_id = 1
-      } else if event.http.status >= 400 and event.http.status < 600 {
-        status_id = 2
-      }
-      this = {
-        // --- Classification (required) ---
-        type_uid: type_uid,
-        severity_id: 1,
-        class_uid: 4002,
-        category_uid: 4,
-        activity_id: activity_id,
-        // --- Classification (optional) ---
-        activity_name: activity_name,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
+      // === Classification ===
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4002
+      ocsf.category_uid = 4
+      ocsf.activity_id = $activity_id.get(suricata.?http.?http_method, 99)
+      ocsf.activity_name = $activity_name.get(suricata.?http.?http_method, suricata.http.http_method)
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
         },
-        // --- Context (optional) ---
-        file: {
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
+      }
+      drop suricata.flow_id, suricata.event_type
+      if suricata.has("fileinfo") {
+        ocsf.file = {
           type_id: 0,
-          name: event.fileinfo.filename,
-          size: event.fileinfo.size,
-        },
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        http_request: {
-          url: {
-            hostname: event.http.hostname,
-            url_string: event.http.url,
-          },
-          version: event.http.protocol,
-          http_method: event.http.http_method,
-          user_agent: event.http.http_user_agent,
-        },
-        http_response: {
-          code: event.http.status,
-          length: event.http.length,
-          content_type: event.http.http_content_type,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        status_id: status_id,
+          name: suricata.fileinfo.filename,
+          size: suricata.fileinfo.size,
+        }
+        drop suricata.fileinfo.filename, suricata.fileinfo.size
+      } else {
+        ocsf.file = null
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.http.http_method,
-        unmapped.http.status,
-        unmapped.http.hostname,
-        unmapped.http.url,
-        unmapped.http.protocol,
-        unmapped.http.http_user_agent,
-        unmapped.http.length,
-        unmapped.http.http_content_type,
-        unmapped.fileinfo.filename,
-        unmapped.fileinfo.size,
-      )
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      if suricata.http != null {
+        ocsf.http_request = {
+          url: {
+            hostname: suricata.http.hostname,
+            url_string: suricata.http.url,
+          },
+          version: suricata.http.protocol,
+          http_method: suricata.http.http_method,
+          user_agent: suricata.http.http_user_agent,
+        }
+        drop suricata.http.hostname, suricata.http.url, suricata.http.protocol, suricata.http.http_method, suricata.http.http_user_agent
+        if suricata.http.status == null {
+          ocsf.status_id = 0
+        } else if suricata.http.status >= 200 and suricata.http.status < 400 {
+          ocsf.status_id = 1
+        } else if suricata.http.status >= 400 and suricata.http.status < 600 {
+          ocsf.status_id = 2
+        }
+        ocsf.http_response = {
+          code: suricata.http.status,
+          length: suricata.http.length,
+          content_type: suricata.http.http_content_type, 
+        }
+        drop suricata.http.status, suricata.http.length, suricata.http.http_content_type
+      } else {
+        ocsf.http_request = null
+        ocsf.status_id = 0
+        ocsf.http_response = null
+      }
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
       // TODO: Homogenize all HTTP Activity events.
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.http_activity"
       publish "ocsf"
 
@@ -727,52 +579,42 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.ssh"
-      this = { event: this }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400706,
-        severity_id: 1,
-        class_uid: 4007,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400706
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4007
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
         },
-        // --- Context (recommended) ---
-        protocol_ver: event.ssh.server.proto_version,
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        status_id: 0,
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.ssh.server.proto_version,
-      )
+      drop suricata.event_type, suricata.flow_id
+      ocsf.protocol_ver = suricata.ssh.server.proto_version
+      drop suricata.ssh.server.proto_version
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.status_id = 0
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.ssh_activity"
       publish "ocsf"
 
@@ -783,94 +625,81 @@ pipelines:
     disabled: false
     definition: |
       // tql2
+      let $activity_id = {
+        STOR: 1,
+        STOU: 1,
+        PUT: 1,
+        APPE: 1,
+        GET: 2,
+        RETR: 2,
+        MLST: 3,
+        DELE: 4,
+        RNFR: 5,
+        RNTO: 5,
+        NLST: 6,
+        LIST: 6,
+        MLSD: 6,
+      }
+      let $activity_name = {
+        STOR: "Put",
+        STOU: "Put",
+        PUT: "Put",
+        APPE: "Put",
+        GET: "Get",
+        RETR: "Get",
+        MLST: "Poll",
+        DELE: "Delete",
+        RNFR: "Rename",
+        RNTO: "Rename",
+        NLST: "List",
+        LIST: "List",
+        MLSD: "List",
+      }
       subscribe "suricata"
       where @name == "suricata.ftp"
-      this = { event: this }
-      if event.ftp.command == null {
-        type_uid = 400800
-        activity_id = 0
-        activity_name = "Unknown"
-      } else if event.ftp.command == "STOR" or event.ftp.command == "STOU" or event.ftp.command == "PUT" or event.ftp.command == "APPE" {
-        type_uid = 400801
-        activity_id = 1
-        activity_name = "Put"
-      } else if event.ftp.command == "GET" or event.ftp.command == "RETR" {
-        type_uid = 400802
-        activity_id = 2
-        activity_name = "Get"
-      } else if event.ftp.command == "MLST" {
-        type_uid = 400803
-        activity_id = 3
-        activity_name = "Poll"
-      } else if event.ftp.command == "DELE" {
-        type_uid = 400804
-        activity_id = 4
-        activity_name = "Delete"
-      } else if event.ftp.command == "RNFR" or event.ftp.command == "RNTO" {
-        type_uid = 400805
-        activity_id = 5
-        activity_name = "Rename"
-      } else if event.ftp.command == "NLST" or event.ftp.command == "LIST" or event.ftp.command == "MLSD" {
-        type_uid = 400806
-        activity_id = 6
-        activity_name = "List"
-      } else {
-        type_uid = 400899
-        activity_id = 99
-        activity_name = event.ftp.command
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4008
+      ocsf.category_uid = 4
+      ocsf.activity_id = $activity_id.get(suricata.ftp.command, 99)
+      ocsf.activity_name = $activity_name.get(suricata.ftp.command, suricata.ftp.command)
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: type_uid,
-        severity_id: 1,
-        class_uid: 4008,
-        category_uid: 4,
-        activity_id: activity_id,
-        // --- Classification (optional) ---
-        activity_name: activity_name,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        status_id: 0,
-        command: event.ftp.command,
-        command_responses: event.ftp.reply,
-        codes: event.ftp.completion_code,
-        port: event.ftp.dynamic_port,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.ftp.command,
-        unmapped.ftp.reply,
-        unmapped.ftp.completion_code,
-        unmapped.ftp.dynamic_port,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.status_id = 0
+      ocsf.command = suricata.ftp.command
+      drop suricata.ftp.command
+      ocsf.command_responses = suricata.ftp.reply
+      drop suricata.ftp.reply
+      ocsf.codes = suricata.ftp.completion_code
+      drop suricata.ftp.completion_code
+      ocsf.port = suricata.ftp.dynamic_port
+      drop suricata.ftp.dynamic_port
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.ftp_activity"
       publish "ocsf"
 
@@ -883,61 +712,50 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.smtp"
-      this = { event: this }
-      where event.smtp.mail_from != null
-      where event.smtp.rcpt_to != null
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400900,
-        severity_id: 1,
-        class_uid: 4009,
-        category_uid: 4,
-        // --- Classification (optional) ---
-        activity_id: 0,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
+      this = { suricata: this }
+      where suricata.smtp.mail_from != null
+      where suricata.smtp.rcpt_to != null
+      // === Classification ===
+      ocsf.type_uid = 400900
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4009
+      ocsf.category_uid = 4
+      ocsf.activity_id = 0
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
         },
-        direction_id: 0,
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        email: {
-          from: event.smtp.mail_from,
-          to: event.smtp.rcpt_to
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        status_id: 0,
-        smtp_hello: event.smtp.helo
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.smtp.mail_from,
-        unmapped.smtp.rcpt_to,
-        unmapped.smtp.helo,
-      )
+      drop suricata.event_type, suricata.flow_id
+      ocsf.direction_id = 0
+      // === Primary ===
+      ocsf.email = {
+        from: suricata.smtp.mail_from,
+        to: suricata.smtp.rcpt_to
+      }
+      drop suricata.smtp.mail_from, suricata.smtp.rcpt_to
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.status_id = 0
+      ocsf.smtp_hello = suricata.smtp.helo
+      drop suricata.smtp.helo
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.email_activity"
       publish "ocsf"
 
@@ -952,101 +770,89 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.tls"
-      this = { event: this }
-      if event.tls.version != null {
-        tls_version = event.tls.version
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
+      }
+      drop suricata.event_type, suricata.flow_id
+      if suricata.tls.version != null {
+        tls_version = suricata.tls.version
       } else {
         tls_version = "Unknown"
       }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
-      }
-      if event.tls.issuerdn != null {
+      tls_version = suricata.tls.version else "Unknown"
+      drop suricata.tls.version
+      if suricata.tls.issuerdn != null {
           certificate = {
-          issuer: event.tls.issuerdn,
-          fingerprints: [{algorithm_id: 2, value: event.tls.fingerprint}],
-          serial_number: event.tls.serial,
-          expiration_time: event.tls.notafter,
-          creation_time: event.tls.notbefore,
+          issuer: suricata.tls.issuerdn,
+          fingerprints: [{algorithm_id: 2, value: suricata.tls.fingerprint}],
+          serial_number: suricata.tls.serial,
+          expiration_time: suricata.tls.notafter,
+          creation_time: suricata.tls.notbefore,
         }
       } else {
         certificate = null
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        tls: {
-          version: tls_version,
-          sni: event.tls.sni,
-          ja3s_hash: event.tls.ja3s,
-          ja3_hash: event.tls.ja3,
-          certificate: certificate,
-        },
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.tls.issuerdn, suricata.tls.fingerprint, suricata.tls.serial, suricata.tls.notafter, suricata.tls.notbefore          
+      ocsf.tls = {
+        version: tls_version,
+        sni: suricata.tls.sni,
+        ja3s_hash: suricata.tls.ja3s,
+        ja3_hash: suricata.tls.ja3,
+        certificate: certificate,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.tls.issuerdn,
-        unmapped.tls.fingerprint,
-        unmapped.tls.serial,
-        unmapped.tls.notafter,
-        unmapped.tls.notbefore,
-        unmapped.tls.sni,
-        unmapped.tls.ja3s,
-        unmapped.tls.ja3,
-        unmapped.tls.version,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.tls.sni, suricata.tls.ja3s, suricata.tls.ja3
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
+      }
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1059,69 +865,62 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.snmp"
-      this = { event: this }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1134,69 +933,62 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.sip"
-      this = { event: this }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+       if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1209,69 +1001,62 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.ikev2"
-      this = { event: this }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+        if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1284,69 +1069,62 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.mqtt"
-      this = { event: this }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+        if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1361,69 +1139,62 @@ pipelines:
       // tql2
       subscribe "suricata"
       where @name == "suricata.krb5"
-      this = { event: this }
-      status_id = 0
-      status = "Unknown"
-      if event.flow.state != null {
-        status_id = 99
-        status = event.flow.state
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.type_uid = 400106
+      ocsf.severity_id = 1
+      ocsf.class_uid = 4001
+      ocsf.category_uid = 4
+      ocsf.activity_id = 6
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        type_uid: 400106,
-        severity_id: 1,
-        class_uid: 4001,
-        category_uid: 4,
-        activity_id: 6,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.3.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Primary (required) ---
-        dst_endpoint: {
-          ip: event.dest_ip,
-          port: event.dest_port,
-        },
-        // --- Primary (recommended) ---
-        src_endpoint: {
-          ip: event.src_ip,
-          port: event.src_port,
-        },
-        traffic: {
-          bytes_in: event.flow.bytes_toclient,
-          bytes_out: event.flow.bytes_toserver,
-          packets_in: event.flow.pkts_toclient,
-          packets_out: event.flow.pkts_toserver,
-          bytes: event.flow.bytes_toclient + event.flow.bytes_toserver,
-          packets: event.flow.pkts_toclient + event.flow.pkts_toserver,
-        },
-        status_id: status_id,
-        status: status,
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.dst_endpoint = {
+        ip: suricata.dest_ip,
+        port: suricata.dest_port,
       }
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dest_ip,
-        unmapped.dest_port,
-        unmapped.src_ip,
-        unmapped.src_port,
-        unmapped.flow.bytes_toclient,
-        unmapped.flow.bytes_toserver,
-        unmapped.flow.pkts_toclient,
-        unmapped.flow.pkts_toserver,
-        unmapped.flow.state,
-      )
+      drop suricata.dest_ip, suricata.dest_port
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      if suricata.has("flow") {
+        ocsf.traffic = {
+          bytes_in: suricata.flow.bytes_toclient,
+          bytes_out: suricata.flow.bytes_toserver,
+          packets_in: suricata.flow.pkts_toclient,
+          packets_out: suricata.flow.pkts_toserver,
+          bytes: suricata.flow.bytes_toclient + suricata.flow.bytes_toserver,
+          packets: suricata.flow.pkts_toclient + suricata.flow.pkts_toserver,
+        }
+        drop suricata.flow.bytes_toclient, suricata.flow.bytes_toserver, suricata.flow.pkts_toclient, suricata.flow.pkts_toserver
+        if suricata.flow.has("state") {
+          ocsf.status_id = 99
+          ocsf.status = suricata.flow.state
+          drop suricata.flow.state 
+        } else {
+          ocsf.status_id = 0
+          ocsf.status = "Unknown"
+        }
+      } else {
+        ocsf.traffic = null
+        ocsf.status_id = 0
+        ocsf.status = "Unknown"
+      }
+      this = {...ocsf, unmapped: suricata}  
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1435,98 +1206,82 @@ pipelines:
     disabled: true
     definition: |
       // tql2
+      let $activity_id = {
+        discover: 1,
+        offer: 2,
+        request: 3,
+        decline: 4,
+        ack: 5,
+        nak: 6,
+        release: 7,
+        inform: 8,
+      }
+      let $activity_name = {
+        discover: "Discover",
+        offer: "Offer",
+        request: "Request",
+        decline: "Decline",
+        ack: "Ack",
+        nak: "Nak",
+        release: "Release",
+        inform: "Inform",
+      }
       subscribe "suricata"
       where @name == "suricata.dhcp"
-      this = { event: this }
-      class_uid = 4004
-      type = string(event.dhcp.dhcp_type)
-      if type == "discover" {
-        activity_id = 1
-        activity_name = "Discover"
-      } else if type == "offer" {
-        activity_id = 2
-        activity_name = "Offer"
-      } else if type == "request" {
-        activity_id = 3
-        activity_name = "Request"
-      } else if type == "decline" {
-        activity_id = 4
-        activity_name = "Decline"
-      } else if type == "ack" {
-        activity_id = 5
-        activity_name = "Ack"
-      } else if type == "nak" {
-        activity_id = 6
-        activity_name = "Nak"
-      } else if type == "release" {
-        activity_id = 7
-        activity_name = "Release"
-      } else if type == "inform" {
-        activity_id = 8
-        activity_name = "Inform"
-      } else {
-        activity_id = 0
-        activity_name = "Other"
+      this = { suricata: this }
+      // === Classification ===
+      ocsf.category_uid = 4
+      ocsf.class_uid = 4004
+      ocsf.activity_id = $activity_id.get(string(suricata.dhcp.dhcp_type), 0)
+      ocsf.activity_name = $activity_name.get(string(suricata.dhcp.dhcp_type), "Other")
+      drop suricata.dhcp.dhcp_type
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      ocsf.severity_id = 1
+      ocsf.category_name = "Network Activity"
+      ocsf.class_name = "DHCP Activity"
+      ocsf.severity = "Informational"
+      // === Occurrence ===
+      ocsf.time = suricata.timestamp
+      drop suricata.timestamp
+      // === Context ===
+      ocsf.metadata = {
+        log_name: suricata.event_type,
+        product: {
+          name: "Suricata",
+          vendor_name: "Open Information Security Foundation",
+        },
+        uid: string(suricata.flow_id),
+        version: "v1.4.0",
       }
-      this = {
-        // --- Classification (required) ---
-        activity_id: activity_id,
-        category_uid: 4,
-        class_uid: class_uid,
-        type_id: class_uid * 100 + activity_id,
-        severity_id: 1,
-        // --- Classification (optional) ---
-        activity_name: activity_name,
-        category_name: "Network Activity",
-        class_name: "DHCP Activity",
-        severity: "Informational",
-        // --- Occurrence (required) ---
-        time: event.timestamp,
-        // --- Context (required) ---
-        metadata: {
-          log_name: event.event_type,
-          product: {
-            name: "Suricata",
-            vendor_name: "Open Information Security Foundation",
-          },
-          uid: string(event.flow_id),
-          version: "v1.4.0",
-        },
-        // --- Context (optional) ---
-        unmapped: event,
-        // --- Primary (recommended) ---
-        connection_info: {
-          direction: "Other",
-          direction_id: 99,
-          protocol_ver_id: 0,
-          protocol_name: "udp",
-          protocol_num: 17,
-          community_uid: event.community_id,
-        },
-        dst_endpoint: {
-          ip: event.dest_ip,
-        },
-        src_endpoint: {
-          hostname: event.dhcp.hostname,
-          ip: event.dhcp.assigned_ip,
-          mac: event.dhcp.client_mac,
-          type_id: 0
-        },
-        lease_duration: event.dhcp.lease_time,
-        status: "Other",
-        status_id: 99,
-        transaction_uid: event.dhcp.id
+      drop suricata.event_type, suricata.flow_id
+      // === Primary ===
+      ocsf.connection_info = {
+        direction: "Other",
+        direction_id: 99,
+        protocol_ver_id: 0,
+        protocol_name: "udp",
+        protocol_num: 17,
+        community_uid: suricata.community_id,
       }
-      // Drop all the mapped fields.
-      drop(
-        unmapped.timestamp,
-        unmapped.flow_id,
-        unmapped.event_type,
-        unmapped.dhcp.assigned_ip,
-        unmapped.dhcp.client_mac,
-        unmapped.dhcp.hostname,
-        unmapped.dhcp.type,
-        unmapped.dhcp.lease_time,
-      )
+      drop suricata.community_id
+      ocsf.src_endpoint = {
+        ip: suricata.src_ip,
+        port: suricata.src_port,
+      }
+      drop suricata.src_ip, suricata.src_port
+      ocsf.dst_endpoint = {
+        hostname: suricata.dhcp.hostname,
+        ip: suricata.dhcp.assigned_ip,
+        mac: suricata.dhcp.client_mac,
+        port: suricata.dest_port,
+        type_id: 0
+      }
+      drop suricata.dhcp.hostname, suricata.dhcp.assigned_ip, suricata.dhcp.client_mac, suricata.dest_port
+      ocsf.lease_duration = suricata.dhcp.lease_time
+      drop suricata.dhcp.lease_time
+      ocsf.status = "Other"
+      ocsf.status_id = 99
+      ocsf.transaction_uid = suricata.dhcp.id
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.dhcp_activity"
       publish "ocsf"
