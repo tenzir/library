@@ -65,8 +65,8 @@ pipelines:
       where @name == "zeek.conn"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $conn_states.get(zeek.conn_state, 6)
-      ocsf.activity_name = $activity_names.get(ocsf.activity_id, "Other")
+      ocsf.activity_id = $conn_states[zeek.conn_state]? else 6
+      ocsf.activity_name = $activity_names[ocsf.activity_id]? else "Other"
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4001
@@ -114,7 +114,7 @@ pipelines:
         community_uid: move zeek.community_id?,
         flag_history: move zeek.history,
         protocol_name: move zeek.proto,
-        protocol_num: $proto_nums.get(zeek.proto, -1)
+        protocol_num: $proto_nums[zeek.proto]? else -1
       }
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
         ocsf.connection_info.protocol_ver_id = 6
@@ -122,20 +122,22 @@ pipelines:
         ocsf.connection_info.protocol_ver_id = 4
       }
       drop zeek.id
-      if zeek.local_orig? and zeek.local_resp? {
-        ocsf.connection_info.direction = "Lateral"
-        ocsf.connection_info.direction_id = 3
-      } else if zeek.local_orig? {
-        ocsf.connection_info.direction = "Outbound"
-        ocsf.connection_info.direction_id = 2
-      } else if zeek.local_resp? {
-        ocsf.connection_info.direction = "Inbound"
-        ocsf.connection_info.direction_id = 1
-      } else {
-        ocsf.connection_info.direction = "Unknown"
-        ocsf.connection_info.direction_id = 0
+      if zeek.local_orig? != null and zeek.local_resp? != null {
+        if zeek.local_orig and zeek.local_resp {
+          ocsf.connection_info.direction = "Lateral"
+          ocsf.connection_info.direction_id = 3
+        } else if zeek.local_orig {
+          ocsf.connection_info.direction = "Outbound"
+          ocsf.connection_info.direction_id = 2
+        } else if zeek.local_resp {
+          ocsf.connection_info.direction = "Inbound"
+          ocsf.connection_info.direction_id = 1
+        } else {
+          ocsf.connection_info.direction = "Unknown"
+          ocsf.connection_info.direction_id = 0
+        }
+        drop zeek.local_orig, zeek.local_resp
       }
-      drop zeek.local_orig?, zeek.local_resp?
       ocsf.status = "Other"
       move ocsf.status_code = zeek.conn_state
       ocsf.status_id = 99
@@ -193,10 +195,11 @@ pipelines:
       }
       drop zeek._path? // implied in metadata.log_name
       // === Primary ===
-      ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x, {
+      ocsf.answers = zip(zeek.answers, zeek.TTLs).map(x, {
         rdata: x.left,
         ttl: x.right,
       })
+      drop zeek.answers, zeek.TTLs
       ocsf.query = {
         class: move zeek.qclass_name,
         hostname: move zeek.query,
@@ -220,7 +223,7 @@ pipelines:
         direction: "Other",
         direction_id: 99,
         protocol_name: move zeek.proto,
-        protocol_num: $proto_nums.get(zeek.proto, -1),
+        protocol_num: $proto_nums[zeek.proto] else -1
       }
       if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
         ocsf.connection_info.protocol_ver_id = 6
@@ -264,7 +267,7 @@ pipelines:
       where @name == "zeek.ftp"
       this = { zeek: this }
       // === Classification ===
-      ocsf.activity_id = $commands.get(zeek.command, 0)
+      ocsf.activity_id = $commands[zeek.command]? else 0
       ocsf.activity_name = $activity_names[ocsf.activity_id]
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
@@ -444,7 +447,7 @@ pipelines:
       this = { zeek: this }
       unroll zeek.msg_types
       // === Classification ===
-      ocsf.activity_id = $msg_types.get(zeek.msg_types, 0)
+      ocsf.activity_id = $msg_types[zeek.msg_types] else 0
       if ocsf.activity_id == 0 {
         ocsf.activity_name = "Other"
       } else {
@@ -872,7 +875,7 @@ pipelines:
         version: null,
       }
       ocsf.status = zeek.result
-      ocsf.status_id = $results.get(move zeek.result, 0)
+      ocsf.status_id = $results[move zeek.result] else 0
       // === Profile: Host ===
       ocsf.host = {
         name: move zeek.client_name?,
@@ -982,7 +985,7 @@ pipelines:
       }
       // NB: If we have an alert, `ssl_history` also contains [lL].
       if zeek.last_alert != null {
-        ocsf.tls.alert = $alert_codes.get(zeek.last_alert)
+        ocsf.tls.alert = $alert_codes[zeek.last_alert]
       }
       // === Primary ===
       ocsf.src_endpoint = {
