@@ -1,0 +1,86 @@
+id: nxlog
+name: NXLog
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/nxlog/package.svg
+
+description: |
+
+
+inputs:
+  url:
+    name: URL
+    description: |
+      A URL under which tenzir shall receive data from NXlog.
+
+      To send logs straight to a TCP socket, use the [TCP output
+      module](https://docs.nxlog.co/agent/current/om/tcp.html) with the following
+      configuration:
+
+      ```
+      <Extension json>
+        Module    xm_json
+      </Extension>
+
+      <Output tcp>
+        Module    om_tcp
+        Host      10.0.0.1:1514
+        Exec      to_json();
+      </Output>
+      ```
+    type: string
+    default: tcp://0.0.0.0:1514
+
+  tls:
+    name: TLS
+    description: |
+      Use transport level security to encrypt data in transit.
+      Use the [SSL output
+      module](https://docs.nxlog.co/agent/current/om/ssl.html) instead of
+      om_tcp.
+
+      Example nxlog.conf:
+      ```
+      <Extension json>
+        Module    xm_json
+      </Extension>
+
+      <Output ssl>
+        Module          om_ssl
+        Host            10.0.0.1:1514
+        CAFile          %CERTDIR%/ca.pem
+        CertFile        %CERTDIR%/client-cert.pem
+        CertKeyFile     %CERTDIR%/client-key.pem
+        KeyPass         secret
+        AllowUntrusted  TRUE
+        OutputType      Binary
+        Exec            to_json();
+      </Output>
+    type: boolean
+    default: false
+
+  certfile:
+    name: Certificate File
+    description: The path to the certificate for the TLS connection.
+    type: string
+    default: ""
+
+  keyfile:
+    name: Key File
+    description: The path to the key for the TLS connection.
+    type: string
+    default: ""
+
+
+pipelines:
+  onboard-nxlog:
+    name: Onboard Logs from NXlog xm_json
+    description: |
+      Onboards and parses NXLog JSON logs from the provided URL and
+      publishes them to the topic `nxlog`.
+    definition: |
+      from "{{ inputs.url }}", tls="{{ inputs.tls }}", certfile="{{ inputs.certfile }}", keyfile="{{ inputs.keyfile }}" {
+        read_ndjson
+      }
+      publish "nxlog"
+    restart-on-error: 10s
