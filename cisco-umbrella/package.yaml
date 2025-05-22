@@ -51,7 +51,7 @@ pipelines:
         shell r#"
           # TODO: We want to switch to `remote {config}` as the first operator for
           # more robust results.
-          export TENZIR_STATE_DIR=`tenzir --tql2 'from {dir: config()["state-directory"]} | write_lines'`
+          export TENZIR_STATE_DIR=`tenzir --tql2 'from {dir: config().tenzir["state-directory"]} | write_lines'`
           export UV_CACHE_DIR=/tmp/cache/uv
           cat >/tmp/script.py <<END
 
@@ -68,12 +68,12 @@ pipelines:
 
       def list_s3_files(s3, bucket_name: str, prefix: str) -> list[str]:
           files = []
-          
+
           paginator = s3.get_paginator('list_objects_v2')
           for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
               if 'Contents' in page:
                   files.extend([obj['Key'] for obj in page['Contents']])
-          
+
           return files
 
 
@@ -105,7 +105,7 @@ pipelines:
               prefix += '/'
 
           file_list = list_s3_files(s3, bucket, prefix)
-          
+
           try:
               with open(STATE_FILE, 'r') as f:
                   old_file_list = json.load(f)
