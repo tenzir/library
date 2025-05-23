@@ -136,3 +136,107 @@ pipelines:
       // Assemble it
       this = {...ocsf, unmapped: sysmon.print_ndjson()}
       publish "ocsf"
+
+  sysmon-event-id-3:
+    name: Sysmon Event ID 3 → OCSF Network Activity
+    definition: |
+      subscribe "sysmon"
+      assert sysmon.Task == 3 // 3 = Network Connection
+      drop sysmon.Task
+      // --- Classification ---
+      ocsf.activity_id = 1
+      ocsf.category_uid = 4
+      ocsf.class_uid = 4001
+      ocsf.category_name = "Network Activity" // soon auto-completed
+      ocsf.class_name = "Network Activity"   // soon auto-completed
+      ocsf.type_uid = 400101                 // soon auto-completed
+      ocsf.severity_id = 1
+      // --- Occurrence ---
+      ocsf.time = move sysmon.UtcTime
+      // --- Context ---
+      ocsf.metadata = {
+        loggers: [],
+        log_name: move sysmon.Channel,
+        log_version: move sysmon.Version,
+        product: {
+          name: "System Monitor (Sysmon)",
+          uid: (move sysmon.ProviderGuid).slice(begin=1, end=-1),
+          vendor_name: "Microsoft Sysinternals",
+          version: "v15.0", // just guessing
+        },
+        original_time: (move sysmon.EventTime).string(),
+        version: "1.5.0",
+      }
+      drop sysmon.SourceName // "Microsoft-Windows-Sysmon", implied above
+      drop sysmon.Company   // "Microsoft Corporation", implied above
+      if (sysmon.SourceModuleName != null) {
+        // We have NXLog.
+        assert sysmon.EventID == 3 // this is why we are here
+        drop sysmon.EventID
+        ocsf.metadata.logged_time = move sysmon.EventReceivedTime
+        ocsf.metadata.loggers = ocsf.metadata.loggers.append({
+          name: "NXLog",
+          log_provider: move sysmon.SourceModuleType,
+          log_name: move sysmon.SourceModuleName,
+        })
+        ocsf.metadata.uid = move sysmon.RecordNumber
+        ocsf.raw_data_size = sysmon.Message.length_bytes()
+        ocsf.raw_data = move sysmon.Message
+        // TODO: decide how to incorporate these NXLog-injected fields.
+        // - AccountName
+        // - AccountType
+        // - Category
+        // - Domain
+        // - Severity
+        // - SeverityValue
+      }
+      // --- Primary ---
+      ocsf.device = {
+        hostname: move sysmon.Hostname,
+      }
+      user = (move sysmon.User).split("\\")
+      // --- Network Connection Info ---
+      ocsf.connection_info = {
+        direction_id: sysmon.Initiated == "true" ? 2 : 1, // 1=Inbound, 2=Outbound
+        protocol_name: (move sysmon.Protocol).to_upper(),
+      }
+      // --- Source Endpoint ---
+      ocsf.src_endpoint = {
+        ip: move sysmon.SourceIp,
+        hostname: move sysmon.SourceHostname,
+        port: (move sysmon.SourcePort).int(),
+        svc_name: move sysmon.SourcePortName,
+      }
+      // --- Destination Endpoint ---
+      ocsf.dst_endpoint = {
+        ip: move sysmon.DestinationIp,
+        hostname: move sysmon.DestinationHostname,
+        port: (move sysmon.DestinationPort).int(),
+        svc_name: move sysmon.DestinationPortName,
+      }
+      // --- Process that made the connection ---
+      ocsf.actor = {
+        process: {
+          pid: (move sysmon.ProcessId).int(),
+          uid: (move sysmon.ProcessGuid).slice(begin=1, end=-1),
+          file: {
+            path: move sysmon.Image,
+          },
+          user: {
+            domain: user[0],
+            name: user[1],
+          },
+        }
+      }
+      // --- Additional fields ---
+      if (sysmon.RuleName != null) {
+        ocsf.metadata.labels = [move sysmon.RuleName]
+      }
+      // Remove IPv6 flags as they're implicit in IP addresses
+      drop sysmon.SourceIsIpv6
+      drop sysmon.DestinationIsIpv6
+      drop sysmon.Initiated // already mapped to direction_id
+      ocsf.status_id = 1 // success
+      // Assemble it
+      this = {...ocsf, unmapped: sysmon.print_ndjson()}
+      publish "ocsf"
