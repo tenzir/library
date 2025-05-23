@@ -1,0 +1,210 @@
+id: dcso-tie
+name: DCSO TIE
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/dcso-tie/package.svg
+
+description: |
+  The [DCSO Threat Intelligence Engine
+  (TIE)](https://docs.dcso.de/docs/tie/get-started/) provides premium threat
+  intelligence feeds from Deutsche Cyber-Sicherheitsorganisation (DCSO), a
+  leading European provider of threat intelligence services. DCSO delivers
+  high-fidelity APT and threat intelligence with deep analysis of threats and
+  campaigns, offering European sovereign intelligence sources for enhanced
+  security operations.
+
+  For detailed API documentation and IOC schema definitions, refer to the
+  [DCSO TIE API documentation](https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition).
+
+  This package provides the `dcso-tie` context for enrichment and
+  pipelines that periodically update the feed, enabling real-time threat
+  detection and intelligence-driven security workflows.
+
+categories:
+- contexts
+
+inputs:
+  api-key:
+    name: API key
+    description: |
+      Your DCSO TIE API key
+    default: secret("dcso-tie-api-key")
+
+  refresh-interval:
+    name: Time between context updates
+    description: |
+      The duration between context updates that fetch IOCs from the API.
+    default: 1h
+
+  ioc-expiry:
+    name: The interval after which IOCs expire
+    description: |
+      The duration after which IOCs expire.
+    default: 1h
+
+  min-confidence:
+    name: Minimum confidence level
+    description: |
+      The minimum confidence level for IOCs. Must be between 0 and 100, with
+      0 being the least confident and 100 being the most confident.
+    default: 0
+
+  state:
+    name: IOCs life cycle stage.
+    description: |
+      In general one want's to filter for IoCs having the state APPROVED.
+      Possible values are: `NEW`, `TO_APPROVE`, `APPROVED`, `DEPRECATED`
+    type: string
+    default: ALL
+
+contexts:
+  ocsf-osint:
+    type: lookup-table
+    description: |
+      A lookup table that contains IOCs in the form of [OCSF OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
+
+pipelines:
+  # FIXME: The URL is currently hard-coded. We probably don't want to allow
+  # filtering by iocType via inputs, but rather do that after the fact in the
+  # pipeline.
+  # TODO: implement proper pagination with the `http` operator
+  publish-iocs:
+    name: Publish DCSO TIE Feed
+    description: |
+      Periodically fetches the DCSO TIE Feed and publishes it to the `dcso.ioc` topic.
+    definition: |
+      let $url = \
+        "https://api.dcso.de/tie/azse/iocs" +
+        "?limit=10000" +
+        "&iocFeedSources=DCSO-Data%20Feed" +
+        "&minConfidence={{ inputs.min-confidence }}"
+      let $auth = \
+        "Basic " + encode_base64("azag-api:" + secret("dcso-tie-api-key"))
+      let $state = {{ inputs.state }}
+      every {{ inputs.refresh-interval }} {
+        load_http $url, headers={Authorization: $auth}
+        read_ndjson raw=true
+      }
+      unroll results
+      // Workaround to get a dynamically typed `ioc` field.
+      set this = {...results.print_json().parse_json()}
+      where $state == "ALL" or state == $state
+      set @name = "dcso.ioc"
+      publish "dcso.ioc"
+    restart-on-error: true
+
+  # TODO: Use `ocsf::apply` to canonicalize the OCSF schema.
+  normalize-to-ocsf:
+    name: Normalize DCSO TIE Feed to OCSF
+    description: |
+      This pipeline converts DCSO TIE IOCs to OCSF OSINT objects.
+    definition: |
+      // TODO: discretize confidence into OCSF's confidence_id
+      // Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
+      let $type_ids = {
+        domain: 2,
+        domainPort: 99,
+        ip: 1,
+        ipPort: 99,
+        md5: 4,
+        filename: 11,
+        filepath: 11,
+        email: 9, // API mismatch, doesn't exist in docs but in data
+        emailAddress: 9,
+        emailSubject: 8,
+        registryKey: 12,
+        registryValue: 13,
+        mutex: 99,
+        sha1: 4,
+        sha256: 4,
+        ssdeep: 4,
+        url: 5,
+        userAgent: 6,
+      }
+      let $tlps = {
+        clear: "CLEAR",
+        green: "GREEN",
+        amber: "AMBER",
+        "amber+strict": "AMBER STRICT",
+        red: "RED",
+      }
+      // ------------- Mapping -------------
+      subscribe "dcso.ioc"
+      set this = {tie: this}
+      set tactics = tie.mitreTactics.map(x, {
+        tactic: {
+          uid: x
+        }
+      })
+      set techniques = tie.mitreTechniques.map(x, {
+        technique: {
+          uid: x
+        }
+      })
+      set ocsf.attacks = [...(move tactics), ...(move techniques)]
+      drop tie.mitreTactics, tie.mitreTechniques
+      set ocsf.campaigns = tie.targetCampaigns.map(x, {
+        name: x
+      })
+      // The TIE confidence is in [0,100].
+      if (tie.confidence < 30) {
+        set ocsf.confidence_id = 1 // Low
+      } else if (tie.confidence < 70) {
+        set ocsf.confidence_id = 2 // Medium
+      } else {
+        set ocsf.confidence_id = 3 // High
+      }
+      drop tie.targetCampaigns
+      move ocsf.created_time = tie.created
+      move ocsf.labels = tie.tags
+      // This is not the best place to put the MISP event IDs.
+      set ocsf.malware = tie.malpedia.map(x, {
+        name: x,
+        classification_ids: [0], // unknown
+      })
+      drop tie.malpedia
+      move ocsf.modified_time = tie.modified
+      move ocsf.references = tie.eventIDs
+      set ocsf.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url(tie.ioc.string())
+      set ocsf.tlp_level = $tlps[move tie.tlpLevel]?
+      set ocsf.threat_actors = tie.threatActors.map(x, {
+        name: x,
+      })
+      drop tie.threatActors
+      set ocsf.type_id = $type_ids[move tie.iocType]
+      // The TIE severity is in [0,100].
+      if (tie.severity < 20) {
+        set ocsf.severity_id = 1 // Informational
+      } else if (tie.severity < 40) {
+        set ocsf.severity_id = 2 // Low
+      } else if (tie.severity < 60) {
+        set ocsf.severity_id = 3 // Medium
+      } else if (tie.severity < 80) {
+        set ocsf.severity_id = 4 // High
+      } else if (tie.severity < 90) {
+        set ocsf.severity_id = 5 // Critical
+      } else {
+        set ocsf.severity_id = 6 // Fatal
+      }
+      // TODO: in the schema `value` is of type `string`. We can decide if we
+      // want to dumb down our values or keep 'em nicely typed.
+      move ocsf.value = tie.ioc
+      set ocsf.vendor_name = "DCSO"
+      // Abuse the comment field as "unmapped"
+      set this = {...ocsf, comment: tie.print_ndjson()}
+      publish "ocsf.osint"
+
+  # TODO: This should really go into a generic OCSF enrichment package. Then we
+  # can keep this package lean and only focus on onboarding the OCSF-normalized
+  # data. But for now, we'll use this package to keep things simple.
+  update-ocsf-osint-context:
+    name: Update the OCSF OSINT Context
+    description: |
+      A pipeline that updates the `ocsf.osint` context.
+    definition: |
+      subscribe "ocsf.osint"
+      context::update \
+        "ocsf-osint",
+        key=hostname,
+        create_timeout={{ inputs.ioc-expiry }}
