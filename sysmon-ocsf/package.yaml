@@ -238,3 +238,86 @@ pipelines:
       // Assemble it
       this = {...ocsf, unmapped: sysmon.print_ndjson()}
       publish "ocsf"
+
+  sysmon-event-id-5:
+    name: Sysmon Event ID 5 → OCSF Process Activity
+    definition: |
+      subscribe "sysmon"
+      assert sysmon.Task == 5 // 5 = Process Terminated
+      drop sysmon.Task
+      // --- Classification ---
+      ocsf.activity_id = 2 // 2 = Terminate
+      ocsf.category_uid = 1
+      ocsf.class_uid = 1007
+      ocsf.category_name = "System Activity" // soon auto-completed
+      ocsf.class_name = "Process Activity"   // soon auto-completed
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      ocsf.severity_id = 1
+      // --- Occurrence ---
+      ocsf.time = move sysmon.UtcTime
+      // --- Context ---
+      ocsf.metadata = {
+        labels: [move sysmon.RuleName],
+        loggers: [],
+        log_name: move sysmon.Channel,
+        log_version: move sysmon.Version,
+        product: {
+          name: "System Monitor (Sysmon)",
+          uid: (move sysmon.ProviderGuid).slice(begin=1, end=-1),
+          vendor_name: "Microsoft Sysinternals",
+          version: "v15.0", // just guessing
+        },
+        original_time: (move sysmon.EventTime).string(),
+        version: "1.5.0",
+      }
+      drop sysmon.SourceName // "Microsoft-Windows-Sysmon", implied above
+      drop sysmon.Company   // "Microsoft Corporation", implied above
+      if (sysmon.SourceModuleName != null) {
+        // We have NXLog.
+        assert sysmon.EventID == 5 // this is why we are here
+        drop sysmon.EventID
+        ocsf.metadata.logged_time = move sysmon.EventReceivedTime
+        ocsf.metadata.loggers = ocsf.metadata.loggers.append({
+          name: "NXLog",
+          log_provider: move sysmon.SourceModuleType,
+          log_name: move sysmon.SourceModuleName,
+        })
+        ocsf.metadata.uid = move sysmon.RecordNumber
+        ocsf.raw_data_size = sysmon.Message.length_bytes()
+        ocsf.raw_data = move sysmon.Message
+        // TODO: decide how to incorporate these NXLog-injected fields.
+        // - AccountName
+        // - AccountType
+        // - Category
+        // - Domain
+        // - Severity
+        // - SeverityValue
+      }
+      // --- Primary ---
+      ocsf.actor = {
+        process: {
+          pid: null,
+        }
+      }
+      ocsf.device = {
+        hostname: move sysmon.Hostname,
+      }
+      user = (move sysmon.User).split("\\")
+      ocsf.process = {
+        file: {
+          path: move sysmon.Image,
+        },
+        pid: (move sysmon.ProcessId).int(),
+        uid: (move sysmon.ProcessGuid).slice(begin=1, end=-1),
+        user: {
+          domain: user[0],
+          name: user[1],
+        },
+      }
+      // --- Process Termination Details ---
+      ocsf.exit_code = move sysmon.ExitCode
+      ocsf.terminated_time = ocsf.time // Process terminated at event time
+      ocsf.status_id = 1 // success
+      // Assemble it
+      this = {...ocsf, unmapped: sysmon.print_ndjson()}
+      publish "ocsf"
