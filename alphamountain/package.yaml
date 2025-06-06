@@ -20,7 +20,6 @@ inputs:
     description: |
       Your alphaMountain batch API key.
     type: string
-    default: 00000000-0000-0000-0000-000000000000
 
   refresh-interval:
     name: Time between context updates
@@ -57,7 +56,7 @@ contexts:
   alphamountain-categories:
     type: lookup-table
     description: |
-      Categories from the alphaMountain database. 
+      Categories from the alphaMountain database.
       The lookup key is of type `string` for hostnames and URLs or `ip` for IP
       addresses.
 
@@ -69,13 +68,15 @@ pipelines:
       publishes it to the `alphamountain` topic.
     definition: |
       every {{ inputs.refresh-interval }} {
-        load_http "https://batch.alphamountain.ai/threat/feed/csv", data = {
-          version: 1,
-          license: "{{ inputs.license }}",
-          risk_min: {{ inputs.min-risk }},
-          risk_max: 10.0
+        from_http "https://batch.alphamountain.ai/threat/feed/csv",
+          body={
+            version: 1,
+            license: "{{ inputs.license }}",
+            risk_min: {{ inputs.min-risk }},
+            risk_max: 10.0
+          } {
+          read_csv
         }
-        read_csv
       }
       @name = "alphamountain.threat"
       publish "alphamountain"
@@ -97,11 +98,13 @@ pipelines:
       and publishes it to the `alphamountain` topic.
     definition: |
       every {{ inputs.refresh-interval }} {
-        load_http "https://batch.alphamountain.ai/category/feed/csv", data = {
-          version: 1,
-          license: "{{ inputs.license }}",
+        from_http "https://batch.alphamountain.ai/category/feed/csv",
+          body={
+            version: 1,
+            license: "{{ inputs.license }}",
+          } {
+          read_csv
         }
-        read_csv
       }
       @name = "alphamountain.category"
       publish "alphamountain"
