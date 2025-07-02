@@ -79,12 +79,15 @@ pipelines:
         "?limit=10000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
-      let $auth = \
-        "Basic " + encode_base64("azag-api:" + secret("dcso-tie-api-key"))
+      let $user = "azag-api"
+      let $auth = f"Basic {encode_base64($user + ":" + secret("dcso-tie-api-key"))}"
       let $state = {{ inputs.state }}
       every {{ inputs.refresh-interval }} {
-        load_http $url, headers={Authorization: $auth}
-        read_ndjson raw=true
+        from_http $url,
+          headers={Authorization: $auth},
+          paginate=(response => f"{$url}&next={response.next}" if response.hasMore) {
+          read_ndjson raw=true
+        }
       }
       unroll results
       // Workaround to get a dynamically typed `ioc` field.
