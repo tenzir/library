@@ -22,14 +22,20 @@ description: |
   detection and intelligence-driven security workflows.
 
 categories:
-- contexts
+- sources
 
 inputs:
+  api-user:
+    name: API user ID
+    description: |
+      Your DCSO TIE API user
+    default: secret("DCSO_TIE_API_USER")
+
   api-key:
     name: API key
     description: |
       Your DCSO TIE API key
-    default: secret("dcso-tie-api-key")
+    default: secret("DCSO_TIE_API_KEY")
 
   refresh-interval:
     name: Time between context updates
@@ -58,12 +64,6 @@ inputs:
     type: string
     default: ALL
 
-contexts:
-  ocsf-osint:
-    type: lookup-table
-    description: |
-      A lookup table that contains IOCs in the form of [OCSF OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
-
 pipelines:
   publish-iocs:
     name: Publish DCSO TIE Feed
@@ -75,9 +75,7 @@ pipelines:
         "?limit=10000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
-      let $user = "azag-api"
-      let $auth = f"Basic {encode_base64($user + ":" + secret("dcso-tie-api-key"))}"
-      let $state = {{ inputs.state }}
+      let $auth = "Basic " + encode_base64({{ inputs.api-user }} + ":" + {{ inputs.api-key }})
       every {{ inputs.refresh-interval }} {
         from_http $url,
           headers={Authorization: $auth},
@@ -88,7 +86,7 @@ pipelines:
       unroll results
       // Workaround to get a dynamically typed `ioc` field.
       set this = {...results.print_json().parse_json()}
-      where $state == "ALL" or state == $state
+      where state == {{ inputs.state }} or {{ inputs.state }} == "ALL"
       set @name = "dcso.ioc"
       publish "dcso.ioc"
     restart-on-error: true
@@ -193,17 +191,3 @@ pipelines:
       // Abuse the comment field as "unmapped"
       set this = {...ocsf, comment: tie.print_ndjson()}
       publish "ocsf.osint"
-
-  # TODO: This should really go into a generic OCSF enrichment package. Then we
-  # can keep this package lean and only focus on onboarding the OCSF-normalized
-  # data. But for now, we'll use this package to keep things simple.
-  update-ocsf-osint-context:
-    name: Update the OCSF OSINT Context
-    description: |
-      A pipeline that updates the `ocsf.osint` context.
-    definition: |
-      subscribe "ocsf.osint"
-      context::update \
-        "ocsf-osint",
-        key=hostname,
-        create_timeout={{ inputs.ioc-expiry }}
