@@ -7,24 +7,22 @@ package_icon: https://raw.githubusercontent.com/tenzir/library/main/sophos/packa
 description: |
   The [Sophos](https://sophos.com) package onboards data from various [Sophos
   APIs](https://developer.sophos.com/apis) into pipelines.
-categories:
-- sources
 
 inputs:
   poll-frequency:
     name: The poll frequency for the SIEM Integration API
     description: |
-      How to often call the Sophos API
-    default: 1m
-  x-api-key:
-    name: X-API-Key Header
+      How to often call the Sophos API in seconds
+    default: 60
+  client-id:
+    name: Client ID
     description: |
-      The `X-API-Key` header value
+      The Client ID as described at https://developer.sophos.com/getting-started-tenant.
     #default: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-  authorization:
-    name: Authorization Header
+  client-secret:
+    name: Client Secret
     description: |
-      The `X-API-Key` header value
+      The Client Secret as described at https://developer.sophos.com/getting-started-tenant.
     #default: Basic <Base64>
 
 # TODO: the two onboarding pipelines differ only in the API endpint that they
@@ -38,52 +36,116 @@ pipelines:
       API](https://developer.sophos.com/docs/siem-v1/1/overview) for the
       `/events` endpoint, which offers events from the last 24h.
     definition: |
-      every {{ inputs.poll-frequency }} {
       shell r#"
       python3 <<END
-      import json
-      import sys
-      import time
-      import urllib.parse
-      import urllib.request
-      from urllib.error import HTTPError, URLError
-      from json import JSONDecodeError
 
-      x_api_key = '{{ inputs.x-api-key }}'
-      authorization = '{{ inputs.authorization }}'
-      url = "https://api4.central.sophos.com/gateway/siem/v1/events"
-      params = {'limit': 1000, 'cursor': '', 'other_param': 'value'}
-      headers = {'x-api-key': x_api_key, 'Authorization': authorization}
-      error_threshold = 3
-      num_errors = 0
-      has_more = True
-      while has_more:
-          # Encode parameters
-          query_string = urllib.parse.urlencode(params)
-          full_url = f"{url}?{query_string}"
-          # Create request object with headers
-          request = urllib.request.Request(full_url, headers=headers)
-          # Get response
-          try:
-              with urllib.request.urlopen(request) as response:
-                  data = json.load(response)
-                  for item in data["items"]:
-                      print(json.dumps(item, separators=(',', ':')))
-                  has_more = data.get('has_more', False)
-                  params['cursor'] = data.get('next_cursor')
-          except (HTTPError, URLError, JSONDecodeError) as e:
-              if isinstance(e, JSONDecodeError):
-                  print(f"sophos: got invalid json: {e}", file=sys.stderr)
-              num_errors += 1
-              if num_errors > error_threshold:
-                  break
-              # Try again
-              time.sleep(5)
+      import json
+      import time
+      from urllib.parse import urlencode
+      from urllib.request import Request, urlopen
+      from urllib.error import HTTPError, URLError
+
+
+      class TokenExpiredError(Exception):
+          """Raised when the authentication token has expired."""
+
+          pass
+
+
+      class NetworkError(Exception):
+          """Raised when exceeding the retry threshold."""
+
+          pass
+
+
+      def _json_response(
+          request: Request, error_threshold: int = 3, retry_interval: float = 5.0
+      ):
+          num_errors = 0
+          while True:
+              try:
+                  with urlopen(request) as auth_response:
+                      data = json.load(auth_response)
+                      return data
+              except (HTTPError, URLError) as e:
+                  # Raise TokenExpiredError for expired token
+                  if isinstance(e, HTTPError) and e.code == 403:
+                      raise TokenExpiredError("Authentication token has expired.") from e
+                  num_errors += 1
+                  if num_errors > error_threshold:
+                      raise NetworkError(
+                          f"failed to reach {request.full_url} after {error_threshold} tries"
+                      ) from e
+                  # Try again
+                  time.sleep(retry_interval)
+
+
+      def refresh_access_token():
+          client_id = "{{ inputs.client-id }}"
+          client_secret = "{{ inputs.client-secret }}"
+          body = urlencode(
+              {
+                  "grant_type": "client_credentials",
+                  "client_id": client_id,
+                  "client_secret": client_secret,
+                  "scope": "token",
+              }
+          )
+          request = Request(
+              "https://id.sophos.com/api/v2/oauth2/token",
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+              data=body.encode("utf-8"),
+          )
+          json = _json_response(request)
+          return json["access_token"]
+
+
+      def obtain_tenant_info(token: str) -> tuple[str, str]:
+          url = "https://api.central.sophos.com/whoami/v1"
+          request = Request(url, headers={"Authorization": f"Bearer {token}"})
+          json = _json_response(request)
+          tenant_id = json["id"]
+          data_region = json["apiHosts"]["dataRegion"]
+          return tenant_id, data_region
+
+
+      def print_events(token: str, tenant_id: str, api_endpoint: str):
+          api_endpoint = api_endpoint.rstrip("/")
+          url = f"{api_endpoint}/siem/v1/events"
+          params = {"limit": 1000}
+          headers = {"X-Tenant-ID": tenant_id, "Authorization": f"Bearer {token}"}
+
+          has_more = True
+          while has_more:
+              query_string = urlencode(params)
+              full_url = f"{url}?{query_string}"
+              request = Request(full_url, headers=headers)
+              data = _json_response(request)
+              for item in data["items"]:
+                  print(json.dumps(item, separators=(",", ":")))
+              has_more = data.get("has_more", False)
+              params["cursor"] = data.get("next_cursor")
+
+
+      def main():
+          token = refresh_access_token()
+          tenant_id, data_region = obtain_tenant_info(token)
+
+          while True:
+              try:
+                  print_events(token, tenant_id, data_region)
+                  time.sleep({{ inputs.poll-frequency }})
+              except TokenExpiredError as e:
+                  token = refresh_access_token()
+                  continue
+
+
+      main()
+
       END
       "#
       read_ndjson
-      }
-      legacy "deduplicate id --timeout 25h"
+      deduplicate id, create_timeout=25h
       @name = "sophos.event"
       publish "sophos"
     restart-on-error: true
@@ -97,48 +159,116 @@ pipelines:
       API](https://developer.sophos.com/docs/siem-v1/1/overview) for the
       `/alerts` endpoint, which offers alerts from the last 24h.
     definition: |
-      every {{ inputs.poll-frequency }} {
       shell r#"
       python3 <<END
+
       import json
       import time
-      import urllib.parse
-      import urllib.request
+      from urllib.parse import urlencode
+      from urllib.request import Request, urlopen
       from urllib.error import HTTPError, URLError
 
-      x_api_key = '{{ inputs.x-api-key }}'
-      authorization = '{{ inputs.authorization }}'
-      url = "https://api4.central.sophos.com/gateway/siem/v1/alerts"
-      params = {'limit': 1000, 'cursor': '', 'other_param': 'value'}
-      headers = {'x-api-key': x_api_key, 'Authorization': authorization}
-      error_threshold = 3
-      num_errors = 0
-      has_more = True
-      while has_more:
-          # Encode parameters
-          query_string = urllib.parse.urlencode(params)
-          full_url = f"{url}?{query_string}"
-          # Create request object with headers
-          request = urllib.request.Request(full_url, headers=headers)
-          # Get response
-          try:
-              with urllib.request.urlopen(request) as response:
-                  data = json.load(response)
-                  for item in data["items"]:
-                      print(json.dumps(item, separators=(',', ':')))
-                  has_more = data.get('has_more', False)
-                  params['cursor'] = data.get('next_cursor')
-          except (HTTPError, URLError):
-              num_errors += 1
-              if num_errors > error_threshold:
-                  break
-              # Try again
-              time.sleep(5)
+
+      class TokenExpiredError(Exception):
+          """Raised when the authentication token has expired."""
+
+          pass
+
+
+      class NetworkError(Exception):
+          """Raised when exceeding the retry threshold."""
+
+          pass
+
+
+      def _json_response(
+          request: Request, error_threshold: int = 3, retry_interval: float = 5.0
+      ):
+          num_errors = 0
+          while True:
+              try:
+                  with urlopen(request) as auth_response:
+                      data = json.load(auth_response)
+                      return data
+              except (HTTPError, URLError) as e:
+                  # Raise TokenExpiredError for expired token
+                  if isinstance(e, HTTPError) and e.code == 403:
+                      raise TokenExpiredError("Authentication token has expired.") from e
+                  num_errors += 1
+                  if num_errors > error_threshold:
+                      raise NetworkError(
+                          f"failed to reach {request.full_url} after {error_threshold} tries"
+                      ) from e
+                  # Try again
+                  time.sleep(retry_interval)
+
+
+      def refresh_access_token():
+          client_id = "{{ inputs.client-id }}"
+          client_secret = "{{ inputs.client-secret }}"
+          body = urlencode(
+              {
+                  "grant_type": "client_credentials",
+                  "client_id": client_id,
+                  "client_secret": client_secret,
+                  "scope": "token",
+              }
+          )
+          request = Request(
+              "https://id.sophos.com/api/v2/oauth2/token",
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+              data=body.encode("utf-8"),
+          )
+          json = _json_response(request)
+          return json["access_token"]
+
+
+      def obtain_tenant_info(token: str) -> tuple[str, str]:
+          url = "https://api.central.sophos.com/whoami/v1"
+          request = Request(url, headers={"Authorization": f"Bearer {token}"})
+          json = _json_response(request)
+          tenant_id = json["id"]
+          data_region = json["apiHosts"]["dataRegion"]
+          return tenant_id, data_region
+
+
+      def print_alerts(token: str, tenant_id: str, api_endpoint: str):
+          api_endpoint = api_endpoint.rstrip("/")
+          url = f"{api_endpoint}/siem/v1/alerts"
+          params = {"limit": 1000}
+          headers = {"X-Tenant-ID": tenant_id, "Authorization": f"Bearer {token}"}
+
+          has_more = True
+          while has_more:
+              query_string = urlencode(params)
+              full_url = f"{url}?{query_string}"
+              request = Request(full_url, headers=headers)
+              data = _json_response(request)
+              for item in data["items"]:
+                  print(json.dumps(item, separators=(",", ":")))
+              has_more = data.get("has_more", False)
+              params["cursor"] = data.get("next_cursor")
+
+
+      def main():
+          token = refresh_access_token()
+          tenant_id, data_region = obtain_tenant_info(token)
+
+          while True:
+              try:
+                  print_alerts(token, tenant_id, data_region)
+                  time.sleep({{ inputs.poll-frequency }})
+              except TokenExpiredError as e:
+                  token = refresh_access_token()
+                  continue
+
+
+      main()
+
       END
       "#
       read_ndjson
-      }
-      legacy "deduplicate id --timeout 25h"
+      deduplicate id, create_timeout=25h
       @name = "sophos.alert"
       publish "sophos"
     restart-on-error: true
