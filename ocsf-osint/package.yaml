@@ -6,37 +6,50 @@ package_icon: |
   https://raw.githubusercontent.com/tenzir/library/main/ocsf-osint/package.svg
 
 description: |
-  TODO
+  This package provides a lookup table context for enriching OCSF events with
+  OCSF [OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
 
 categories:
 - contexts
 
 inputs:
+  max-ioc-age:
+    name: Maximum age of an OCSF OSINT entry
+    description: |
+      The maximum age of an entry in the OCSF OSINT lookup table before it
+      is automatically evicted.
+    default: 30d
+
 contexts:
   ocsf-osint:
     type: lookup-table
     description: |
-      A lookup table that contains IOCs in the form of [OCSF OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
+      A lookup table that maps IOC values to [OCSF
+      OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
 
 pipelines:
   update-ocsf-osint-context:
-    name: Update the OCSF OSINT Context
+    name: Update the OCSF OSINT lookup table
     description: |
-      A pipeline that updates the `ocsf.osint` context.
+      A pipeline that updates the `ocsf-osint` context by subscribing to **OCSF
+      Inventory Info** events.
     definition: |
-      subscribe "ocsf.osint"
-      context::update \
-        "ocsf-osint",
-        key=hostname,
-        create_timeout={{ inputs.ioc-expiry }}
+      subscribe "ocsf"
+      where @name == "ocsf.osint_inventory_info"
+      unroll osint
+      context::update "ocsf-osint",
+        key=osint.value,
+        value=osint,
+        create_timeout={{ inputs.max-ioc-age }}
 
-#  enrich-with-ocsf-osint:
-#    name: Enriches OCSF events with the OCSF OSINT Context
-#    description: |
-#      A pipeline that enriches OCSF events with the OSINT objects from the
-#      `ocsf.osint` context.
-#    definition: |
-#      subscribe "ocsf"
-#      context::enrich \
-#        "ocsf-osint",
-#        ...
+# TODO: add optional pipelines that do OCSF-based enrichment
+#enrich-with-ocsf-osint:
+#  name: Enrich OCSF events with the OCSF OSINT context
+#  description: |
+#    A pipeline that enriches OCSF events with OSINT objects from the
+#    `ocsf-osint` context.
+#  definition: |
+#    subscribe "ocsf"
+#    where @name.starts_with("ocsf")
+#    context::enrich \
+#      "ocsf-osint",

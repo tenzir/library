@@ -28,7 +28,7 @@ inputs:
   api-user:
     name: API user ID
     description: |
-      Your DCSO TIE API user
+      Your DCSO TIE API user ID
     default: secret("DCSO_TIE_API_USER")
 
   api-key:
@@ -38,13 +38,13 @@ inputs:
     default: secret("DCSO_TIE_API_KEY")
 
   refresh-interval:
-    name: Time between context updates
+    name: Context update interval
     description: |
       The duration between context updates that fetch IOCs from the API.
     default: 1h
 
   ioc-expiry:
-    name: The interval after which IOCs expire
+    name: IOC expiration interval
     description: |
       The duration after which IOCs expire.
     default: 1h
@@ -57,22 +57,22 @@ inputs:
     default: 0
 
   state:
-    name: IOCs life cycle stage.
+    name: IOC lifecycle stage
     description: |
-      In general one want's to filter for IoCs having the state APPROVED.
+      In general, you want to filter for IOCs having the state APPROVED.
       Possible values are: `NEW`, `TO_APPROVE`, `APPROVED`, `DEPRECATED`
     type: string
     default: ALL
 
 pipelines:
-  publish-iocs:
-    name: Publish DCSO TIE Feed
+  fetch-iocs:
+    name: Fetch IOCs from DCSO TIE
     description: |
-      Periodically fetches the DCSO TIE Feed and publishes it to the `dcso.ioc` topic.
+      Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
     definition: |
       let $url = \
         "https://api.dcso.de/tie/azse/iocs" +
-        "?limit=10000" +
+        "?limit=1000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
       let $auth = "Basic " + encode_base64({{ inputs.api-user }} + ":" + {{ inputs.api-key }})
@@ -84,18 +84,20 @@ pipelines:
         }
       }
       unroll results
-      // Workaround to get a dynamically typed `ioc` field.
-      set this = {...results.print_json().parse_json()}
+      // We could use this workaround to get a dynamically typed `ioc` field.
+      // But for now we keep the initial string type and defer this to a later
+      // point.
+      //set this = {...results.print_json().parse_json()}
+      set this = {...results}
       where state == {{ inputs.state }} or {{ inputs.state }} == "ALL"
       set @name = "dcso.ioc"
       publish "dcso.ioc"
     restart-on-error: true
 
-  # TODO: Use `ocsf::apply` to canonicalize the OCSF schema.
-  normalize-to-ocsf:
-    name: Normalize DCSO TIE Feed to OCSF
+  normalize-iocs-to-ocsf:
+    name: Normalize DCSO TIE IOCs to OCSF
     description: |
-      This pipeline converts DCSO TIE IOCs to OCSF OSINT objects.
+      Converts DCSO TIE IOCs to OCSF OSINT objects.
     definition: |
       // TODO: discretize confidence into OCSF's confidence_id
       // Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
@@ -126,68 +128,105 @@ pipelines:
         "amber+strict": "AMBER STRICT",
         red: "RED",
       }
-      // ------------- Mapping -------------
-      subscribe "dcso.ioc"
-      set this = {tie: this}
-      set tactics = tie.mitreTactics.map(x, {
+      // --- OSINT Object ----
+      //subscribe "dcso.ioc"
+      export | where @name == "dcso.ioc"
+      set this = {osint: {}, tie: this}
+      set tactics = tie.mitreTactics.map(x => {
         tactic: {
           uid: x
         }
       })
-      set techniques = tie.mitreTechniques.map(x, {
+      set techniques = tie.mitreTechniques.map(x => {
         technique: {
           uid: x
         }
       })
-      set ocsf.attacks = [...(move tactics), ...(move techniques)]
+      set osint.attacks = [...(move tactics), ...(move techniques)]
       drop tie.mitreTactics, tie.mitreTechniques
-      set ocsf.campaigns = tie.targetCampaigns.map(x, {
+      set osint.campaigns = tie.targetCampaigns.map(x => {
         name: x
       })
       // The TIE confidence is in [0,100].
-      if (tie.confidence < 30) {
-        set ocsf.confidence_id = 1 // Low
-      } else if (tie.confidence < 70) {
-        set ocsf.confidence_id = 2 // Medium
-      } else {
-        set ocsf.confidence_id = 3 // High
+      if (tie.confidence != null) {
+        if (tie.confidence < 30) {
+          set osint.confidence_id = 1 // Low
+        } else if (tie.confidence < 70) {
+          set osint.confidence_id = 2 // Medium
+        } else {
+          set osint.confidence_id = 3 // High
+        }
+        drop tie.confidence
       }
       drop tie.targetCampaigns
-      move ocsf.created_time = tie.created
-      move ocsf.labels = tie.tags
+      move osint.created_time = tie.created
+      move osint.labels = tie.tags
       // This is not the best place to put the MISP event IDs.
-      set ocsf.malware = tie.malpedia.map(x, {
+      set osint.malware = tie.malpedia?.map(x => {
         name: x,
         classification_ids: [0], // unknown
       })
       drop tie.malpedia
-      move ocsf.modified_time = tie.modified
-      move ocsf.references = tie.eventIDs
-      set ocsf.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url(tie.ioc.string())
-      set ocsf.tlp_level = $tlps[move tie.tlpLevel]?
-      set ocsf.threat_actors = tie.threatActors.map(x, {
+      move osint.modified_time = tie.modified
+      move osint.references = tie.eventIDs
+      set osint.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url(tie.ioc.string())
+      set osint.tlp_level = $tlps[move tie.tlpLevel]?
+      set osint.threat_actors = tie.threatActors?.map(x => {
         name: x,
       })
       drop tie.threatActors
-      set ocsf.type_id = $type_ids[move tie.iocType]
+      set osint.type_id = $type_ids[move tie.iocType]
       // The TIE severity is in [0,100].
-      if (tie.severity < 20) {
-        set ocsf.severity_id = 1 // Informational
-      } else if (tie.severity < 40) {
-        set ocsf.severity_id = 2 // Low
-      } else if (tie.severity < 60) {
-        set ocsf.severity_id = 3 // Medium
-      } else if (tie.severity < 80) {
-        set ocsf.severity_id = 4 // High
-      } else if (tie.severity < 90) {
-        set ocsf.severity_id = 5 // Critical
-      } else {
-        set ocsf.severity_id = 6 // Fatal
+      if (tie.severity != null) {
+        if (tie.severity < 20) {
+          set osint.severity_id = 1 // Informational
+        } else if (tie.severity < 40) {
+          set osint.severity_id = 2 // Low
+        } else if (tie.severity < 60) {
+          set osint.severity_id = 3 // Medium
+        } else if (tie.severity < 80) {
+          set osint.severity_id = 4 // High
+        } else if (tie.severity < 90) {
+          set osint.severity_id = 5 // Critical
+        } else {
+          set osint.severity_id = 6 // Fatal
+        }
+        drop tie.severity
       }
-      // TODO: in the schema `value` is of type `string`. We can decide if we
-      // want to dumb down our values or keep 'em nicely typed.
-      move ocsf.value = tie.ioc
-      set ocsf.vendor_name = "DCSO"
-      // Abuse the comment field as "unmapped"
-      set this = {...ocsf, comment: tie.print_ndjson()}
-      publish "ocsf.osint"
+      move osint.value = tie.ioc
+      set osint.vendor_name = "DCSO"
+      // ------ OSINT Inventory Info --------
+      set oscf = {}
+      // Classification
+      set ocsf.activity_id = 2
+      set ocsf.activity_name = "Collect"
+      set ocsf.category_uid = 5
+      set ocsf.category_name = "Discovery"
+      set ocsf.class_uid = 5021
+      set ocsf.class_name = "OCSF Inventory Info"
+      set ocsf.severity_id = 1
+      set ocsf.severity = "Informational"
+      set ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      // Context
+      set ocsf.actor = {
+        app_name: "Tenzir"
+      }
+      set ocsf.metadata = {
+        product: {
+          name: "TIE",
+          vendor_name: "DCSO",
+        },
+        version: "1.5.0",
+      }
+      set ocsf.unmapped = tie.print_ndjson()
+      // Occurence
+      set ocsf.time = now()
+      //move ocsf.start_time = tie.firstSeen?
+      //move ocsf.end_seen = tie.LastSeen?
+      // Primary
+      set ocsf.osint = [move osint]
+      // ------ Finalize --------
+      set this = {...ocsf}
+      set @name = "ocsf.osint_inventory_info"
+      //ocsf::apply
+      publish "ocsf"
