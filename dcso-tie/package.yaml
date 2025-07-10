@@ -64,14 +64,21 @@ inputs:
     type: string
     default: ALL
 
+  base-url:
+    name: Base API endpoint URL
+    description: |
+      The base URL for the DCSO TIE API endpoint.
+    default: "https://api.dcso.de/tie/v3"
+
 pipelines:
   fetch-iocs:
     name: Fetch IOCs from DCSO TIE
     description: |
       Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
     definition: |
+      let $base_url = {{ inputs.base-url }}
       let $url = \
-        "https://api.dcso.de/tie/v3/iocs" +
+        $base_url + "/iocs" +
         "?limit=1000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
@@ -99,6 +106,7 @@ pipelines:
     description: |
       Converts DCSO TIE IOCs to OCSF OSINT objects.
     definition: |
+      let $base_url = {{ inputs.base-url }}
       // TODO: discretize confidence into OCSF's confidence_id
       // Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
       let $type_ids = {
@@ -169,7 +177,7 @@ pipelines:
       drop tie.malpedia
       move osint.modified_time = tie.modified
       move osint.references = tie.eventIDs
-      set osint.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url(tie.ioc.string())
+      set osint.src_url = $base_url + "/iocs/" + encode_url(tie.ioc.string())
       set osint.tlp_level = $tlps[move tie.tlpLevel]?
       set osint.threat_actors = tie.threatActors?.map(x => {
         name: x,
