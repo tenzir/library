@@ -59,10 +59,10 @@ inputs:
   state:
     name: IOC lifecycle stage
     description: |
-      In general, you want to filter for IOCs having the state APPROVED.
-      Possible values are: `NEW`, `TO_APPROVE`, `APPROVED`, `DEPRECATED`
+      In general, you want to filter for IOCs having the state `APPROVED`.
+      Possible values are: `NEW`, `TO_APPROVE`, `APPROVED`, `DEPRECATED`.
     type: string
-    default: ALL
+    default: APPROVED
 
   base-url:
     name: Base API endpoint URL
@@ -76,17 +76,18 @@ pipelines:
     description: |
       Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
     definition: |
-      let $base_url = {{ inputs.base-url }}
+      let $base_url = "{{ inputs.base-url }}"
       let $url = \
         $base_url + "/iocs" +
         "?limit=1000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
-      let $auth = "Basic " + encode_base64({{ inputs.api-user }} + ":" + {{ inputs.api-key }})
+      let $auth = "Basic " + encode_base64("{{ inputs.api-user }}:{{ inputs.api-key }}")
       every {{ inputs.refresh-interval }} {
         from_http $url,
           headers={Authorization: $auth},
           paginate=(response => f"{$url}&next={response.next}" if response.hasMore) {
+          // TODO: need to check whether that works correctly..
           read_ndjson raw=true
         }
       }
@@ -95,8 +96,8 @@ pipelines:
       // But for now we keep the initial string type and defer this to a later
       // point.
       //set this = {...results.print_json().parse_json()}
-      set this = {...results}
-      where state == {{ inputs.state }} or {{ inputs.state }} == "ALL"
+      set this = results
+      where state == "{{ inputs.state }}" or "{{ inputs.state }}".empty()
       set @name = "dcso.ioc"
       publish "dcso"
     restart-on-error: true
@@ -106,7 +107,7 @@ pipelines:
     description: |
       Converts DCSO TIE IOCs to OCSF OSINT objects.
     definition: |
-      let $base_url = {{ inputs.base-url }}
+      let $base_url = "{{ inputs.base-url }}"
       // TODO: discretize confidence into OCSF's confidence_id
       // Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
       let $type_ids = {
@@ -137,26 +138,26 @@ pipelines:
         red: "RED",
       }
       // --- OSINT Object ----
-      //subscribe "dcso"
-      export | where @name == "dcso.ioc"
-      set this = {osint: {}, tie: this}
-      set tactics = tie.mitreTactics.map(x => {
+      subscribe "dcso"
+      this = {osint: {}, tie: this}
+      tactics = tie.mitreTactics.map(x => {
         tactic: {
           uid: x
         }
       })
-      set techniques = tie.mitreTechniques.map(x => {
+      techniques = tie.mitreTechniques.map(x => {
         technique: {
           uid: x
         }
       })
-      set osint.attacks = [...(move tactics), ...(move techniques)]
+      osint.attacks = [...(move tactics), ...(move techniques)]
       drop tie.mitreTactics, tie.mitreTechniques
-      set osint.campaigns = tie.targetCampaigns.map(x => {
+      osint.campaigns = tie.targetCampaigns.map(x => {
         name: x
       })
+      drop tie.targetCampaigns
       // The TIE confidence is in [0,100].
-      if (tie.confidence != null) {
+      if (tie.confidence? != null) {
         if (tie.confidence < 30) {
           set osint.confidence_id = 1 // Low
         } else if (tie.confidence < 70) {
@@ -166,26 +167,25 @@ pipelines:
         }
         drop tie.confidence
       }
-      drop tie.targetCampaigns
       move osint.created_time = tie.created
       move osint.labels = tie.tags
       // This is not the best place to put the MISP event IDs.
-      set osint.malware = tie.malpedia?.map(x => {
+      osint.malware = tie.malpedia?.map(x => {
         name: x,
         classification_ids: [0], // unknown
       })
       drop tie.malpedia
       move osint.modified_time = tie.modified
       move osint.references = tie.eventIDs
-      set osint.src_url = $base_url + "/iocs/" + encode_url(tie.ioc)
-      set osint.tlp_level = $tlps[move tie.tlpLevel]?
-      set osint.threat_actors = tie.threatActors?.map(x => {
+      osint.src_url = $base_url + "/iocs/" + encode_url(tie.ioc)
+      osint.tlp_level = $tlps[move tie.tlpLevel]?
+      osint.threat_actors = tie.threatActors?.map(x => {
         name: x,
       })
       drop tie.threatActors
-      set osint.type_id = $type_ids[move tie.iocType]
+      osint.type_id = $type_ids[move tie.iocType]
       // The TIE severity is in [0,100].
-      if (tie.severity != null) {
+      if (tie.severity? != null) {
         if (tie.severity < 20) {
           set osint.severity_id = 1 // Informational
         } else if (tie.severity < 40) {
@@ -202,39 +202,38 @@ pipelines:
         drop tie.severity
       }
       move osint.value = tie.ioc
-      set osint.vendor_name = "DCSO"
+      osint.vendor_name = "DCSO"
       // ------ OSINT Inventory Info --------
-      set oscf = {}
+      oscf = {}
       // Classification
-      set ocsf.activity_id = 2
-      set ocsf.activity_name = "Collect"
-      set ocsf.category_uid = 5
-      set ocsf.category_name = "Discovery"
-      set ocsf.class_uid = 5021
-      set ocsf.class_name = "OCSF Inventory Info"
-      set ocsf.severity_id = 1
-      set ocsf.severity = "Informational"
-      set ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      ocsf.activity_id = 2
+      ocsf.activity_name = "Collect"
+      ocsf.category_uid = 5
+      ocsf.category_name = "Discovery"
+      ocsf.class_uid = 5021
+      ocsf.class_name = "OCSF Inventory Info"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // Context
-      set ocsf.actor = {
+      ocsf.actor = {
         app_name: "Tenzir"
       }
-      set ocsf.metadata = {
+      ocsf.metadata = {
         product: {
           name: "TIE",
           vendor_name: "DCSO",
         },
         version: "1.5.0",
       }
-      set ocsf.unmapped = tie.print_ndjson()
       // Occurence
-      set ocsf.time = now()
-      //move ocsf.start_time = tie.firstSeen?
-      //move ocsf.end_seen = tie.LastSeen?
+      ocsf.time = now()
       // Primary
       set ocsf.osint = [move osint]
       // ------ Finalize --------
-      set this = {...ocsf}
+      move ocsf.unmapped = tie
+      this = ocsf
       set @name = "ocsf.osint_inventory_info"
-      //ocsf::apply
+      ocsf::apply
+      //ocsf::derive
       publish "ocsf"
