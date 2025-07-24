@@ -1,5 +1,5 @@
 
-// Define lookup tables for common Zscaler values to map to OCSF enumerations.
+// Define lookup tables for common zia values to map to OCSF enumerations.
 let $activity_map = {
   "GET": 1,
   "POST": 2,
@@ -25,16 +25,18 @@ let $categories_map = {
 
 // Subscribe to the incoming Zscaler feed.
 // You may need to adjust the topic name based on your data source configuration.
-subscribe "zscaler_nss"
+subscribe "zscaler_zia"
+// Use the presence of the requestmethod field to detect HTTP events.
+where this.has("requestmethod")
 
 // For this example, we assume the raw log is the root object.
-// We'll move it into a 'zscaler' field to avoid naming conflicts.
-this = { zscaler: this }
+// We'll move it into a 'zia' field to avoid naming conflicts.
+this = { zia: this }
 
 // === Classification ===
 // Map the request method to the OCSF activity ID and name.
-ocsf.activity_id = $activity_map[zscaler.requestmethod]? else 0
-move ocsf.activity_name = zscaler.requestmethod
+ocsf.activity_id = $activity_map[zia.requestmethod]? else 0
+move ocsf.activity_name = zia.requestmethod
 
 // Set the static class and category for HTTP Activity.
 ocsf.category_uid = 4
@@ -47,16 +49,16 @@ ocsf.type_uid = ocsf.class_uid * 1000 + ocsf.activity_id
 ocsf.type_name = ocsf.activity_name
 
 // Map the Zscaler action to OCSF disposition.
-ocsf.disposition_id = $disposition_map[zscaler.action]? else 0
-move ocsf.disposition = zscaler.action
-move ocsf.status_detail = zscaler.reason
+ocsf.disposition_id = $disposition_map[zia.action]? else 0
+move ocsf.disposition = zia.action
+move ocsf.status_detail = zia.reason
 
 // Determine status based on the HTTP response code.
 // Codes in the 2xx and 3xx range are generally successful.
-if zscaler.status == "NA" {
+if zia.status == "NA" {
   status_code_num = null
 } else {
-  status_code_num = int(zscaler.status)
+  status_code_num = int(zia.status)
 }
 if status_code_num == null {
   ocsf.status = "Unknown"
@@ -73,47 +75,47 @@ if status_code_num == null {
 }
 
 // Map threat severity to OCSF severity.
-if zscaler.threatseverity == "None" {
+if zia.threatseverity == "None" {
   ocsf.malware.severity_id = 0
   ocsf.malware.severity = "Unknown"
-} else if zscaler.threatseverity == "medium" {
+} else if zia.threatseverity == "medium" {
   ocsf.malware.severity_id = 3
   ocsf.malware.severity = "Medium"
-} else if zscaler.threatseverity == "critical" {
+} else if zia.threatseverity == "critical" {
   ocsf.malware.severity_id = 5
   ocsf.malware.severity = "Critical"
 } else {
   ocsf.malware.severity_id = 99
-  ocsf.malware.severity = zscaler.threatseverity
+  ocsf.malware.severity = zia.threatseverity
 }
-//drop zscaler.threatseverity
+//drop zia.threatseverity
 
 // Map the remaining theat* fields to OCSF malware.
-if zscaler.threatclass == "None" {
-  zscaler.threatclass = null
+if zia.threatclass == "None" {
+  zia.threatclass = null
 }
-if zscaler.threatcategory == "None" {
-  zscaler.threatcategory = null
+if zia.threatcategory == "None" {
+  zia.threatcategory = null
 }
 ocsf.malware = [{
-  name: move zscaler.threatname,
-  classifications: [move zscaler.threatclass?, move zscaler.threatcategory?]
+  name: move zia.threatname,
+  classifications: [move zia.threatclass?, move zia.threatcategory?]
 }]
 
 // === Occurrence ===
-// Parse the Zscaler datetime string into a valid timestamp.
+// Parse the zia datetime string into a valid timestamp.
 // The format string '%a %b %d %H:%M:%S %Y' matches "Tue Jul 22 10:59:31 2025".
-ocsf.time = parse_time(zscaler.datetime, "%a %b %d %H:%M:%S %Y")
-drop zscaler.datetime
+ocsf.time = parse_time(zia.datetime, "%a %b %d %H:%M:%S %Y")
+drop zia.datetime
 
 // === Context ===
 ocsf.metadata = {
   log_name: "NSS",
   product: {
-    name: move zscaler.product,
-    vendor_name: move zscaler.vendor,
+    name: move zia.product,
+    vendor_name: move zia.vendor,
   },
-  uid: move zscaler.event_id,
+  uid: move zia.event_id,
   version: "1.5.0", // The OCSF schema version.
   profiles: ["data_classification", "host", "security_control"],
 }
@@ -122,77 +124,77 @@ ocsf.metadata = {
 // Actor (The user who initiated the request)
 ocsf.actor = {
   user: {
-    name: move zscaler.user,
+    name: move zia.user,
     // TODO: groups are meant to be technical, so maybe this should be moved to
     // unmapped?
-    groups: [{ name: move zscaler.department }],
+    groups: [{ name: move zia.department }],
     org: {
       // ou: org unit
-      ou_name: move zscaler.department?,
+      ou_name: move zia.department?,
     },
   },
 }
 
 ocsf.device = {
-  hostname: move zscaler.devicehostname?,
+  hostname: move zia.devicehostname?,
   owner: {
-    name: move zscaler.deviceowner?,
+    name: move zia.deviceowner?,
   },
 }
 
 // Source Endpoint (The client machine)
 ocsf.src_endpoint = {
-  ip: ip(move zscaler.ClientIP)
+  ip: ip(move zia.ClientIP)
 }
 
 // Destination Endpoint (The web server)
 ocsf.dst_endpoint = {
-  ip: ip(move zscaler.serverip),
-  domain: move zscaler.hostname,
+  ip: ip(move zia.serverip),
+  domain: move zia.hostname,
 }
 
-// Proxy Endpoint (The Zscaler node)
+// Proxy Endpoint (The zia node)
 ocsf.proxy = {
-  ip: ip(move zscaler.clientpublicIP),
-  name: move zscaler.location
+  ip: ip(move zia.clientpublicIP),
+  name: move zia.location
 }
 
 // HTTP Request Details
 ocsf.http_request = {
   http_method: ocsf.activity_name,
-  referrer: move zscaler.refererURL,
-  user_agent: move zscaler.useragent,
+  referrer: move zia.refererURL,
+  user_agent: move zia.useragent,
   url: {
-    url_string: move zscaler.url,
-    scheme: to_lower(zscaler.protocol),
+    url_string: move zia.url,
+    scheme: to_lower(zia.protocol),
     category_ids: [ 0 ],
-    categories: [ move zscaler.urlcategory, move zscaler.urlsupercategory, move zscaler.appclass, move zscaler.urlclass ]
+    categories: [ move zia.urlcategory, move zia.urlsupercategory, move zia.appclass, move zia.urlclass ]
   }
 }
-drop zscaler.protocol // Moved to url.scheme
+drop zia.protocol // Moved to url.scheme
 
 // HTTP Response Details
 ocsf.http_response = {
   code: move status_code_num,
-  content_type: move zscaler.contenttype
+  content_type: move zia.contenttype
 }
-drop zscaler.status // Moved to http_response.code
+drop zia.status // Moved to http_response.code
 
 // Network Traffic Details
 ocsf.traffic = {
-  bytes_in: int(zscaler.responsesize),
-  bytes_out: int(zscaler.requestsize),
-  bytes: int(zscaler.transactionsize)
+  bytes_in: int(zia.responsesize),
+  bytes_out: int(zia.requestsize),
+  bytes: int(zia.transactionsize)
 }
-drop zscaler.responsesize, zscaler.requestsize, zscaler.transactionsize
+drop zia.responsesize, zia.requestsize, zia.transactionsize
 
 // Populate other relevant top-level fields
-move ocsf.app_name = zscaler.appname
-ocsf.risk_score = int(zscaler.pagerisk)
+move ocsf.app_name = zia.appname
+ocsf.risk_score = int(zia.pagerisk)
 
 // === Finalization ===
 // Place all remaining unmapped fields from the original log into the 'unmapped' object.
-this = {...ocsf, unmapped: zscaler}
+this = {...ocsf, unmapped: zia}
 
 // Set the final event name and publish to the OCSF topic.
 @name = "ocsf.http_activity"
