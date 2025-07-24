@@ -1,0 +1,116 @@
+id: aws-vpcflow
+name: AWS VPC Flow Logs
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/aws-vpcflow/package.svg
+
+description: |
+  AWS VPC Flow Logs capture information about IP traffic going to and from
+  network interfaces in your VPC. This package provides utilities for
+  ingesting, parsing, and analyzing VPC Flow Log data.
+  
+  This package provides:
+  - Raw VPC Flow Log events on the 'aws' topic as 'aws.vpc_flow' events
+  - OCSF-formatted network activity events on the 'ocsf' topic as 'ocsf.network_activity' events
+  
+  To use this package, you must configure your AWS VPC to log to S3 in text
+  format as described in the AWS documentation:
+  https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html
+
+categories:
+- connectors
+
+inputs:
+  s3-bucket-url:
+    name: S3 Bucket URL
+    description: |
+      The S3 URL path containing VPC Flow Log files.
+    default: "s3://your-bucket/AWSLogs/**.log.gz"
+  remove-inputs:
+    name: Remove Files After Importing
+    description: |
+      Whether to remove files after processing them. Possible values are 'true' or 'false'.
+    default: "false"
+
+contexts:
+
+pipelines:
+  ingest-from-s3:
+    name: Ingest VPC Flow Logs from S3
+    description: |
+      Ingests VPC Flow Log files from an S3 bucket and publishes to 'aws' topic.
+    definition: |
+      from_file "{{ inputs.s3-bucket-url }}", watch=true, remove={{ inputs.remove-inputs }} {
+        decompress_gzip
+        read_xsv field_separator=" ", list_separator=",", null_value="-"
+      }
+      @name = "aws.vpc_flow"
+      publish "aws"
+
+  transform-to-ocsf:
+    name: Transform VPC Flow Logs to OCSF
+    description: |
+      Transforms AWS VPC Flow Log events to OCSF Network Activity format.
+    definition: |
+      subscribe "aws"
+
+      this = { aws: this }
+      ocsf.activity_id = 6
+      ocsf.category_uid = 4
+      ocsf.type_uid = 400106
+      ocsf.class_uid = 4001
+      ocsf.severity_id = 1
+      ocsf.metadata = {
+        "version": "1.5.0",
+        "product": {
+           "name": "Amazon VPC",
+           "vendor_name": "AWS",
+           "feature": {
+              "name": "Flowlogs",
+           },
+        },
+        "tenant_uid": move aws["account-id"],
+      }
+      // Dropping the 'version' because it is just metadata about the log
+      // file format, not event data.
+      drop aws.version
+      oscf.src_endpoint = {
+        "ip": move aws.srcaddr,
+        "port": move aws.srcport,
+      }
+      oscf.dst_endpoint = {
+        "ip": move aws.dstaddr,
+        "port": move aws.dstport,
+      }
+      ocsf.traffic = {
+        "bytes": move aws.bytes,
+        "packets": move aws.packets,
+      }
+      ocsf.connection.protocol_num = move aws.protocol
+      ocsf.start_time = aws.start.seconds().from_epoch()
+      ocsf.end_time = aws.end.seconds().from_epoch()
+      ocsf.time = ocsf.start_time
+      ocsf.duration = (aws.end - aws.start)*1000
+      drop aws.start
+      drop aws.end
+
+      this = {...ocsf, unmapped: aws}
+      @name = "ocsf.network_activity"
+
+      publish "ocsf"
+
+examples:
+  - name: Export to Amazon Security Lake
+    description: |
+      Export OCSF Network Activity events to Amazon Security Lake.
+      Requires a Security Lake with a custom source configured for NETWORK_ACTIVITY input.
+    definition: |
+      let $s3_uri = "s3://your-security-lake-bucket/ext/your-prefix"
+      let $s3_region = "your-region"
+      let $s3_account_id = "123456789012"
+
+      subscribe "ocsf"
+      where @name == "ocsf.network_activity"
+      to_amazon_security_lake $s3_uri,
+        region=$s3_region,
+        account_id=$s3_account_id
