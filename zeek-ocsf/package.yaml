@@ -195,7 +195,7 @@ pipelines:
       }
       drop zeek._path? // implied in metadata.log_name
       // === Primary ===
-      ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x, {
+      ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x => {
         rdata: x.left,
         ttl: x.right,
       })
@@ -485,22 +485,26 @@ pipelines:
         protocol_name: "udp",
         protocol_num: 17,
       }
-      if zeek.client_addr.is_v6() or zeek.client_addr.is_v6() {
+      if not zeek.id?.resp_h? == null {
+        ocsf.connection_info.protocol_ver_id = 0
+      } else if zeek.id.resp_h.is_v6() {
         ocsf.connection_info.protocol_ver_id = 6
       } else {
         ocsf.connection_info.protocol_ver_id = 4
       }
       ocsf.src_endpoint = {
-        hostname: move zeek.host_name,
-        ip: move zeek.client_addr,
-        domain: move zeek.client_fqdn,
-        mac: move zeek.mac,
+        hostname: move zeek.host_name?,
+        // client_addr is preferred, in case we don't have
+        // that we attempt to use assigned_addr.
+        ip: move zeek.client_addr? else zeek.assigned_addr?,
+        domain: move zeek.client_fqdn?,
+        mac: move zeek.mac?,
       }
       ocsf.dst_endpoint = {
-        ip: move zeek.server_addr,
-        domain: move zeek.domain,
+        ip: move zeek.server_addr?,
+        domain: move zeek.domain?,
       }
-      move ocsf.lease_dur = zeek.lease_time
+      move ocsf.lease_dur = zeek.lease_time?
       move ocsf.transaction_uid = zeek.trans_id
       this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.dhcp_activity"
@@ -1009,7 +1013,7 @@ pipelines:
         ocsf.status_id = 2
         ocsf.status = "Failure"
         ocsf.status_detail = zeek.last_alert
-      } else if validation_status == "ok" {
+      } else if validation_status? == "ok" {
         // There could be more `validation_status` values that mean success,
         // but it's difficult to find them. In Zeek, we'd need to grep through
         // all invocations of `x509_result_record` and trace the arguments.
