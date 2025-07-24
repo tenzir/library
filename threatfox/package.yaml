@@ -18,6 +18,12 @@ categories:
 - contexts
 
 inputs:
+  auth-key:
+    name: Threatfox API Auth Key
+    description: |
+      The key to use for authentication with the Threatfox API.
+    type: string
+
   days:
     name: Number of days
     description: |
@@ -68,8 +74,9 @@ pipelines:
       publishes the feed to the `threatfox` topic.
     definition: |
       every {{ inputs.refresh-interval }} {
-        from "https://threatfox-api.abuse.ch/api/v1/", method="POST",
-            data={query: "get_iocs"}, headers={days: "{{ inputs.days }}"} {
+        from_http "https://threatfox-api.abuse.ch/api/v1/",
+        body={query: "get_iocs"},
+        headers={"Auth-Key": "{{ inputs.auth-key }}", days: "{{ inputs.days }}"} {
           read_json
         }
       }
@@ -136,10 +143,11 @@ examples:
     description: |
       Shows a bar chart that plots the number of IOCs per confidence level.
     definition: |
-      from "https://threatfox-api.abuse.ch/api/v1/", data = {
-        query: "get_iocs",
-        days: 7
-      } { read_json }
+      from_http "https://threatfox-api.abuse.ch/api/v1/",
+        headers={"Auth-Key": "<YOUR AUTH KEY>"}
+        body={query: "get_iocs", days: 7} {
+        read_json
+      }
       select data
       unroll data
       this = data
@@ -150,10 +158,11 @@ examples:
     description: |
       Shows a bar chart that plots the number of IOCs per confidence level.
     definition: |
-      from "https://threatfox-api.abuse.ch/api/v1/", data = {
-        query: "get_iocs",
-        days: 7
-      } { read_json }
+      from_http "https://threatfox-api.abuse.ch/api/v1/",
+        headers={"Auth-Key": "<YOUR AUTH KEY>"}
+        body={query: "get_iocs", days: 7} {
+        read_json
+      }
       select data
       unroll data
       this = data
