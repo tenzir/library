@@ -1,0 +1,85 @@
+---
+id: amazon-security-lake
+name: Amazon Security Lake Destination
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/amazon-security-lake/package.svg
+description: |
+  [Amazon Security Lake](https://aws.amazon.com/security-lake/) automatically 
+  centralizes security data from cloud, on-premises, and custom sources.
+
+  This package provides pipelines for writing OCSF events to Amazon Security
+  Lake using the S3-based ingestion format.
+  
+  *NOTE*: Before you can write events to the Security Lake, you must configure
+  a source per event type in Security Lake and ensure the Tenzir Node has write
+  permissions to the S3 source directory. If you use a non-default name for the
+  source, adjust the source name parameter below.
+categories:
+- destinations
+
+inputs:
+  s3-uri:
+    name: S3 URI
+    description: S3 URI for Security Lake partition (e.g., s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/)
+    type: string
+  region:
+    name: AWS Region
+    description: AWS region where the Security Lake is deployed
+    type: string
+  account-id:
+    name: AWS Account ID
+    description: AWS account ID of the account that hosts the Security Lake instance.
+    type: string
+  network-activity-source-name:
+    name: Network Activity Source Name
+    description: Source name (in ASL) for network activity events
+    type: string
+    default: tnz-ocsf-network
+  http-activity-source-name:
+    name: HTTP Activity Source Name
+    description: Source name (in ASL) for HTTP activity events
+    type: string
+    default: tnz-ocsf-http
+  dns-activity-source-name:
+    name: DNS Activity Source Name
+    description: Source name (in ASL) for DNS activity events
+    type: string
+    default: tnz-ocsf-dns
+
+pipelines:
+  ocsf-network-activity-to-security-lake:
+    name: OCSF Network Activity to Security Lake
+    description: Writes OCSF network activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "ocsf"
+      where @name == "ocsf.network_activity"
+      to_amazon_security_lake "{{ inputs.s3-uri }}{{ inputs.network-activity-source-name }}",
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}"
+
+  ocsf-http-activity-to-security-lake:
+    name: OCSF HTTP Activity to Security Lake
+    description: Writes OCSF HTTP activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "ocsf"
+      where @name == "ocsf.http_activity"
+      to_amazon_security_lake "{{ inputs.s3-uri }}{{ inputs.http-activity-source-name }}",
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}"
+
+  ocsf-dns-activity-to-security-lake:
+    name: OCSF DNS Activity to Security Lake
+    description: Writes OCSF DNS activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "ocsf"
+      where @name == "ocsf.dns_activity"
+      to_amazon_security_lake "{{ inputs.s3-uri }}{{ inputs.dns-activity-source-name }}",
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}"
