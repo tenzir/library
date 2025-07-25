@@ -42,14 +42,24 @@ pipelines:
         value=osint,
         create_timeout={{ inputs.max-ioc-age }}
 
-# TODO: add optional pipelines that do OCSF-based enrichment
-#enrich-with-ocsf-osint:
-#  name: Enrich OCSF events with the OCSF OSINT context
-#  description: |
-#    A pipeline that enriches OCSF events with OSINT objects from the
-#    `ocsf-osint` context.
-#  definition: |
-#    subscribe "ocsf"
-#    where @name.starts_with("ocsf")
-#    context::enrich \
-#      "ocsf-osint",
+examples:
+- name: Enrich OCSF events with the OCSF OSINT context
+  description: |
+    A pipeline that enriches OCSF events with OSINT objects from the
+    `ocsf-osint` context.
+  definition: |
+    subscribe "ocsf"
+    where @name.starts_with("ocsf")
+    if category_uid == 4 {
+      // Network Activity
+      context::enrich "ocsf-osint",
+        key=src_endpoint.ip,
+        format="ocsf",
+        mode="append",
+        into=enrichments
+      context::enrich "ocsf-osint",
+        key=dst_endpoint.ip,
+        format="ocsf",
+        mode="append",
+        into=enrichments
+    }
