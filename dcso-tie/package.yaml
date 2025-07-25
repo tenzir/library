@@ -25,28 +25,22 @@ categories:
 - sources
 
 inputs:
-  api-user:
-    name: API user ID
+  api-user-secret:
+    name: API user ID secret name
     description: |
       Your DCSO TIE API user ID
-    default: secret("DCSO_TIE_API_USER")
+    default: DCSO_TIE_API_USER
 
-  api-key:
-    name: API key
+  api-key-secret:
+    name: API key secret name
     description: |
       Your DCSO TIE API key
-    default: secret("DCSO_TIE_API_KEY")
+    default: DCSO_TIE_API_KEY
 
   refresh-interval:
     name: Context update interval
     description: |
       The duration between context updates that fetch IOCs from the API.
-    default: 1h
-
-  ioc-expiry:
-    name: IOC expiration interval
-    description: |
-      The duration after which IOCs expire.
     default: 1h
 
   min-confidence:
@@ -77,12 +71,14 @@ pipelines:
       Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
     definition: |
       let $base_url = "{{ inputs.base-url }}"
-      let $url = \
-        $base_url + "/iocs" +
+      let $url = $base_url +
+        "/iocs" +
         "?limit=1000" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
-      let $auth = "Basic " + encode_base64("{{ inputs.api-user }}:{{ inputs.api-key }}")
+      let $api_user = secret("{{ inputs.api-user-secret }}")
+      let $api_key = secret("{{ inputs.api-key-secret }}")
+      let $auth = f"Basic {encode_base64($api_user + ":" + $api_key)}"
       every {{ inputs.refresh-interval }} {
         from_http $url,
           headers={Authorization: $auth},
@@ -94,10 +90,6 @@ pipelines:
         }
       }
       unroll results
-      // We could use this workaround to get a dynamically typed `ioc` field.
-      // But for now we keep the initial string type and defer this to a later
-      // point.
-      //this = {...results.print_json().parse_json()}
       this = results
       where "{{ inputs.state }}" == "" or state == "{{ inputs.state }}"
       // Fix up types because we pass raw=true to read_ndjson above.
