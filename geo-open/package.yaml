@@ -10,6 +10,19 @@ description: |
   database format. This package provides two contexts for IP enrichment:
   country-only lookups and combined country+ASN lookups.
 
+inputs:
+  enrich-input:
+    name: Enrichment input topic
+    description: |
+      The name of the input topic used for OCSF event enrichment.
+    default: ocsf
+
+  enrich-output:
+    name: Enrichment output topic
+    description: |
+      The name of the output topic used for OCSF event enrichment.
+    default: ocsf-geo-open
+
 categories:
 - contexts
 
@@ -45,6 +58,41 @@ pipelines:
       }
     restart-on-error: 1h
 
+  enrich-ocsf-endpoints:
+    name: Enrich OCSF events with GeoIP context
+    description: Inspects `src_endpoint` and `dst_endpoint` to enrich them with GeoIP information.
+    definition: |
+      subscribe "{{ inputs.enrich-input }}"
+      if src_endpoint?.ip? != null {
+        context::enrich "geo-open-country-asn", key=src_endpoint.ip, into=_tmp
+        if _tmp != null {
+          if _tmp.country.iso_code != "None" {
+            src_endpoint.location.country = _tmp.country.iso_code
+          }
+          src_endpoint.autonomous_system = {
+            name: _tmp.country.AutonomousSystemOrganization,
+            number: _tmp.country.AutonomousSystemNumber.int(),
+          }
+        }
+        drop _tmp
+      }
+      if dst_endpoint?.ip? != null {
+        context::enrich "geo-open-country-asn", key=dst_endpoint.ip, into=_tmp
+        if _tmp != null {
+          if _tmp.country.iso_code != "None" {
+            dst_endpoint.location.country = _tmp.country.iso_code
+          }
+          dst_endpoint.location.country = _tmp.country.iso_code
+          dst_endpoint.autonomous_system = {
+            name: _tmp.country.AutonomousSystemOrganization,
+            number: _tmp.country.AutonomousSystemNumber.int(),
+          }
+        }
+        drop _tmp
+      }
+      publish "{{ inputs.enrich-output }}"
+    restart-on-error: 1min
+
 examples:
   - name: Enrich DNS Server IPs with Geo Data
     description: |
@@ -59,3 +107,8 @@ examples:
         server: 9.9.9.9,
       }
       context::enrich "geo-open-country-asn", key=server
+  - name: Receive GeoIP-enriched OCSF events
+    description: |
+      Produces a feed of OCSF events with GeoIP information.
+    definition: |
+      subscribe "{{ inputs.enrich-output }}"
