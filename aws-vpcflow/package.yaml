@@ -1,0 +1,224 @@
+id: aws-vpcflow
+name: AWS VPC Flow Logs
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/aws-vpcflow/package.svg
+
+description: |
+  AWS VPC Flow Logs capture information about IP traffic going to and from
+  network interfaces in your VPC. This package provides utilities for
+  ingesting, parsing, and analyzing VPC Flow Log data.
+  
+  This package provides:
+  - Raw VPC Flow Log events on the `aws` topic as `aws.vpc_flow` events
+  - OCSF-formatted network activity events on the `ocsf` topic as `ocsf.network_activity` events
+  
+  To use this package, you must configure your AWS VPC to log to S3 in text
+  format as described in the [AWS documentation](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html).
+
+categories:
+- connectors
+
+inputs:
+  s3-bucket-url:
+    name: S3 Bucket URL
+    description: |
+      The S3 URL path containing VPC Flow Log files.
+    default: "s3://your-bucket/AWSLogs/**.log.gz"
+  remove-inputs:
+    name: Remove Files After Importing
+    description: |
+      Whether to remove files after processing them. Possible values are 'true' or 'false'.
+    default: "false"
+
+contexts:
+
+pipelines:
+  ingest-from-s3:
+    name: Ingest VPC Flow Logs from S3
+    description: |
+      Ingests VPC Flow Log files from an S3 bucket and publishes to 'amazon' topic.
+    definition: |
+      from_file "{{ inputs.s3-bucket-url }}", watch=true, remove={{ inputs.remove-inputs }} {
+        decompress_gzip
+        read_xsv field_separator=" ", list_separator=",", null_value="-"
+      }
+      @name = "amazon.vpc_flow"
+      publish "amazon"
+
+  transform-to-ocsf:
+    name: Transform VPC Flow Logs to OCSF
+    description: |
+      Transforms AWS VPC Flow Log events to OCSF Network Activity format.
+    definition: |
+      subscribe "amazon"
+
+      this = { aws: this }
+      
+      // --- Conditional Mappings
+
+      ocsf.category_uid = 4
+      ocsf.class_uid = 4001
+      ocsf.type_uid = 400106
+      ocsf.activity_id = 6
+      ocsf.severity_id = 1
+
+      // --- Direct field mappings
+
+      ocsf.cloud = {
+        account: {
+          uid: aws.account_id?
+        },
+        region: aws.region?,
+        zone: aws.az_id?
+      }
+
+      ocsf.metadata = {
+        version: "1.5.0",
+        product: {
+           name: "Amazon VPC",
+           vendor_name: "AWS",
+           version: aws.version?.string(),
+           feature: {
+              name: "Flowlogs",
+           },
+        },
+        profiles: [
+            "cloud",
+            "datetime",
+            "security_control"
+        ],
+      }
+
+      ocsf.src_endpoint = {
+        port: aws.srcport?,
+        svc_name: aws.pkt_src_aws_service?
+      }
+
+      ocsf.dst_endpoint = {
+        port: aws.dstport?,
+        svc_name: aws.pkt_dst_aws_service?,
+      }
+
+      ocsf.traffic = {
+        bytes: aws.bytes?,
+        packets: aws.packets?,
+      }
+
+      ocsf.connection_info = {
+        protocol_num: aws.protocol?,
+        tcp_flags: aws.tcp_flags?
+      }
+
+      ocsf.start_time = aws.start?.seconds().from_epoch()
+      ocsf.start_time_dt = aws.start?.seconds().from_epoch()
+      ocsf.end_time = aws.end?.seconds().from_epoch()
+      ocsf.end_time_dt = aws.end?.seconds().from_epoch()
+      ocsf.time_dt = ocsf.start_time_dt
+      ocsf.time = ocsf.start_time_dt
+      ocsf.duration = (aws.end?.seconds() - aws.start?.seconds()).count_milliseconds().int()
+      drop aws.start?
+      drop aws.end?
+
+      ocsf.status_code = aws.log_status?
+
+      // --- Conditional Mappings
+
+      if aws.action? == "REJECT" {
+        ocsf.type_uid = 400102
+        ocsf.activity_id = 2
+        ocsf.activity_name = "Deny"
+        ocsf.action = "blocked"
+        ocsf.action_id = 2
+        ocsf.disposition = "Blocked"
+        ocsf.disposition_id = 2        
+      } else { // action == "ACCEPT", or no action specified
+        ocsf.type_uid = 400106
+        ocsf.activity_id = 6
+        ocsf.activity_name = "Traffic"
+        ocsf.action = "allowed"
+        ocsf.action_id = 1
+        ocsf.disposition = "Allowed"
+        ocsf.disposition_id = 1
+      }
+
+      if aws.traffic_path? == 1 {
+        ocsf.connection_info.boundary_id = 4
+        ocsf.connection_info.boundary = "Same VPC"
+      } else if aws.traffic_path? == 2 {
+        ocsf.connection_info.boundary_id = 5
+        ocsf.connection_info.boundary = "Internet/VPC Gateway"
+      } else if aws.traffic_path? == 3 {
+        ocsf.connection_info.boundary_id = 6
+        ocsf.connection_info.boundary = "Virtual Private Gateway"
+      } else if aws.traffic_path? == 4 {
+        ocsf.connection_info.boundary_id = 7
+        ocsf.connection_info.boundary = "Intra-region VPC"
+      } else if aws.traffic_path? == 5 {
+        ocsf.connection_info.boundary_id = 8
+        ocsf.connection_info.boundary = "Inter-region VPC"
+      } else if aws.traffic_path? == 6 {
+        ocsf.connection_info.boundary_id = 9
+        ocsf.connection_info.boundary = "Local Gateway"
+      } else if aws.traffic_path? == 7 {
+        ocsf.connection_info.boundary_id = 10
+        ocsf.connection_info.boundary = "Gateway VPC"
+      } else if aws.traffic_path? == 8 {
+        ocsf.connection_info.boundary_id = 11
+        ocsf.connection_info.boundary = "Internet Gateway"
+      }
+      
+      if aws.flow_direction? == "ingress" {
+        ocsf.connection_info.direction_id = 1
+        ocsf.connection_info.direction = "Inbound"
+        ocsf.dst_endpoint.interface_uid = aws.interface_id?
+        ocsf.dst_endpoint.vpc_uid = aws.vpc_id?
+        ocsf.dst_endpoint.instance_uid = aws.instance_id?
+        ocsf.dst_endpoint.subnet_uid = aws.subnet_id?
+      } else if aws.flow_direction? == "egress" {
+        ocsf.connection_info.direction_id = 2
+        ocsf.connection_info.direction = "Outbound"
+        ocsf.src_endpoint.interface_uid = aws.interface_id?
+        ocsf.src_endpoint.vpc_uid = aws.vpc_id?
+        ocsf.src_endpoint.instance_uid = aws.instance_id?
+        ocsf.src_endpoint.subnet_uid = aws.subnet_id?
+      }
+      
+      if aws.pkt_srcaddr? != aws.srcaddr? {
+        ocsf.src_endpoint.ip = aws.pkt_srcaddr?
+        ocsf.src_endpoint.intermediate_ips = [aws.srcaddr?]
+      } else {
+        ocsf.src_endpoint.ip = aws.srcaddr?        
+      }
+      
+      if aws.pkt_dstaddr? != aws.dstaddr? {
+        ocsf.dst_endpoint.ip = aws.pkt_dstaddr?
+        ocsf.dst_endpoint.intermediate_ips = [aws.dstaddr?]
+      } else {
+        ocsf.dst_endpoint.ip = aws.dstaddr?
+      }
+
+      this = {...ocsf, unmapped: aws}
+      @name = "ocsf.network_activity"
+
+      ocsf::apply
+
+      publish "ocsf"
+
+examples:
+  - name: Export to Amazon Security Lake
+    description: |
+      Export OCSF Network Activity events to Amazon Security Lake.
+      Requires a Security Lake with a custom source configured for NETWORK_ACTIVITY input.
+      Also consider using our "Security Lake" package, which includes this and
+      similar pipelines for many OCSF types.
+    definition: |
+      let $s3_uri = "s3://your-security-lake-bucket/ext/your-prefix"
+      let $s3_region = "your-region"
+      let $s3_account_id = "123456789012"
+
+      subscribe "ocsf"
+      where @name == "ocsf.network_activity"
+      to_amazon_security_lake $s3_uri,
+        region=$s3_region,
+        account_id=$s3_account_id
