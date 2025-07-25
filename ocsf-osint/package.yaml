@@ -1,0 +1,65 @@
+id: ocsf-osint
+name: OCSF OSINT Enrichment
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/ocsf-osint/package.svg
+
+description: |
+  This package provides a lookup table context for enriching OCSF events with
+  OCSF [OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
+
+categories:
+- contexts
+
+inputs:
+  max-ioc-age:
+    name: Maximum age of an OCSF OSINT entry
+    description: |
+      The maximum age of an entry in the OCSF OSINT lookup table before it
+      is automatically evicted.
+    default: 30d
+
+contexts:
+  ocsf-osint:
+    type: lookup-table
+    description: |
+      A lookup table that maps IOC values to [OCSF
+      OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
+
+pipelines:
+  update-ocsf-osint-context:
+    name: Update the OCSF OSINT lookup table
+    description: |
+      A pipeline that updates the `ocsf-osint` context by subscribing to **OCSF
+      Inventory Info** events.
+    definition: |
+      subscribe "ocsf"
+      where @name == "ocsf.osint_inventory_info"
+      unroll osint
+      context::update "ocsf-osint",
+        key=osint.value,
+        value=osint,
+        create_timeout={{ inputs.max-ioc-age }}
+
+examples:
+- name: Enrich OCSF events with the OCSF OSINT context
+  description: |
+    A pipeline that enriches OCSF events with OSINT objects from the
+    `ocsf-osint` context.
+  definition: |
+    subscribe "ocsf"
+    where @name.starts_with("ocsf")
+    if category_uid == 4 {
+      // Network Activity
+      context::enrich "ocsf-osint",
+        key=src_endpoint.ip,
+        format="ocsf",
+        mode="append",
+        into=enrichments
+      context::enrich "ocsf-osint",
+        key=dst_endpoint.ip,
+        format="ocsf",
+        mode="append",
+        into=enrichments
+    }
