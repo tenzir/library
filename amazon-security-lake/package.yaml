@@ -19,37 +19,42 @@ categories:
 - destinations
 
 inputs:
-  s3-uri:
+  s3-bucket-url:
     name: S3 URI
-    description: S3 URI for Security Lake partition (e.g., s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/)
-    type: string
+    description: S3 URI for Security Lake partition (e.g., s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/)
   region:
     name: AWS Region
     description: AWS region where the Security Lake is deployed
-    type: string
   account-id:
     name: AWS Account ID
     description: AWS account ID of the account that hosts the Security Lake instance.
-    type: string
-  network-activity-source-name:
-    name: Network Activity Source Name
-    description: Source name (in ASL) for network activity events
-    type: string
-    default: tnz-ocsf-network
-  http-activity-source-name:
-    name: HTTP Activity Source Name
-    description: Source name (in ASL) for HTTP activity events
-    type: string
-    default: tnz-ocsf-http
-  dns-activity-source-name:
-    name: DNS Activity Source Name
-    description: Source name (in ASL) for DNS activity events
-    type: string
-    default: tnz-ocsf-dns
+  network-activity-source-url:
+    name: Network Activity Source URL
+    description: |
+      The S3 url for the Network Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type NETWORK_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/network-source/2.0`.
+    default: ""
+  http-activity-source-url:
+    name: HTTP Activity Source URL
+    description: |
+      The S3 url for the HTTP Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type HTTP_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/http-source/2.0`.
+    default: ""
+  dns-activity-source-url:
+    name: DNS Activity Source URL
+    description: |
+      The S3 url for the DNS Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type DNS_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/dns-source/2.0`.
+    default: ""
   topic:
     name: Topic
     description: Topic to subscribe to for OCSF events
-    type: string
     default: ocsf
 
 pipelines:
@@ -62,13 +67,9 @@ pipelines:
       subscribe "{{ inputs.topic }}"
       where @name == "ocsf.network_activity"
       
-      let $s3_bucket = "{{ inputs.s3-uri }}"
-      if $s3_bucket.ends_with("/") {
-        let $s3_uri = $s3_bucket
-      } else {
-        let $s3_uri = $s3_bucket + "/"
-      }
-      to_amazon_security_lake $s3_uri + "{{ inputs.network-activity-source-name }}",
+      let $source_url = "{{ inputs.network-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}"
 
@@ -81,13 +82,9 @@ pipelines:
       subscribe "{{ inputs.topic }}"
       where @name == "ocsf.http_activity"
       
-      let $s3_bucket = "{{ inputs.s3-uri }}"
-      if $s3_bucket.ends_with("/") {
-        let $s3_uri = $s3_bucket
-      } else {
-        let $s3_uri = $s3_bucket + "/"
-      }
-      to_amazon_security_lake $s3_uri + "{{ inputs.http-activity-source-name }}",
+      let $source_url = "{{ inputs.http-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}"
 
@@ -100,12 +97,8 @@ pipelines:
       subscribe "{{ inputs.topic }}"
       where @name == "ocsf.dns_activity"
       
-      let $s3_bucket = "{{ inputs.s3-uri }}"
-      if $s3_bucket.ends_with("/") {
-        let $s3_uri = $s3_bucket
-      } else {
-        let $s3_uri = $s3_bucket + "/"
-      }
-      to_amazon_security_lake $s3_uri + "{{ inputs.dns-activity-source-name }}",
+      let $source_url = "{{ inputs.dns-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}"
