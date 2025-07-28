@@ -172,10 +172,18 @@ pipelines:
       move osint.created_time = tie.created
       move osint.labels = tie.tags
       // This is not the best place to put the MISP event IDs.
-      osint.malware = tie.malpedia?.map(x => {
-        name: x,
-        classification_ids: [0], // unknown
-      })
+      if tie.malpedia? != null {
+        // FIXME: The empty list here has type `list<string>`.
+        // `[].map(..)` has a bug and takes that type as output type, instead
+        // of `list<record<...>>`. The 0-length check works around this bug.
+        if tie.malpedia.length() != 0 {
+          osint.malware = tie.malpedia?.map(x => {
+            name: x,
+            classification_ids: [0], // unknown
+          })
+        }
+        drop tie.malpedia
+      }
       drop tie.malpedia
       move osint.modified_time = tie.modified
       move osint.references = tie.eventIDs
