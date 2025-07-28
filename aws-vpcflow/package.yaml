@@ -67,10 +67,10 @@ pipelines:
 
       ocsf.cloud = {
         account: {
-          uid: aws.account_id?
+          uid: move aws.account_id?
         },
-        region: aws.region?,
-        zone: aws.az_id?
+        region: move aws.region?,
+        zone: move aws.az_id?
       }
 
       ocsf.metadata = {
@@ -78,7 +78,7 @@ pipelines:
         product: {
            name: "Amazon VPC",
            vendor_name: "AWS",
-           version: aws.version?.string(),
+           version: move aws.version?.string(),
            feature: {
               name: "Flowlogs",
            },
@@ -91,23 +91,23 @@ pipelines:
       }
 
       ocsf.src_endpoint = {
-        port: aws.srcport?,
-        svc_name: aws.pkt_src_aws_service?
+        port: move aws.srcport?,
+        svc_name: move aws.pkt_src_aws_service?
       }
 
       ocsf.dst_endpoint = {
-        port: aws.dstport?,
-        svc_name: aws.pkt_dst_aws_service?,
+        port: move aws.dstport?,
+        svc_name: move aws.pkt_dst_aws_service?,
       }
 
       ocsf.traffic = {
-        bytes: aws.bytes?,
-        packets: aws.packets?,
+        bytes: move aws.bytes?,
+        packets: move aws.packets?,
       }
 
       ocsf.connection_info = {
-        protocol_num: aws.protocol?,
-        tcp_flags: aws.tcp_flags?
+        protocol_num: move aws.protocol?,
+        tcp_flags: move aws.tcp_flags?
       }
 
       ocsf.start_time = aws.start?.seconds().from_epoch()
@@ -120,7 +120,7 @@ pipelines:
       drop aws.start?
       drop aws.end?
 
-      ocsf.status_code = aws.log_status?
+      ocsf.status_code = move aws.log_status?
 
       // --- Conditional Mappings
 
@@ -141,6 +141,7 @@ pipelines:
         ocsf.disposition = "Allowed"
         ocsf.disposition_id = 1
       }
+      drop aws.action?
 
       if aws.traffic_path? == 1 {
         ocsf.connection_info.boundary_id = 4
@@ -167,35 +168,39 @@ pipelines:
         ocsf.connection_info.boundary_id = 11
         ocsf.connection_info.boundary = "Internet Gateway"
       }
+      drop aws.traffic_path?
       
       if aws.flow_direction? == "ingress" {
         ocsf.connection_info.direction_id = 1
         ocsf.connection_info.direction = "Inbound"
-        ocsf.dst_endpoint.interface_uid = aws.interface_id?
-        ocsf.dst_endpoint.vpc_uid = aws.vpc_id?
-        ocsf.dst_endpoint.instance_uid = aws.instance_id?
-        ocsf.dst_endpoint.subnet_uid = aws.subnet_id?
+        ocsf.dst_endpoint.interface_uid = move aws.interface_id?
+        ocsf.dst_endpoint.vpc_uid = move aws.vpc_id?
+        ocsf.dst_endpoint.instance_uid = move aws.instance_id?
+        ocsf.dst_endpoint.subnet_uid = move aws.subnet_id?
       } else if aws.flow_direction? == "egress" {
         ocsf.connection_info.direction_id = 2
         ocsf.connection_info.direction = "Outbound"
-        ocsf.src_endpoint.interface_uid = aws.interface_id?
-        ocsf.src_endpoint.vpc_uid = aws.vpc_id?
-        ocsf.src_endpoint.instance_uid = aws.instance_id?
-        ocsf.src_endpoint.subnet_uid = aws.subnet_id?
+        ocsf.src_endpoint.interface_uid = move aws.interface_id?
+        ocsf.src_endpoint.vpc_uid = move aws.vpc_id?
+        ocsf.src_endpoint.instance_uid = move aws.instance_id?
+        ocsf.src_endpoint.subnet_uid = move aws.subnet_id?
       }
+      drop aws.flow_direction?
       
       if aws.pkt_srcaddr? != aws.srcaddr? {
-        ocsf.src_endpoint.ip = aws.pkt_srcaddr?
-        ocsf.src_endpoint.intermediate_ips = [aws.srcaddr?]
+        ocsf.src_endpoint.ip = move aws.pkt_srcaddr?
+        ocsf.src_endpoint.intermediate_ips = [move aws.srcaddr?]
       } else {
-        ocsf.src_endpoint.ip = aws.srcaddr?        
+        ocsf.src_endpoint.ip = move aws.srcaddr?
+        drop aws.pkt_srcaddr?
       }
       
       if aws.pkt_dstaddr? != aws.dstaddr? {
-        ocsf.dst_endpoint.ip = aws.pkt_dstaddr?
-        ocsf.dst_endpoint.intermediate_ips = [aws.dstaddr?]
+        ocsf.dst_endpoint.ip = move aws.pkt_dstaddr?
+        ocsf.dst_endpoint.intermediate_ips = [move aws.dstaddr?]
       } else {
-        ocsf.dst_endpoint.ip = aws.dstaddr?
+        ocsf.dst_endpoint.ip = move aws.dstaddr?
+        drop aws.pkt_dstaddr?
       }
 
       this = {...ocsf, unmapped: aws}
