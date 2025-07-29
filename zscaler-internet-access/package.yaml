@@ -1,0 +1,244 @@
+id: zscaler-internet-access
+name: Zscaler Internet Access
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/zscaler-internet-access/package.svg
+description: |
+  A package to use [Zscaler Internet Access](https://www.zscaler.com/products-and-solutions/zscaler-internet-access)
+  as a data source.
+categories:
+- mappings
+- sources
+
+inputs:
+  listen-endpoint:
+    name: Listen Endpoint
+    description: A TCP endpoint where Zscaler NSS sends its logs.
+    type: string
+    default: 0.0.0.0:8080
+
+  file-url:
+    name: Log file URL
+    description: A URL at which one or more files with Zscaler logs can be found.
+    type: string
+
+  file-watch:
+    name: Log file URL watch
+    description: Whether to watch the file url for new files.
+    type: boolean
+
+pipelines:
+  zscaler-zia-onboard:
+    name: ZIA NSS Receiver
+    disabled: false
+    definition: |
+      from "{{ inputs.listen-endpoint }}" {
+        read_kv(field_split="\t", value_split="=", raw=true)
+      }
+      publish "zscaler_zia"
+
+  zscaler-load-from-file:
+    name: ZIA Logs from File
+    disabled: true
+    definition: |
+      from_file "{{ inputs.file-url }}", watch={{ inputs.file-watch }} {
+        read_kv(field_split="\t", value_split="=", raw=true)
+      }
+      publish "zscaler_zia"
+
+  zscaler-zia-proxy-to-ocsf:
+    name: ZIA Proxy to OCSF HTTP Activity
+    disabled: false
+    definition: |
+      // Define lookup tables for common zia values to map to OCSF enumerations.
+      let $activity_map = {
+        "GET": 1,
+        "POST": 2,
+        "CONNECT": 3,
+        "PUT": 4,
+        "DELETE": 5,
+        "HEAD": 6,
+        "OPTIONS": 7,
+        "TRACE": 8,
+        "PATCH": 9
+      }
+
+      let $disposition_map = {
+        "Allowed": 1,
+        "Blocked": 2,
+        "Quarantined": 3,
+        "Isolated": 5
+      }
+
+      // TODO: Collect urlcategory values and normalize to OCSF url categories.
+      let $categories_map = {
+      }
+
+      subscribe "zscaler_zia"
+      // Use the presence of the requestmethod field to detect HTTP events.
+      where this.has("requestmethod")
+
+      // For this example, we assume the raw log is the root object.
+      // We'll move it into a 'zia' field to avoid naming conflicts.
+      this = { zia: this }
+
+      // === Classification ===
+      // Map the request method to the OCSF activity ID and name.
+      ocsf.activity_id = $activity_map[zia.requestmethod]? else 0
+      move ocsf.activity_name = zia.requestmethod
+
+      // Set the static class and category for HTTP Activity.
+      ocsf.category_uid = 4
+      ocsf.category_name = "Network Activity"
+      ocsf.class_uid = 4002
+      ocsf.class_name = "HTTP Activity"
+
+      // Derive the specific event type from the class and activity.
+      ocsf.type_uid = ocsf.class_uid * 1000 + ocsf.activity_id
+      ocsf.type_name = ocsf.activity_name
+
+      // Map the Zscaler action to OCSF disposition.
+      ocsf.disposition_id = $disposition_map[zia.action]? else 0
+      move ocsf.disposition = zia.action
+      move ocsf.status_detail = zia.reason
+
+      // Determine status based on the HTTP response code.
+      // Codes in the 2xx and 3xx range are generally successful.
+      if zia.status == "NA" {
+        status_code_num = null
+      } else {
+        status_code_num = int(move zia.status)
+      }
+      if status_code_num == null {
+        ocsf.status = "Unknown"
+        ocsf.status_id = 0
+      } else if status_code_num >= 200 and status_code_num < 400 {
+        ocsf.status = "Success"
+        ocsf.status_id = 1
+      } else if status_code_num >= 400 {
+        ocsf.status = "Failure"
+        ocsf.status_id = 2
+      } else {
+        ocsf.status = "Unknown"
+        ocsf.status_id = 0
+      }
+
+      // Map threat severity to OCSF severity.
+      if zia.threatseverity == "None" {
+        ocsf.malware.severity_id = 0
+        ocsf.malware.severity = "Unknown"
+      } else if zia.threatseverity == "medium" {
+        ocsf.malware.severity_id = 3
+        ocsf.malware.severity = "Medium"
+      } else if zia.threatseverity == "critical" {
+        ocsf.malware.severity_id = 5
+        ocsf.malware.severity = "Critical"
+      } else {
+        ocsf.malware.severity_id = 99
+        ocsf.malware.severity = zia.threatseverity
+      }
+
+      // Map the remaining threat* fields to OCSF malware.
+      if zia.threatclass == "None" {
+        zia.threatclass = null
+      }
+      if zia.threatcategory == "None" {
+        zia.threatcategory = null
+      }
+      ocsf.malware = [{
+        name: move zia.threatname,
+        classifications: [move zia.threatclass?, move zia.threatcategory?]
+      }]
+
+      // === Occurrence ===
+      // Parse the zia datetime string into a valid timestamp.
+      // The format string '%a %b %d %H:%M:%S %Y' matches "Tue Jul 22 10:59:31 2025".
+      ocsf.time = parse_time(move zia.datetime, "%a %b %d %H:%M:%S %Y")
+
+      // === Context ===
+      ocsf.metadata = {
+        log_name: "NSS",
+        product: {
+          name: move zia.product,
+          vendor_name: move zia.vendor,
+        },
+        uid: move zia.event_id,
+        version: "1.5.0",
+        profiles: ["data_classification", "host", "security_control"],
+      }
+
+      // === Primary Objects ===
+      // Actor (The user who initiated the request)
+      ocsf.actor = {
+        user: {
+          name: move zia.user,
+          org: {
+            // ou: org unit
+            ou_name: move zia.department?,
+          },
+        },
+      }
+
+      ocsf.device = {
+        hostname: move zia.devicehostname?,
+        owner: {
+          name: move zia.deviceowner?,
+        },
+      }
+
+      // Source Endpoint (The client machine)
+      ocsf.src_endpoint = {
+        ip: ip(move zia.ClientIP)
+      }
+
+      // Destination Endpoint (The web server)
+      ocsf.dst_endpoint = {
+        ip: ip(move zia.serverip),
+        domain: move zia.hostname,
+      }
+
+      // Proxy Endpoint (The zia node)
+      ocsf.proxy = {
+        ip: ip(move zia.clientpublicIP),
+        name: move zia.location
+      }
+
+      // HTTP Request Details
+      ocsf.http_request = {
+        http_method: ocsf.activity_name,
+        referrer: move zia.refererURL,
+        user_agent: move zia.useragent,
+        url: {
+          url_string: move zia.url,
+          scheme: to_lower(move zia.protocol),
+          category_ids: [ 0 ],
+          categories: [ move zia.urlcategory, move zia.urlsupercategory, move zia.appclass, move zia.urlclass ]
+        }
+      }
+
+      // HTTP Response Details
+      ocsf.http_response = {
+        code: move status_code_num,
+        content_type: move zia.contenttype
+      }
+
+      // Network Traffic Details
+      ocsf.traffic = {
+        bytes_in: int(move zia.responsesize),
+        bytes_out: int(move zia.requestsize),
+        bytes: int(move zia.transactionsize)
+      }
+
+      // Populate other relevant top-level fields
+      move ocsf.app_name = zia.appname
+      ocsf.risk_score = int(zia.pagerisk)
+
+      // === Finalization ===
+      // Place all remaining unmapped fields from the original log into the 'unmapped' object.
+      this = {...ocsf, unmapped: zia}
+
+      // Set the final event name and publish to the OCSF topic.
+      @name = "ocsf.http_activity"
+      ocsf::apply
+      publish "ocsf"
