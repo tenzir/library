@@ -1,0 +1,114 @@
+---
+id: amazon-security-lake
+name: Amazon Security Lake Destination
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/amazon-security-lake/package.svg
+description: |
+  [Amazon Security Lake](https://aws.amazon.com/security-lake/) automatically 
+  centralizes security data from cloud, on-premises, and custom sources.
+
+  This package provides pipelines for writing OCSF events to Amazon Security
+  Lake using the S3-based ingestion format.
+  
+  *NOTE*: Before you can write events to the Security Lake, you must configure
+  a source per event type in Security Lake and ensure the Tenzir Node has write
+  permissions to the S3 source directory. If you use a non-default name for the
+  source, adjust the source name parameter below.
+categories:
+- destinations
+
+inputs:
+  s3-bucket-url:
+    name: S3 URI
+    description: S3 URI for Security Lake partition (e.g., s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/)
+  region:
+    name: AWS Region
+    description: AWS region where the Security Lake is deployed
+  account-id:
+    name: AWS Account ID
+    description: AWS account ID of the account that hosts the Security Lake instance.
+  network-activity-source-url:
+    name: Network Activity Source URL
+    description: |
+      The S3 url for the Network Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type NETWORK_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/network-source/2.0`.
+    default: ""
+  http-activity-source-url:
+    name: HTTP Activity Source URL
+    description: |
+      The S3 url for the HTTP Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type HTTP_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/http-source/2.0`.
+    default: ""
+  dns-activity-source-url:
+    name: DNS Activity Source URL
+    description: |
+      The S3 url for the DNS Activity source. The source must have been created
+      as a custom resource in ASL, and accept events of type DNS_ACTIVITY.
+      If the source is versioned, the version is included as a suffix.
+      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/dns-source/2.0`.
+    default: ""
+  topic:
+    name: Topic
+    description: Topic to subscribe to for OCSF events
+    default: ocsf
+  timeout:
+    name: Timeout
+    description: Timeout for writing to Amazon Security Lake
+    default: 5m
+
+pipelines:
+  ocsf-network-activity-to-security-lake:
+    name: OCSF Network Activity to Security Lake
+    description: Writes OCSF network activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "{{ inputs.topic }}"
+      where @name == "ocsf.network_activity"
+      ocsf::apply
+      
+      let $source_url = "{{ inputs.network-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  ocsf-http-activity-to-security-lake:
+    name: OCSF HTTP Activity to Security Lake
+    description: Writes OCSF HTTP activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "{{ inputs.topic }}"
+      where @name == "ocsf.http_activity"
+      ocsf::apply
+      
+      let $source_url = "{{ inputs.http-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  ocsf-dns-activity-to-security-lake:
+    name: OCSF DNS Activity to Security Lake
+    description: Writes OCSF DNS activity events to Amazon Security Lake
+    restart-on-error: 5m
+    disabled: true
+    definition: |
+      subscribe "{{ inputs.topic }}"
+      where @name == "ocsf.dns_activity"
+      ocsf::apply
+      
+      let $source_url = "{{ inputs.dns-activity-source-url }}"
+
+      to_amazon_security_lake $source_url,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
