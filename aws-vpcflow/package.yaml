@@ -8,11 +8,11 @@ description: |
   AWS VPC Flow Logs capture information about IP traffic going to and from
   network interfaces in your VPC. This package provides utilities for
   ingesting, parsing, and analyzing VPC Flow Log data.
-  
+
   This package provides:
   - Raw VPC Flow Log events on the `aws` topic as `aws.vpc_flow` events
   - OCSF-formatted network activity events on the `ocsf` topic as `ocsf.network_activity` events
-  
+
   To use this package, you must configure your AWS VPC to log to S3 in text
   format as described in the [AWS documentation](https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3.html).
 
@@ -52,7 +52,7 @@ pipelines:
       subscribe "amazon"
 
       this = { aws: this }
-      
+
       // --- Conditional Mappings
 
       ocsf.category_uid = 4
@@ -114,7 +114,7 @@ pipelines:
       ocsf.end_time_dt = aws.end?.seconds().from_epoch()
       ocsf.time_dt = ocsf.start_time_dt
       ocsf.time = ocsf.start_time_dt
-      ocsf.duration = (aws.end?.seconds() - aws.start?.seconds()).count_milliseconds().int()
+      ocsf.duration = (aws.end?.seconds() - aws.start?.seconds()).count_milliseconds().round()
       drop aws.start?
       drop aws.end?
 
@@ -129,7 +129,7 @@ pipelines:
         ocsf.action = "blocked"
         ocsf.action_id = 2
         ocsf.disposition = "Blocked"
-        ocsf.disposition_id = 2        
+        ocsf.disposition_id = 2
       } else { // action == "ACCEPT", or no action specified
         ocsf.type_uid = 400106
         ocsf.activity_id = 6
@@ -167,7 +167,7 @@ pipelines:
         ocsf.connection_info.boundary = "Internet Gateway"
       }
       drop aws.traffic_path?
-      
+
       if aws.flow_direction? == "ingress" {
         ocsf.connection_info.direction_id = 1
         ocsf.connection_info.direction = "Inbound"
@@ -184,7 +184,7 @@ pipelines:
         ocsf.src_endpoint.subnet_uid = move aws.subnet_id?
       }
       drop aws.flow_direction?
-      
+
       if aws.pkt_srcaddr? != aws.srcaddr? {
         ocsf.src_endpoint.ip = move aws.pkt_srcaddr?
         ocsf.src_endpoint.intermediate_ips = [move aws.srcaddr?]
@@ -192,7 +192,7 @@ pipelines:
         ocsf.src_endpoint.ip = move aws.srcaddr?
         drop aws.pkt_srcaddr?
       }
-      
+
       if aws.pkt_dstaddr? != aws.dstaddr? {
         ocsf.dst_endpoint.ip = move aws.pkt_dstaddr?
         ocsf.dst_endpoint.intermediate_ips = [move aws.dstaddr?]
