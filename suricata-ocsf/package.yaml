@@ -37,7 +37,7 @@ pipelines:
       ocsf.type_uid = 400106
       // === Occurrence ===
       ocsf.time = move suricata.timestamp
-      ocsf.duration = suricata.flow.end - suricata.flow.start
+      ocsf.duration = (suricata.flow.end - suricata.flow.start).count_milliseconds().round()
       ocsf.end_time = move suricata.flow.end
       ocsf.start_time = move suricata.flow.start
       // === Context ===
@@ -48,7 +48,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.connection_info.community_uid = move suricata.community_id
@@ -176,7 +176,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.src_endpoint = {
@@ -240,7 +240,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       ocsf.dialect = move suricata.smb.dialect
       // === Primary ===
@@ -259,9 +259,9 @@ pipelines:
         ocsf.file = {
           type_id: 0,
           name: move suricata.smb.filename,
-          created_time: move suricata.smb.created,
-          modified_time: move suricata.smb.modified,
-          accessed_time: move suricata.smb.accessed,
+          created_time: (move suricata.smb.created).milliseconds().from_epoch(),
+          modified_time: (move suricata.smb.modified).milliseconds().from_epoch(),
+          accessed_time: (move suricata.smb.accessed).milliseconds().from_epoch(),
         }
       } else {
         ocsf.file = null
@@ -306,20 +306,22 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       ocsf.status_id = 1
       // === Primary ===
-       ocsf.src_endpoint = {
-        ip: move suricata.src_ip,
-        port: move suricata.src_port,
-      }
-      ocsf.dst_endpoint = {
-        ip: move suricata.dest_ip,
-        port: move suricata.dest_port,
-      }
+      ocsf.evidences = [{
+        src_endpoint: {
+          ip: move suricata.src_ip,
+          port: move suricata.src_port,
+        },
+        dst_endpoint: {
+          ip: move suricata.dest_ip,
+          port: move suricata.dest_port,
+        },
+      }]
       ocsf.finding_info = {
-        uid: move suricata.flow_id,
+        uid: (move suricata.flow_id).string(),
         title: move suricata.alert.category,
         desc: move suricata.alert.signature,
       }
@@ -373,7 +375,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
        if suricata.http.has("fileinfo") {
         ocsf.file = {
@@ -470,7 +472,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       if suricata.has("fileinfo") {
         ocsf.file = {
@@ -506,7 +508,7 @@ pipelines:
         ocsf.http_response = {
           code: move suricata.http.status,
           length: move suricata.http.length,
-          content_type: move suricata.http.http_content_type, 
+          content_type: move suricata.http.http_content_type,
         }
       } else {
         ocsf.http_request = null
@@ -547,7 +549,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       ocsf.protocol_ver = move suricata.ssh.server.proto_version
       // === Primary ===
@@ -620,7 +622,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -666,7 +668,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       ocsf.direction_id = 0
       // === Primary ===
@@ -715,7 +717,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       if suricata.tls.version != null {
         tls_version = suricata.tls.version
@@ -724,7 +726,7 @@ pipelines:
       }
       tls_version = move suricata.tls.version else "Unknown"
       if suricata.tls.issuerdn != null {
-          certificate = {
+        certificate = {
           issuer: move suricata.tls.issuerdn,
           fingerprints: [{algorithm_id: 2, value: move suricata.tls.fingerprint}],
           serial_number: move suricata.tls.serial,
@@ -733,13 +735,13 @@ pipelines:
         }
       } else {
         certificate = null
-      }     
+      }
       ocsf.tls = {
         version: tls_version,
         sni: move suricata.tls.sni,
         ja3s_hash: move suricata.tls.ja3s,
         ja3_hash: move suricata.tls.ja3,
-        certificate: certificate,
+        certificate: move certificate,
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -800,7 +802,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -861,7 +863,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -922,7 +924,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -983,7 +985,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -1046,7 +1048,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.dst_endpoint = {
@@ -1078,7 +1080,7 @@ pipelines:
         ocsf.status_id = 0
         ocsf.status = "Unknown"
       }
-      this = {...ocsf, unmapped: suricata}  
+      this = {...ocsf, unmapped: suricata}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1132,7 +1134,7 @@ pipelines:
           vendor_name: "Open Information Security Foundation",
         },
         uid: string(move suricata.flow_id),
-        version: "v1.4.0",
+        version: "1.4.0",
       }
       // === Primary ===
       ocsf.connection_info = {
@@ -1157,7 +1159,7 @@ pipelines:
       ocsf.lease_duration = move suricata.dhcp.lease_time
       ocsf.status = "Other"
       ocsf.status_id = 99
-      ocsf.transaction_uid = suricata.dhcp.id
+      ocsf.transaction_uid = (move suricata.dhcp.id).string()
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.dhcp_activity"
       publish "ocsf"

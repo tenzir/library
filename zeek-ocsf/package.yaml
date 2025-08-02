@@ -76,7 +76,7 @@ pipelines:
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
       move ocsf.time = zeek.ts
-      ocsf.duration = move zeek.duration
+      ocsf.duration = (move zeek.duration).count_milliseconds().round()
       ocsf.end_time = ocsf.time + ocsf.duration
       ocsf.start_time = ocsf.time
       // === Context ===
@@ -147,8 +147,8 @@ pipelines:
         bytes_missed: move zeek.missed_bytes,
         packets_in: move zeek.resp_pkts,
         packets_out: move zeek.orig_pkts,
-        total_bytes: zeek.orig_bytes + zeek.resp_bytes,
-        total_packets: zeek.orig_pkts + zeek.resp_pkts,
+        bytes: zeek.orig_bytes + zeek.resp_bytes,
+        packets: zeek.orig_pkts + zeek.resp_pkts,
       }
       this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.network_activity"
@@ -197,7 +197,7 @@ pipelines:
       // === Primary ===
       ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x => {
         rdata: x.left,
-        ttl: x.right,
+        ttl: x.right.count_seconds().round(),
       })
       ocsf.query = {
         class: move zeek.qclass_name,
@@ -463,7 +463,7 @@ pipelines:
       move ocsf.time = zeek.ts
       // The duration is the time from the first to the last DORA message that
       // Zeek aggregates into a single log.
-      move ocsf.duration = zeek.duration
+      ocsf.duration = (move zeek.duration).count_milliseconds().round()
       ocsf.start_time = ocsf.time
       ocsf.end_time = ocsf.time + ocsf.duration
       // === Context ===
@@ -504,8 +504,8 @@ pipelines:
         ip: move zeek.server_addr?,
         domain: move zeek.domain?,
       }
-      move ocsf.lease_dur = zeek.lease_time?
-      move ocsf.transaction_uid = zeek.trans_id
+      ocsf.lease_dur = (move zeek.lease_time?).count_seconds().round()
+      ocsf.transaction_uid = (move zeek.trans_id).string()
       this = {...ocsf, unmapped: zeek.print_ndjson()}
       @name = "ocsf.dhcp_activity"
       publish "ocsf"
@@ -570,7 +570,9 @@ pipelines:
         ocsf.connection_info.protocol_ver_id = 4
       }
       drop zeek.id
-      move ocsf.file = zeek.path
+      ocsf.file = {
+        path: move zeek.path,
+      }
       move ocsf.share = zeek.name
       if zeek.action.starts_with("SMB::FILE") {
         ocsf.share_type_id = 1
@@ -976,11 +978,11 @@ pipelines:
         },
         cipher: move zeek.cipher,
         ja3_hash: {
-          algorithm: 1,
+          algorithm_id: 1,
           value: move zeek.ja3?,
         },
         ja3s_hash: {
-          algorithm: 1,
+          algorithm_id: 1,
           value: move zeek.ja3s?,
         },
         sni: move zeek.server_name,
@@ -1073,9 +1075,12 @@ pipelines:
           subject: move zeek.certificate.subject,
           // NB: [null].collect() yields the empty array.
           fingerprints: [move zeek.fingerprint?].collect(),
-          version: move zeek.certificate.version,
+          version: (move zeek.certificate.version).string(),
         },
-        sans: move zeek.san.dns,
+        sans: (move zeek.san.dns).map(name => {
+          name: name,
+          type: "DNSName",
+        }),
         version: null,
       }
       this = {...ocsf, unmapped: zeek.print_ndjson()}
