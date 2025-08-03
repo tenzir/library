@@ -3,10 +3,12 @@ name: Sophos
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
 package_icon: https://raw.githubusercontent.com/tenzir/library/main/sophos/package.svg
-
 description: |
   The [Sophos](https://sophos.com) package onboards data from various [Sophos
-  APIs](https://developer.sophos.com/apis) into pipelines.
+  APIs](https://developer.sophos.com/apis). OCSF mapping pipelines create the respective findings.
+categories:
+- sources
+- mappings
 
 inputs:
   poll-frequency:
@@ -148,9 +150,7 @@ pipelines:
       deduplicate id, create_timeout=25h
       @name = "sophos.event"
       publish "sophos"
-    restart-on-error: true
-    labels:
-      - Sophos
+    disabled: true
 
   onboard-sophos-alerts:
     name: Onboard Sophos SIEM Integration API (Alerts)
@@ -271,9 +271,375 @@ pipelines:
       deduplicate id, create_timeout=25h
       @name = "sophos.alert"
       publish "sophos"
-    restart-on-error: true
-    labels:
-      - Sophos
+    disabled: true
+
+  map-core-detection-to-ocsf:
+    name: Sophos Detection to OCSF Detection Finding
+    definition: |
+      // Additional information about the different severity levels:
+      // https://docs.sophos.com/support/help/en-us/services-guide/incident-levels/index.html
+      let $severity = {
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
+      }
+      // The origin field in the event that maps to the analytic type in the
+      // detection finding.
+      let $origin = {
+        ML: {name: "Learning (ML/DL)", id: 4},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type.starts_with("Event::Endpoint") and type.ends_with("Detection")
+      this = { event: this }
+      class_uid = 2004
+      activity_id = 1
+      // TODO: this is currently overfitted for German customers and needs to be
+      // generalized.
+      grokked_file_info = event.name.parse_grok("%{GREEDYDATA} bei '%{GREEDYDATA:path}'")
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 2,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Create",
+        category_name: "Findings",
+        class_name: "Detection Finding",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "Detection Finding: Create",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Context (required) ---
+        metadata: {
+          log_name: event.type,
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        finding_info: {
+          // required
+          title: event.name,
+          uid: event.id,
+          // recommended
+          analytic: {
+            type_id: $origin[event.origin].id.otherwise(99),
+            type: $origin[event.origin].name.otherwise("Other"),
+          },
+          // optional
+          category: event.group,
+        },
+        // --- Primary (recommended) ---
+        is_alert: true,
+        evidences: [{
+          file: {
+            type_id: 1,
+            type: "Regular File",
+            name: grokked_file_info.path,
+            hashes: [{
+              algorithm_id: 3,
+              algorithm: "SHA-256",
+              value: event.appSha256,
+            }],
+          },
+        }],
+        message: event.name,
+        // --- Host Profile ---
+        device: {
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.group,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.appSha256,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.endpoint_type,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.threat,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.detection_finding"
+      publish "ocsf"
+
+  map-core-pua-clean-to-ocsf:
+    name: Sophos PUA Clean to OCSF File Remediation Activity
+    definition: |
+      let $severity = {
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
+      }
+      let $remedy_result = {
+        SUCCESS: {name: "Success", id: 1},
+        NOT_APPLICABLE: {name: "Unsupported", id: 5},
+        NOT_FOUND: {name: "Does Not Exist", id: 3},
+        DELETED: {name: "Success", id: 1},
+        FAILED_TO_DELETE: {name: "Failure", id: 2},
+        WHITELISTED: {name: "Other", id: 99},
+        OTHER_ERROR: {name: "Error", id: 6},
+        FAILED_TO_DELETE_SYSTEM_PROTECTED: {name: "Failure", id: 2},
+      }
+      let $file_type = {
+        file: {name: "Regular File", id: 1},
+        regkey: {name: "Other", id: 99},
+        process: {name: "Other", id: 99},
+        thread: {name: "Other", id: 99},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type == "Event::Endpoint::CorePuaClean"
+      this = { event: this }
+      class_uid = 7002
+      activity_id = 2
+      // TODO: in theory there can be more items than one. In practice, we
+      // haven't seen more. This is tricky to deal with, because we would have to
+      // unroll the array and create multiple events, but that require generate
+      // new, distinct values for `metadata.uid`, making the events not joinable
+      // anymore.
+      first_remedy_item = event.core_remedy_items.items[0]
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 7,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Evict",
+        category_name: "Remediation",
+        class_name: "File Remediation Activity",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "File Remediation: Evict",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Context (required) ---
+        metadata: {
+          log_name: event.type,
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        command_uid: event.type.split("::")[-1],
+        file: {
+          path: first_remedy_item.descriptor,
+          name: file_name(first_remedy_item.descriptor),
+          type_id: $file_type[first_remedy_item.type].id,
+          type: $file_type[first_remedy_item.type].name,
+        },
+        // --- Primary (recommended) ---
+        message: event.name,
+        status: $remedy_result[first_remedy_item.result].name.otherwise("Unknown"),
+        status_id: $remedy_result[first_remedy_item.result].id.otherwise(0),
+        // --- Host Profile ---
+        device: {
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.endpoint_type,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.threat,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.file_remediation_activity"
+      publish "ocsf"
+
+  map-web-filtering-blocked-to-ocsf:
+    name: Sophos Web Filtering Blocked to OCSF Remediation Activity
+    definition: |
+      let $severity = {
+        low: {name: "Low", id: 2},
+        medium: {name: "Medium", id: 3},
+        high: {name: "High", id: 4},
+        critical: {name: "Critical", id: 5},
+      }
+      let $endpoint_type = {
+        mobile: {name: "Mobile", id: 5},
+        computer: {name: "Desktop", id: 3},
+        server: {name: "Server", id: 1},
+        security_vm: {name: "Virtual", id: 6},
+        sensor: {name: "Other", id: 99},
+        utm: {name: "Other", id: 99},
+        access_point: {name: "Other", id: 99},
+        wireless_network: {name: "Other", id: 99},
+        mailbox: {name: "Other", id: 99},
+        slec: {name: "Other", id: 99},
+        xgfirewall: {name: "Firewall", id: 9},
+        ztna_gateway: {name: "Router", id: 12},
+        nta_appliance: {name: "IDS", id: 13},
+      }
+      subscribe "sophos"
+      where @name == "sophos.event"
+      where type == "Event::Endpoint::WebFilteringBlocked"
+      this = { event: this }
+      class_uid = 7001
+      activity_id = 1
+      // TODO: how do we use this rather valuable information properly?
+      //xs = event.name.parse_grok("%{DATA}\\\"%{DATA:subject}\\\"%{DATA}\\\"%{DATA:malware}\\\".")
+      this = {
+        // --- Classification (required) ---
+        activity_id: activity_id,
+        category_uid: 7,
+        class_uid: class_uid,
+        type_uid: class_uid * 100 + activity_id,
+        severity_id: $severity[event.severity].id.otherwise(0),
+        // --- Classification (optional) ---
+        activity_name: "Isolate",
+        category_name: "Remediation",
+        class_name: "Remediation Activity",
+        severity: $severity[event.severity].name.otherwise("Unknown"),
+        type_name: "Remediation: Isolate",
+        // --- Occurrence (required) ---
+        time: event.when,
+        // --- Context (required) ---
+        metadata: {
+          log_name: event.type,
+          logged_time: event.created_at,
+          product: {
+            name: "Sophos",
+            vendor_name: "Sophos",
+          },
+          uid: event.id,
+          version: "1.4.0",
+          profiles : ["host"],
+        },
+        // --- Context (optional) ---
+        unmapped: event,
+        // --- Primary (required) ---
+        command_uid: event.type.split("::")[-1],
+        // --- Primary (recommended) ---
+        message: event.name,
+        // --- Primary (optional) ---
+        // --- Host Profile ---
+        device: {
+          desc: event.endpoint_type,
+          type_id: $endpoint_type[event.endpoint_type].id,
+          type: $endpoint_type[event.endpoint_type].name,
+          uid: event.endpoint_id,
+          name: event.location,
+        },
+        actor: {
+          user: {
+            name: event.source,
+            uid: event.user_id,
+            organization: {
+              uid: event.customer_id,
+            },
+          },
+        },
+      }
+      // Drop all mapped fields.
+      drop(
+        unmapped.created_at,
+        unmapped.when,
+        unmapped.id,
+        unmapped.name,
+        unmapped.severity,
+        unmapped.location,
+        unmapped.endpoint_id,
+        unmapped.endpoint_type,
+        unmapped.source,
+        unmapped.user_id,
+        unmapped.type,
+        unmapped.customer_id,
+      )
+      @name = "ocsf.remediation_activity"
+      publish "ocsf"
 
 examples:
   - name: Tap into high-severity events
@@ -283,6 +649,7 @@ examples:
       subscribe "sophos"
       where @name == "sophos.event" and severity == "high"
       select user_id, endpoint_type, type, source, name, location
+
   - name: Show the top threats
     description: |
       Show once per day the top values of the field `threat`.
