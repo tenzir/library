@@ -13,6 +13,22 @@ categories:
 - contexts
 
 inputs:
+  osint-input-topic:
+    name: OCSF OSINT Inventory Info topic
+    description: |
+      The topic to subscribe to and extract OSINT Inventory Info events.
+    default: ocsf
+  enrich-input-topic:
+    name: Enrichment input topic
+    description: |
+      The topic to subscribe to and enrich with OSINT objects.
+    default: ocsf
+  enrich-output-topic:
+    name: Enrichment output topic
+    description: |
+      The topic to publish to after having enriched OCSF events with OSINT
+      objects.
+    default: ocsf-osint
   max-ioc-age:
     name: Maximum age of an OCSF OSINT entry
     description: |
@@ -28,38 +44,46 @@ contexts:
       OSINT](https://schema.ocsf.io/1.5.0/objects/osint) objects.
 
 pipelines:
-  update-ocsf-osint-context:
+  update-osint-context:
     name: Update the OCSF OSINT lookup table
     description: |
-      A pipeline that updates the `ocsf-osint` context by subscribing to **OCSF
-      Inventory Info** events.
+      Updates the `ocsf-osint` context by subscribing to **OSINT Inventory
+      Info** events.
     definition: |
-      subscribe "ocsf"
+      let $topic = "{{ inputs.osint-input-topic }}"
+      subscribe $topic
       where @name == "ocsf.osint_inventory_info"
       unroll osint
       context::update "ocsf-osint",
         key=osint.value,
         value=osint,
         create_timeout={{ inputs.max-ioc-age }}
-
-examples:
-- name: Enrich OCSF events with the OCSF OSINT context
-  description: |
-    A pipeline that enriches OCSF events with OSINT objects from the
-    `ocsf-osint` context.
-  definition: |
-    subscribe "ocsf"
-    where @name.starts_with("ocsf")
-    if category_uid == 4 {
-      // Network Activity
-      context::enrich "ocsf-osint",
-        key=src_endpoint.ip,
-        format="ocsf",
-        mode="append",
-        into=enrichments
-      context::enrich "ocsf-osint",
-        key=dst_endpoint.ip,
-        format="ocsf",
-        mode="append",
-        into=enrichments
-    }
+  enrich-with-osint-context:
+    name: Enrich OCSF events with OSINT objects
+    description: |
+      Enriches OCSF events and appends events to the `enrichments` array.
+    definition: |
+      let $input = "{{ inputs.enrich-input-topic }}"
+      let $output = "{{ inputs.enrich-output-topic }}"
+      subscribe $input
+      where @name.starts_with("ocsf")
+      if category_uid == 4 { // Network Activity
+        context::enrich "ocsf-osint",
+          key=src_endpoint.ip,
+          format="ocsf",
+          mode="append",
+          into=enrichments
+        context::enrich "ocsf-osint",
+          key=dst_endpoint.ip,
+          format="ocsf",
+          mode="append",
+          into=enrichments
+        if class_uid == 4003 and query.hostname? != null { // DNS Activity
+          context::enrich "ocsf-osint",
+            key=query.hostname,
+            format="ocsf",
+            mode="append",
+            into=enrichments
+        }
+      }
+      publish $output
