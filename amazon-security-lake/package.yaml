@@ -1,6 +1,6 @@
 ---
 id: amazon-security-lake
-name: Amazon Security Lake Destination
+name: Amazon Security Lake
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
 package_icon: https://raw.githubusercontent.com/tenzir/library/main/amazon-security-lake/package.svg
@@ -12,114 +12,754 @@ description: |
   Lake using the S3-based ingestion format.
 
   *NOTE*: Before you can write events to the Security Lake, you must configure
-  a source per event type in Security Lake and ensure the Tenzir Node has write
-  permissions to the S3 source directory. If you use a non-default name for the
-  source, adjust the source name parameter below.
+  a *custom source* per event type in Security Lake and ensure the Tenzir Node
+  has write permissions to the S3 bucket in the respective source directory. The
+  package assumes that you adhere to the Tenzir naming scheme `tnz-ocsf-XXXX` where
+  `XXXX` is the class UID of an OCSF event class.
 categories:
   - destinations
 
 inputs:
-  s3-bucket-url:
-    name: S3 URI
-    description: S3 URI for Security Lake partition (e.g., s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/)
+  input-topic:
+    name: Input topic
+    description: Topic to subscribe to for OCSF events
+    default: ocsf
+  bucket-name:
+    name: S3 bucket name
+    description: The name of the S3 bucket in Security Lake (e.g., `aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234`
   region:
     name: AWS Region
     description: AWS region where the Security Lake is deployed
   account-id:
     name: AWS Account ID
-    description: AWS account ID of the account that hosts the Security Lake instance.
-  network-activity-source-url:
-    name: Network Activity Source URL (optional)
-    description: |
-      The S3 url for the Network Activity source. The source must have been created
-      as a custom resource in ASL, and accept events of type NETWORK_ACTIVITY.
-      If the source is versioned, the version is included as a suffix.
-      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/network-source/2.0`.
-    default: ""
-  http-activity-source-url:
-    name: HTTP Activity Source URL (optional)
-    description: |
-      The S3 url for the HTTP Activity source. The source must have been created
-      as a custom resource in ASL, and accept events of type HTTP_ACTIVITY.
-      If the source is versioned, the version is included as a suffix.
-      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/http-source/2.0`.
-    default: ""
-  dns-activity-source-url:
-    name: DNS Activity Source URL (optional)
-    description: |
-      The S3 url for the DNS Activity source. The source must have been created
-      as a custom resource in ASL, and accept events of type DNS_ACTIVITY.
-      If the source is versioned, the version is included as a suffix.
-      Example: `s3://aws-security-data-lake-eu-west-2-lake-abcdefghijklmnopqrstuvwxyz1234/ext/dns-source/2.0`.
-    default: ""
-  topic:
-    name: Topic
-    description: Topic to subscribe to for OCSF events
-    default: ocsf
+    description: The ID of the AWS account that hosts the Security Lake instance.
   timeout:
     name: Timeout
-    description: Timeout for writing to Amazon Security Lake
+    description: Timeout for writing to Security Lake
     default: 5m
 
 pipelines:
-  ocsf-network-activity-to-security-lake:
-    name: OCSF Network Activity to Security Lake
-    description: Writes OCSF network activity events to Amazon Security Lake
-    restart-on-error: 5m
+  tnz-ocsf-1001:
+    name: OCSF File System Activity → Amazon Security Lake
+    description: Sends OCSF File System Activity events to Amazon Security Lake
     disabled: true
     definition: |
-      subscribe "{{ inputs.topic }}"
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.file_system_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1002:
+    name: OCSF Kernel Extension Activity → Amazon Security Lake
+    description: Sends OCSF Kernel Extension Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.kernel_extension_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1003:
+    name: OCSF Kernel Activity → Amazon Security Lake
+    description: Sends OCSF Kernel Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.kernel_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1004:
+    name: OCSF Memory Activity → Amazon Security Lake
+    description: Sends OCSF Memory Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.memory_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1005:
+    name: OCSF Module Activity → Amazon Security Lake
+    description: Sends OCSF Module Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1005"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.module_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1006:
+    name: OCSF Scheduled Job Activity → Amazon Security Lake
+    description: Sends OCSF Scheduled Job Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1006"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.scheduled_job_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1007:
+    name: OCSF Process Activity → Amazon Security Lake
+    description: Sends OCSF Process Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1007"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.process_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1008:
+    name: OCSF Event Log Activity → Amazon Security Lake
+    description: Sends OCSF Event Log Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1008"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.event_log_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-1009:
+    name: OCSF Script Activity → Amazon Security Lake
+    description: Sends OCSF Script Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-1009"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.script_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2001:
+    name: OCSF Security Finding → Amazon Security Lake
+    description: Sends OCSF Security Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.security_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2002:
+    name: OCSF Vulnerability Finding → Amazon Security Lake
+    description: Sends OCSF Vulnerability Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.vulnerability_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2003:
+    name: OCSF Compliance Finding → Amazon Security Lake
+    description: Sends OCSF Compliance Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.compliance_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2004:
+    name: OCSF Detection Finding → Amazon Security Lake
+    description: Sends OCSF Detection Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.detection_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2005:
+    name: OCSF Incident Finding → Amazon Security Lake
+    description: Sends OCSF Incident Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2005"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.incident_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2006:
+    name: OCSF Data Security Finding → Amazon Security Lake
+    description: Sends OCSF Data Security Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2006"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.data_security_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-2007:
+    name: OCSF Application Security Posture Finding → Amazon Security Lake
+    description: Sends OCSF Application Security Posture Finding events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-2007"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.application_security_posture_finding"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3001:
+    name: OCSF Account Change → Amazon Security Lake
+    description: Sends OCSF Account Change events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.account_change"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3002:
+    name: OCSF Authentication → Amazon Security Lake
+    description: Sends OCSF Authentication events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.authentication"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3003:
+    name: OCSF Authorize Session → Amazon Security Lake
+    description: Sends OCSF Authorize Session events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.authorize_session"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3004:
+    name: OCSF Entity Management → Amazon Security Lake
+    description: Sends OCSF Entity Management events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.entity_management"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3005:
+    name: OCSF User Access Management → Amazon Security Lake
+    description: Sends OCSF User Access Management events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3005"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.user_access_management"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-3006:
+    name: OCSF Group Management → Amazon Security Lake
+    description: Sends OCSF Group Management events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-3006"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.group_management"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4001:
+    name: OCSF Network Activity → Amazon Security Lake
+    description: Sends OCSF Network Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4001"
+      subscribe "{{ inputs.input-topic }}"
       where @name == "ocsf.network_activity"
       ocsf::apply
-
-      let $source_url = "{{ inputs.network-activity-source-url }}"
-
-      to_amazon_security_lake $source_url,
+      to_amazon_security_lake $uri,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}",
         timeout={{ inputs.timeout }}
 
-  ocsf-http-activity-to-security-lake:
-    name: OCSF HTTP Activity to Security Lake
-    description: Writes OCSF HTTP activity events to Amazon Security Lake
-    restart-on-error: 5m
+  tnz-ocsf-4002:
+    name: OCSF HTTP Activity → Amazon Security Lake
+    description: Sends OCSF HTTP Activity events to Amazon Security Lake
     disabled: true
     definition: |
-      subscribe "{{ inputs.topic }}"
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4002"
+      subscribe "{{ inputs.input-topic }}"
       where @name == "ocsf.http_activity"
       ocsf::apply
-
-      let $source_url = "{{ inputs.http-activity-source-url }}"
-
-      to_amazon_security_lake $source_url,
+      to_amazon_security_lake $uri,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}",
         timeout={{ inputs.timeout }}
 
-  ocsf-dns-activity-to-security-lake:
-    name: OCSF DNS Activity to Security Lake
-    description: Writes OCSF DNS activity events to Amazon Security Lake
-    restart-on-error: 5m
+  tnz-ocsf-4003:
+    name: OCSF DNS Activity → Amazon Security Lake
+    description: Sends OCSF DNS Activity events to Amazon Security Lake
     disabled: true
     definition: |
-      subscribe "{{ inputs.topic }}"
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4003"
+      subscribe "{{ inputs.input-topic }}"
       where @name == "ocsf.dns_activity"
       ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
 
-      let $source_url = "{{ inputs.dns-activity-source-url }}"
+  tnz-ocsf-4004:
+    name: OCSF DHCP Activity → Amazon Security Lake
+    description: Sends OCSF DHCP Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.dhcp_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
 
-      to_amazon_security_lake $source_url,
+  tnz-ocsf-4005:
+    name: OCSF RDP Activity → Amazon Security Lake
+    description: Sends OCSF RDP Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4005"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.rdp_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4006:
+    name: OCSF SMB Activity → Amazon Security Lake
+    description: Sends OCSF SMB Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4006"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.smb_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4007:
+    name: OCSF SSH Activity → Amazon Security Lake
+    description: Sends OCSF SSH Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4007"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.ssh_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4008:
+    name: OCSF FTP Activity → Amazon Security Lake
+    description: Sends OCSF FTP Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4008"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.ftp_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4009:
+    name: OCSF Email Activity → Amazon Security Lake
+    description: Sends OCSF Email Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4009"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.email_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4013:
+    name: OCSF NTP Activity → Amazon Security Lake
+    description: Sends OCSF NTP Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4013"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.ntp_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-4014:
+    name: OCSF Tunnel Activity → Amazon Security Lake
+    description: Sends OCSF Tunnel Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-4014"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.tunnel_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-5001:
+    name: OCSF Device Inventory Info → Amazon Security Lake
+    description: Sends OCSF Device Inventory Info events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-5001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.device_inventory_info"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-5002:
+    name: OCSF Device Config State → Amazon Security Lake
+    description: Sends OCSF Device Config State events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-5002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.device_config_state"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-5003:
+    name: OCSF User Inventory → Amazon Security Lake
+    description: Sends OCSF User Inventory events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-5003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.user_inventory"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-5004:
+    name: OCSF Operating System Patch State → Amazon Security Lake
+    description: Sends OCSF Operating System Patch State events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-5004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.operating_system_patch_state"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6001:
+    name: OCSF Web Resources Activity → Amazon Security Lake
+    description: Sends OCSF Web Resources Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.web_resources_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6002:
+    name: OCSF Application Lifecycle → Amazon Security Lake
+    description: Sends OCSF Application Lifecycle events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.application_lifecycle"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6003:
+    name: OCSF API Activity → Amazon Security Lake
+    description: Sends OCSF API Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.api_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6005:
+    name: OCSF Datastore Activity → Amazon Security Lake
+    description: Sends OCSF Datastore Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6005"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.datastore_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6006:
+    name: OCSF File Hosting Activity → Amazon Security Lake
+    description: Sends OCSF File Hosting Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6006"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.file_hosting_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6007:
+    name: OCSF Scan Activity → Amazon Security Lake
+    description: Sends OCSF Scan Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6007"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.scan_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-6008:
+    name: OCSF Application Error → Amazon Security Lake
+    description: Sends OCSF Application Error events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-6008"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.application_error"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-7001:
+    name: OCSF Remediation Activity → Amazon Security Lake
+    description: Sends OCSF Remediation Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-7001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.remediation_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-7002:
+    name: OCSF File Remediation Activity → Amazon Security Lake
+    description: Sends OCSF File Remediation Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-7002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.file_remediation_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-7003:
+    name: OCSF Process Remediation Activity → Amazon Security Lake
+    description: Sends OCSF Process Remediation Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-7003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.process_remediation_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-201001:
+    name: OCSF Registry Key Activity → Amazon Security Lake
+    description: Sends OCSF Registry Key Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-201001"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.registry_key_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-201002:
+    name: OCSF Registry Value Activity → Amazon Security Lake
+    description: Sends OCSF Registry Value Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-201002"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.registry_value_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-201003:
+    name: OCSF Windows Resource Activity → Amazon Security Lake
+    description: Sends OCSF Windows Resource Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-201003"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.windows_resource_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
+        region="{{ inputs.region }}",
+        account_id="{{ inputs.account-id }}",
+        timeout={{ inputs.timeout }}
+
+  tnz-ocsf-201004:
+    name: OCSF Windows Service Activity → Amazon Security Lake
+    description: Sends OCSF Windows Service Activity events to Amazon Security Lake
+    disabled: true
+    definition: |
+      let $uri = "s3://{{ inputs.bucket-name }}/ext/tnz-ocsf-201004"
+      subscribe "{{ inputs.input-topic }}"
+      where @name == "ocsf.windows_service_activity"
+      ocsf::apply
+      to_amazon_security_lake $uri,
         region="{{ inputs.region }}",
         account_id="{{ inputs.account-id }}",
         timeout={{ inputs.timeout }}
 
 examples:
-  - name: Export with cross-account role
+  - name: Send OCSF Network Activity events with cross-account role
     description: |
-      Export OCSF Network Activity events to Amazon Security Lake using
-      cross-account role assumption with role and external_id parameters.
+      Send OCSF Network Activity events to Security Lake using cross-account
+      role assumption with `role` and `external_id` parameters.
     definition: |
-      let $lake_source_url = "s3://your-security-lake-bucket/ext/network-source/2.0"
+      let $lake_source_url = "s3://your-security-lake-bucket/ext/tnz-ocsf-4001"
       let $lake_region = "us-east-1"
       let $lake_account_id = "123456789012"
       let $role_arn = "arn:aws:iam::123456789012:role/SecurityLakeRole"
@@ -128,7 +768,6 @@ examples:
       subscribe "ocsf"
       where @name == "ocsf.network_activity"
       ocsf::apply
-
       to_amazon_security_lake $lake_source_url,
         region=$lake_region,
         account_id=$lake_account_id,
