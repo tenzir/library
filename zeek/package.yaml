@@ -101,9 +101,9 @@ pipelines:
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
       move ocsf.time = zeek.ts
-      ocsf.duration = (move zeek.duration).count_milliseconds().round()
-      ocsf.end_time = ocsf.time + ocsf.duration
+      ocsf.duration = zeek.duration.count_milliseconds().round()
       ocsf.start_time = ocsf.time
+      ocsf.end_time = ocsf.time + move zeek.duration
       // === Context ===
       ocsf.metadata = {
         log_name: "conn.log",
@@ -175,7 +175,7 @@ pipelines:
         bytes: zeek.orig_bytes + zeek.resp_bytes,
         packets: zeek.orig_pkts + zeek.resp_pkts,
       }
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -189,6 +189,29 @@ pipelines:
         icmp: 1,
         icmpv6: 58,
         ipv6: 41,
+      }
+      let $rcode_names = {
+        NOERROR: "NoError",
+        FORMERR: "FormError",
+        SERVFAIL: "ServError",
+        NXDOMAIN: "NXDomain",
+        NOTIMP: "NotImp",
+        REFUSED: "Refused",
+        YXDOMAIN: "YXDomain",
+        YXRRSET: "YXRRSet",
+        "NXRRSet": "NXRRSet",
+        NOTAUTH: "NotAuth",
+        NOTZONE: "NotZone",
+        "unassigned-11": "DSOTYPENI",
+        BADVERS: "BADSIG_VERS",
+        BADKEY: "BADKEY",
+        BADTIME: "BADTIME",
+        BADMODE: "BADMODE",
+        BADNAME: "BADNAME",
+        BADALG: "BADALG",
+        BADTRUNC: "BADTRUNC",
+        BADCOOKIE: "BADCOOKIE",
+        BADSIG: "BADSIG_VERS",
       }
       subscribe "zeek"
       where @name == "zeek.dns"
@@ -233,8 +256,8 @@ pipelines:
       }
       ocsf.query_time = ocsf.time
       ocsf.response_time = ocsf.time
-      move ocsf.rcode = zeek.rcode_name
-      move ocsf.rcode_id = zeek.rcode
+      ocsf.rcode = $rcode_names[move zeek.rcode_name]? else zeek.rcode_name
+      ocsf.rcode_id = move zeek.rcode
       ocsf.src_endpoint = {
         ip: zeek.id.orig_h,
         port: zeek.id.orig_p,
@@ -257,7 +280,7 @@ pipelines:
       drop zeek.id
       ocsf.status = "Unknown"
       ocsf.status_id = 0
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.dns_activity"
       publish "ocsf"
 
@@ -351,7 +374,7 @@ pipelines:
       }
       drop zeek.data_channel.passive
       move ocsf.port = zeek.data_channel.resp_p
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.ftp_activity"
       publish "ocsf"
 
@@ -374,7 +397,7 @@ pipelines:
       this = { zeek: this }
       // === Classification ===
       ocsf.activity_id = $methods[zeek.method]? else 0
-      move ocsf.activity_name = zeek.method?
+      ocsf.activity_name = (move zeek.method?).to_title()
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
       ocsf.class_uid = 4002
@@ -442,7 +465,7 @@ pipelines:
       drop zeek.id
       ocsf.status = "Unknown"
       ocsf.status_id = 0
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.http_activity"
       publish "ocsf"
 
@@ -488,9 +511,9 @@ pipelines:
       move ocsf.time = zeek.ts
       // The duration is the time from the first to the last DORA message that
       // Zeek aggregates into a single log.
-      ocsf.duration = (move zeek.duration).count_milliseconds().round()
+      ocsf.duration = zeek.duration.count_milliseconds().round()
       ocsf.start_time = ocsf.time
-      ocsf.end_time = ocsf.time + ocsf.duration
+      ocsf.end_time = ocsf.time + move zeek.duration
       // === Context ===
       ocsf.metadata = {
         log_name: "dhcp.log",
@@ -531,7 +554,7 @@ pipelines:
       }
       ocsf.lease_dur = (move zeek.lease_time?).count_seconds().round()
       ocsf.transaction_uid = (move zeek.trans_id).string()
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.dhcp_activity"
       publish "ocsf"
 
@@ -613,7 +636,7 @@ pipelines:
         ocsf.share_type = "Unknown"
       }
       drop zeek.action
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.smb_activity"
       publish "ocsf"
 
@@ -751,7 +774,7 @@ pipelines:
         ocsf.auth_type_uid = 0
         ocsf.auth_type = "Unknown"
       }
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.ssh_activity"
       publish "ocsf"
 
@@ -773,7 +796,7 @@ pipelines:
       ocsf.activity_name = "Send"
       ocsf.category_uid = 4
       ocsf.category_name = "Network Activity"
-      ocsf.class_uid = 4006
+      ocsf.class_uid = 4009
       ocsf.class_name = "Email Activity"
       ocsf.severity_id = 1
       ocsf.severity = "Informational"
@@ -803,15 +826,6 @@ pipelines:
         port: zeek.id.resp_p,
         intermediate_ips: move zeek.path,
       }
-      ocsf.connection_info = {
-        protocol_name: "tcp",
-        protocol_num: 6,
-      }
-      if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
-        ocsf.connection_info.protocol_ver_id = 6
-      } else {
-        ocsf.connection_info.protocol_ver_id = 4
-      }
       drop zeek.id
       ocsf.email = {
         from: move zeek.from,
@@ -825,7 +839,7 @@ pipelines:
       }
       move ocsf.smtp_hello = zeek.helo
       move ocsf.status_detail = zeek.last_reply
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.email_activity"
       publish "ocsf"
 
@@ -921,7 +935,7 @@ pipelines:
         type_id: 2,
         type: "Desktop",
       }
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.rdp_activity"
       publish "ocsf"
 
@@ -1055,7 +1069,7 @@ pipelines:
         move ocsf.status_detail = zeek.validation_status
       }
       drop zeek.last_alert
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.network_activity"
       publish "ocsf"
 
@@ -1108,7 +1122,7 @@ pipelines:
         }),
         version: null,
       }
-      this = {...ocsf, unmapped: zeek.print_ndjson()}
+      this = {...ocsf, unmapped: zeek}
       @name = "ocsf.network_activity"
       publish "ocsf"
 

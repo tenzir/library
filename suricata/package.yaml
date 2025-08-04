@@ -135,7 +135,7 @@ pipelines:
         NOERROR: "NoError",
         FORMERROR: "FormError",
         SERVERROR: "ServError",
-        NXDOMAIN: "NxDomain",
+        NXDOMAIN: "NXDomain",
         NOTIMP: "NotImp",
         REFUSED: "Refused",
         YXDOMAIN: "YXDomain",
@@ -143,6 +143,15 @@ pipelines:
         NXRRSET: "NXRRSet",
         NOTAUTH: "NotAuth",
         NOTZONE: "NotZone",
+        DSOTYPENI: "DSOTYPENI",
+        BADSIG_VERS: "BADSIG_VERS",
+        BADKEY: "BADKEY",
+        BADTIME: "BADTIME",
+        BADMODE: "BADMODE",
+        BADNAME: "BADNAME",
+        BADALG: "BADALG",
+        BADTRUNC: "BADTRUNC",
+        BADCOOKIE: "BADCOOKIE",
       }
       subscribe "suricata"
       where @name == "suricata.dns"
@@ -168,12 +177,12 @@ pipelines:
         }
         has_query = true
       }
-      ocsf.answers = suricata.dns.answers.map(answer, {
+      ocsf.answers = (move suricata.dns.answers).map(answer => {
         type: answer.rrtype,
         rdata: answer.rdata,
         ttl: answer.ttl,
       })
-      has_response = suricata.dns.length() != null and move suricata.dns.answers.length() > 0
+      has_response = ocsf.answers != null and ocsf.answers.length() > 0
       if (has_query and has_response) {
         activity_id = 6
         type_uid = 400306
@@ -212,7 +221,7 @@ pipelines:
       }
       ocsf.status_id = 1
       ocsf.rcode_id = $rcode_id.get(suricata.dns.rcode, 99)
-      ocsf.rcode = $rcode.get(move suricata.dns.rcode, "Unknown")
+      ocsf.rcode = $rcode.get(move suricata.dns.rcode, suricata.dns.rcode)
       this = {...ocsf, unmapped: suricata}
       @name = "ocsf.dns_activity"
       publish "ocsf"
@@ -271,13 +280,14 @@ pipelines:
         ip: move suricata.dest_ip,
         port: move suricata.dest_port,
       }
-      if move suricata.smb.status_code == "0x0" {
+      if suricata.smb.status_code == "0x0" {
         ocsf.status_id = 1
         ocsf.status = "Success"
       } else {
         ocsf.status_id = 99
         ocsf.status = move suricata.smb.status
       }
+      drop suricata.smb.status_code
       if suricata.smb.filename != null {
         ocsf.file = {
           type_id: 0,
@@ -482,8 +492,8 @@ pipelines:
       ocsf.severity_id = 1
       ocsf.class_uid = 4002
       ocsf.category_uid = 4
-      ocsf.activity_id = $activity_id.get(suricata.?http.?http_method, 99)
-      ocsf.activity_name = $activity_name.get(suricata.?http.?http_method, suricata.http.http_method)
+      ocsf.activity_id = $activity_id.get(suricata.http?.http_method?, 99)
+      ocsf.activity_name = $activity_name.get(suricata.http?.http_method?, suricata.http.http_method)
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
       // === Occurrence ===
       ocsf.time = move suricata.timestamp
