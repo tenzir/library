@@ -68,17 +68,21 @@ pipelines:
       subscribe $input
       where @name.starts_with("ocsf")
       if category_uid == 4 { // Network Activity
-        context::enrich "ocsf-osint",
-          key=src_endpoint.ip,
-          format="ocsf",
-          mode="append",
-          into=enrichments
-        context::enrich "ocsf-osint",
-          key=dst_endpoint.ip,
-          format="ocsf",
-          mode="append",
-          into=enrichments
-        if class_uid == 4003 and query.hostname? != null { // DNS Activity
+        if src_endpoint.has("ip") {
+          context::enrich "ocsf-osint",
+            key=src_endpoint.ip,
+            format="ocsf",
+            mode="append",
+            into=enrichments
+        }
+        if dst_endpoint?.has("ip") {
+          context::enrich "ocsf-osint",
+            key=dst_endpoint.ip,
+            format="ocsf",
+            mode="append",
+            into=enrichments
+        }
+        if class_uid == 4003 and query.has("hostname") { // DNS Activity
           context::enrich "ocsf-osint",
             key=query.hostname,
             format="ocsf",
