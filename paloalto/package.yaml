@@ -213,7 +213,6 @@ pipelines:
         "reset server": 21,
       }
 
-
       subscribe "paloalto"
       where @name == "paloalto.traffic"
       this = { traffic: this }
@@ -326,4 +325,150 @@ pipelines:
       drop_null_fields traffic
       this = { ...ocsf, unmapped: move traffic }
 
+      publish "ocsf"
+  map-threat-to-ocsf:
+    name: Map Palo Alto Threat to OCSF Network Activity
+    description: |
+      Maps Palo Alto Threat events to OCSF Network Activity
+
+      The pipeline subscribes to the `paloalto` topic, maps events and publishes
+      to the `ocsf` topic.
+    definition: |
+      let $subtype_to_activity_id = {
+        start: 1,
+        end: 2,
+        drop: 3,
+        deny: 5,
+      }
+      let $action_to_action_id = {
+        allow: 1,
+        deny: 2,
+        drop: 2,
+        "drop ICMP": 2,
+        "reset both": 0,
+        "reset client": 0,
+        "reset server": 0,
+      }
+      let $action_to_disposition_id = {
+        allow: 1,
+        deny: 2,
+        drop: 6,
+        "drop ICMP": 6,
+        "reset both": 21,
+        "reset client": 21,
+        "reset server": 21,
+      }
+
+
+      subscribe "paloalto"
+      where @name == "paloalto.threat"
+      this = { traffic: this }
+
+      @name = "ocsf.network-activity"
+      ocsf.category_name = "Network Activity"
+      ocsf.category_uid = 4
+      ocsf.metadata = {
+        version: "1.6.0",
+        profiles: ["host","security_control"]
+      }
+      ocsf.class_name = "Network Activity"
+      ocsf.class_uid = 4001
+      ocsf.time = (move traffic.generated_time).parse_time("%Y/%m/%d %H:%M:%S")
+      ocsf.start_time = (move traffic.start_time).parse_time("%Y/%m/%d %H:%M:%S")
+
+      ocsf.activity_id = $subtype_to_activity_id[move traffic.threat_content_type]
+      ocsf.action_id = $action_to_action_id[traffic.action]
+      ocsf.disposition_id = $action_to_disposition_id[move traffic.action]
+
+      ocsf.app_name = move traffic.application
+
+      ocsf.device = {
+        uid: move traffic.serial_number,
+        name: move traffic.device_name,
+      }
+
+      ocsf.src_endpoint = {
+        hostname: move traffic.source_hostname,
+        ip: move traffic.source_address,
+        port: move traffic.source_port,
+        proxy_endpoint: {
+          ip: move traffic.nat_source_ip,
+          port: move traffic.nat_source_port,
+        },
+        mac: move traffic.source_mac_address,
+        zone: move traffic.source_zone,
+        interface_name: move traffic.inbound_interface,
+        location: {
+          country: move traffic.source_country,
+        },
+        owner: {
+          name: move traffic.source_user,
+        },
+        hw_info: {
+          vendor_name: move traffic.source_device_vendor,
+          chassis: move traffic.source_device_category,
+        },
+        os: {
+          version: move traffic.source_device_os_version,
+          name: traffic.source_device_os_family,
+          type: move traffic.source_device_os_family,
+        },
+      }
+
+      ocsf.dst_endpoint = {
+        hostname: move traffic.destination_hostname,
+        ip: move traffic.destination_address,
+        port: move traffic.destination_port,
+        proxy_endpoint: {
+          ip: move traffic.nat_destination_ip,
+          port: move traffic.nat_destination_port,
+        },
+        mac: move traffic.destination_mac_address,
+        zone: move traffic.destination_zone,
+        interface_name: move traffic.outbound_interface,
+        location: {
+          country: move traffic.destination_country,
+        },
+        owner: {
+          name: move traffic.destination_user,
+        },
+        hw_info: {
+          vendor_name: move traffic.destination_device_vendor,
+          chassis: move traffic.destination_device_category,
+        },
+        os: {
+          version: move traffic.destination_device_os_version,
+          name: traffic.destination_device_os_family,
+          type: move traffic.destination_device_os_family,
+        },
+      }
+
+      ocsf.connection_info = {
+        protocol_name: move traffic.protocol,
+        session: {
+          uid: string(move traffic.session_id),
+          expiration_reason: move traffic.session_end_reason,
+          count: move threat.repeat_count,
+        },
+      }
+
+      ocsf.traffic = {
+        bytes_in: move traffic.bytes_received,
+        bytes_out: move traffic.bytes_sent,
+        packets_in: move traffic.packets_received,
+        packets_out: move traffic.packets_sent,
+        bytes: move traffic.bytes,
+        packets: move traffic.packets,
+      }
+
+      ocsf.url = {
+        categories: [move traffic.category]
+      }
+
+      ocsf.firewall_rule = {
+        name: move traffic.rule_name
+      }
+
+      drop_null_fields traffic
+      this = { ...ocsf, unmapped: move traffic }
       publish "ocsf"
