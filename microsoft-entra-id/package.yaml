@@ -1,0 +1,197 @@
+---
+id: microsoft-entra-id
+name: Microsoft Entra ID
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/microsoft-entra-id/package.svg
+description: |
+  [Microsoft Entra ID](https://www.microsoft.com/en-us/security/business/identity-access/microsoft-entra-id)
+  is a cloud-based identity and access management service.
+
+  This package provides pipelines to onboard Microsoft Entra ID audit and
+  sign-in logs, as well as mapping pipelines that translate Entra ID events
+  to OCSF format.
+categories:
+- sources
+- mappings
+
+pipelines:
+  authentication-phone-app:
+    name: Microsoft Entra ID Authentication Phone App to OCSF
+    description: |
+      TODO
+    restart-on-error: true
+    definition: |
+      subscribe "microsoft-entra-id"
+
+      // This mapping only handles a very specific subset of events right now.
+      where(
+        category == "UserManagement" and
+        operationType == "Update" and
+        "MFA" in initiatedBy.app.displayName and
+        activityDisplayName == "Update user" and
+        targetResources[0].modifiedProperties[0].displayName == "StrongAuthenticationPhoneAppDetail"
+      )
+
+      this = { entra: this }
+
+      // Additional sanity check to see whether this really is an authentication.
+      old = entra.targetResources[0].modifiedProperties[0].oldValue.parse_json()[0]
+      new = entra.targetResources[0].modifiedProperties[0].newValue.parse_json()[0]
+      where(
+        old.Id == new.Id and
+        old.LastAuthenticatedTimestamp != new.LastAuthenticatedTimestamp
+      )
+
+      // === Classification ===
+      ocsf.activity_id = 1
+      ocsf.activity_name = "Logon"
+      ocsf.category_uid = 3
+      ocsf.category_name = "Identity & Access Management"
+      ocsf.class_uid = 3002
+      ocsf.class_name = "Authentication"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+      // === Occurrence ===
+      ocsf.time = new.LastAuthenticatedTimestamp
+
+      // === Context ===
+      ocsf.metadata = {
+        product: {
+          name: "Microsoft Entra ID",
+          vendor_name: "Microsoft",
+          feature: {
+            name: "Audit Logs"
+          }
+        },
+        version: "1.6.0",
+        logged_time: move entra.activityDateTime,
+        correlation_uid: move entra.correlationId,
+        log_name: "Microsoft Entra ID Audit Events",
+        uid: move entra.id
+      }
+
+      // === Primary ===
+      ocsf.status_id = 1 if entra.result == "success" else 2
+      ocsf.status = "Success" if entra.result == "success" else "Failure"
+      drop entra.result
+
+      ocsf.user = {
+        uid: entra.targetResources[0].id,
+        name: entra.targetResources[0].userPrincipalName,
+        type: "User",
+        type_id: 1
+      }
+
+      ocsf.actor = {
+        app_name: move entra.initiatedBy.app.displayName,
+        app_uid: move entra.initiatedBy.app.servicePrincipalId
+      }
+
+      // Cleanup
+      drop_null_fields
+      if entra.initiatedBy.app.is_empty() {
+        drop entra.initiatedBy.app
+        if entra.initiatedBy.is_empty() {
+          drop entra.initiatedBy
+        }
+      }
+      if entra.resultReason.is_empty() {
+        drop entra.resultReason
+      }
+
+      drop entra.category, entra.operationType, entra.activityDisplayName
+
+      this = {...ocsf, unmapped: entra}
+      @name = "ocsf.authentication"
+
+      publish "ocsf"
+
+  group-management:
+    name: Microsoft Entra ID Group Management to OCSF
+    description: |
+      TODO
+    restart-on-error: true
+    definition: |
+      // FIXME: This pipeline still needs to be polished!!
+      subscribe "microsoft-entra-id"
+
+      this = { entra: this }
+
+      // === Classification ===
+      ocsf.activity_id = 99
+      ocsf.activity_name = "Other"
+      ocsf.category_uid = 3
+      ocsf.category_name = "Identity & Access Management"
+      ocsf.class_uid = 3006
+      ocsf.class_name = "Group Management"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+      // === Occurrence ===
+      ocsf.time = time(move entra.activityDateTime)
+
+      // === Context ===
+      ocsf.metadata = {
+        log_name: "entra_id_audit_log",
+        product: {
+          name: "Microsoft Entra ID",
+          vendor_name: "Microsoft",
+          feature: {
+            name: move entra.loggedByService
+          }
+        },
+        uid: move entra.id,
+        correlation_uid: move entra.correlationId,
+        version: "1.6.0"
+      }
+
+      // === Primary ===
+      ocsf.status_id = 1 if entra.result == "success" else 2
+      move ocsf.status = entra.result
+      move ocsf.status_detail = entra.resultReason
+      move ocsf.message = entra.activityDisplayName
+
+      // Actor (user who performed the action)
+      ocsf.actor = {
+        user: {
+          uid: move entra.initiatedBy.user.id,
+          name: move entra.initiatedBy.user.displayName,
+          email_addr: move entra.initiatedBy.user.userPrincipalName,
+          type_id: 99
+        }
+      }
+
+      // Source endpoint (user's location)
+      if entra.initiatedBy.user.ipAddress != null {
+        ocsf.src_endpoint = {
+          ip: ip(move entra.initiatedBy.user.ipAddress)
+        }
+      }
+
+      // Group (target of the action)
+      if entra.targetResources != null and entra.targetResources.length() > 0 {
+        ocsf.group = {
+          uid: entra.targetResources[0].id,
+          name: entra.targetResources[0].displayName,
+          type: entra.targetResources[0].groupType
+        }
+      }
+
+      // Clean up processed fields
+      drop entra.initiatedBy
+      drop entra.targetResources
+      drop entra.category
+      drop entra.operationType
+      drop entra.userAgent
+      drop entra.additionalDetails
+
+      // Final assignment
+      this = {...ocsf, unmapped: entra}
+      @name = "ocsf.group_management"
+
+      publish "ocsf"
