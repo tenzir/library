@@ -50,14 +50,6 @@ inputs:
       0 being the least confident and 100 being the most confident.
     default: 0
 
-  state:
-    name: IOC lifecycle stage
-    description: |
-      In general, you want to filter for IOCs having the state `APPROVED`.
-      Possible values are: `NEW`, `TO_APPROVE`, `APPROVED`, `DEPRECATED`.
-    type: string
-    default: APPROVED
-
   base-url:
     name: Base API endpoint URL
     description: |
@@ -74,6 +66,7 @@ pipelines:
       let $url = $base_url +
         "/iocs" +
         "?limit=1000" +
+        "&ignore=false" +
         "&iocFeedSources=DCSO-Data%20Feed" +
         "&minConfidence={{ inputs.min-confidence }}"
       let $api_user = secret("{{ inputs.api-user-secret }}")
@@ -91,7 +84,6 @@ pipelines:
       }
       unroll results
       this = results
-      where "{{ inputs.state }}" == "" or state == "{{ inputs.state }}"
       // Fix up types because we pass raw=true to read_ndjson above.
       created = created.time()
       modified = modified.time()
