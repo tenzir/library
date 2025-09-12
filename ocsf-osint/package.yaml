@@ -63,36 +63,42 @@ pipelines:
         key=osint.value,
         value=osint,
         create_timeout={{ inputs.max-ioc-age }}
+
   enrich-with-osint-context:
     name: Enrich OCSF events with OSINT objects
     description: |
-      Enriches OCSF events and appends events to the `enrichments` array.
+      Enriches OCSF events and adds the OSINT profile.
     definition: |
       let $input = "{{ inputs.enrich-input-topic }}"
       let $output = "{{ inputs.enrich-output-topic }}"
       subscribe $input
-      where @name.starts_with("ocsf")
       if category_uid == 4 { // Network Activity
         if src_endpoint?.ip? != null {
           context::enrich "ocsf-osint",
             key=src_endpoint.ip,
-            format="ocsf",
-            mode="append",
-            into=enrichments
+            into=osint,
+            mode="append"
         }
         if dst_endpoint?.ip? != null {
           context::enrich "ocsf-osint",
             key=dst_endpoint.ip,
-            format="ocsf",
-            mode="append",
-            into=enrichments
+            into=osint,
+            mode="append"
         }
         if class_uid == 4003 and query?.hostname? != null { // DNS Activity
           context::enrich "ocsf-osint",
             key=query.hostname,
-            format="ocsf",
-            mode="append",
-            into=enrichments
+            into=osint,
+            mode="append"
+        }
+      }
+      if this.has("osint") {
+        if metadata.profiles? != null {
+          if "osint" not in metadata.profiles {
+            metadata.profiles = ["osint", ...metadata.profiles]
+          }
+        } else {
+          metadata.profiles = ["osint"]
         }
       }
       publish $output
