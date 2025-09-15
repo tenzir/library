@@ -14,11 +14,11 @@ description: |
   response.
 
   This package provides the `misp` context for enrichment and pipelines that
-  subscribe to the MISP ZeroMQ real time event stream or Periodically fetch
+  subscribe to the MISP ZeroMQ real time event stream or periodically fetch
   the latest events via the API.
 
 categories:
-- sourced
+- source
 
 inputs:
   api-key-secret:
@@ -40,10 +40,11 @@ inputs:
     default: "https://misp.local"
 
 pipelines:
-  fetch-iocs:
+  fetch-attributes:
     name: Fetch MISP Attributes
     description: |
       Periodically fetches the attributes of all events and publishes it to the `misp.attributes` topic.
+    disabled: true
     definition: |
       let $base_url = "{{ inputs.base-url }}"
       let $url = $base_url + "/attributes/restSearch"
@@ -53,8 +54,8 @@ pipelines:
           Authorization: secret("{{ inputs.api-key-secret }}"),
           Accept: "application/json",
         }, body={
-          publish_timestamp: now() - $interval
-        } {
+          from: now() - $interval -1d
+        }, error_field=err {
           read_json raw=true
         }
       }
@@ -66,15 +67,40 @@ pipelines:
       last_seen = from_epoch(int(last_seen) * 1s)
       Event.timestamp = from_epoch(int(Event.timestamp) * 1s)
       @name = "misp.attribute"
-      publish "misp.attribute"
-    restart-on-error: true
+      publish "misp"
 
-  normalize-iocs-to-ocsf:
+  fetch-events:
+    name: Fetch MISP Events
+    description: |
+      Periodically fetches the events and publishes them to the `misp` topic.
+    definition: |
+      let $base_url = "{{ inputs.base-url }}"
+      let $url = $base_url + "/events/restSearch"
+      let $interval = {{ inputs.refresh-interval }}
+      every $interval {
+        from_http $url, headers={
+          Authorization: secret("{{ inputs.api-key-secret }}"),
+          Accept: "application/json",
+        }, body={
+          from: now() - $interval -1d
+        } {
+          read_json raw=true
+        }
+      }
+      unroll response
+      this = response.Event
+      // Fix up types because we pass raw=true to read_ndjson above.
+      timestamp = from_epoch(int(timestamp) * 1s)
+      @name = "misp.event"
+      publish "misp"
+
+  normalize-attributes-to-ocsf:
     name: Normalize MISP attributes to OCSF
     description: |
       Converts MISP attributes to OCSF OSINT objects.
     definition: |
-      subscribe "misp.attribute"
+      subscribe "misp"
+      where @name == "misp.attribute"
       // Structure data for OCSF mapping
       this = {osint: {}, misp: this}
 
@@ -153,25 +179,138 @@ pipelines:
       ocsf::apply
       publish "ocsf"
 
+  normalize-events-to-ocsf:
+    definition: |
+      subscribe "misp"
+      where @name == "misp.event"
+
+      // ------ OSINT Inventory Info --------
+      // Map MISP threat level to OCSF severity (invert the scale)
+      let $threat_level_map = {
+        "1": 4,  // High → High
+        "2": 3,  // Medium → Medium
+        "3": 2,  // Low → Low
+        "4": 1,  // Undefined → Informational
+      }
+
+      // Map MISP analysis state to OCSF status
+      let $analysis_status_map = {
+        "0": 0,   // Initial → Unknown
+        "1": 99,  // Ongoing → Other
+        "2": 1,   // Completed → Success
+      }
+
+      let $type_ids = {
+        "ip-dst": 1,
+        "ip-src": 1,
+        domain: 2,
+        hostname: 3,
+        url: 5,
+        "email-src": 9,
+        "email-dst": 9,
+        AS: 99,
+        filename: 11,
+        md5: 4,
+        sha1: 4,
+        sha256: 4,
+        "size-in-bytes": 11,
+        "file-type": 11,
+        "mime-type": 11,
+        mutex: 99,
+        "process-name": 99,
+        pid: 99,
+        port: 99,
+        "user-agent": 6,
+        comment: 0,
+        text: 0,
+        vulnerability: 10,
+        link: 5,
+      }
+
+      this = {ocsf: {}, misp: this}
+
+      // ------ OCSF Event Classification --------
+      ocsf = {}
+      // Classification
+      ocsf.activity_id = 2
+      ocsf.activity_name = "Collect"
+      ocsf.category_uid = 5
+      ocsf.category_name = "Discovery"
+      ocsf.class_uid = 5021
+      ocsf.class_name = "OSINT Inventory Info"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+      ocsf.status_id = $analysis_status_map[move misp.analysis]? else 0
+      ocsf.severity_id = $threat_level_map[move misp.threat_level_id]? else 1
+
+      // Context
+      ocsf.actor = {
+        app_name: "Tenzir"
+      }
+      ocsf.metadata = {
+        product: {
+          name: "MISP",
+          vendor_name: "CIRCL",
+        },
+        uid: move misp.uuid,
+        version: "1.5.0",
+      }
+      ocsf.time = move misp.timestamp
+
+      // TODO for later
+      //ocsf.is_alert = misp.Attribute.where(x => x.to_ids == true).length() != 0
+
+      ocsf.osint = misp.Attribute.map(x => {
+        category: x.category,
+        created_time: from_epoch(int(x.timestamp) * 1s),
+        creator: {
+          name: misp.Orgc.name,
+          uid: misp.Orgc.uuid,
+        },
+        desc: x.comment,
+        external_uid: x.uuid,
+        severity_id: ocsf.severity_id,
+        // TODO: Figure out how to assign `null` if no tlp tag in the source.
+        tlp: misp.Tag.where(x => x.name.starts_with("tlp:"))[0]?.name?.slice(begin=4).to_upper(),
+        type_id: $type_ids[x.type]? else 99,
+        value: x.value,
+      })
+
+      drop misp.Attribute?
+
+      drop misp.Galaxy?
+      drop misp.Object?
+      drop misp.Tag?
+
+      // ------ Finalize --------
+      move ocsf.unmapped = misp
+      this = ocsf
+      @name = "ocsf.osint_inventory_info"
+      ocsf::apply
+      publish "ocsf"
+
   send-events-with-osint-as-sightings:
     name: Submit OCSF events with OSINT profile as to MISP as sightings
     description: |
       Sends sightings to MISP for all events that have an OSINT profile.
     definition: |
-      let $misp = "{{ inputs.misp-url }}"
-      let $input = "{{ inputs.enrich-output-topic }}"
-      subscribe $input
-      // Ignore OSINT Inventory Info because these represent OSINT updates.
-      // Here, we only care about non-OSINT events that have been augmented with
-      // the OSINT profile.
-      where class_uid != 5021 and "osint" in metadata.profiles and osint.length > 0
-      select time, values = osint.map(x => x.value)
-      http f"{$misp}/sightings/add", body={
-        // The event timestamp is equivalent to the sighting timestamp.
-        // Explicitly settings ensures that the sighting submission is not using
-        // the current time, which allows us to ship "retro-sightings".
-        timestamp: time.since_epoch().count_seconds(),
-        // MISP creates a sighting for each matching value in the array.
-        values: values,
-      }
+      let $misp = "{{ inputs.base-url }}"
+      subscribe "ocsf-osint"
+      select time, osint
+      unroll osint
+      http f"{$misp}/sightings/add",
+        headers={
+          Authorization: secret("MISP_API_KEY"),
+          Accept: "application/json",
+        },
+        body={
+          source: metadata.uid,
+          // The event timestamp is equivalent to the sighting timestamp.
+          // Explicitly setting it ensures that the sighting submission is not using
+          // the current wallclock time, which allows us to ship "retro-sightings".
+          timestamp: time.since_epoch().count_seconds(),
+          // MISP creates a sighting for each matching value in the array.
+          value: osint.value,
+       }
       discard // TODO: remove after we have to_http.
