@@ -24,7 +24,7 @@ inputs:
   api-key-secret:
     name: API key secret name
     description: |
-      Your MISP API key
+      Your MISP API key ID
     default: MISP_API_KEY
 
   refresh-interval:
@@ -37,38 +37,9 @@ inputs:
     name: Base API endpoint URL
     description: |
       The base URL of the MISP instance.
-    default: "https://misp.local"
+    default: https://misp.local
 
 pipelines:
-  fetch-attributes:
-    name: Fetch MISP Attributes
-    description: |
-      Periodically fetches the attributes of all events and publishes it to the `misp.attributes` topic.
-    disabled: true
-    definition: |
-      let $base_url = "{{ inputs.base-url }}"
-      let $url = $base_url + "/attributes/restSearch"
-      let $interval = {{ inputs.refresh-interval }}
-      every $interval {
-        from_http $url, headers={
-          Authorization: secret("{{ inputs.api-key-secret }}"),
-          Accept: "application/json",
-        }, body={
-          from: now() - $interval -1d
-        }, error_field=err {
-          read_json raw=true
-        }
-      }
-      unroll response.Attribute
-      this = response.Attribute
-      // Fix up types because we pass raw=true to read_ndjson above.
-      timestamp = from_epoch(int(timestamp) * 1s)
-      first_seen = from_epoch(int(first_seen) * 1s)
-      last_seen = from_epoch(int(last_seen) * 1s)
-      Event.timestamp = from_epoch(int(Event.timestamp) * 1s)
-      @name = "misp.attribute"
-      publish "misp"
-
   fetch-events:
     name: Fetch MISP Events
     description: |
@@ -94,112 +65,24 @@ pipelines:
       @name = "misp.event"
       publish "misp"
 
-  normalize-attributes-to-ocsf:
-    name: Normalize MISP attributes to OCSF
-    description: |
-      Converts MISP attributes to OCSF OSINT objects.
-    definition: |
-      subscribe "misp"
-      where @name == "misp.attribute"
-      // Structure data for OCSF mapping
-      this = {osint: {}, misp: this}
-
-      // ------ OSINT Inventory Info --------
-      // Map MISP threat level to OCSF severity (invert the scale)
-      let $threat_level_map = {
-        "1": 4,  // High → High
-        "2": 3,  // Medium → Medium
-        "3": 2,  // Low → Low
-        "4": 1,  // Undefined → Informational
-      }
-
-      // Map MISP analysis state to OCSF status
-      let $analysis_status_map = {
-        "0": 0,   // Initial → Unknown
-        "1": 99,  // Ongoing → Other
-        "2": 1,   // Completed → Success
-      }
-
-      // Map MISP attributes to OCSF OSINT object
-      osint = {
-        value: move misp.value,
-        comment: move misp.comment,
-        category: move misp.category,
-        uid: move misp.uuid,
-        created_time: move misp.timestamp,
-        // TODO: we need a table from misp type to ocsf type_id.
-        type_id: 1,  // Default to IP Address for network indicators
-        confidence_id: 1,  // Default to Low confidence
-        tlp: "CLEAR",  // Default TLP marking
-        severity_id: $threat_level_map[move misp.Event.threat_level_id]? else 1,
-      }
-
-      // Adjust confidence for IDS indicators
-      osint.confidence_id = 3
-      // TODO: should we add this?
-      // where misp.to_ids == true
-
-      // Remove fields that were used in mapping logic
-      drop misp.to_ids
-
-      // ------ OCSF Event Classification --------
-      ocsf = {}
-      // Classification
-      ocsf.activity_id = 2
-      ocsf.activity_name = "Collect"
-      ocsf.category_uid = 5
-      ocsf.category_name = "Discovery"
-      ocsf.class_uid = 5021
-      ocsf.class_name = "OSINT Inventory Info"
-      ocsf.severity_id = 1
-      ocsf.severity = "Informational"
-      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-      ocsf.status_id = $analysis_status_map[move misp.Event.analysis]? else 0
-      ocsf.status = "Unknown"
-
-      // Context
-      ocsf.actor = {
-        app_name: "Tenzir"
-      }
-      ocsf.metadata = {
-        product: {
-          name: "MISP",
-        },
-        version: "1.5.0",
-      }
-      ocsf.time = move misp.Event.timestamp
-
-      // Primary - OSINT data array
-      ocsf.osint = [osint]
-
-      // ------ Finalize --------
-      move ocsf.unmapped = misp
-      this = ocsf
-      @name = "ocsf.osint_inventory_info"
-      ocsf::apply
-      publish "ocsf"
-
   normalize-events-to-ocsf:
+    name: Normalize MISP events to OCSF
+    description: |
+      Converts MISP events to OCSF OSINT Inventory Info events.
     definition: |
       subscribe "misp"
       where @name == "misp.event"
-
-      // ------ OSINT Inventory Info --------
-      // Map MISP threat level to OCSF severity (invert the scale)
-      let $threat_level_map = {
+      let $threat_level = {
         "1": 4,  // High → High
         "2": 3,  // Medium → Medium
         "3": 2,  // Low → Low
         "4": 1,  // Undefined → Informational
       }
-
-      // Map MISP analysis state to OCSF status
-      let $analysis_status_map = {
+      let $analysis_status = {
         "0": 0,   // Initial → Unknown
         "1": 99,  // Ongoing → Other
         "2": 1,   // Completed → Success
       }
-
       let $type_ids = {
         "ip-dst": 1,
         "ip-src": 1,
@@ -226,11 +109,8 @@ pipelines:
         vulnerability: 10,
         link: 5,
       }
-
       this = {ocsf: {}, misp: this}
-
-      // ------ OCSF Event Classification --------
-      ocsf = {}
+      // ------ OCSF Inventory Info --------
       // Classification
       ocsf.activity_id = 2
       ocsf.activity_name = "Collect"
@@ -241,12 +121,27 @@ pipelines:
       ocsf.severity_id = 1
       ocsf.severity = "Informational"
       ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-      ocsf.status_id = $analysis_status_map[move misp.analysis]? else 0
-      ocsf.severity_id = $threat_level_map[move misp.threat_level_id]? else 1
-
+      ocsf.severity_id = $threat_level[move misp.threat_level_id]? else 1
       // Context
       ocsf.actor = {
-        app_name: "Tenzir"
+        app_name: "Tenzir",
+        process: {
+          name: "MISP",
+          user: {
+            // Org currently owning the MISP event.
+            org: {
+              name: move misp.Org.name,
+              uid: move misp.Org.uuid,
+            }
+          }
+        },
+        user: {
+          // Creator org of the MISP event.
+          org: {
+            name: move misp.Orgc.name,
+            uid: move misp.Orgc.uuid,
+          }
+        }
       }
       ocsf.metadata = {
         product: {
@@ -257,16 +152,14 @@ pipelines:
         version: "1.5.0",
       }
       ocsf.time = move misp.timestamp
-
-      // TODO for later
-      //ocsf.is_alert = misp.Attribute.where(x => x.to_ids == true).length() != 0
-
+      drop misp.date // implied in the timestamp
+      // Primary
+      ocsf.message = move misp.info
       ocsf.osint = misp.Attribute.map(x => {
         category: x.category,
         created_time: from_epoch(int(x.timestamp) * 1s),
         creator: {
-          name: misp.Orgc.name,
-          uid: misp.Orgc.uuid,
+          org: ocsf.actor.user.org, // Orgc
         },
         desc: x.comment,
         external_uid: x.uuid,
@@ -276,18 +169,15 @@ pipelines:
         type_id: $type_ids[x.type]? else 99,
         value: x.value,
       })
-
+      ocsf.status_id = $analysis_status[move misp.analysis]? else 0
       drop misp.Attribute?
-
+      // TODO: consider mapping the Galaxy in the future. For now, we drop
+      // it because it is indredibly bulky.
       drop misp.Galaxy?
-      drop misp.Object?
-      drop misp.Tag?
-
       // ------ Finalize --------
-      move ocsf.unmapped = misp
-      this = ocsf
+      this = {...ocsf, unmapped: misp}
       @name = "ocsf.osint_inventory_info"
-      ocsf::apply
+      ocsf::derive
       publish "ocsf"
 
   send-events-with-osint-as-sightings:
@@ -301,7 +191,7 @@ pipelines:
       unroll osint
       http f"{$misp}/sightings/add",
         headers={
-          Authorization: secret("MISP_API_KEY"),
+          Authorization: secret("{{ inputs.api-key-secret }}"),
           Accept: "application/json",
         },
         body={
