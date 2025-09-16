@@ -47,7 +47,6 @@ pipelines:
       every $interval {
         from_http $url, headers={
           Authorization: secret("{{ inputs.api-key-secret }}"),
-          Accept: "application/json",
         }, body={
           from: now() - $interval -1d
         } {
@@ -188,7 +187,6 @@ pipelines:
       http f"{$misp}/sightings/add",
         headers={
           Authorization: secret("{{ inputs.api-key-secret }}"),
-          Accept: "application/json",
         },
         body={
           source: metadata.uid,
@@ -200,3 +198,24 @@ pipelines:
           value: osint.value,
        }
       discard // TODO: remove after we have to_http.
+
+examples:
+  - name: Fetches all MISP events
+    description: |
+      Fetches all MISP events and publishes them to the `misp` topic.
+    definition: |
+      let $base_url = "{{ inputs.base-url }}"
+      let $url = $base_url + "/events/restSearch"
+      from_http $url, headers={
+        Authorization: secret("{{ inputs.api-key-secret }}"),
+      }, body={
+        to: now()
+      } {
+        read_json raw=true
+      }
+      unroll response
+      this = response.Event
+      // Fix up types because we pass raw=true to read_ndjson above.
+      timestamp = from_epoch(int(timestamp) * 1s)
+      @name = "misp.event"
+      publish "misp"
