@@ -1,0 +1,19 @@
+---
+name: Zeek log volume from the last 3 hours
+description: |
+  A line chart displaying how many Zeek events arrived in the last 3 hours.
+---
+
+metrics "operator"
+let $ts = now() - 3h
+where timestamp > $ts
+where pipeline_id.starts_with("zeek")
+where source == true
+timestamp = timestamp.floor(1min)
+summarize \
+  timestamp,
+  bytes=output.approx_bytes.sum(),
+  duration = duration.sum()
+chart_area \
+  x=timestamp,
+  y={ingress_per_second: bytes / duration.as_secs()}

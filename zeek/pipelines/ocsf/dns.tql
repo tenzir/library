@@ -1,0 +1,106 @@
+---
+name: dns.log to OCSF DNS Activity
+description: |
+  Maps Zeek's dns.log to OCSF DNS Activity events.
+---
+
+let $proto_nums = {
+  tcp: 6,
+  udp: 17,
+  icmp: 1,
+  icmpv6: 58,
+  ipv6: 41,
+}
+let $rcode_names = {
+  NOERROR: "NoError",
+  FORMERR: "FormError",
+  SERVFAIL: "ServError",
+  NXDOMAIN: "NXDomain",
+  NOTIMP: "NotImp",
+  REFUSED: "Refused",
+  YXDOMAIN: "YXDomain",
+  YXRRSET: "YXRRSet",
+  "NXRRSet": "NXRRSet",
+  NOTAUTH: "NotAuth",
+  NOTZONE: "NotZone",
+  "unassigned-11": "DSOTYPENI",
+  BADVERS: "BADSIG_VERS",
+  BADKEY: "BADKEY",
+  BADTIME: "BADTIME",
+  BADMODE: "BADMODE",
+  BADNAME: "BADNAME",
+  BADALG: "BADALG",
+  BADTRUNC: "BADTRUNC",
+  BADCOOKIE: "BADCOOKIE",
+  BADSIG: "BADSIG_VERS",
+}
+subscribe "zeek"
+where @name == "zeek.dns"
+this = { zeek: this }
+// === Classification ===
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4003
+ocsf.class_name = "DNS Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+// === Occurrence ===
+move ocsf.time = zeek.ts
+ocsf.start_time = ocsf.time
+// === Context ===
+ocsf.metadata = {
+  log_name: "dns.log",
+  logged_time: move zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  uid: move zeek.uid,
+  version: "1.4.0",
+}
+drop zeek._path? // implied in metadata.log_name
+// === Primary ===
+ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x => {
+  rdata: x.left,
+  ttl: x.right.count_seconds().round(),
+})
+ocsf.query = {
+  class: move zeek.qclass_name,
+  hostname: move zeek.query,
+  // TODO: go deeper and extract the log semantics.
+  //opcode_id: 0,
+  type: move zeek.qtype_name,
+}
+ocsf.query_time = ocsf.time
+ocsf.response_time = ocsf.time
+ocsf.rcode = $rcode_names[move zeek.rcode_name]? else zeek.rcode_name
+ocsf.rcode_id = move zeek.rcode
+ocsf.src_endpoint = {
+  ip: zeek.id.orig_h,
+  port: zeek.id.orig_p,
+}
+ocsf.dst_endpoint = {
+  ip: zeek.id.resp_h,
+  port: zeek.id.resp_p,
+}
+ocsf.connection_info = {
+  direction: "Other",
+  direction_id: 99,
+  protocol_name: move zeek.proto,
+  protocol_num: $proto_nums[zeek.proto] else -1
+}
+if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
+  ocsf.connection_info.protocol_ver_id = 6
+} else {
+  ocsf.connection_info.protocol_ver_id = 4
+}
+drop zeek.id
+ocsf.status = "Unknown"
+ocsf.status_id = 0
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.dns_activity"
+publish "ocsf"

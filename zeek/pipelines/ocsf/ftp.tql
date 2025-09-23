@@ -1,0 +1,95 @@
+---
+name: ftp.log to OCSF FTP Activity
+description: |
+  Maps Zeek's ftp.log to OCSF FTP Activity events.
+---
+
+let $commands = {
+  STOR: 1,
+  APPE: 1,
+  RETR: 2,
+  MLST: 3,
+  MLSD: 6,
+  LIST: 6,
+  NLST: 6,
+  DELE: 4,
+  RNFR: 5,
+  RNTO: 5,
+  RMD: 4,
+}
+let $activity_names = [
+  "Unknown",
+  "Put",
+  "Get",
+  "Poll",
+  "Delete",
+  "Rename",
+  "List",
+]
+subscribe "zeek"
+where @name == "zeek.ftp"
+this = { zeek: this }
+// === Classification ===
+ocsf.activity_id = $commands[zeek.command]? else 0
+ocsf.activity_name = $activity_names[ocsf.activity_id]
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4008
+ocsf.class_name = "FTP Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+// === Occurrence ===
+move ocsf.time = zeek.ts
+// === Context ===
+ocsf.metadata = {
+  log_name: "ftp.log",
+  logged_time: move zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  uid: move zeek.uid,
+  version: "1.4.0",
+}
+drop zeek._path? // implied in metadata.log_name
+ocsf.file = {
+  name: zeek.arg,
+  size: zeek.file_size,
+  type_id: 0,
+}
+drop zeek.arg, zeek.file_size
+// === Primary ===
+ocsf.src_endpoint = {
+  ip: zeek.id.orig_h,
+  port: zeek.id.orig_p,
+}
+ocsf.dst_endpoint = {
+  ip: zeek.id.resp_h,
+  port: zeek.id.resp_p,
+}
+ocsf.connection_info = {
+  protocol_name: "tcp",
+  protocol_num: 6,
+}
+if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
+  ocsf.connection_info.protocol_ver_id = 6
+} else {
+  ocsf.connection_info.protocol_ver_id = 4
+}
+drop zeek.id
+move ocsf.command = zeek.command
+ocsf.codes = [zeek.reply_code]
+move ocsf.status_code = zeek.reply_code
+move ocsf.status_detail = zeek.reply_msg
+if zeek.data_channel.passive {
+  ocsf.type = "passive"
+} else {
+  ocsf.type = "active"
+}
+drop zeek.data_channel.passive
+move ocsf.port = zeek.data_channel.resp_p
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.ftp_activity"
+publish "ocsf"

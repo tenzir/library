@@ -1,0 +1,139 @@
+---
+name: ssh.log to OCSF SSH Activity
+description: |
+  Maps Zeek's ssh.log to OCSF SSH Activity events.
+---
+
+// The Direction enum in Zeek can be INBOUND, OUTBOUND, BIDIRECTIONAL, or
+// NO_DIRECTION. NB: there is no equivalent to Lateral in Zeek, so we
+// cannot map to it.
+let $direction = {
+  // The connection originator is not within the locally-monitored
+  // network, but the other endpoint is.
+  INBOUND: {
+    id: 1,
+    name: "Inbound",
+  },
+  // The connection originator is within the locally-monitored network,
+  // but the other endpoint is not.
+  OUTBOUND: {
+    id: 2,
+    name: "Outbound",
+  },
+  // Only one endpoint is within the locally-monitored network, meaning
+  // the connection is either outbound or inbound.
+  BIDIRECTIONAL: {
+    id: 0,
+    name: "Unknown"
+  },
+  // This value doesn't match any connection.
+  NO_DIRECTION: {
+    id: 0,
+    name: "Unknown"
+  },
+}
+subscribe "zeek"
+where @name == "zeek.ssh"
+this = { zeek: this }
+// === Classification ===
+// The activity attributes relate to the underlying TCP connection. Since
+// we have a ssh.log entry, it means we already have an established
+// connection and must assume data is being exchanged, even if it's just
+// the SSH handshake.
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4007
+ocsf.class_name = "SSH Activity"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+if "ABP" in zeek.inferences or "BFS" in zeek.inferences {
+  // Client authentication bypass (ABP) or brute force success (BFS) are
+  // worthwhile escalating.
+  ocsf.severity_id = 4
+  ocsf.severity = "High"
+} else if ("BF" in zeek.inferences
+    or "SV" in zeek.inferences
+    or "SC" in zeek.inferences
+    or "SC" in zeek.inferences) {
+  // Noteworthy are brute force attempts (BF), version scanning (SV),
+  // capability scanning (SC), or other scanning (SP).
+  ocsf.severity_id = 3
+  ocsf.severity = "Medium"
+} else {
+  // Every thing else is standard.
+  ocsf.severity_id = 1
+  ocsf.severity = "Informational"
+}
+// === Occurrence ===
+move ocsf.count = zeek.auth_attempts
+move ocsf.time = zeek.ts
+// === Context ===
+ocsf.metadata = {
+  log_name: "ssh.log",
+  logged_time: move zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  uid: move zeek.uid,
+  version: "1.4.0",
+}
+drop zeek._path? // implied in metadata.log_name
+// === Primary ===
+ocsf.src_endpoint = {
+  ip: zeek.id.orig_h,
+  port: zeek.id.orig_p,
+  agent_list: [{
+    name: move zeek.client,
+    type: "Remote Access",
+    type_uid: 9,
+  }]
+}
+ocsf.dst_endpoint = {
+  ip: zeek.id.resp_h,
+  port: zeek.id.resp_p,
+  agent_list: [{
+    name: move zeek.server,
+    type: "Remote Access",
+    type_uid: 9,
+  }]
+}
+ocsf.connection_info = {
+  protocol_name: "tcp",
+  protocol_num: 6,
+}
+if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
+  ocsf.connection_info.protocol_ver_id = 6
+} else {
+  ocsf.connection_info.protocol_ver_id = 4
+}
+drop zeek.id
+// The activity attributes relate to the underlying TCP connection. Since
+// we have a ssh.log entry, it means we already have an established
+// connection and must assume data is being exchanged, even if it's just
+// the SSH handshake.
+ocsf.connection_info.direction = $direction[zeek.direction].name
+ocsf.connection_info.direction_id = $direction[zeek.direction].id
+drop zeek.direction
+ocsf.server_hassh = {
+  algorithm: move zeek.hasshServerAlgorithms,
+  fingerprint: move zeek.hasshServer,
+}
+ocsf.client_hassh = {
+  algorithm: move zeek.hasshAlgorithms,
+  fingerprint: move zeek.hassh,
+}
+// The Authentication Type can be deduced if we have the `inferences`
+// package.
+if "KS" in zeek.inferences {
+  ocsf.auth_type_uid = 4
+  ocsf.auth_type = "Keyboard Interactive"
+} else {
+  ocsf.auth_type_uid = 0
+  ocsf.auth_type = "Unknown"
+}
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.ssh_activity"
+publish "ocsf"
