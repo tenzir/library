@@ -1,0 +1,27 @@
+---
+name: Zeek Demo Data
+description: |-
+  Publishes a live demo data feed to the `zeek` topic.
+restart-on-error: 1min
+---
+
+let $speed = {{ inputs.speed }}
+let $first = 2021-11-18T10:00:00Z
+let $last = 2021-11-19T01:00:00Z
+let $default = 3h
+let $period = $default / $speed
+let $factor = ($last - $first) / $period
+
+every $period {
+  from {
+    url: "https://datasets.tenzir.tools/M57/zeek-all.log.zst",
+  }
+}
+http url {
+  decompress_zstd
+  read_zeek_tsv
+  where $first <= ts and ts <= $last
+  sort ts
+  delay ts, start=$first, speed=$factor
+}
+publish "zeek"
