@@ -1,0 +1,91 @@
+---
+name: Onboard and parse Palo Alto logs
+description: |-
+  Onboards and parses Palo Alto Networks logs from the provided URL and
+  publishes them to the topic `paloalto`.
+
+  The package removes all reserved fields (starting with `future_use`) from
+  the event and removes the Syslog framing.
+
+   The package supports the following log types:
+   - Traffic
+   - GlobalProtect
+   - Data Filtering
+   - Correlation
+   - Tunnel Inspection
+   - Config
+   - System
+   - HIP Match
+   - IP-Tags
+   - User-ID
+   - Decryption
+   - Authentication
+
+   All other log types get forwarded including their raw Syslog framing as
+   `paloalto.unknown` events.
+---
+
+from "{{ inputs.url }}" {
+  read_syslog
+}
+if ",TRAFFIC," in content {
+  content = content.parse_csv(header="{{ inputs.traffic }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.traffic"
+} else if ",GLOBALPROTECT," in content {
+  content = content.parse_csv(header="{{ inputs.globalprotect }}")
+  content.message = content.message.parse_kv(field_split="\\s*,\\s*", value_split="\\s*:\\s*")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.globalprotect"
+} else if ",THREAT," in content {
+  content = content.parse_csv(header="{{ inputs.threat }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.threat"
+} else if ",URL-FILTERING," in content {
+  content = content.parse_csv(header="{{ inputs.url-filtering }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.url-filtering"
+} else if ",DATA-FILTERING," in content {
+  content = content.parse_csv(header="{{ inputs.data-filtering }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.data-filtering"
+} else if ",CORRELATION," in content {
+  content = content.parse_csv(header="{{ inputs.correlation }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.correlation"
+} else if ",TUNNEL-INSPECTION," in content {
+  content = content.parse_csv(header="{{ inputs.tunnel-inspection }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.tunnel-inspection"
+} else if ",CONFIG," in content {
+  content = content.parse_csv(header="{{ inputs.config }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.config"
+} else if ",SYSTEM," in content {
+  content = content.parse_csv(header="{{ inputs.system }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.system"
+} else if ",HIP-MATCH," in content {
+  content = content.parse_csv(header="{{ inputs.hip-match }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.hip-match"
+} else if ",IP-TAGS," in content {
+  content = content.parse_csv(header="{{ inputs.ip-tags }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.ip-tags"
+} else if ",USER-ID," in content {
+  content = content.parse_csv(header="{{ inputs.user-id }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.user-id"
+} else if ",DECRYPTION," in content {
+  content = content.parse_csv(header="{{ inputs.decryption }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.decryption"
+} else if ",AUTHENTICATION," in content {
+  content = content.parse_csv(header="{{ inputs.authentication }}")
+  this = content.drop_matching("^future_use")
+  @name = "paloalto.authentication"
+} else {
+  @name = "paloalto.unknown"
+}
+publish "paloalto"
