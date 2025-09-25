@@ -1,0 +1,21 @@
+---
+name: "OCSF Authorize Session → Amazon Security Lake"
+description: |-
+  Sends OCSF Authorize Session events to Amazon Security Lake
+disabled: true
+---
+
+let $custom_source = "tnz-ocsf-3003"
+let $account_id = "{{ inputs.account-id }}"
+let $region = "{{ inputs.region }}"
+let $bucket = "{{ inputs.bucket-name }}"
+let $role = f"arn:aws:iam::{$account_id}:role/AmazonSecurityLake-Provider-{$custom_source}-{$region}"
+subscribe "{{ inputs.input-topic }}"
+where @name == "ocsf.authorize_session"
+ocsf::apply
+to_amazon_security_lake f"s3://{$bucket}/ext/{$custom_source}",
+  account_id=$account_id,
+  region=$region,
+  role=$role,
+  external_id="{{ inputs.external-id }}",
+  timeout={{ inputs.timeout }}
