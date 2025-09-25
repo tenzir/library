@@ -1,0 +1,78 @@
+---
+name: Suricata SMB to OCSF SMB Activity
+description: |
+  Maps Suricata SMB events to an OCSF SMB Activity event.
+restart-on-error: 5m
+---
+
+let $activity_id = {
+  FILE_SUPERSEDE: 1,
+  FILE_OPEN: 2,
+  FILE_CREATE: 3,
+  FILE_OPEN_IF: 4,
+  FILE_OVERWRITE: 5,
+  FILE_OVERWRITE_IF: 6,
+}
+let $activity_name = {
+  FILE_SUPERSEDE: "File Supersede",
+  FILE_OPEN: "File Open",
+  FILE_CREATE: "File Create",
+  FILE_OPEN_IF: "File Open If",
+  FILE_OVERWRITE: "File Overwrite",
+  FILE_OVERWRITE_IF: "File Overwrite If",
+}
+subscribe "suricata"
+where @name == "suricata.smb"
+this = { suricata: this }
+// === Classification ===
+ocsf.severity_id = 1
+ocsf.class_uid = 4006
+ocsf.category_uid = 4
+ocsf.src_endpoint = {
+  ip: move suricata.src_ip,
+  port: move suricata.src_port,
+}
+ocsf.activity_id = $activity_id.get(suricata.smb.disposition, 99)
+ocsf.activity_name = $activity_name.get(move suricata.smb.disposition, move suricata.smb.command)
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(move suricata.flow_id),
+  version: "1.4.0",
+}
+ocsf.dialect = move suricata.smb.dialect
+// === Primary ===
+ocsf.dst_endpoint = {
+  ip: move suricata.dest_ip,
+  port: move suricata.dest_port,
+}
+if suricata.smb.status_code == "0x0" {
+  ocsf.status_id = 1
+  ocsf.status = "Success"
+} else {
+  ocsf.status_id = 99
+  ocsf.status = move suricata.smb.status
+}
+drop suricata.smb.status_code
+if suricata.smb.filename != null {
+  ocsf.file = {
+    type_id: 0,
+    name: move suricata.smb.filename,
+    created_time: (move suricata.smb.created).milliseconds().from_epoch(),
+    modified_time: (move suricata.smb.modified).milliseconds().from_epoch(),
+    accessed_time: (move suricata.smb.accessed).milliseconds().from_epoch(),
+  }
+} else {
+  ocsf.file = null
+}
+ocsf.tree_uid = string(move suricata.smb.tree_id)
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.smb_activity"
+publish "ocsf"

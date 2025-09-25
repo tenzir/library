@@ -1,0 +1,61 @@
+---
+name: Suricata IKEV2 to OCSF Network Activity
+description: |
+  Maps Suricata IKEV2 events to an OCSF Network Activity event.
+restart-on-error: 5m
+---
+
+subscribe "suricata"
+where @name == "suricata.ikev2"
+this = { suricata: this }
+// === Classification ===
+ocsf.type_uid = 400106
+ocsf.severity_id = 1
+ocsf.class_uid = 4001
+ocsf.category_uid = 4
+ocsf.activity_id = 6
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(move suricata.flow_id),
+  version: "1.4.0",
+}
+// === Primary ===
+ocsf.dst_endpoint = {
+  ip: move suricata.dest_ip,
+  port: move suricata.dest_port,
+}
+ocsf.src_endpoint = {
+  ip: move suricata.src_ip,
+  port: move suricata.src_port,
+}
+if suricata.has("flow") {
+  ocsf.traffic = {
+    bytes_in: move suricata.flow.bytes_toclient,
+    bytes_out: move suricata.flow.bytes_toserver,
+    packets_in: move suricata.flow.pkts_toclient,
+    packets_out: move suricata.flow.pkts_toserver,
+    bytes: move suricata.flow.bytes_toclient + move suricata.flow.bytes_toserver,
+    packets: move suricata.flow.pkts_toclient + move suricata.flow.pkts_toserver,
+  }
+  if suricata.flow.has("state") {
+    ocsf.status_id = 99
+    ocsf.status = move suricata.flow.state
+  } else {
+    ocsf.status_id = 0
+    ocsf.status = "Unknown"
+  }
+} else {
+  ocsf.traffic = null
+  ocsf.status_id = 0
+  ocsf.status = "Unknown"
+}
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.network_activity"
+publish "ocsf"

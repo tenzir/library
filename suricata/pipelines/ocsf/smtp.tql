@@ -1,0 +1,49 @@
+---
+name: Suricata SMTP to OCSF Email Activity
+description: |
+  Maps Suricata SMTP events to an OCSF Email Activity event.
+restart-on-error: 5m
+---
+
+subscribe "suricata"
+where @name == "suricata.smtp"
+this = { suricata: this }
+where suricata.smtp.mail_from != null
+where suricata.smtp.rcpt_to != null
+// === Classification ===
+ocsf.type_uid = 400900
+ocsf.severity_id = 1
+ocsf.class_uid = 4009
+ocsf.category_uid = 4
+ocsf.activity_id = 0
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(move suricata.flow_id),
+  version: "1.4.0",
+}
+ocsf.direction_id = 0
+// === Primary ===
+ocsf.email = {
+  from: move suricata.smtp.mail_from,
+  to: move suricata.smtp.rcpt_to
+}
+ocsf.src_endpoint = {
+  ip: move suricata.src_ip,
+  port: move suricata.src_port,
+}
+ocsf.dst_endpoint = {
+  ip: move suricata.dest_ip,
+  port: move suricata.dest_port,
+}
+ocsf.status_id = 0
+ocsf.smtp_hello = move suricata.smtp.helo
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.email_activity"
+publish "ocsf"

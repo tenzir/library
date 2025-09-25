@@ -1,0 +1,123 @@
+---
+name: Suricata DNS to OCSF DNS Activity
+description: |
+  Maps Suricata DNS events to an OCSF DNS Activity event.
+restart-on-error: 5m
+---
+
+let $rcode_id = {
+  NOERROR: 0,
+  FORMERROR: 1,
+  SERVERROR: 2,
+  NXDOMAIN: 3,
+  NOTIMP: 4,
+  REFUSED: 5,
+  YXDOMAIN: 6,
+  YXRRSET: 7,
+  NXRRSET: 8,
+  NOTAUTH: 9,
+  NOTZONE: 10,
+  DSOTYPENI: 11,
+  BADSIG_VERS: 16,
+  BADKEY: 17,
+  BADTIME: 18,
+  BADMODE: 19,
+  BADNAME: 20,
+  BADALG: 21,
+  BADTRUNC: 22,
+  BADCOOKIE: 23,
+}
+let $rcode = {
+  NOERROR: "NoError",
+  FORMERROR: "FormError",
+  SERVERROR: "ServError",
+  NXDOMAIN: "NXDomain",
+  NOTIMP: "NotImp",
+  REFUSED: "Refused",
+  YXDOMAIN: "YXDomain",
+  YXRRSET: "YXRRSet",
+  NXRRSET: "NXRRSet",
+  NOTAUTH: "NotAuth",
+  NOTZONE: "NotZone",
+  DSOTYPENI: "DSOTYPENI",
+  BADSIG_VERS: "BADSIG_VERS",
+  BADKEY: "BADKEY",
+  BADTIME: "BADTIME",
+  BADMODE: "BADMODE",
+  BADNAME: "BADNAME",
+  BADALG: "BADALG",
+  BADTRUNC: "BADTRUNC",
+  BADCOOKIE: "BADCOOKIE",
+}
+subscribe "suricata"
+where @name == "suricata.dns"
+this = { suricata: this }
+// === Classification ===
+// TODO: Proper request/response event splitting.
+has_query = false
+has_response = false
+if suricata.dns.has("queries") {
+  // Version >=8 DNS query logs.
+  // See https://docs.suricata.io/en/latest/upgrade/8.0-dns-logging-changes.html
+  ocsf.query = {
+    hostname: suricata.dns.queries.first().rrname,
+    type: suricata.dns.queries.first().rrtype,
+  }
+  has_query = true
+} else {
+  // Version <=7 DNS query logs.
+  // See https://docs.suricata.io/en/latest/upgrade/8.0-dns-logging-changes.html
+  ocsf.query = {
+    hostname: move suricata.dns.rrname,
+    type: move suricata.dns.rrtype,
+  }
+  has_query = true
+}
+ocsf.answers = (move suricata.dns.answers).map(answer => {
+  type: answer.rrtype,
+  rdata: answer.rdata,
+  ttl: answer.ttl,
+})
+has_response = ocsf.answers != null and ocsf.answers.length() > 0
+if (has_query and has_response) {
+  activity_id = 6
+  type_uid = 400306
+} else if (has_query) {
+  activity_id = 1
+  type_uid = 400301
+} else if (has_response) {
+  activity_id = 2
+  type_uid = 400302
+}
+ocsf.type_uid = type_uid
+ocsf.severity_id = 1
+ocsf.class_uid = 4003
+ocsf.category_uid = 4
+ocsf.activity_id = activity_id
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(move suricata.flow_id),
+  version: "1.4.0",
+}
+// === Primary ===
+ocsf.src_endpoint = {
+  ip: move suricata.src_ip,
+  port: move suricata.src_port,
+}
+ocsf.dst_endpoint = {
+  ip: move suricata.dest_ip,
+  port: move suricata.dest_port,
+}
+ocsf.status_id = 1
+ocsf.rcode_id = $rcode_id.get(suricata.dns.rcode, 99)
+ocsf.rcode = $rcode.get(move suricata.dns.rcode, suricata.dns.rcode)
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.dns_activity"
+publish "ocsf"
