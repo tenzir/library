@@ -1,0 +1,25 @@
+---
+name: Submit OCSF events with OSINT profile to MISP as sightings
+description: |-
+  Sends sightings to MISP for all events that have an OSINT profile.
+---
+
+let $misp = "{{ inputs.base-url }}"
+subscribe "ocsf-osint"
+select metadata, time, osint
+unroll osint
+http f"{$misp}/sightings/add",
+  headers={
+    Authorization: secret("{{ inputs.api-key-secret }}"),
+  },
+  body={
+    source: metadata.uid,
+    // The event timestamp is equivalent to the sighting timestamp.
+    // Explicitly setting it ensures that the sighting submission is not using
+    // the current wallclock time, which allows us to ship "retro-sightings".
+    timestamp: time.since_epoch().count_seconds(),
+    // MISP creates a sighting for each matching value in the array.
+    value: osint.value,
+  }
+@name = "misp.sighting"
+publish "misp"
