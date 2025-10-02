@@ -1,0 +1,57 @@
+---
+name: Suricata Alert to OCSF Detection Finding Activity
+description: |
+  Maps Suricata Alert events to an OCSF Detection Finding Activity event.
+restart-on-error: 5m
+---
+
+subscribe "suricata"
+where @name == "suricata.alert"
+this = { suricata: this }
+// === Classification ===
+ocsf.type_uid = 200401
+if suricata.alert.severity == null {
+  ocsf.severity_id = 0
+} else if suricata.alert.severity == 1 {
+  ocsf.severity_id = 4
+} else if suricata.alert.severity == 2 {
+  ocsf.severity_id = 3
+} else if suricata.alert.severity == 3 {
+  ocsf.severity_id = 2
+}
+drop suricata.alert.severity
+ocsf.class_uid = 2004
+ocsf.category_uid = 2
+ocsf.activity_id = 1
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(suricata.flow_id),
+  version: "1.4.0",
+}
+ocsf.status_id = 1
+// === Primary ===
+ocsf.evidences = [{
+  src_endpoint: {
+    ip: move suricata.src_ip,
+    port: move suricata.src_port,
+  },
+  dst_endpoint: {
+    ip: move suricata.dest_ip,
+    port: move suricata.dest_port,
+  },
+}]
+ocsf.finding_info = {
+  uid: (move suricata.flow_id).string(),
+  title: move suricata.alert.category,
+  desc: move suricata.alert.signature,
+}
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.detection_finding"
+publish "ocsf"

@@ -1,0 +1,21 @@
+---
+name: OCSF Event Trimming Pipeline
+description: |
+  Subscribes to OCSF events from the input topic, applies size-based
+  trimming to reduce event size, optionally derives additional context
+  for large events, and publishes the results to the output topic.
+---
+
+let $size_S = {drop_optional: true, drop_recommended: true}
+let $size_M = {drop_optional: true, drop_recommended: false}
+let $size_L = {drop_optional: false, drop_recommended: false}
+let $size = $size_{{ inputs.size }}
+let $is_large = not $size.drop_optional
+
+subscribe "{{ inputs.input-topic }}"
+ocsf::trim drop_optional=$size.drop_optional,
+  drop_recommended=$size.drop_recommended
+if $is_large {
+  ocsf::derive
+}
+publish "{{ inputs.output-topic }}"

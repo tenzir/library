@@ -1,0 +1,115 @@
+---
+name: Normalize MISP events to OCSF
+description: |
+  Converts MISP events to OCSF OSINT Inventory Info events.
+---
+
+subscribe "misp"
+where @name == "misp.event"
+let $threat_level = {
+  "1": 4,  // High → High
+  "2": 3,  // Medium → Medium
+  "3": 2,  // Low → Low
+  "4": 1,  // Undefined → Informational
+}
+let $analysis_status = {
+  "0": 0,   // Initial → Unknown
+  "1": 99,  // Ongoing → Other
+  "2": 1,   // Completed → Success
+}
+let $type_ids = {
+  "ip-dst": 1,
+  "ip-src": 1,
+  domain: 2,
+  hostname: 3,
+  url: 5,
+  "email-src": 9,
+  "email-dst": 9,
+  AS: 99,
+  filename: 11,
+  md5: 4,
+  sha1: 4,
+  sha256: 4,
+  "size-in-bytes": 11,
+  "file-type": 11,
+  "mime-type": 11,
+  mutex: 99,
+  "process-name": 99,
+  pid: 99,
+  port: 99,
+  "user-agent": 6,
+  comment: 0,
+  text: 0,
+  vulnerability: 10,
+  link: 5,
+}
+this = {ocsf: {}, misp: this}
+// ------ OCSF Inventory Info --------
+// Classification
+ocsf.activity_id = 2
+ocsf.activity_name = "Collect"
+ocsf.category_uid = 5
+ocsf.category_name = "Discovery"
+ocsf.class_uid = 5021
+ocsf.class_name = "OSINT Inventory Info"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.severity_id = $threat_level[move misp.threat_level_id]? else 1
+// Context
+ocsf.actor = {
+  app_name: "Tenzir",
+  process: {
+    name: "MISP",
+    user: {
+      // Org currently owning the MISP event.
+      org: {
+        name: move misp.Org.name,
+        uid: move misp.Org.uuid,
+      }
+    }
+  },
+  user: {
+    // Creator org of the MISP event.
+    org: {
+      name: move misp.Orgc.name,
+      uid: move misp.Orgc.uuid,
+    }
+  }
+}
+ocsf.metadata = {
+  product: {
+    name: "MISP",
+    vendor_name: "CIRCL",
+  },
+  uid: move misp.uuid,
+  version: "1.5.0",
+}
+ocsf.time = move misp.timestamp
+drop misp.date // implied in the timestamp
+// Primary
+ocsf.message = move misp.info
+ocsf.osint = misp.Attribute.map(x => {
+  category: x.category,
+  created_time: from_epoch(int(x.timestamp) * 1s),
+  creator: {
+    org: ocsf.actor.user.org, // Orgc
+  },
+  desc: x.comment,
+  external_uid: x.uuid,
+  severity_id: ocsf.severity_id,
+  // TODO: Figure out how to assign `null` if no tlp tag in the source.
+  tlp: misp.Tag?.where(x => x.name.starts_with("tlp:"))[0]?.name?.slice(begin=4).to_upper(),
+  type_id: $type_ids[x.type]? else 99,
+  value: x.value,
+})
+ocsf.status_id = $analysis_status[move misp.analysis]? else 0
+drop misp.Attribute?
+// TODO: consider mapping the Galaxy in the future. For now, we drop
+// it because it is incredibly bulky.
+drop misp.Galaxy?
+// ------ Finalize --------
+this = {...ocsf, unmapped: misp}
+@name = "ocsf.osint_inventory_info"
+ocsf::derive
+publish "ocsf"

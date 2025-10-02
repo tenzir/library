@@ -29,39 +29,3 @@ contexts:
     description: |
       A table that is keyed by SHA1 hashes of SSL certificates on the SSL
       blocklist.
-
-pipelines:
-  update-context:
-    name: Update SSLBL Context
-    description: |
-      A pipeline that periodically refreshes the SSLBL lookup table.
-    definition: |
-      every {{ inputs.refresh-interval }} {
-        from_http "https://sslbl.abuse.ch/blacklist/sslblacklist.csv" {
-          read_csv comments=true, header="timestamp,SHA1,reason"
-        }
-      }
-      context::update "sslbl", key=SHA1
-    restart-on-error: 1h
-
-examples:
-  - name: Enrich Suricata TLS logs with SSLBL domains
-    description: |
-      Enriches the certificate SHA1 fingerprint from Suricata TLS logs with the
-      SSLBL data.
-    definition: |
-      subscribe "suricata"
-      where @name == "suricata.tls"
-      sha1 = tls.fingerprint.replace(":", "")
-      context::enrich "sha1", key=sslbl
-
-  - name: Display top-10 listing reasons
-    description: |
-      Shows a bar chart of the top-10 reasons why a certificate is in the
-      dataset.
-    definition: |
-      context::inspect "sslbl"
-      this = value
-      top reason
-      head
-      chart_bar x=reason, y=count

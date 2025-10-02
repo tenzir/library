@@ -1,0 +1,21 @@
+---
+name: Fetches all MISP events
+description: |
+  Fetches all MISP events and publishes them to the `misp` topic.
+---
+
+let $base_url = "{{ inputs.base-url }}"
+let $url = $base_url + "/events/restSearch"
+from_http $url, headers={
+  Authorization: secret("{{ inputs.api-key-secret }}"),
+}, body={
+  to: now()
+} {
+  read_json raw=true
+}
+unroll response
+this = response.Event
+// Fix up types because we pass raw=true to read_json above.
+timestamp = from_epoch(int(timestamp) * 1s)
+@name = "misp.event"
+publish "misp"

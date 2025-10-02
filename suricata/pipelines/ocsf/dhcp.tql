@@ -1,0 +1,80 @@
+---
+name: Suricata DHCP to OCSF Network Activity
+description: |
+  Maps Suricata DHCP events to an OCSF DHCP Activity event.
+restart-on-error: 5m
+disabled: true
+---
+
+let $activity_id = {
+  discover: 1,
+  offer: 2,
+  request: 3,
+  decline: 4,
+  ack: 5,
+  nak: 6,
+  release: 7,
+  inform: 8,
+}
+let $activity_name = {
+  discover: "Discover",
+  offer: "Offer",
+  request: "Request",
+  decline: "Decline",
+  ack: "Ack",
+  nak: "Nak",
+  release: "Release",
+  inform: "Inform",
+}
+subscribe "suricata"
+where @name == "suricata.dhcp"
+this = { suricata: this }
+// === Classification ===
+ocsf.category_uid = 4
+ocsf.class_uid = 4004
+ocsf.activity_id = $activity_id.get(string(suricata.dhcp.dhcp_type), 0)
+ocsf.activity_name = $activity_name.get(string(move suricata.dhcp.dhcp_type), "Other")
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.severity_id = 1
+ocsf.category_name = "Network Activity"
+ocsf.class_name = "DHCP Activity"
+ocsf.severity = "Informational"
+// === Occurrence ===
+ocsf.time = move suricata.timestamp
+// === Context ===
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+  },
+  uid: string(move suricata.flow_id),
+  version: "1.4.0",
+}
+// === Primary ===
+ocsf.connection_info = {
+  direction: "Other",
+  direction_id: 99,
+  protocol_ver_id: 0,
+  protocol_name: "udp",
+  protocol_num: 17,
+  community_uid: move suricata.community_id,
+}
+ocsf.src_endpoint = {
+  ip: move suricata.src_ip,
+  port: move suricata.src_port,
+}
+ocsf.dst_endpoint = {
+  hostname: move suricata.dhcp.hostname,
+  ip: move suricata.dhcp.assigned_ip,
+  mac: move suricata.dhcp.client_mac,
+  port: move suricata.dest_port,
+  type_id: 0
+}
+ocsf.lease_duration = move suricata.dhcp.lease_time
+ocsf.status = "Other"
+ocsf.status_id = 99
+ocsf.transaction_uid = (move suricata.dhcp.id).string()
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.dhcp_activity"
+publish "ocsf"

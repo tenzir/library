@@ -1,0 +1,140 @@
+---
+name: Normalize DCSO TIE IOCs to OCSF
+description: |
+  Converts DCSO TIE IOCs to OCSF OSINT Inventory Info events.
+---
+
+let $base_url = "{{ inputs.base-url }}"
+// Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
+let $type_ids = {
+  domain: 2,
+  domainPort: 99,
+  ip: 1,
+  ipPort: 99,
+  md5: 4,
+  filename: 11,
+  filepath: 11,
+  email: 9, // API mismatch, doesn't exist in docs but in data
+  emailAddress: 9,
+  emailSubject: 8,
+  registryKey: 12,
+  registryValue: 13,
+  mutex: 99,
+  sha1: 4,
+  sha256: 4,
+  ssdeep: 4,
+  url: 5,
+  userAgent: 6,
+}
+let $tlps = {
+  clear: "CLEAR",
+  green: "GREEN",
+  amber: "AMBER",
+  "amber+strict": "AMBER STRICT",
+  red: "RED",
+}
+// --- OSINT Object ----
+subscribe "dcso"
+this = {osint: {}, tie: this}
+tactics = tie.mitreTactics.map(x => {
+  tactic: {
+    uid: x
+  }
+})
+techniques = tie.mitreTechniques.map(x => {
+  technique: {
+    uid: x
+  }
+})
+osint.attacks = [...(move tactics), ...(move techniques)]
+drop tie.mitreTactics, tie.mitreTechniques
+// The OCSF OSINT object has just one campaign per IOC. This is arguably
+// incorrect, as an IOC can certainly be part of multiple campaigns.
+// Our workaround is to join the provided campaigns with a comma.
+osint.campaign = {
+  name: tie.targetCampaigns?.join(", ")
+}
+drop tie.targetCampaigns
+// The TIE confidence is in [0,100].
+if tie.confidence? != null {
+  if tie.confidence < 30 {
+    osint.confidence_id = 1 // Low
+  } else if tie.confidence < 70 {
+    osint.confidence_id = 2 // Medium
+  } else {
+    osint.confidence_id = 3 // High
+  }
+  drop tie.confidence
+}
+move osint.created_time = tie.created
+move osint.labels = tie.tags
+// This is not the best place to put the MISP event IDs.
+osint.malware = tie.malpedia?.map(x => {
+  name: x,
+  classification_ids: [0], // unknown
+})
+drop tie.malpedia
+move osint.modified_time = tie.modified
+move osint.references = tie.eventIDs
+osint.src_url = $base_url + "/iocs/" + encode_url(tie.ioc)
+osint.tlp = $tlps[move tie.tlpLevel]?
+// Same as above: our source has an array here but we must map it to a
+// singular object.
+osint.threat_actor = {
+  name: tie.threatActors?.join(", "),
+}
+drop tie.threatActors
+osint.type_id = $type_ids[move tie.iocType]
+// The TIE severity is in [0,100].
+if tie.severity? != null {
+  if tie.severity < 20 {
+    osint.severity_id = 1 // Informational
+  } else if tie.severity < 40 {
+    osint.severity_id = 2 // Low
+  } else if tie.severity < 60 {
+    osint.severity_id = 3 // Medium
+  } else if tie.severity < 80 {
+    osint.severity_id = 4 // High
+  } else if tie.severity < 90 {
+    osint.severity_id = 5 // Critical
+  } else {
+    osint.severity_id = 6 // Fatal
+  }
+  drop tie.severity
+}
+move osint.value = tie.ioc
+osint.vendor_name = "DCSO"
+// ------ OSINT Inventory Info --------
+oscf = {}
+// Classification
+ocsf.activity_id = 2
+ocsf.activity_name = "Collect"
+ocsf.category_uid = 5
+ocsf.category_name = "Discovery"
+ocsf.class_uid = 5021
+ocsf.class_name = "OSINT Inventory Info"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+// Context
+ocsf.actor = {
+  app_name: "Tenzir"
+}
+ocsf.metadata = {
+  product: {
+    name: "TIE",
+    vendor_name: "DCSO",
+  },
+  version: "1.5.0",
+}
+// Occurence
+ocsf.time = now()
+// Primary
+ocsf.osint = [move osint]
+// ------ Finalize --------
+move ocsf.unmapped = tie
+this = ocsf
+@name = "ocsf.osint_inventory_info"
+ocsf::apply
+//ocsf::derive
+publish "ocsf"

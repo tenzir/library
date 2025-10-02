@@ -1,0 +1,41 @@
+---
+name: Fetch IOCs from DCSO TIE
+description: |
+  Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
+restart-on-error: true
+---
+
+let $base_url = "{{ inputs.base-url }}"
+let $url = $base_url +
+  "/iocs" +
+  "?limit=1000" +
+  "&ignore=false" +
+  "&iocFeedSources=DCSO-Data%20Feed" +
+  "&minConfidence={{ inputs.min-confidence }}"
+let $api_user = secret("{{ inputs.api-user-secret }}")
+let $api_key = secret("{{ inputs.api-key-secret }}")
+let $auth = f"Basic {encode_base64($api_user + ":" + $api_key)}"
+every {{ inputs.refresh-interval }} {
+  from_http $url,
+    headers={Authorization: $auth},
+    paginate=(response => f"{$url}&next={response.next}" if response.hasMore) {
+    // Using raw=true is a good as it gets right now until we have union
+    // types. We need this because events shape-shift frequently, especially
+    // within lists.
+    read_ndjson raw=true
+  }
+}
+unroll results
+this = results
+// Fix up types because we pass raw=true to read_ndjson above.
+created = created.time()
+modified = modified.time()
+if (firstSeen != null) {
+  firstSeen = firstSeen.time()
+}
+if (lastSeen != null) {
+  lastSeen = lastSeen.time()
+}
+lastFeedOccurence = lastFeedOccurence.time()
+@name = "dcso.ioc"
+publish "dcso"

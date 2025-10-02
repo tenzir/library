@@ -1,0 +1,22 @@
+---
+name: Download ThreatFox IOC database
+description: |
+  A pipeline that periodically fetches the ThreatFox IOC database and
+  publishes the feed to the `threatfox` topic.
+---
+
+every {{ inputs.refresh-interval }} {
+  from_http "https://threatfox-api.abuse.ch/api/v1/",
+  body={query: "get_iocs"},
+  headers={"Auth-Key": "{{ inputs.auth-key }}", days: "{{ inputs.days }}"} {
+    read_json
+  }
+}
+unroll data
+this = data
+// This is a hack that we need because there are no union types. We
+// roundtrip via the JSON parser which does per-event type inference for
+// us.
+write_ndjson
+read_ndjson
+publish "threatfox"

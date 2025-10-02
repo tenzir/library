@@ -1,0 +1,54 @@
+---
+name: x509.log to OCSF Network Activity
+description: |
+  Maps Zeek's x509.log to OCSF Network Activity events.
+---
+
+subscribe "zeek"
+where @name == "zeek.x509"
+this = { zeek: this }
+// === Classification ===
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4001
+ocsf.class_name = "Network Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+// === Occurrence ===
+ocsf.time = zeek.ts
+drop zeek.ts
+// === Context ===
+ocsf.metadata = {
+  log_name: "x509.log",
+  logged_time: zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  version: "1.4.0",
+}
+drop zeek._path? // implied in metadata.log_name
+ocsf.tls = {
+  certificate: {
+    serial_number: move zeek.certificate.serial,
+    created_time: move zeek.certificate.not_valid_before,
+    expiration_time: move zeek.certificate.not_valid_after,
+    issuer: move zeek.certificate.issuer,
+    subject: move zeek.certificate.subject,
+    // NB: [null].collect() yields the empty array.
+    fingerprints: [move zeek.fingerprint?].collect(),
+    version: (move zeek.certificate.version).string(),
+  },
+  sans: (move zeek.san.dns).map(name => {
+    name: name,
+    type: "DNSName",
+  }),
+  version: null,
+}
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.network_activity"
+publish "ocsf"
