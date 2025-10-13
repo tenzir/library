@@ -1,8 +1,15 @@
----
-name: conn.log to OCSF Network Activity
-description: |
-  Maps Zeek's conn.log to OCSF Network Activity events.
----
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's conn.log to OCSF Network Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
 
 // The ground truth for connection state mapping is here:
 // https://github.com/zeek/zeek/blob/6671e95c6b07dfd59a12ec5507a5c3eb91f163ef/scripts/base/protocols/conn/main.zeek#L184
@@ -40,74 +47,28 @@ let $activity_names = [
   "Listen",
   "Other",
 ]
-let $proto_nums = {
-  tcp: 6,
-  udp: 17,
-  icmp: 1,
-  icmpv6: 58,
-  ipv6: 41,
-}
-subscribe "zeek"
-where @name == "zeek.conn"
-this = { zeek: this }
-// === Classification ===
 ocsf.activity_id = $conn_states[zeek.conn_state]? else 6
 ocsf.activity_name = $activity_names[ocsf.activity_id]? else "Other"
-ocsf.category_uid = 4
-ocsf.category_name = "Network Activity"
 ocsf.class_uid = 4001
 ocsf.class_name = "Network Activity"
 ocsf.severity_id = 1
 ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-// === Occurrence ===
-move ocsf.time = zeek.ts
-ocsf.duration = zeek.duration.count_milliseconds().round()
+
+// --- OCSF: occurence attributes ---------------
+
+ocsf.duration = (move zeek.duration).seconds()
 ocsf.start_time = ocsf.time
-ocsf.end_time = ocsf.time + move zeek.duration
-// === Context ===
-ocsf.metadata = {
-  log_name: "conn.log",
-  logged_time: move zeek._write_ts?,
-  product: {
-    name: "Zeek",
-    vendor_name: "Zeek",
-    cpe_name: "cpe:2.3:a:zeek:zeek",
-  },
-  uid: move zeek.uid,
-  version: "1.4.0",
-}
-drop zeek._path? // implied in metadata.log_name
-move ocsf.app_name = zeek.service
-// === Primary ===
-ocsf.src_endpoint = {
-  ip: zeek.id.orig_h,
-  port: zeek.id.orig_p,
-  mac: move zeek.orig_l2_addr?,
-  location: {
-    country: move zeek.orig_cc?,
-  }
-}
-ocsf.dst_endpoint = {
-  ip: zeek.id.resp_h,
-  port: zeek.id.resp_p,
-  mac: move zeek.resp_l2_addr?,
-  location: {
-    country: move zeek.resp_cc?,
-  }
-}
-ocsf.connection_info = {
-  community_uid: move zeek.community_id?,
-  flag_history: move zeek.history,
-  protocol_name: move zeek.proto,
-  protocol_num: $proto_nums[zeek.proto]? else -1
-}
-if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
-  ocsf.connection_info.protocol_ver_id = 6
-} else {
-  ocsf.connection_info.protocol_ver_id = 4
-}
-drop zeek.id
+ocsf.end_time = ocsf.time + ocsf.duration
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "conn.log"
+ocsf.app_name = move zeek.service
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.flag_history = move zeek.history
 if zeek.local_orig? != null and zeek.local_resp? != null {
   if zeek.local_orig and zeek.local_resp {
     ocsf.connection_info.direction = "Lateral"
@@ -125,7 +86,7 @@ if zeek.local_orig? != null and zeek.local_resp? != null {
   drop zeek.local_orig, zeek.local_resp
 }
 ocsf.status = "Other"
-move ocsf.status_code = zeek.conn_state
+ocsf.status_code = move zeek.conn_state
 ocsf.status_id = 99
 ocsf.traffic = {
   bytes_in: move zeek.resp_bytes,
@@ -133,9 +94,11 @@ ocsf.traffic = {
   bytes_missed: move zeek.missed_bytes,
   packets_in: move zeek.resp_pkts,
   packets_out: move zeek.orig_pkts,
-  bytes: zeek.orig_bytes + zeek.resp_bytes,
-  packets: zeek.orig_pkts + zeek.resp_pkts,
 }
+ocsf.traffic.bytes = ocsf.traffic.bytes_in + ocsf.traffic.bytes_out
+ocsf.traffic.packets = ocsf.traffic.packets_in + ocsf.traffic.packets_out
+
+// --- Finalize ---------------------------------
+
 this = {...ocsf, unmapped: zeek}
 @name = "ocsf.network_activity"
-publish "ocsf"

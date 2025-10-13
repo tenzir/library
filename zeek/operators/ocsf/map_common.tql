@@ -1,0 +1,76 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Performs OCSF mappings that apply to all Zeek events.
+//
+//  The operator assumes existance of two records:
+//    - `zeek`: the reocrd to map from
+//    - `ocsf`: the record to map to
+//---
+
+// --- OCSF: classification attributes ----------
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+
+// --- OCSF: occurence attributes ---------------
+ocsf.time = (move zeek.ts).since_epoch().from_epoch()
+
+// --- OCSF: context attributes -----------------
+ocsf.metadata = {
+  logged_time: move zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  uid: move zeek.uid,
+  version: "1.6.0",
+}
+drop zeek._path? // implied in metadata.log_name
+
+// --- OCSF: primary attributes -----------------
+
+// Map source/destination endpoints.
+ocsf.src_endpoint = {
+  ip: zeek.id.orig_h,
+  port: zeek.id.orig_p,
+  mac: move zeek.orig_l2_addr?,
+  location: {
+    country: move zeek.orig_cc?,
+  }
+}
+ocsf.dst_endpoint = {
+  ip: zeek.id.resp_h,
+  port: zeek.id.resp_p,
+  mac: move zeek.resp_l2_addr?,
+  location: {
+    country: move zeek.resp_cc?,
+  }
+}
+drop zeek.id
+
+// Map Community ID.
+if zeek.has("community_id") {
+  ocsf.connection_info.community_uid = move zeek.community_id
+}
+
+// Map transport-layer protocol details.
+let $proto_nums = {
+  tcp: 6,
+  udp: 17,
+  icmp: 1,
+  icmpv6: 58,
+  ipv6: 41,
+}
+if zeek.has("proto") {
+  ocsf.connection_info.protocol_num = $proto_nums[zeek.proto]? else -1
+  ocsf.connection_info.protocol_name = move zeek.proto
+}
+
+// Fill protocol version based on endpoints.
+// This could at some point go into `ocsf::derive`.
+if ocsf.src_endpoint.ip.is_v6() or ocsf.dst_endpoint.ip.is_v6() {
+  ocsf.connection_info.protocol_ver_id = 6
+} else {
+  ocsf.connection_info.protocol_ver_id = 4
+}

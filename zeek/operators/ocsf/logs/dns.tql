@@ -1,0 +1,77 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's dns.log to OCSF DNS Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.class_uid = 4003
+ocsf.class_name = "DNS Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "dns.log"
+
+// --- OCSF: primary attributes -----------------
+
+let $rcode_names = {
+  NOERROR: "NoError",
+  FORMERR: "FormError",
+  SERVFAIL: "ServError",
+  NXDOMAIN: "NXDomain",
+  NOTIMP: "NotImp",
+  REFUSED: "Refused",
+  YXDOMAIN: "YXDomain",
+  YXRRSET: "YXRRSet",
+  "NXRRSet": "NXRRSet",
+  NOTAUTH: "NotAuth",
+  NOTZONE: "NotZone",
+  "unassigned-11": "DSOTYPENI",
+  BADVERS: "BADSIG_VERS",
+  BADKEY: "BADKEY",
+  BADTIME: "BADTIME",
+  BADMODE: "BADMODE",
+  BADNAME: "BADNAME",
+  BADALG: "BADALG",
+  BADTRUNC: "BADTRUNC",
+  BADCOOKIE: "BADCOOKIE",
+  BADSIG: "BADSIG_VERS",
+}
+ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x => {
+  rdata: x.left,
+  ttl: x.right.seconds(),
+})
+ocsf.query = {
+  class: move zeek.qclass_name,
+  hostname: move zeek.query,
+  // TODO: go deeper and extract the log semantics.
+  //opcode_id: 0,
+  type: move zeek.qtype_name,
+}
+ocsf.query_time = ocsf.time
+ocsf.response_time = ocsf.time
+ocsf.rcode = $rcode_names[zeek.rcode_name]? else zeek.rcode_name
+drop zeek.rcode_name
+ocsf.rcode_id = move zeek.rcode
+
+ocsf.connection_info = {
+  direction: "Other",
+  direction_id: 99,
+}
+ocsf.status = "Unknown"
+ocsf.status_id = 0
+
+// --- Finalize ---------------------------------
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.dns_activity"
