@@ -1,0 +1,70 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's ftp.log to OCSF FTP Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $commands = {
+  STOR: 1,
+  APPE: 1,
+  RETR: 2,
+  MLST: 3,
+  MLSD: 6,
+  LIST: 6,
+  NLST: 6,
+  DELE: 4,
+  RNFR: 5,
+  RNTO: 5,
+  RMD: 4,
+}
+let $activity_names = [
+  "Unknown",
+  "Put",
+  "Get",
+  "Poll",
+  "Delete",
+  "Rename",
+  "List",
+]
+ocsf.activity_id = $commands[zeek.command]? else 0
+ocsf.activity_name = $activity_names[ocsf.activity_id]
+ocsf.class_uid = 4008
+ocsf.class_name = "FTP Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "ftp.log"
+
+ocsf.file = {
+  name: move zeek.arg,
+  size: move zeek.file_size,
+  type_id: 0,
+}
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.protocol_name = "tcp"
+ocsf.connection_info.protocol_num = 6
+
+ocsf.command = move zeek.command
+ocsf.codes = [move zeek.reply_code]
+ocsf.status_code = ocsf.codes[0]
+ocsf.status_detail = move zeek.reply_msg
+ocsf.type = "passive" if zeek.data_channel.passive else "active"
+ocsf.port = move zeek.data_channel.resp_p
+drop zeek.data_channel
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.ftp_activity"
