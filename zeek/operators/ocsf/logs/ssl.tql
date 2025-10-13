@@ -1,8 +1,27 @@
----
-name: ssl.log to OCSF Network Activity
-description: |
-  Maps Zeek's ssl.log to OCSF Network Activity events.
----
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's ssl.log to OCSF Network Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.class_uid = 4001
+ocsf.class_name = "Network Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "ssl.log"
 
 // Converted from:
 // https://github.com/zeek/zeek/blob/fdf887ce3bd80e0b466a973d5063c5882303d282/scripts/base/protocols/ssl/consts.zeek#L113
@@ -42,35 +61,7 @@ let $alert_codes = {
   no_application_protocol: 120,
   ech_required: 121, // draft-ietf-tls-esni-17
 }
-subscribe "zeek"
-where @name == "zeek.ssl"
-this = { zeek: this }
-// === Classification ===
-ocsf.activity_id = 6
-ocsf.activity_name = "Traffic"
-ocsf.category_uid = 4
-ocsf.category_name = "Network Activity"
-ocsf.class_uid = 4001
-ocsf.class_name = "Network Activity"
-ocsf.severity_id = 1
-ocsf.severity = "Informational"
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-// === Occurrence ===
-ocsf.time = zeek.ts
-drop zeek.ts
-// === Context ===
-ocsf.metadata = {
-  log_name: "ssl.log",
-  logged_time: move zeek._write_ts?,
-  product: {
-    name: "Zeek",
-    vendor_name: "Zeek",
-    cpe_name: "cpe:2.3:a:zeek:zeek",
-  },
-  uid: move zeek.uid,
-  version: "1.4.0",
-}
-drop zeek._path? // implied in metadata.log_name
+
 ocsf.tls = {
   certificate: {
     issuer: move zeek.issuer,
@@ -92,30 +83,17 @@ ocsf.tls = {
 if zeek.last_alert != null {
   ocsf.tls.alert = $alert_codes[zeek.last_alert]
 }
-// === Primary ===
-ocsf.src_endpoint = {
-  ip: zeek.id.orig_h,
-  port: zeek.id.orig_p,
-}
-ocsf.dst_endpoint = {
-  ip: zeek.id.resp_h,
-  port: zeek.id.resp_p,
-}
-ocsf.connection_info = {
-  protocol_name: "tcp",
-  protocol_num: 6,
-}
-if zeek.id.orig_h.is_v6() or zeek.id.resp_h.is_v6() {
-  ocsf.connection_info.protocol_ver_id = 6
-} else {
-  ocsf.connection_info.protocol_ver_id = 4
-}
-drop zeek.id
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.protocol_name = "tcp"
+ocsf.connection_info.protocol_num = 6
+
 if not zeek.established or zeek.last_alert != null {
   ocsf.status_id = 2
   ocsf.status = "Failure"
-  ocsf.status_detail = zeek.last_alert
-} else if validation_status? == "ok" {
+  ocsf.status_detail = move zeek.last_alert
+} else if zeek.validation_status? == "ok" {
   // There could be more `validation_status` values that mean success,
   // but it's difficult to find them. In Zeek, we'd need to grep through
   // all invocations of `x509_result_record` and trace the arguments.
@@ -123,13 +101,15 @@ if not zeek.established or zeek.last_alert != null {
   // Going with just "ok" here is simply going off empirical data.
   ocsf.status_id = 1
   ocsf.status = "Success"
-  move ocsf.status_detail = zeek.validation_status
+  ocsf.status_detail = move zeek.validation_status
 } else {
   ocsf.status_id = 0
   ocsf.status = "Unknown"
-  move ocsf.status_detail = zeek.validation_status
+  ocsf.status_detail = move zeek.validation_status
 }
-drop zeek.last_alert
+drop zeek.established
+
+// --- Finalize ---------------------------------
+
 this = {...ocsf, unmapped: zeek}
 @name = "ocsf.network_activity"
-publish "ocsf"
