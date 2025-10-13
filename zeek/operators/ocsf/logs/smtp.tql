@@ -1,0 +1,52 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's smtp.log to OCSF Email Activity events.
+//---
+
+// TODO:
+// - Generate one Email URL Activity event for each element in the `url`
+//   array, linking the resulting events via a shared UUID.
+// - Surface Zeek file UIDs (`fuids`) for corresponding Network File Activity
+//   events when possible.
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 1
+ocsf.activity_name = "Send"
+ocsf.class_uid = 4009
+ocsf.class_name = "Email Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "smtp.log"
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.dst_endpoint.intermediate_ips = move zeek.path
+
+ocsf.email = {
+  from: move zeek.from,
+  to: move zeek.to,
+  cc: move zeek.cc?,
+  reply_to: move zeek.reply_to?,
+  message_uid: move zeek.msg_id,
+  smtp_from: move zeek.mailfrom,
+  smtp_to: move zeek.rcptto,
+  subject: move zeek.subject,
+}
+ocsf.smtp_hello = move zeek.helo
+ocsf.status_detail = move zeek.last_reply
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.email_activity"
