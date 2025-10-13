@@ -13,7 +13,16 @@ ocsf.category_uid = 4
 ocsf.category_name = "Network Activity"
 
 // --- OCSF: occurence attributes ---------------
-ocsf.time = (move zeek.ts).since_epoch().from_epoch()
+if type_of(zeek.ts).kind == "time" {
+  ocsf.time = move zeek.ts
+} else if type_of(zeek.ts).kind == "double" {
+  ocsf.time = (move zeek.ts).seconds().from_epoch()
+}
+if zeek.has("duration") {
+  ocsf.duration = (move zeek.duration).seconds()
+  ocsf.start_time = ocsf.time
+  ocsf.end_time = ocsf.time + ocsf.duration
+}
 
 // --- OCSF: context attributes -----------------
 ocsf.metadata = {
@@ -23,7 +32,7 @@ ocsf.metadata = {
     vendor_name: "Zeek",
     cpe_name: "cpe:2.3:a:zeek:zeek",
   },
-  uid: move zeek.uid,
+  uid: move zeek.uid?, // DHCP logs don't have a uid field
   version: "1.6.0",
 }
 drop zeek._path? // implied in metadata.log_name
@@ -31,23 +40,40 @@ drop zeek._path? // implied in metadata.log_name
 // --- OCSF: primary attributes -----------------
 
 // Map source/destination endpoints.
-ocsf.src_endpoint = {
-  ip: zeek.id.orig_h,
-  port: zeek.id.orig_p,
-  mac: move zeek.orig_l2_addr?,
-  location: {
-    country: move zeek.orig_cc?,
+if zeek.has("id") {
+  ocsf.src_endpoint = {
+    ip: zeek.id.orig_h,
+    port: zeek.id.orig_p,
+  }
+  ocsf.dst_endpoint = {
+    ip: zeek.id.resp_h,
+    port: zeek.id.resp_p,
+  }
+  drop zeek.id
+  // Fill protocol version based on endpoints.
+  // This could at some point go into `ocsf::derive`.
+  if ocsf.src_endpoint.ip.is_v6() or ocsf.dst_endpoint.ip.is_v6() {
+    ocsf.connection_info.protocol_ver_id = 6
+  } else {
+    ocsf.connection_info.protocol_ver_id = 4
   }
 }
-ocsf.dst_endpoint = {
-  ip: zeek.id.resp_h,
-  port: zeek.id.resp_p,
-  mac: move zeek.resp_l2_addr?,
-  location: {
-    country: move zeek.resp_cc?,
+if zeek.has("orig_l2_addr") {
+  ocsf.src_endpoint.mac = move zeek.orig_l2_addr
+}
+if zeek.has("resp_l2_addr") {
+  ocsf.dst_endpoint.mac = move zeek.resp_l2_addr
+}
+if zeek.has("orig_cc") {
+  ocsf.src_endpoint.location = {
+    country: move zeek.orig_cc,
   }
 }
-drop zeek.id
+if zeek.has("resp_cc") {
+  ocsf.dst_endpoint.location = {
+    country: move zeek.resp_cc,
+  }
+}
 
 // Map Community ID.
 if zeek.has("community_id") {
@@ -65,12 +91,4 @@ let $proto_nums = {
 if zeek.has("proto") {
   ocsf.connection_info.protocol_num = $proto_nums[zeek.proto]? else -1
   ocsf.connection_info.protocol_name = move zeek.proto
-}
-
-// Fill protocol version based on endpoints.
-// This could at some point go into `ocsf::derive`.
-if ocsf.src_endpoint.ip.is_v6() or ocsf.dst_endpoint.ip.is_v6() {
-  ocsf.connection_info.protocol_ver_id = 6
-} else {
-  ocsf.connection_info.protocol_ver_id = 4
 }
