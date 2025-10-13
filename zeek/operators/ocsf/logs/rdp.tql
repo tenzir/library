@@ -1,0 +1,78 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's rdp.log to OCSF RDP Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $results = {
+  "encrypted": 0,
+  "Success": 1,
+  "User rejected": 2,
+  "Resources not available": 2,
+  "Rejected for symmetry breaking": 2,
+  "Locked conference": 2,
+}
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.class_uid = 4005
+ocsf.class_name = "RDP Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "rdp.log"
+ocsf.metadata.profiles = ["host"]
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.protocol_name = "tcp"
+ocsf.connection_info.protocol_num = 6
+
+ocsf.protocol_ver = move zeek.client_build?
+ocsf.identifier_cookie = move zeek.cookie
+ocsf.keyboard_info = {
+  keyboard_layout: move zeek.keyboard_layout?,
+}
+ocsf.display = {
+  physical_height: move zeek.desktop_height?,
+  physical_width: move zeek.desktop_width?,
+  color_depth: int(replace(move zeek.requested_color_depth?, "bit", "")),
+}
+ocsf.tls = {
+  key_length: int(replace(move zeek.encryption_method?, "bit", "")),
+  // The version is required, but not present in the data.
+  version: null,
+}
+ocsf.status = move zeek.result
+ocsf.status_id = $results[ocsf.status] else 0
+
+// --- OCSF: profile: Host ----------------------
+
+ocsf.host = {
+  name: move zeek.client_name?,
+  os: {
+    name: "Windows",
+    vendor_name: "Microsoft",
+    cpe_name: "cpe:2.3:o:microsoft:windows",
+    type_id: 100,
+    type: "Windows",
+  },
+  // 64-byte clientDigProductId
+  uid: move zeek.client_dig_product_id?,
+  type_id: 2,
+  type: "Desktop",
+}
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.rdp_activity"
