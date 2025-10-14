@@ -2,20 +2,28 @@ name: Tests
 
 on:
   workflow_dispatch:
+  pull_request:
 
 jobs:
   tenzir-test:
+    name: Test packages
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect touched packages
+        id: touched
+        shell: bash
+        run: |
+          packages=$(./.github/scripts/detect-touched-packages.sh "${{ github.event.pull_request.base.sha || '' }}")
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
 
       - name: Run package tests
+        if: steps.touched.outputs.packages != ''
+        shell: bash
         run: |
-          docker run --rm \
-            -e UV_CACHE_DIR=/tmp/uv-cache \
-            -e XDG_DATA_HOME=/tmp/xdg-data \
-            -v "${{ github.workspace }}:/workspace" \
-            -w /workspace \
-            --entrypoint uv \
-            tenzir/tenzir tool run tenzir-test .
+          set -eo pipefail
+          ./.github/scripts/run-tenzir-test.sh ${{ steps.touched.outputs.packages }}
