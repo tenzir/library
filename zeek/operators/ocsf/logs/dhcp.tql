@@ -1,0 +1,66 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's dhcp.log to OCSF DHCP Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+// Zeek's DHCP log is an aggregation of multiple packets that constitute a
+// DORA "session". See https://docs.zeek.org/en/master/logs/dhcp.html for
+// details. In OCSF, an event represents a single DORA message, which is
+// why we simply unroll the array.
+unroll msg_types
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+// Zeek doesn't emit an event when DHCP lease expires, so there is no EXPIRE
+// message type.
+let $msg_types = {
+  DISCOVER: 1,
+  OFFER: 2,
+  REQUEST: 3,
+  DECLINE: 4,
+  ACK: 5,
+  NAK: 6,
+  RELEASE: 7,
+  INFORM: 8,
+}
+ocsf.activity_id = $msg_types[zeek.msg_types]? else 0
+if ocsf.activity_id == 0 {
+  ocsf.activity_name = "Other"
+} else {
+  ocsf.activity_name = to_title(move zeek.msg_types)
+}
+ocsf.class_uid = 4004
+ocsf.class_name = "DHCP Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "dhcp.log"
+// The `uids` field in the DHCP log is an array of all conn UIDs. To keep at
+// least the uniqueness constraint intact, we sort and join them.
+ocsf.metadata.uid = sort(move zeek.uids).join(",")
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.protocol_name = "udp"
+ocsf.connection_info.protocol_num = 17
+ocsf.src_endpoint.hostname = move zeek.host_name?
+ocsf.src_endpoint.ip = move zeek.client_addr? else zeek.assigned_addr?
+ocsf.src_endpoint.domain = move zeek.client_fqdn?
+ocsf.src_endpoint.mac = move zeek.mac?
+ocsf.dst_endpoint.ip = move zeek.server_addr?
+ocsf.dst_endpoint.domain = move zeek.domain?
+ocsf.lease_dur = (move zeek.lease_time?).seconds()
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.dhcp_activity"

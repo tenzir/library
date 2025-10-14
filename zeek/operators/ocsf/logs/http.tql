@@ -1,0 +1,83 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's http.log to OCSF HTTP Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $methods = {
+  CONNECT: 1,
+  DELETE: 2,
+  GET: 3,
+  HEAD: 4,
+  OPTIONS: 5,
+  POST: 6,
+  PUT: 7,
+  TRACE: 8,
+}
+ocsf.activity_id = $methods[zeek.method]? else 0
+ocsf.activity_name = (move zeek.method?).to_title()
+ocsf.class_uid = 4002
+ocsf.class_name = "HTTP Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "http.log"
+
+// --- OCSF: primary attributes -----------------
+
+if zeek.has("dest_host") {
+  host = zeek.dest_host
+} else {
+  host = zeek.host
+}
+
+ocsf.http_request = {
+  http_method: ocsf.activity_name,
+  referrer: move zeek.referrer,
+  url: {
+    hostname: move host,
+    // TODO: Take this apart with string or URL functions.
+    // Zeek's uri field is actually the path plus all parameters.
+    path: move zeek.uri,
+  },
+  user_agent: move zeek.user_agent,
+  version: move zeek.version,
+}
+if zeek.has("client_headers") {
+  ocsf.http_request.http_headers = \
+    zeek.client_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+  drop zeek.client_headers
+}
+if zeek.has("server_headers") {
+  ocsf.http_response.http_headers = \
+    zeek.server_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+  drop zeek.server_headers
+}
+
+ocsf.http_response = {
+  code: move zeek.status_code,
+  status: move zeek.status_msg,
+}
+
+ocsf.connection_info.direction = "Other"
+ocsf.connection_info.direction_id = 99
+ocsf.connection_info.protocol_name = "tcp"
+ocsf.connection_info.protocol_num = 6
+
+ocsf.status = "Unknown"
+ocsf.status_id = 0
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.http_activity"

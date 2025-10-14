@@ -1,0 +1,61 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Zeek's smb_files.log to OCSF SMB Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { zeek: this }
+zeek::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+// The Zeek actions don't naturally map to the corresponding OCSF
+// class. Zeek actions have the pattern `SMB::{TYPE}_{ACTION}` where
+// `TYPE` is one of `FILE`, `PIPE`, or `PRINT`.
+if zeek.action.ends_with("_OPEN") {
+  ocsf.activity_id = 2
+  ocsf.activity_name = "File Open"
+} else {
+  ocsf.activity_id = 99
+  ocsf.activity_name = "Other"
+}
+ocsf.class_uid = 4006
+ocsf.class_name = "SMB Activity"
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata.log_name = "smb_files.log"
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.connection_info.protocol_name = "tcp"
+ocsf.connection_info.protocol_num = 6
+
+ocsf.file = {
+  path: move zeek.path,
+}
+ocsf.share = move zeek.name
+if zeek.action.starts_with("SMB::FILE") {
+  ocsf.share_type_id = 1
+  ocsf.share_type = "File"
+} else if zeek.action.starts_with("SMB::PIPE") {
+  ocsf.share_type_id = 2
+  ocsf.share_type = "Pipe"
+} else if zeek.action.starts_with("SMB::PRINT") {
+  ocsf.share_type_id = 3
+  ocsf.share_type = "Print"
+} else {
+  ocsf.share_type_id = 0
+  ocsf.share_type = "Unknown"
+}
+drop zeek.action
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zeek}
+@name = "ocsf.smb_activity"
