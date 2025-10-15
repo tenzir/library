@@ -1,0 +1,64 @@
+// TODO: support frontmatter in UDOs.
+//---
+//description: |
+//  Maps Suricata SMTP events to OCSF Email Activity events.
+//---
+
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+
+if suricata.smtp.mail_from == null or suricata.smtp.rcpt_to == null {
+  pass
+} else {
+  suricata::ocsf::map_common
+
+  // --- OCSF: classification attributes ----------
+
+  ocsf.activity_id = 0
+  ocsf.category_uid = 4
+  ocsf.class_uid = 4009
+  ocsf.severity_id = 1
+  ocsf.type_uid = 400900
+
+  // --- OCSF: occurrence attributes --------------
+
+  ocsf.time = move suricata.timestamp
+
+  // --- OCSF: context attributes -----------------
+
+  ocsf.metadata = {
+    log_name: move suricata.event_type,
+    product: {
+      name: "Suricata",
+      vendor_name: "Open Information Security Foundation",
+    },
+    uid: string(move suricata.flow_id),
+    version: "1.4.0",
+  }
+  // --- OCSF: context attributes -----------------
+
+  ocsf.direction_id = 0
+
+  // --- OCSF: primary attributes -----------------
+
+  ocsf.email = {
+    from: move suricata.smtp.mail_from,
+    to: move suricata.smtp.rcpt_to,
+  }
+  ocsf.src_endpoint = {
+    ip: move suricata.src_ip,
+    port: move suricata.src_port,
+  }
+  ocsf.dst_endpoint = {
+    ip: move suricata.dest_ip,
+    port: move suricata.dest_port,
+  }
+  ocsf.status_id = 0
+  ocsf.smtp_hello = move suricata.smtp.helo
+
+  // --- Finalize ---------------------------------
+
+  this = {...ocsf, unmapped: suricata}
+  @name = "ocsf.email_activity"
+}

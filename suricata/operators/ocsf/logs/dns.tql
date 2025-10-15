@@ -1,0 +1,77 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+if (suricata.dns.has("queries") and suricata.dns.has("answers")) {
+  ocsf.activity_id = 6
+} else if (suricata.dns.has("queries")) {
+  ocsf.activity_id = 1
+} else if (suricata.dns.has("answers")) {
+  ocsf.activity_id = 2
+} else {
+  ocsf.activity_id = 0
+}
+
+ocsf.class_uid = 4003
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: primary attributes -----------------
+
+// TODO: support `grouped`.
+
+if suricata.dns.has("queries") {
+  ocsf.query = {
+    hostname: suricata.dns.queries[0].rrname,
+    type: suricata.dns.queries[0].rrtype,
+  }
+  // TODO: is there ever more than one query in practice?
+  //assert suricata.dns.queries.length() == 1
+  drop suricata.dns.queries
+}
+
+if suricata.dns.has("answers") {
+  ocsf.answers = (suricata.dns.answers).map(answer => {
+    rdata: answer.rdata,
+    type: answer.rrtype,
+    ttl: answer.ttl,
+  })
+}
+
+if suricata.dns.has("rcode") {
+  let $rcode_id = {
+    NOERROR: 0,
+    FORMERROR: 1,
+    SERVERROR: 2,
+    NXDOMAIN: 3,
+    NOTIMP: 4,
+    REFUSED: 5,
+    YXDOMAIN: 6,
+    YXRRSET: 7,
+    NXRRSET: 8,
+    NOTAUTH: 9,
+    NOTZONE: 10,
+    DSOTYPENI: 11,
+    BADSIG_VERS: 16,
+    BADKEY: 17,
+    BADTIME: 18,
+    BADMODE: 19,
+    BADNAME: 20,
+    BADALG: 21,
+    BADTRUNC: 22,
+    BADCOOKIE: 23,
+  }
+  ocsf.rcode_id = $rcode_id[suricata.dns.rcode] else 99
+  ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
+} else {
+  ocsf.status_id = 0
+}
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.dns_activity"
+ocsf::derive

@@ -1,0 +1,69 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+// Overwrite map_common
+ocsf.category_uid = 2
+ocsf.category_name = "Findings"
+
+ocsf.activity_id = 1 // Create
+ocsf.class_uid = 2004
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $severities = [0, 4, 3, 2]
+ocsf.severity_id = $severities[move suricata.alert.severity]
+
+// --- OCSF: primary attributes -----------------
+
+// Suricata alerts can have a bunch of different records, based on the
+// respective protocol analyzer. Our strategy here is to map them as evidence.
+_evidence = {}
+if ocsf.has("src_endpoint") {
+  _evidence.src_endpoint = move ocsf.src_endpoint
+}
+if ocsf.has("dst_endpoint") {
+  _evidence.dst_endpoint = move ocsf.dst_endpoint
+}
+if ocsf.has("connection_info") {
+  _evidence.connection_info = move ocsf.connection_info
+}
+if suricata.has("dns") {
+  // TODO
+}
+if suricata.has("http") {
+  suricata::ocsf::map_http
+  if ocsf.has("http_request") {
+    _evidence.http_request = move ocsf.http_request
+  }
+  if ocsf.has("http_response") {
+    _evidence.http_response = move ocsf.http_response
+  }
+}
+if suricata.has("smb") {
+  // TODO
+}
+ocsf.evidences = [move _evidence]
+
+ocsf.finding_info = {
+  analytic: {
+    // The generator ID is a reasonable field for algorithm.
+    algorithm: (move suricata.alert.gid).string(),
+    category: move suricata.alert.category,
+    name: move suricata.alert.signature,
+    type: "Rule",
+    type_id: 1,
+    uid: (move suricata.alert.signature_id).string(),
+    version: (move suricata.alert.rev).string(),
+  },
+  uid: uuid(version="v7"), // required attribute
+}
+ocsf.finding_info.title = ocsf.finding_info.analytic.name
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.detection_finding"
+ocsf::derive
