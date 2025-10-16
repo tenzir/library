@@ -1,9 +1,3 @@
-// TODO: support frontmatter in UDOs.
-//---
-//description: |
-//  Maps Suricata SSH events to OCSF SSH Activity events.
-//---
-
 // --- Preamble ---------------------------------
 
 this = { suricata: this }
@@ -12,41 +6,38 @@ suricata::ocsf::map_common
 // --- OCSF: classification attributes ----------
 
 ocsf.activity_id = 6
+
 ocsf.category_uid = 4
 ocsf.class_uid = 4007
 ocsf.severity_id = 1
-ocsf.type_uid = 400706
-
-// --- OCSF: occurrence attributes --------------
-
-ocsf.time = move suricata.timestamp
-
-// --- OCSF: context attributes -----------------
-
-ocsf.metadata = {
-  log_name: move suricata.event_type,
-  product: {
-    name: "Suricata",
-    vendor_name: "Open Information Security Foundation",
-  },
-  uid: string(move suricata.flow_id),
-  version: "1.4.0",
-}
-ocsf.protocol_ver = move suricata.ssh.server.proto_version
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.dst_endpoint = {
-  ip: move suricata.dest_ip,
-  port: move suricata.dest_port,
+if suricata.ssh.client?.has("hassh") {
+  ocsf.client_hassh = {
+    algorithm: move suricata.ssh.client.hassh.string,
+    fingerprint: {
+      algorithm_id: 0,
+      value: move suricata.ssh.client.hassh.hash,
+    },
+  }
 }
-ocsf.src_endpoint = {
-  ip: move suricata.src_ip,
-  port: move suricata.src_port,
+
+if suricata.ssh.server?.has("hassh") {
+  ocsf.server_hassh = {
+    algorithm: move suricata.ssh.server.hassh.string,
+    fingerprint: {
+      algorithm_id: 0,
+      value: move suricata.ssh.server.hassh.hash,
+    },
+  }
 }
+
 ocsf.status_id = 0
 
 // --- Finalize ---------------------------------
 
 this = {...ocsf, unmapped: suricata}
 @name = "ocsf.ssh_activity"
+ocsf::derive
