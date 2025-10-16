@@ -1,12 +1,3 @@
-// TODO: support frontmatter in UDOs.
-//---
-//description: |
-//  Maps Suricata TLS events to OCSF Network Activity events.
-//
-//  This mapping remains experimental and mirrors the previously disabled
-//  pipeline.
-//---
-
 // --- Preamble ---------------------------------
 
 this = { suricata: this }
@@ -15,84 +6,51 @@ suricata::ocsf::map_common
 // --- OCSF: classification attributes ----------
 
 ocsf.activity_id = 6
+
 ocsf.category_uid = 4
 ocsf.class_uid = 4001
 ocsf.severity_id = 1
-ocsf.type_uid = 400106
-
-// --- OCSF: occurrence attributes --------------
-
-ocsf.time = move suricata.timestamp
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata = {
-  log_name: move suricata.event_type,
-  product: {
-    name: "Suricata",
-    vendor_name: "Open Information Security Foundation",
-  },
-  uid: string(move suricata.flow_id),
-  version: "1.4.0",
-}
-if suricata.tls.version != null {
-  tls_version = suricata.tls.version
-} else {
-  tls_version = "Unknown"
-}
-tls_version = move suricata.tls.version else "Unknown"
-if suricata.tls.issuerdn != null {
-  certificate = {
-    issuer: move suricata.tls.issuerdn,
-    fingerprints: [{algorithm_id: 2, value: move suricata.tls.fingerprint}],
-    serial_number: move suricata.tls.serial,
-    expiration_time: move suricata.tls.notafter,
-    creation_time: move suricata.tls.notbefore,
-  }
-} else {
-  certificate = null
-}
 ocsf.tls = {
-  version: tls_version,
-  sni: move suricata.tls.sni,
-  ja3s_hash: move suricata.tls.ja3s,
-  ja3_hash: move suricata.tls.ja3,
-  certificate: move certificate,
+  ja3_hash: {
+    algorithm_id: 0,
+    value: move suricata.tls.ja3?.hash?,
+  },
+  ja3s_hash: {
+    algorithm_id: 0,
+    value: move suricata.tls.ja3s?.hash?,
+  },
+  server_name: move suricata.tls.sni?,
+  version: move suricata.tls.version? else "Unknown",
+}
+
+ocsf.tls.certificate = {
+  creation_time: move suricata.tls.notbefore?,
+  expiration_time: move suricata.tls.notafter?,
+  issuer: move suricata.tls.issuerdn?,
+  serial_number: move suricata.tls.serial?,
+  subject: move suricata.tls.subject?,
+}
+
+if suricata.tls.has("fingerprint") {
+  ocsf.tls.certificate.fingerprints = [{
+    algorithm_id: 2,
+    value: suricata.tls.fingerprint.replace(":", ""),
+  }]
+  drop suricata.tls.fingerprint
 }
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.dst_endpoint = {
-  ip: move suricata.dest_ip,
-  port: move suricata.dest_port,
-}
-ocsf.src_endpoint = {
-  ip: move suricata.src_ip,
-  port: move suricata.src_port,
-}
-if suricata.has("flow") {
-  ocsf.traffic = {
-    bytes_in: move suricata.flow.bytes_toclient,
-    bytes_out: move suricata.flow.bytes_toserver,
-    packets_in: move suricata.flow.pkts_toclient,
-    packets_out: move suricata.flow.pkts_toserver,
-    bytes: move suricata.flow.bytes_toclient + move suricata.flow.bytes_toserver,
-    packets: move suricata.flow.pkts_toclient + move suricata.flow.pkts_toserver,
-  }
- if suricata.flow.has("state") {
-    ocsf.status_id = 99
-    ocsf.status = move suricata.flow.state
-  } else {
-    ocsf.status_id = 0
-    ocsf.status = "Unknown"
-  }
-} else {
-  ocsf.traffic = null
-  ocsf.status_id = 0
-  ocsf.status = "Unknown"
-}
+ocsf.status_id = 0
+
+drop_null_fields
 
 // --- Finalize ---------------------------------
 
 this = {...ocsf, unmapped: suricata}
 @name = "ocsf.network_activity"
+ocsf::derive
