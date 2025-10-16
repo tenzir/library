@@ -1,39 +1,26 @@
 assert suricata.has("http")
 
-// We rely on the `http.status` field to determine whether we have an HTTP
-// request or a response in our `http` record.
-if not suricata.http.has("status") {
- ocsf.http_request = {
-   body_length: move suricata.http.length,
-   http_method: move suricata.http.http_method,
-   referrer: move suricata.http.http_refer?,
-   url: {
-     hostname: move suricata.http.hostname,
-     url_string: move suricata.http.url,
-   },
-   user_agent: move suricata.http.http_user_agent,
-   version: move suricata.http.protocol,
- }
- if suricata.http.has("request_headers") {
-   ocsf.http_request.http_headers = move suricata.http.request_headers
- }
-} else {
-  // The response duplicates some request headers.
-  ocsf.http_request = {
-    http_method: move suricata.http.http_method,
-    user_agent: move suricata.http.http_user_agent,
-    version: move suricata.http.protocol,
-  }
-  ocsf.http_response = {
-    body_length: move suricata.http.length,
-    content_type: move suricata.http.http_content_type?,
-    url: {
-      hostname: move suricata.http.hostname,
-      url_string: move suricata.http.url,
-    },
-    status: (move suricata.http.status).string(),
-  }
-  if suricata.http.has("response_headers") {
-    ocsf.http_response.http_headers = move suricata.http.response_headers
-  }
+ocsf.http_request = {
+  http_method: move suricata.http.http_method?,
+  referrer: move suricata.http.http_refer?,
+  url: {
+    hostname: move suricata.http.hostname,
+    url_string: move suricata.http.url,
+  },
+  user_agent: move suricata.http.http_user_agent?,
+  version: move suricata.http.protocol?,
+}
+if suricata.http.has("request_headers") {
+  ocsf.http_request.http_headers = move suricata.http.request_headers
+}
+
+ocsf.http_response = {
+  body_length: move suricata.http.length?,
+  content_type: move suricata.http.http_content_type?,
+}
+if suricata.http.has("status") {
+  ocsf.http_response.status = (move suricata.http.status).string()
+}
+if suricata.http.has("response_headers") {
+  ocsf.http_response.http_headers = move suricata.http.response_headers
 }
