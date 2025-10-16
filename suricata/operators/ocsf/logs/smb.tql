@@ -1,26 +1,3 @@
-// TODO: support frontmatter in UDOs.
-//---
-//description: |
-//  Maps Suricata SMB events to OCSF SMB Activity events.
-//---
-
-let $activity_id = {
-  FILE_SUPERSEDE: 1,
-  FILE_OPEN: 2,
-  FILE_CREATE: 3,
-  FILE_OPEN_IF: 4,
-  FILE_OVERWRITE: 5,
-  FILE_OVERWRITE_IF: 6,
-}
-let $activity_name = {
-  FILE_SUPERSEDE: "File Supersede",
-  FILE_OPEN: "File Open",
-  FILE_CREATE: "File Create",
-  FILE_OPEN_IF: "File Open If",
-  FILE_OVERWRITE: "File Overwrite",
-  FILE_OVERWRITE_IF: "File Overwrite If",
-}
-
 // --- Preamble ---------------------------------
 
 this = { suricata: this }
@@ -28,40 +5,76 @@ suricata::ocsf::map_common
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = $activity_id.get(suricata.smb.disposition, 99)
-ocsf.activity_name = $activity_name.get(suricata.smb.disposition, suricata.smb.command)
+/*
+ * Map SMB disposition values to OCSF SMB Activity activities:
+ * - FILE_SUPERSEDE: File Supersede = activity_id 1
+ * - FILE_OPEN: File Open = activity_id 2
+ * - FILE_CREATE: File Create = activity_id 3
+ * - FILE_OPEN_IF: File Open If = activity_id 4
+ * - FILE_OVERWRITE: File Overwrite = activity_id 5
+ * - FILE_OVERWRITE_IF: File Overwrite If = activity_id 6
+ */
+let $smb_activity_id = {
+  FILE_SUPERSEDE: 1,
+  FILE_OPEN: 2,
+  FILE_CREATE: 3,
+  FILE_OPEN_IF: 4,
+  FILE_OVERWRITE: 5,
+  FILE_OVERWRITE_IF: 6,
+}
+
+ocsf.activity_id = $smb_activity_id[suricata.smb.disposition?]? else 0
+
 ocsf.category_uid = 4
 ocsf.class_uid = 4006
+
+// Severity: informational for normal operations
 ocsf.severity_id = 1
+
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.client_dialects = move suricata.smb.client_dialects?
+ocsf.dialect = move suricata.smb.dialect?
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.dialect = suricata.smb.dialect?
-if suricata.smb.status_code == "0x0" {
-  ocsf.status_id = 1
-  ocsf.status = "Success"
-} else {
-  ocsf.status_id = 99
-  ocsf.status = suricata.smb.status?
-}
-drop suricata.smb.status_code
+ocsf.command = move suricata.smb.command?
 
-if suricata.smb.filename != null {
-  ocsf.file = {
-    type_id: 0,
-    name: suricata.smb.filename?,
-    created_time: suricata.smb.created?.milliseconds().from_epoch(),
-    modified_time: suricata.smb.modified?.milliseconds().from_epoch(),
-    accessed_time: suricata.smb.accessed?.milliseconds().from_epoch(),
+if suricata.smb.has("session_id") {
+  ocsf.connection_info.session = {
+    uid: string(move suricata.smb.session_id),
   }
-} else {
-  ocsf.file = null
 }
 
-ocsf.tree_uid = suricata.smb.tree_id?.string()
+// Map server (device) information from response
+if suricata.smb.has("response") {
+  if suricata.smb.response.has("native_os") {
+    ocsf.device.os.name = move suricata.smb.response.native_os?
+    ocsf.metadata.profiles = ocsf.metadata?.profiles?.add("host")
+  }
+}
+
+// Map file attributes if present
+if suricata.smb.has("filename") {
+  ocsf.file = {
+    accessed_time: move suricata.smb.accessed?.milliseconds().from_epoch(),
+    created_time: move suricata.smb.created?.milliseconds().from_epoch(),
+    modified_time: move suricata.smb.modified?.milliseconds().from_epoch(),
+    name: move suricata.smb.filename,
+    type_id: 0,
+  }
+}
+
+ocsf.status_code = move suricata.smb.status_code
+ocsf.status_detail = move suricata.smb.status
+ocsf.status_id = 1 if ocsf.status_code? == "0x0" else 2
+
+ocsf.tree_uid = string(move suricata.smb.tree_id?)
 
 // --- Finalize ---------------------------------
 
 this = {...ocsf, unmapped: suricata}
 @name = "ocsf.smb_activity"
+ocsf::derive
