@@ -1,64 +1,41 @@
-// TODO: support frontmatter in UDOs.
-//---
-//description: |
-//  Maps Suricata SMTP events to OCSF Email Activity events.
-//---
-
 // --- Preamble ---------------------------------
 
 this = { suricata: this }
+suricata::ocsf::map_common
 
-if suricata.smtp.mail_from == null or suricata.smtp.rcpt_to == null {
-  pass
-} else {
-  suricata::ocsf::map_common
+// --- OCSF: classification attributes ----------
 
-  // --- OCSF: classification attributes ----------
+// TODO: go deeper and map
+ocsf.activity_id = 0
 
-  ocsf.activity_id = 0
-  ocsf.category_uid = 4
-  ocsf.class_uid = 4009
-  ocsf.severity_id = 1
-  ocsf.type_uid = 400900
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
 
-  // --- OCSF: occurrence attributes --------------
+// Severity: informational for normal operations
+ocsf.severity_id = 1
 
-  ocsf.time = move suricata.timestamp
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
-  // --- OCSF: context attributes -----------------
+// --- OCSF: context attributes -----------------
 
-  ocsf.metadata = {
-    log_name: move suricata.event_type,
-    product: {
-      name: "Suricata",
-      vendor_name: "Open Information Security Foundation",
-    },
-    uid: string(move suricata.flow_id),
-    version: "1.4.0",
-  }
-  // --- OCSF: context attributes -----------------
+ocsf.direction_id = 0
 
-  ocsf.direction_id = 0
+// --- OCSF: primary attributes -----------------
 
-  // --- OCSF: primary attributes -----------------
-
-  ocsf.email = {
-    from: move suricata.smtp.mail_from,
-    to: move suricata.smtp.rcpt_to,
-  }
-  ocsf.src_endpoint = {
-    ip: move suricata.src_ip,
-    port: move suricata.src_port,
-  }
-  ocsf.dst_endpoint = {
-    ip: move suricata.dest_ip,
-    port: move suricata.dest_port,
-  }
-  ocsf.status_id = 0
-  ocsf.smtp_hello = move suricata.smtp.helo
-
-  // --- Finalize ---------------------------------
-
-  this = {...ocsf, unmapped: suricata}
-  @name = "ocsf.email_activity"
+ocsf.command = move suricata.smtp.helo?
+ocsf.email = {
+  from: move suricata.smtp?.mail_from?,
+  from_mailbox: move suricata.email?.from?,
+  to: move suricata.email?.to?,
+  to_mailboxes: move suricata.smtp?.rcpt_to?,
 }
+ocsf.status_id = 0
+ocsf.status_detail = move suricata.email?.status?
+
+drop_null_fields
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.email_activity"
+ocsf::derive
