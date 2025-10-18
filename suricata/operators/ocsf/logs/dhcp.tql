@@ -1,0 +1,47 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $activity_id = {
+  discover: 1,
+  offer: 2,
+  request: 3,
+  decline: 4,
+  ack: 5,
+  nak: 6,
+  release: 7,
+  inform: 8,
+}
+
+ocsf.class_uid = 4004
+ocsf.activity_id = $activity_id[suricata.dhcp.dhcp_type.string()] else 0
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: primary attributes -----------------
+
+if suricata.dhcp.has("hostname") {
+  ocsf.dst_endpoint.hostname = move suricata.dhcp.hostname
+}
+
+if suricata.dhcp.has("mac") {
+  ocsf.dst_endpoint.mac = move suricata.dhcp.client_mac
+}
+
+if suricata.dhcp.has("lease_time") {
+  ocsf.lease_dur = move suricata.dhcp.lease_time
+}
+
+ocsf.status = "Other"
+ocsf.status_id = 99
+
+ocsf.transaction_uid = (move suricata.dhcp.id).string()
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.dhcp_activity"
+ocsf::derive

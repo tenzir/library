@@ -1,0 +1,88 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $commands = {
+  // 1 - Put (Upload)
+  STOR: 1,
+  STOU: 1,
+  PUT: 1,
+  APPE: 1,
+  // 2 - Get (Download)
+  GET: 2,
+  RETR: 2,
+  // 3 - Poll (Directory/file checking, navigation)
+  MLST: 3,
+  CWD: 3,
+  CDUP: 3,
+  PWD: 3,
+  STAT: 3,
+  // 4 - Delete
+  DELE: 4,
+  RMD: 4,
+  XRMD: 4,
+  // 5 - Rename
+  RNFR: 5,
+  RNTO: 5,
+  // 6 - List
+  NLST: 6,
+  LIST: 6,
+  MLSD: 6,
+  // 0 - Unknown (Session/connection commands)
+  USER: 0,
+  PASS: 0,
+  ACCT: 0,
+  QUIT: 0,
+  REIN: 0,
+  ABOR: 0,
+  PORT: 0,
+  PASV: 0,
+  EPRT: 0,
+  EPSV: 0,
+  TYPE: 0,
+  MODE: 0,
+  STRU: 0,
+  REST: 0,
+  ALLO: 0,
+  SYST: 0,
+  HELP: 0,
+  NOOP: 0,
+  SITE: 0,
+  FEAT: 0,
+  OPTS: 0,
+  MKD: 0,
+  XMKD: 0,
+}
+
+ocsf.activity_id = $commands[suricata.ftp.command?]? else 0
+ocsf.class_uid = 4008
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.codes = move suricata.ftp.completion_code
+ocsf.command = move suricata.ftp.command?
+ocsf.command_responses = move suricata.ftp.reply
+
+if suricata.ftp.has("dynamic_port") {
+  ocsf.port = move suricata.ftp.dynamic_port
+}
+if suricata.ftp.has("mode") {
+  ocsf.type = move suricata.ftp.mode
+}
+
+// TODO: parse `ocsf.codes` for a more accurate status.
+// - Success:  2xx
+// - Failure:  4xx, 5xx
+// - Pending:  1xx, 3xx
+ocsf.status_id = 0
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.ftp_activity"
+ocsf::derive

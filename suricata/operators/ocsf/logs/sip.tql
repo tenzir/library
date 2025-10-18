@@ -1,0 +1,59 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+/*
+ * Map SIP message types to OCSF Network Activity activities:
+ * - INVITE: Network connection opened = activity_id 1
+ * - BYE: Network connection closed = activity_id 2
+ * - Response codes 4xx/5xx/6xx: Connection failed = activity_id 4
+ */
+if suricata.sip.has("method") and suricata.sip.method == "INVITE" {
+  ocsf.activity_id = 1
+} else if suricata.sip.has("method") and suricata.sip.method == "BYE" {
+  ocsf.activity_id = 2
+} else if suricata.sip.has("code") and int(suricata.sip.code) >= 400 and int(suricata.sip.code) < 700 {
+  ocsf.activity_id = 4
+} else if suricata.sip.has("method") or suricata.sip.has("code") {
+  ocsf.activity_id = 6
+} else {
+  ocsf.activity_id = 0
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+
+// Severity: informational for normal operations
+ocsf.severity_id = 1
+
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.app_name = "SIP"
+
+// --- OCSF: primary attributes -----------------
+
+if suricata.sip.has("request_line") {
+  ocsf.message = move suricata.sip.request_line
+} else if suricata.sip.has("response_line") {
+  ocsf.message = move suricata.sip.response_line
+}
+
+ocsf.status_detail = move suricata.sip.reason?
+
+if suricata.sip.has("code") {
+  ocsf.status_code = move suricata.sip.code?
+  ocsf.status_id = 2 if int(ocsf.status_code) >= 400 else 1
+} else {
+  ocsf.status_id = 0
+}
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.network_activity"
+ocsf::derive

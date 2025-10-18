@@ -1,0 +1,94 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+/*
+ * Map MQTT message types to OCSF Network Activity activities:
+ * - connect/connack (success): Network connection opened = activity_id 1
+ * - connack (failure): Connection failed = activity_id 4
+ * - disconnect: Network connection closed = activity_id 2
+ * - publish/subscribe/suback/etc: Traffic = activity_id 6
+ */
+if suricata.mqtt.has("connect") or (suricata.mqtt.has("connack") and suricata.mqtt.connack.return_code == 0) {
+  ocsf.activity_id = 1
+} else if suricata.mqtt.has("connack") and suricata.mqtt.connack.return_code != 0 {
+  ocsf.activity_id = 4
+} else if suricata.mqtt.has("disconnect") {
+  ocsf.activity_id = 2
+} else if suricata.mqtt.has("publish") or suricata.mqtt.has("subscribe") or suricata.mqtt.has("suback") {
+  ocsf.activity_id = 6
+} else {
+  ocsf.activity_id = 99
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+
+// Severity: informational for normal operations
+ocsf.severity_id = 1
+
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+// Protocol details for MQTT
+if suricata.mqtt.has("connect") {
+  ocsf.app_name = "MQTT"
+  ocsf.app_protocol_ver = string(move suricata.mqtt.connect.protocol_version)
+}
+
+// --- OCSF: primary attributes -----------------
+
+// Map MQTT-specific message details
+if suricata.mqtt.has("connect") {
+  ocsf.connection_info.details = {
+    client_id: move suricata.mqtt.connect.client_id,
+    protocol_string: move suricata.mqtt.connect.protocol_string,
+    username: move suricata.mqtt.connect.username?,
+  }
+}
+
+if suricata.mqtt.has("connack") {
+  ocsf.status_code = string(move suricata.mqtt.connack.return_code)
+}
+
+if suricata.mqtt.has("disconnect") {
+  if suricata.mqtt.disconnect.has("reason_code") {
+    ocsf.status_code = string(move suricata.mqtt.disconnect.reason_code)
+  }
+}
+
+if suricata.mqtt.has("publish") {
+  ocsf.app_protocol_data = {
+    message_id: move suricata.mqtt.publish.message_id?,
+    qos: move suricata.mqtt.publish.qos,
+    topic: move suricata.mqtt.publish.topic,
+  }
+  drop suricata.mqtt.publish.message // binary
+}
+
+if suricata.mqtt.has("subscribe") {
+  ocsf.app_protocol_data = {
+    message_id: move suricata.mqtt.subscribe.message_id,
+    qos: move suricata.mqtt.subscribe.qos,
+    topics: move suricata.mqtt.subscribe.topics,
+  }
+}
+
+if suricata.mqtt.has("suback") {
+  ocsf.app_protocol_data = {
+    message_id: move suricata.mqtt.suback.message_id,
+    qos_granted: move suricata.mqtt.suback.qos_granted,
+  }
+}
+
+ocsf.status_id = 1
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.network_activity"
+ocsf::derive

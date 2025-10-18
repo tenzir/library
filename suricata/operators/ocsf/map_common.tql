@@ -1,0 +1,79 @@
+// Helpful information for mappers:
+// - https://github.com/OISF/suricata/blob/main/etc/schema.json
+
+// --- OCSF: classification attributes ----------
+
+ocsf.category_uid = 4
+
+// --- OCSF: occurrence attributes ---------------
+
+ocsf.time = move suricata.timestamp
+if suricata.event_type in ["flow", "netflow"] {
+  ocsf.start_time = move suricata.flow.start
+  ocsf.end_time = move suricata.flow.end
+  ocsf.duration = ocsf.end_time - ocsf.start_time
+}
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  log_name: move suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+    cpe_name: "cpe:2.3:a:oisf:suricata",
+  },
+  version: "1.6.0",
+  sequence: move suricata.pcap_cnt?,
+}
+
+// --- OCSF: primary attributes -----------------
+
+if suricata.has("src_ip") {
+  ocsf.src_endpoint.ip = move suricata.src_ip
+  ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
+}
+if suricata.has("dest_ip") {
+  ocsf.dst_endpoint.ip = move suricata.dest_ip
+  ocsf.connection_info.protocol_ver_id = 6 if ocsf.dst_endpoint.ip.is_v6() else 4
+}
+if suricata.has("src_port") {
+  ocsf.src_endpoint.port = move suricata.src_port
+}
+if suricata.has("dest_port") {
+  ocsf.dst_endpoint.port = move suricata.dest_port
+}
+
+if suricata.has("direction") {
+  ocsf.connection_info.direction_id = 1 if suricata.direction == "to_client" else 2
+}
+
+// TODO: find a better field to map this to. The application protocol is not
+// the application name. For example, "http" is the proto but the app might be
+// "Firefox".
+if suricata.has("app_proto") {
+  ocsf.app_name = move suricata.app_proto
+}
+
+if suricata.has("flow_id") {
+  ocsf.connection_info.uid = (move suricata.flow_id).string()
+}
+
+if suricata.has("ip_v") {
+  ocsf.connection_info.protocol_ver_id = move suricata.ip_v
+}
+
+if suricata.has("proto") {
+  let $proto_nums = {
+    TCP: 6,
+    UDP: 17,
+    ICMP: 1,
+  }
+  ocsf.connection_info.protocol_name = suricata.proto.to_lower()
+  ocsf.connection_info.protocol_num = $proto_nums[suricata.proto] else -1
+  drop suricata.proto
+}
+
+if suricata.has("community_id") {
+  ocsf.connection_info.community_uid = move suricata.community_id
+}

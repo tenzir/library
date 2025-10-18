@@ -1,0 +1,134 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+/*
+ * Map Kerberos message types to OCSF Authentication activities:
+ * - KRB_AS_REQ/REP: Authentication Service (TGT request/grant) = activity_id 3
+ * - KRB_TGS_REQ/REP: Ticket Granting Service (service ticket) = activity_id 4
+ * - KRB_ERROR with KDC_ERR_PREAUTH_REQUIRED: Preauth = activity_id 6
+ * - Other errors: Map based on failed_request field
+ */
+let $krb5_activity_map = {
+  KRB_AS_REQ: 3,
+  KRB_AS_REP: 3,
+  KRB_TGS_REQ: 4,
+  KRB_TGS_REP: 4,
+}
+
+// Determine activity_id based on message type and error details
+if suricata.krb5.msg_type == "KRB_ERROR" and suricata.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" {
+  ocsf.activity_id = 6
+} else if suricata.krb5.msg_type == "KRB_ERROR" {
+  // For other errors, map based on the failed_request field
+  ocsf.activity_id = $krb5_activity_map[suricata.krb5.failed_request?]? else 99
+} else {
+  ocsf.activity_id = $krb5_activity_map[suricata.krb5.msg_type]? else 99
+}
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+
+// Severity: informational for success, low for authentication failures
+ocsf.severity_id = 1 if suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
+
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+ocsf.is_cleartext = move suricata.krb5.weak_encryption
+
+// --- OCSF: primary attributes -----------------
+
+ocsf.auth_protocol = "Kerberos"
+ocsf.auth_protocol_id = 2
+
+// Map Kerberos encryption types to OCSF algorithm names
+let $krb5_to_algo = {
+  "des-cbc-crc": "DES",
+  "des-cbc-md4": "DES",
+  "des-cbc-md5": "DES",
+  "des-plain": "DES",
+  "des3-cbc-md5": "TripleDES",
+  "des3-cbc-sha1": "TripleDES",
+  "des3-cbc-sha1-kd": "TripleDES",
+  "des-ede3-cbc-Env-OID": "TripleDES",
+  "aes128-cts-hmac-sha1-96": "AES",
+  "aes256-cts-hmac-sha1-96": "AES",
+  "aes128-cts-hmac-sha256-128": "AES",
+  "aes256-cts-hmac-sha384-192": "AES",
+  "rc4-hmac": "Other",
+  "rc4-hmac-exp": "Other",
+  "rc4-md4": "Other",
+  "rc4-plain": "Other",
+  "rc4-plain2": "Other",
+  "rc4-lm": "Other",
+  "rc4-sha": "Other",
+  "rc4-hmac-OLD": "Other",
+  "rc4-plain-OLD": "Other",
+  "rc4-hmac-OLD-exp": "Other",
+  "rc4-plain-OLD-exp": "Other",
+  "rc4-plain-exp": "Other",
+  "camellia128-cts-cmac": "Other",
+  "camellia256-cts-cmac": "Other",
+  "dsaWithSHA1-CmsOID": "Other",
+  "md5WithRSAEncryption-CmsOID": "RSA",
+  "sha1WithRSAEncryption-CmsOID": "RSA",
+  "rsaEncryption-EnvOID": "RSA",
+  "rsaES-OAEP-ENV-OID": "RSA",
+  "rc2CBC-EnvOID": "Other",
+  "subkey-keymaterial": "Other",
+}
+
+// Map algorithm names to OCSF algorithm IDs
+let $algo_to_id = {
+  DES: 1,
+  TripleDES: 2,
+  AES: 3,
+  RSA: 4,
+  Other: 99,
+}
+
+// For successful authentications, create an authentication_token object to
+// represent the Kerberos ticket
+if suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] {
+  ocsf.authentication_token = {
+    // Map Kerberos message type to token type
+    type: "Ticket Granting Ticket" if suricata.krb5.msg_type == "KRB_AS_REP" else "Service Ticket",
+    type_id: 1 if suricata.krb5.msg_type == "KRB_AS_REP" else 2,
+  }
+  if suricata.krb5.has("encryption") and suricata.krb5.encryption != "<none>" {
+    ocsf.authentication_token.encryption_details = {
+      algorithm: $krb5_to_algo[suricata.krb5.encryption]? else "Other",
+      algorithm_id: $algo_to_id[$krb5_to_algo[suricata.krb5.encryption]? else "Other"],
+      type: move suricata.krb5.encryption,
+    }
+  }
+}
+
+// Service (target) information - the service principal being accessed
+ocsf.service = {
+  name: move suricata.krb5.sname,
+}
+
+ocsf.status_code = move suricata.krb5.error_code?
+ocsf.status_detail = move suricata.krb5.failed_request?
+ocsf.status_id = 1 if suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
+
+if suricata.krb5.has("realm") and suricata.krb5.realm != "<empty>" {
+  ocsf.user.domain = move suricata.krb5.realm
+}
+if suricata.krb5.has("cname") and suricata.krb5.cname != "<empty>" {
+  ocsf.user.name = move suricata.krb5.cname
+}
+
+drop suricata.krb5.msg_type
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.authentication"
+ocsf::derive
