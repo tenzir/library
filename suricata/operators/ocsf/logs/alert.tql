@@ -18,9 +18,10 @@ ocsf.severity_id = $severities[move suricata.alert.severity]
 
 // --- OCSF: primary attributes -----------------
 
+ocsf.is_alert = true
+
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
-_evidence = {}
 if ocsf.has("src_endpoint") {
   _evidence.src_endpoint = move ocsf.src_endpoint
 }
@@ -30,8 +31,9 @@ if ocsf.has("dst_endpoint") {
 if ocsf.has("connection_info") {
   _evidence.connection_info = move ocsf.connection_info
 }
-if suricata.has("dns") {
-  // TODO
+if suricata.dns?.queries? != null {
+  suricata::ocsf::map_dns_query
+  _evidence.query = move ocsf.query
 }
 if suricata.has("http") {
   suricata::ocsf::map_http
@@ -42,10 +44,13 @@ if suricata.has("http") {
     _evidence.http_response = move ocsf.http_response
   }
 }
-if suricata.has("smb") {
-  // TODO
+if suricata.smb?.filename? != null {
+  suricata::ocsf::map_smb_file
+  _evidence.file = move ocsf.file
 }
-ocsf.evidences = [move _evidence]
+if this.has("_evidence") {
+  ocsf.evidences = [move _evidence]
+}
 
 ocsf.finding_info = {
   analytic: {
