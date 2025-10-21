@@ -1,0 +1,51 @@
+// --- Preamble ---------------------------------
+
+this = { suricata: this }
+suricata::ocsf::map_common
+
+// --- OCSF: classification attributes ----------
+
+let $activity_id = {
+  CONNECT: 1,
+  DELETE: 2,
+  GET: 3,
+  HEAD: 4,
+  OPTIONS: 5,
+  POST: 6,
+  PUT: 7,
+  TRACE: 8,
+}
+
+ocsf.activity_id = $activity_id[suricata.http.http_method] else 99
+ocsf.category_uid = 4
+ocsf.class_uid = 4002
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+if suricata.http.has("fileinfo") {
+  ocsf.file = {
+    type_id: 0,
+    name: move suricata.fileinfo.filename,
+    size: move suricata.fileinfo.size,
+  }
+}
+
+// --- OCSF: primary attributes -----------------
+
+suricata::ocsf::map_http
+
+if ocsf.http_response.status == null {
+  ocsf.status_id = 0
+} else if ocsf.http_response.status.starts_with("2") or ocsf.http_response.status.starts_with("3") {
+  ocsf.status_id = 1
+} else if ocsf.http_response.status.starts_with("4") or ocsf.http_response.status.starts_with("5") {
+  ocsf.status_id = 2
+}
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: suricata}
+@name = "ocsf.http_activity"
+ocsf::derive
