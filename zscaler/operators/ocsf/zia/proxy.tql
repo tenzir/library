@@ -1,0 +1,170 @@
+---
+description: "ZIA NSS: Proxy → OCSF HTTP Activity"
+---
+
+// --- Preamble ---------------------------------
+
+// Clean up the original data.
+// Consider moving this into a separate UDO.
+replace bwthrottle, what="NO", with=false
+replace bwthrottle, what="YES", with=true
+replace what="None", with=null
+replace what="N/A", with=null
+replace what="NA", with=null
+refererURL = refererURL.trim("\"")
+filetype = filetype.trim("\"")
+
+this = { zia: this }
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  GET: 1,
+  POST: 2,
+  CONNECT: 3,
+  PUT: 4,
+  DELETE: 5,
+  HEAD: 6,
+  OPTIONS: 7,
+  TRACE: 8,
+  PATCH: 9,
+}
+ocsf.activity_id = $activity_map[zia.requestmethod]? else 0
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4002
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $severities = {
+  None: 0,
+  low: 2,
+  medium: 3,
+  high: 4,
+  critical: 5,
+}
+ocsf.severity_id = $severities[move zia.threatseverity]? else 0
+
+// --- OCSF: context attributes -----------------
+
+ocsf.app_name = move zia.appname
+
+ocsf.metadata = {
+  log_name: "NSS",
+  product: {
+    name: move zia.product,
+    vendor_name: move zia.vendor,
+  },
+  uid: string(move zia.event_id),
+  version: "1.6.0",
+  profiles: ["host", "network_proxy", "security_control"],
+}
+
+ocsf.time = parse_time(move zia.datetime, "%a %b %d %H:%M:%S %Y")
+
+// --- OCSF: primary attributes -----------------
+
+if zia.status != null {
+  // Only when raw=true
+  zia.status = zia.status.int()
+  if zia.status >= 200 and zia.status < 400 {
+    ocsf.status_id = 1
+  } else if zia.status >= 400 {
+    ocsf.status_id = 2
+  } else {
+    ocsf.status_id = 0
+  }
+  ocsf.status_code = zia.status.string()
+}
+
+ocsf.status_detail = move zia.reason
+
+// Source Endpoint (The client machine)
+ocsf.src_endpoint = {
+  ip: ip(move zia.ClientIP)
+}
+
+// Destination Endpoint (The web server)
+ocsf.dst_endpoint = {
+  ip: ip(move zia.serverip),
+  domain: move zia.hostname,
+}
+
+ocsf.traffic = {
+  bytes_in: int(move zia.responsesize),
+  bytes_out: int(move zia.requestsize),
+  bytes: int(move zia.transactionsize)
+}
+
+ocsf.http_request = {
+  http_method: move zia.requestmethod,
+  referrer: move zia.refererURL,
+  user_agent: move zia.useragent,
+  url: {
+    url_string: move zia.url,
+    scheme: to_lower(move zia.protocol),
+    category_ids: [0],
+    categories: [move zia.urlcategory, move zia.urlsupercategory, move zia.appclass, move zia.urlclass]
+  }
+}
+
+ocsf.http_response = {
+  code: move zia.status,
+  content_type: move zia.contenttype
+}
+
+// --- OCSF: Host profile -----------
+
+ocsf.actor = {
+  user: {
+    name: move zia.user,
+    org: {
+      // ou: org unit
+      ou_name: move zia.department?,
+    },
+  },
+}
+
+ocsf.device = {
+  hostname: move zia.devicehostname?,
+  owner: {
+    name: move zia.deviceowner?,
+  },
+}
+
+// --- OCSF: Network Proxy profile -----------
+
+// The ZIA node
+ocsf.proxy_endpoint = {
+  ip: ip(move zia.clientpublicIP),
+  name: move zia.location
+}
+
+// --- OCSF: Security Control profile -----------
+
+let $actions = {
+  "Allowed": 1,
+  "Blocked": 2,
+  "Quarantined": 3,
+  "Isolated": 5
+}
+ocsf.action_id = $actions[zia.action]? else 0
+drop zia.action
+
+if zia.threatname != null {
+  ocsf.malware = [{
+    classification_ids: [0],
+    name: move zia.threatname,
+  }]
+}
+
+// TODO:
+// - zia.threatclass
+// - zia.threatcategory
+
+ocsf.risk_score = int(move zia.pagerisk)
+
+// --- Finalize ---------------------------------
+
+this = {...ocsf, unmapped: zia}
+@name = "ocsf.http_activity"
+ocsf::derive
