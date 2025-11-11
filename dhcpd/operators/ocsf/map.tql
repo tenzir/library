@@ -1,0 +1,42 @@
+---
+description: |
+  Map a parsed ISC DHCPD record into OCSF.
+
+  Run `dhcpd::parse` first. This operator expects a normalized DHCPD domain
+  record, preserves parser leftovers in `unmapped`, and replaces the selected
+  input event field with the OCSF event.
+args:
+  named:
+    - name: event
+      description: The parsed DHCPD record to map.
+      type: field
+      default: this
+---
+
+// Keep staging under the selected input event. Bare field assignments can
+// overwrite sibling fields in the caller's record.
+$event = {...$event, dhcpd: $event, ocsf: {}}
+
+match $event.dhcpd.category? {
+  "transaction" => {
+    match $event.dhcpd.family? {
+      "dhcpv4" => {
+        dhcpd::ocsf::events::dhcpv4 event=$event
+      }
+      "bootp" => {
+        dhcpd::ocsf::events::bootp event=$event
+      }
+      "dhcpv6" => {
+        dhcpd::ocsf::events::dhcpv6 event=$event
+      }
+      _ => {
+        dhcpd::ocsf::base event=$event
+      }
+    }
+  }
+  _ => {
+    dhcpd::ocsf::base event=$event
+  }
+}
+
+$event = {...$event.ocsf, unmapped: $event.dhcpd}

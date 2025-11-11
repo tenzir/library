@@ -1,0 +1,125 @@
+---
+description: ISC DHCPD parsed transaction -> OCSF DHCP Activity.
+args:
+  named:
+    - name: event
+      description: The mapper working record.
+      type: field
+---
+
+let $activity_ids = {
+  dhcpdiscover: 1,
+  discover: 1,
+  solicit: 1,
+  dhcpoffer: 2,
+  offer: 2,
+  advertise: 2,
+  dhcprequest: 3,
+  request: 3,
+  renew: 3,
+  rebind: 3,
+  confirm: 3,
+  dhcpdecline: 4,
+  decline: 4,
+  declines: 4,
+  dhcpack: 5,
+  ack: 5,
+  reply: 5,
+  dhcpnak: 6,
+  nak: 6,
+  dhcprelease: 7,
+  release: 7,
+  releases: 7,
+  dhcpinform: 8,
+  inform: 8,
+  "information-request": 8,
+  expire: 9,
+  expired: 9,
+}
+
+@name = "ocsf.dhcp_activity"
+
+$event.ocsf = {
+  time: move $event.dhcpd.time,
+  raw_data: move $event.dhcpd.raw_data,
+  category_uid: 4,
+  class_uid: 4004,
+  activity_id: $activity_ids.get($event.dhcpd.message_type.to_lower(), 99),
+  severity_id: 1,
+  metadata: {
+    version: "1.8.0",
+    log_name: "dhcpd",
+    log_provider: "ISC DHCPD",
+    log_source: "dhcpd",
+    product: {
+      name: "ISC DHCPD",
+      vendor_name: "ISC",
+    },
+  },
+  connection_info: {
+    direction_id: 0,
+    protocol_name: "udp",
+    protocol_num: 17,
+  },
+  src_endpoint: {
+    uid: move $event.dhcpd.client?.uid?,
+    hostname: move $event.dhcpd.client?.hostname?,
+    mac: move $event.dhcpd.client?.mac?,
+    ip: move $event.dhcpd.client?.ip?,
+  },
+  dst_endpoint: {
+    ip: move $event.dhcpd.server?.ip?,
+    svc_name: "dhcp",
+  },
+}
+
+if $event.dhcpd.message_type.to_lower() in ["renew", "rebind"] {
+  $event.ocsf.is_renewal = true
+}
+
+if $event.dhcpd.client_action? != null {
+  $event.ocsf.activity_id = $activity_ids.get($event.dhcpd.client_action.to_lower(), 99)
+}
+
+match $event.ocsf.activity_id {
+  2 | 5 => {
+    $event.ocsf.status_id = 1
+  }
+  4 | 6 => {
+    $event.ocsf.status_id = 2
+  }
+  _ => {
+    $event.ocsf.status_id = 0
+  }
+}
+
+if $event.dhcpd.reason? != null {
+  $event.ocsf.status_detail = move $event.dhcpd.reason
+}
+if $event.ocsf.status_detail? == null and $event.dhcpd.status_text? != null {
+  $event.ocsf.status_detail = move $event.dhcpd.status_text
+}
+if $event.dhcpd.identity_association?.valid_for_seconds? != null {
+  $event.ocsf.lease_dur = move $event.dhcpd.identity_association.valid_for_seconds
+}
+if $event.dhcpd.transaction_id? != null {
+  $event.ocsf.transaction_uid = move $event.dhcpd.transaction_id
+}
+if $event.ocsf.activity_id == 99 {
+  $event.ocsf.activity_name = $event.dhcpd.message_type
+  if $event.dhcpd.client_action? != null {
+    $event.ocsf.activity_name = $event.dhcpd.client_action
+  }
+  if $event.dhcpd.client_event? != null {
+    $event.ocsf.activity_name = $event.dhcpd.client_event
+  }
+}
+if $event.dhcpd.via_ip? != null or $event.dhcpd.via_interface? != null {
+  if $event.dhcpd.via_ip? != null {
+    $event.ocsf.relay.ip = move $event.dhcpd.via_ip
+  }
+  if $event.dhcpd.via_interface? != null {
+    $event.ocsf.relay.name = move $event.dhcpd.via_interface
+  }
+}
+$event.ocsf.type_uid = 400400 + $event.ocsf.activity_id

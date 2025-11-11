@@ -1,0 +1,121 @@
+---
+description: Parse ISC DHCPD DHCPv4 and DHCP4o6 message bodies.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+---
+
+let $dhcpv4_classifier_pattern = "^(?:DHCP4o6 )?(?:DHCPREQUEST |DHCPDISCOVER |DHCPOFFER |DHCPACK |DHCPRELEASE |DHCPDECLINE |DHCPINFORM |DHCPNAK |DHCPLEASE)"
+let $dhcpv4_grok_pattern = "^(?:DHCP4o6 )?(?:%{DHCPV4_REQUEST}|%{DHCPV4_DISCOVER}|%{DHCPV4_REPLY_ON}|%{DHCPV4_RELEASE_REQUESTED}|%{DHCPV4_RELEASE}|%{DHCPV4_DECLINE}|%{DHCPV4_INFORM}|%{DHCPV4_ACK_TO}|%{DHCPV4_NAK}|%{DHCPV4_LEASE}|%{GREEDYDATA:other})$"
+let $dhcpv4_request_grok = r"(?<message_type>DHCPREQUEST) for %{IP:requested_address}(?: \(%{IP:server_identifier}\))? from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via}(?:: %{GREEDYDATA:reason})?"
+let $dhcpv4_discover_grok = r"(?<message_type>DHCPDISCOVER) from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via}(?:: %{GREEDYDATA:reason})?"
+let $dhcpv4_reply_on_grok = r"(?<message_type>DHCPOFFER|DHCPACK) on %{IP:lease_ip} to (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via}"
+let $dhcpv4_release_requested_grok = r"(?<message_type>DHCPRELEASE) from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id}) (?<release_requested_address>specified requested-address)\."
+let $dhcpv4_release_grok = r"(?<message_type>DHCPRELEASE) of %{IP:client_ip} from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via} \(%{DATA:lease_found}\)(?:: %{GREEDYDATA:reason})?"
+let $dhcpv4_decline_grok = r"(?<message_type>DHCPDECLINE) of %{IP:declined_ip} from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via}(?:: %{GREEDYDATA:status_text})?"
+let $dhcpv4_inform_grok = "(?<message_type>DHCPINFORM) from %{IP:client_ip} via %{DATA:via}(?:: %{GREEDYDATA:reason})?"
+let $dhcpv4_ack_to_grok = r"(?<message_type>DHCPACK) to %{IP:client_ip} \((?:(?<client_hardware>%{MAC:client_mac})|%{DATA:client_hardware})\) via %{DATA:via}"
+let $dhcpv4_nak_grok = "(?<message_type>DHCPNAK) on %{IP:client_ip} to (?:(?<client_hardware>%{MAC:client_mac})|%{DATA:client_hardware}) via %{DATA:via}"
+let $dhcpv4_lease_grok = "(?<message_type>DHCPLEASE[A-Za-z0-9_]*) from (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id}) via %{DATA:via}: %{GREEDYDATA:reason}"
+let $dhcpv4_pattern_definitions = {
+  DHCPV4_REQUEST: $dhcpv4_request_grok,
+  DHCPV4_DISCOVER: $dhcpv4_discover_grok,
+  DHCPV4_REPLY_ON: $dhcpv4_reply_on_grok,
+  DHCPV4_RELEASE_REQUESTED: $dhcpv4_release_requested_grok,
+  DHCPV4_RELEASE: $dhcpv4_release_grok,
+  DHCPV4_DECLINE: $dhcpv4_decline_grok,
+  DHCPV4_INFORM: $dhcpv4_inform_grok,
+  DHCPV4_ACK_TO: $dhcpv4_ack_to_grok,
+  DHCPV4_NAK: $dhcpv4_nak_grok,
+  DHCPV4_LEASE: $dhcpv4_lease_grok,
+}
+
+if $event.raw_data.match_regex($dhcpv4_classifier_pattern) {
+  $event._parsed = $event.raw_data.parse_grok(
+    $dhcpv4_grok_pattern,
+    pattern_definitions=$dhcpv4_pattern_definitions,
+  )
+  if $event._parsed? == null {
+    dhcpd::parsers::parse_error event=$event
+  } else if $event._parsed.other? != null {
+    dhcpd::parsers::parse_error event=$event
+    $event.parser.unparsed = $event.raw_data
+  } else if $event._parsed.release_requested_address? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv4",
+      template: "release_requested_address",
+      category: "transaction",
+      dhcp4o6: $event.raw_data.starts_with("DHCP4o6 "),
+    }
+    $event.requested_address = move $event.release_requested_address
+    if $event.client_mac? != null {
+      $event.client.uid = $event.client_mac
+      $event.client.mac = move $event.client_mac
+    }
+    if $event.client_id? != null {
+      $event.client.uid = move $event.client_id
+    }
+  } else {
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv4",
+      category: "transaction",
+    }
+    if $event.requested_address? != null {
+      $event.client_ip = move $event.requested_address
+    }
+    if $event.server_identifier? != null {
+      $event.server_ip = move $event.server_identifier
+    }
+    if $event.lease_ip? != null {
+      $event.client_ip = move $event.lease_ip
+    }
+    if $event.declined_ip? != null {
+      $event.client_ip = move $event.declined_ip
+    }
+  }
+  drop $event._parsed?
+}
+
+if $event.family? == "dhcpv4" and $event.via? != null {
+  @name = "dhcpd.transaction"
+  $event.template = $event.message_type.to_lower()
+  $event.via = $event.via.string()
+  $event.via_ip = $event.via.ip()
+  $event.via_interface = $event.via
+  if $event.via_ip != null {
+    $event.via_interface = null
+  }
+  $event.dhcp4o6 = $event.raw_data.starts_with("DHCP4o6 ")
+  if $event.client_mac? != null {
+    $event.client.uid = $event.client_mac
+    $event.client.mac = move $event.client_mac
+  }
+  if $event.client_hostname? != null {
+    $event.client.hostname = move $event.client_hostname
+  }
+  if $event.client_ip? != null {
+    $event.client.ip = move $event.client_ip
+  }
+  if $event.client_id? != null {
+    $event.client.uid = move $event.client_id
+  }
+  if $event.client_hardware? != null {
+    $event.client.uid = move $event.client_hardware
+  }
+  if $event.server_ip? != null {
+    $event.server.ip = move $event.server_ip
+  }
+  if $event.lease_found? != null {
+    $event.lease = {
+      found: $event.lease_found == "found",
+      status: move $event.lease_found,
+    }
+  }
+}

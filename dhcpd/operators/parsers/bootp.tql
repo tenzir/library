@@ -1,0 +1,73 @@
+---
+description: Parse ISC DHCPD BOOTP message bodies.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+---
+
+let $bootp_grok_pattern = "^(?:DHCP4o6 )?(?:%{BOOTP_REPLY_ON}|%{BOOTP_REQUEST}|%{BOOTP_REPLY_FOR}|%{GREEDYDATA:other})$"
+let $bootp_reply_on_grok = r"%{WORD:message_type} on %{IP:lease_ip} to (?:(?<client_id>%{MAC:client_mac})|%{DATA:client_id})(?: \(%{DATA:client_hostname}\))? via %{DATA:via}"
+let $bootp_request_grok = "%{WORD:message_type} from (?:(?<client_hardware>%{MAC:client_mac})|%{DATA:client_hardware}) via %{DATA:via}(?:: %{GREEDYDATA:reason})?"
+let $bootp_reply_for_grok = r"%{WORD:message_type} for %{IP:lease_ip} to %{DATA:host_name} \((?:(?<client_hardware>%{MAC:client_mac})|%{DATA:client_hardware})\) via %{DATA:via}"
+let $bootp_pattern_definitions = {
+  BOOTP_REPLY_ON: $bootp_reply_on_grok,
+  BOOTP_REQUEST: $bootp_request_grok,
+  BOOTP_REPLY_FOR: $bootp_reply_for_grok,
+}
+
+if $event.raw_data.starts_with("BOOT") or $event.raw_data.starts_with("DHCP4o6 BOOT") {
+  $event._parsed = $event.raw_data.parse_grok(
+    $bootp_grok_pattern,
+    pattern_definitions=$bootp_pattern_definitions,
+  )
+  if $event._parsed? == null {
+    dhcpd::parsers::parse_error event=$event
+  } else if $event._parsed.other? != null {
+    dhcpd::parsers::parse_error event=$event
+    $event.parser.unparsed = $event.raw_data
+  } else {
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "bootp",
+      category: "transaction",
+    }
+    if $event.lease_ip? != null {
+      $event.client_ip = move $event.lease_ip
+    }
+    if $event.host_name? != null {
+      $event.client_hostname = move $event.host_name
+    }
+  }
+  drop $event._parsed?
+}
+
+if $event.family? == "bootp" {
+  @name = "dhcpd.transaction"
+  $event.template = $event.message_type.to_lower()
+  $event.via = $event.via.string()
+  $event.via_ip = $event.via.ip()
+  $event.via_interface = $event.via
+  if $event.via_ip != null {
+    $event.via_interface = null
+  }
+  $event.dhcp4o6 = $event.raw_data.starts_with("DHCP4o6 ")
+  if $event.client_mac? != null {
+    $event.client.uid = $event.client_mac
+    $event.client.mac = move $event.client_mac
+  }
+  if $event.client_hostname? != null {
+    $event.client.hostname = move $event.client_hostname
+  }
+  if $event.client_ip? != null {
+    $event.client.ip = move $event.client_ip
+  }
+  if $event.client_id? != null {
+    $event.client.uid = move $event.client_id
+  }
+  if $event.client_hardware? != null {
+    $event.client.uid = move $event.client_hardware
+  }
+}

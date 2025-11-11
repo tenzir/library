@@ -1,0 +1,215 @@
+---
+description: Parse ISC DHCPD DHCPv6 message bodies.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+---
+
+let $dhcpv6_classifier_pattern = "^(?:.* message from |Unknown message type |.*: address |Client:? |Relay-forward |DHCPv4-query |Sending )"
+let $dhcpv6_grok_pattern = "^(?:%{DHCPV6_MESSAGE_TRANSACTION}|%{DHCPV6_MESSAGE_LINK_PEER}|%{DHCPV6_UNKNOWN_MESSAGE}|%{DHCPV6_IA}|%{DHCPV6_CLIENT_ADDRESS}|%{DHCPV6_CLIENT_PREFIX_RELEASE}|%{DHCPV6_RELAY_MISSING}|%{DHCPV6_DHCPV4_QUERY_MISSING}|%{DHCPV6_SENDING}|%{DHCPV6_CLIENT_ROAMED}|%{GREEDYDATA:other})$"
+let $dhcpv6_message_transaction_grok = "%{DATA:message_type} message from %{IP:client_ip}, transaction ID 0x%{DATA:transaction_id}"
+let $dhcpv6_message_link_peer_grok = "%{DATA:message_type} message from %{IP:client_ip}, link address %{IP:link_address}, peer address %{IP:peer_address}"
+let $dhcpv6_unknown_message_grok = "Unknown message type %{DATA:type_id} from %{IP:client_ip}"
+let $dhcpv6_ia_grok = "%{DATA:message_type} %{WORD:ia_type}: address %{IP:address}(?:/%{INT:prefix_length})? to client with duid %{DATA:duid} iaid = %{INT:iaid} %{GREEDYDATA:lease_status}"
+let $dhcpv6_client_address_grok = "Client %{DATA:duid} %{WORD:verb} address %{IP:address}%{GREEDYDATA:status_suffix}"
+let $dhcpv6_client_prefix_release_grok = "Client %{DATA:duid} releases prefix %{IP:prefix_ip}/%{INT:prefix_length}%{GREEDYDATA:status_suffix}"
+let $dhcpv6_relay_missing_grok = r"%{DATA:message_type} from %{IP:client_ip} with link address=%{IP:link_address} and peer address=%{IP:peer_address} missing Relay Message option\."
+let $dhcpv6_dhcpv4_query_missing_grok = r"%{DATA:message_type} from %{IP:client_ip} missing DHCPv4 Message option\."
+let $dhcpv6_sending_grok = "Sending %{DATA:message_type} to %{IP:client_ip} port %{INT:port}"
+let $dhcpv6_client_roamed_grok = "Client: %{DATA:duid} roamed to new network, releasing lease: %{GREEDYDATA:lease_text}"
+let $dhcpv6_pattern_definitions = {
+  DHCPV6_MESSAGE_TRANSACTION: $dhcpv6_message_transaction_grok,
+  DHCPV6_MESSAGE_LINK_PEER: $dhcpv6_message_link_peer_grok,
+  DHCPV6_UNKNOWN_MESSAGE: $dhcpv6_unknown_message_grok,
+  DHCPV6_IA: $dhcpv6_ia_grok,
+  DHCPV6_CLIENT_ADDRESS: $dhcpv6_client_address_grok,
+  DHCPV6_CLIENT_PREFIX_RELEASE: $dhcpv6_client_prefix_release_grok,
+  DHCPV6_RELAY_MISSING: $dhcpv6_relay_missing_grok,
+  DHCPV6_DHCPV4_QUERY_MISSING: $dhcpv6_dhcpv4_query_missing_grok,
+  DHCPV6_SENDING: $dhcpv6_sending_grok,
+  DHCPV6_CLIENT_ROAMED: $dhcpv6_client_roamed_grok,
+}
+let $valid_lease_status_pattern = "^valid for [0-9]+ seconds$"
+let $valid_lease_status_grok_pattern = "^valid for %{INT:valid_for_seconds} seconds$"
+
+if $event.raw_data.match_regex($dhcpv6_classifier_pattern) {
+  $event._parsed = $event.raw_data.parse_grok(
+    $dhcpv6_grok_pattern,
+    pattern_definitions=$dhcpv6_pattern_definitions,
+  )
+  if $event._parsed? == null {
+    dhcpd::parsers::parse_error event=$event
+  } else if $event._parsed.other? != null {
+    dhcpd::parsers::parse_error event=$event
+    $event.parser.unparsed = $event.raw_data
+  } else if $event._parsed.ia_type? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "identity_association",
+      category: "transaction",
+      dhcp4o6: false,
+    }
+    $event.prefix = null
+    if $event.prefix_length? != null {
+      $event.prefix = subnet($event.address, $event.prefix_length)
+    }
+    $event.client_ip = $event.address
+    $event.identity_address = move $event.address
+    if $event.ia_type == "PD" {
+      $event.client_ip = null
+      $event.identity_address = null
+    }
+    if $event.lease_status.match_regex($valid_lease_status_pattern) {
+      $event._lease_parsed = $event.lease_status.parse_grok($valid_lease_status_grok_pattern)
+      if $event._lease_parsed? != null {
+        $event = {
+          ...$event,
+          ...$event._lease_parsed,
+        }
+      } else {
+        dhcpd::parsers::parse_error event=$event
+      }
+      drop $event._lease_parsed?
+    }
+    if $event.category != "parser" {
+      $event.client.uid = move $event.duid
+      if $event.client_ip? != null {
+        $event.client.ip = move $event.client_ip
+      }
+      $event.identity_association = {
+        type: move $event.ia_type,
+        address: move $event.identity_address?,
+        prefix: move $event.prefix?,
+        prefix_length: move $event.prefix_length?,
+        static: $event.lease_status == "static",
+        valid_for_seconds: move $event.valid_for_seconds?,
+      }
+    }
+  } else if $event._parsed.verb? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "client_address",
+      category: "transaction",
+      message_type: "Client",
+      dhcp4o6: false,
+    }
+    $event.status_text = $event.verb
+    if $event.status_suffix? != null and $event.status_suffix != "" {
+      $event.status_text = f"{$event.verb} address{$event.status_suffix}"
+    }
+    $event.client.uid = move $event.duid
+    $event.client.ip = move $event.address
+    $event.client_action = move $event.verb
+  } else if $event._parsed.prefix_ip? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "client_prefix_release",
+      category: "transaction",
+      message_type: "Client",
+      dhcp4o6: false,
+    }
+    $event.prefix = subnet($event.prefix_ip, $event.prefix_length)
+    $event.status_text = "releases prefix"
+    if $event.status_suffix? != null and $event.status_suffix != "" {
+      $event.status_text = f"releases prefix{$event.status_suffix}"
+    }
+    $event.client.uid = move $event.duid
+    $event.client_action = "releases"
+    drop $event.prefix_ip
+  } else if $event._parsed.lease_text? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "client_roamed",
+      category: "transaction",
+      message_type: "Client",
+      dhcp4o6: false,
+      client_event: "roamed to new network",
+    }
+    $event.client.uid = move $event.duid
+    $event.lease.text = move $event.lease_text
+  } else if $event._parsed.type_id? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "unknown_message_type",
+      category: "transaction",
+      message_type: "Unknown",
+      dhcp4o6: false,
+    }
+    $event.client.ip = move $event.client_ip
+  } else if $event._parsed.port? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "sending",
+      category: "transaction",
+      dhcp4o6: false,
+    }
+    $event.client.ip = move $event.client_ip
+  } else if $event.raw_data.contains("missing Relay Message option.") {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "relay_forward_missing_message",
+      category: "transaction",
+      dhcp4o6: false,
+      missing_option: "Relay Message",
+    }
+    $event.client.ip = move $event.client_ip
+  } else if $event.raw_data.contains("missing DHCPv4 Message option.") {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "dhcpv4_query_missing_message",
+      category: "transaction",
+      dhcp4o6: false,
+      missing_option: "DHCPv4 Message",
+    }
+    $event.client.ip = move $event.client_ip
+  } else if $event._parsed.link_address? != null {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "message_link_peer",
+      category: "transaction",
+      dhcp4o6: false,
+    }
+    $event.client.ip = move $event.client_ip
+  } else {
+    @name = "dhcpd.transaction"
+    $event = {
+      ...$event,
+      ...$event._parsed,
+      family: "dhcpv6",
+      template: "message_transaction_id",
+      category: "transaction",
+      dhcp4o6: false,
+    }
+    $event.client.ip = move $event.client_ip
+  }
+  drop $event._parsed?
+}
