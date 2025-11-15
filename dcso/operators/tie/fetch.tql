@@ -1,13 +1,9 @@
 ---
-name: Fetch IOCs from DCSO TIE
 description: |
   Periodically fetches the DCSO TIE feed and publishes it to the `dcso.ioc` topic.
-restart-on-error: true
 ---
 
-let $base_url = "{{ inputs.base-url }}"
-let $url = $base_url +
-  "/iocs" +
+let $url = "https://api.dcso.de/tie/v3/iocs" +
   "?limit=1000" +
   "&ignore=false" +
   "&iocFeedSources=DCSO-Data%20Feed" +
@@ -15,15 +11,14 @@ let $url = $base_url +
 let $api_user = secret("{{ inputs.api-user-secret }}")
 let $api_key = secret("{{ inputs.api-key-secret }}")
 let $auth = f"Basic {encode_base64($api_user + ":" + $api_key)}"
-every {{ inputs.refresh-interval }} {
-  from_http $url,
-    headers={Authorization: $auth},
-    paginate=(response => f"{$url}&next={response.next}" if response.hasMore) {
-    // Using raw=true is a good as it gets right now until we have union
-    // types. We need this because events shape-shift frequently, especially
-    // within lists.
-    read_ndjson raw=true
-  }
+
+from_http $url,
+  headers={Authorization: $auth},
+  paginate=(response => f"{$url}&next={response.next}" if response.hasMore) {
+  // Using raw=true is a good as it gets right now until we have union
+  // types. We need this because events shape-shift frequently, especially
+  // within lists.
+  read_ndjson raw=true
 }
 unroll results
 this = results
@@ -38,4 +33,3 @@ if (lastSeen != null) {
 }
 lastFeedOccurence = lastFeedOccurence.time()
 @name = "dcso.ioc"
-publish "dcso"
