@@ -1,0 +1,72 @@
+---
+description: |
+  Maps OCSF mappings that map Zeek events to OCSF Network Activity.
+---
+
+// --- OCSF: classification attributes ----------
+
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+
+// --- OCSF: occurence & context attributes------
+
+zeek::ocsf::map_common
+
+// Implied in metadata.log_name.
+drop zeek._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Map source/destination endpoints.
+if zeek.has("id") {
+  ocsf.src_endpoint = {
+    ip: zeek.id.orig_h,
+    port: zeek.id.orig_p,
+  }
+  ocsf.dst_endpoint = {
+    ip: zeek.id.resp_h,
+    port: zeek.id.resp_p,
+  }
+  drop zeek.id
+  // Fill protocol version based on endpoints.
+  // This could at some point go into `ocsf::derive`.
+  if ocsf.src_endpoint.ip.is_v6() or ocsf.dst_endpoint.ip.is_v6() {
+    ocsf.connection_info.protocol_ver_id = 6
+  } else {
+    ocsf.connection_info.protocol_ver_id = 4
+  }
+}
+if zeek.has("orig_l2_addr") {
+  ocsf.src_endpoint.mac = move zeek.orig_l2_addr
+}
+if zeek.has("resp_l2_addr") {
+  ocsf.dst_endpoint.mac = move zeek.resp_l2_addr
+}
+if zeek.has("orig_cc") {
+  ocsf.src_endpoint.location = {
+    country: move zeek.orig_cc,
+  }
+}
+if zeek.has("resp_cc") {
+  ocsf.dst_endpoint.location = {
+    country: move zeek.resp_cc,
+  }
+}
+
+// Map Community ID.
+if zeek.has("community_id") {
+  ocsf.connection_info.community_uid = move zeek.community_id
+}
+
+// Map transport-layer protocol details.
+let $proto_nums = {
+  tcp: 6,
+  udp: 17,
+  icmp: 1,
+  icmpv6: 58,
+  ipv6: 41,
+}
+if zeek.has("proto") {
+  ocsf.connection_info.protocol_num = $proto_nums[zeek.proto]? else -1
+  ocsf.connection_info.protocol_name = move zeek.proto
+}
