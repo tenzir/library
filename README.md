@@ -30,11 +30,11 @@ A package lives in a directory with these building blocks:
 ## 🚀 Install packages
 
 Pick the workflow that fits your environment. For details, see our [installation
-guide](https://docs.tenzir.com/guides/basic-usage/install-a-package/):
+guide](https://docs.tenzir.com/guides/package-management/install-a-package/):
 
 1. **Tenzir Library UI**: browse
    [app.tenzir.com/library](https://app.tenzir.com/library), configure inputs,
-   and click *Install*.
+   and click _Install_.
 2. **Interactive TQL**: run
    [`package::add`](https://docs.tenzir.com/reference/operators/package/add)
    against a local directory, and remove it later with
@@ -46,7 +46,7 @@ guide](https://docs.tenzir.com/guides/basic-usage/install-a-package/):
 ## 🤝 Contribute a package
 
 Follow the [write-a-package
-tutorial](https://docs.tenzir.com/tutorials/write-package/) to scaffold, test,
+tutorial](https://docs.tenzir.com/tutorials/write-a-package/) to scaffold, test,
 and document a new idea, then:
 
 - Share it on the [Community Discord](https://docs.tenzir.com/discord) to gather
