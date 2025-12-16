@@ -1,0 +1,20 @@
+---
+description: |
+  Enriches OCSF Network Activity events with country information from Geo Open data.
+---
+
+// NB: We call context::enrich outside the `if` block because putting it inside
+// triggers an assertion failure in if.cpp:567. Using `key=src_endpoint?.ip`
+// handles null keys gracefully.
+
+context::enrich "geo-open-country", key=src_endpoint?.ip, into=_src_geo
+if _src_geo != null and _src_geo.country.iso_code != "None" {
+  src_endpoint.location.country = _src_geo.country.iso_code
+}
+drop _src_geo
+
+context::enrich "geo-open-country", key=dst_endpoint?.ip, into=_dst_geo
+if _dst_geo != null and _dst_geo.country.iso_code != "None" {
+  dst_endpoint.location.country = _dst_geo.country.iso_code
+}
+drop _dst_geo
