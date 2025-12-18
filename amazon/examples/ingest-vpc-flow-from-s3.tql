@@ -1,0 +1,18 @@
+---
+name: Ingest VPC Flow Logs from S3 (default format)
+description: |
+  Ingests VPC Flow Log files in the default v2 format from an S3 bucket,
+  parses them, and publishes events to the 'amazon' topic.
+
+  For custom log formats, use `amazon::vpc_flow::parse` with your header.
+---
+
+let $s3_url = "s3://your-bucket/AWSLogs/**.log.gz"
+
+from_file $s3_url, watch=true {
+  decompress_gzip
+  read_lines
+}
+this = { message: this }
+amazon::vpc_flow::parse_v2
+publish "amazon"
