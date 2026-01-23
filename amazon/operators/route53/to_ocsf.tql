@@ -6,9 +6,77 @@ description: |
   events with support for DNS Firewall rule dispositions.
 ---
 
+// --- Constants --------------------------------
+// Define lookup tables upfront for record-based mappings.
+
+let $rcode_id = {
+  NOERROR: 0,
+  FORMERR: 1,
+  SERVFAIL: 2,
+  NXDOMAIN: 3,
+  NOTIMP: 4,
+  REFUSED: 5,
+  YXDOMAIN: 6,
+  YXRRSET: 7,
+  NXRRSET: 8,
+  NOTAUTH: 9,
+  NOTZONE: 10,
+  DSOTYPENI: 11,
+  BADSIG_VERS: 16,
+  BADKEY: 17,
+  BADTIME: 18,
+  BADMODE: 19,
+  BADNAME: 20,
+  BADALG: 21,
+  BADTRUNC: 22,
+  BADCOOKIE: 23,
+}
+
+let $rcode_name = {
+  NOERROR: "NoError",
+  FORMERR: "FormError",
+  SERVFAIL: "ServError",
+  NXDOMAIN: "NXDomain",
+  NOTIMP: "NotImp",
+  REFUSED: "Refused",
+  YXDOMAIN: "YXDomain",
+  YXRRSET: "YXRRSet",
+  NXRRSET: "NXRRSet",
+  NOTAUTH: "NotAuth",
+  NOTZONE: "NotZone",
+}
+
+let $proto_nums = {
+  UDP: 17,
+  TCP: 6,
+}
+
+// DNS Firewall action mappings per OCSF security_control profile.
+let $firewall_actions = {
+  BLOCK: {
+    action_id: 2,
+    action: "Denied",
+    disposition_id: 2,
+    disposition: "Blocked",
+  },
+  ALLOW: {
+    action_id: 1,
+    action: "Allowed",
+    disposition_id: 1,
+    disposition: "Allowed",
+  },
+  ALERT: {
+    action_id: 1,
+    action: "Allowed",
+    disposition_id: 19,
+    disposition: "Alert",
+    is_alert: true,
+  },
+}
+
 // --- Preamble ---------------------------------
 
-this = { aws: this }
+this = {aws: this}
 
 // --- OCSF: classification attributes ----------
 
@@ -53,14 +121,12 @@ ocsf.query_time = ocsf.time
 
 // --- OCSF: primary attributes -----------------
 
-// Query information
 ocsf.query = {
   hostname: move aws.query_name?,
   type: move aws.query_type?,
   class: move aws.query_class?,
 }
 
-// Answers
 if aws.has("answers") and aws.answers.length() > 0 {
   ocsf.answers = (move aws.answers).map(a => {
     rdata: a.Rdata,
@@ -72,42 +138,7 @@ if aws.has("answers") and aws.answers.length() > 0 {
   drop aws.answers?
 }
 
-// Response code mapping
-let $rcode_id = {
-  NOERROR: 0,
-  FORMERR: 1,
-  SERVFAIL: 2,
-  NXDOMAIN: 3,
-  NOTIMP: 4,
-  REFUSED: 5,
-  YXDOMAIN: 6,
-  YXRRSET: 7,
-  NXRRSET: 8,
-  NOTAUTH: 9,
-  NOTZONE: 10,
-  DSOTYPENI: 11,
-  BADSIG_VERS: 16,
-  BADKEY: 17,
-  BADTIME: 18,
-  BADMODE: 19,
-  BADNAME: 20,
-  BADALG: 21,
-  BADTRUNC: 22,
-  BADCOOKIE: 23,
-}
-let $rcode_name = {
-  NOERROR: "NoError",
-  FORMERR: "FormError",
-  SERVFAIL: "ServError",
-  NXDOMAIN: "NXDomain",
-  NOTIMP: "NotImp",
-  REFUSED: "Refused",
-  YXDOMAIN: "YXDomain",
-  YXRRSET: "YXRRSet",
-  NXRRSET: "NXRRSet",
-  NOTAUTH: "NotAuth",
-  NOTZONE: "NotZone",
-}
+// Map DNS response codes to OCSF rcode_id values.
 if aws.has("rcode") {
   ocsf.rcode_id = $rcode_id[aws.rcode] else 99
   ocsf.rcode = $rcode_name[aws.rcode] else aws.rcode
@@ -119,7 +150,8 @@ if aws.has("rcode") {
   ocsf.status = "Unknown"
 }
 
-// Source endpoint (the client making the query)
+// --- OCSF: network attributes -----------------
+
 if aws.has("srcaddr") {
   ocsf.src_endpoint.ip = move aws.srcaddr
   ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
@@ -134,7 +166,7 @@ if aws.srcids?.instance? != null {
   ocsf.src_endpoint.instance_uid = move aws.srcids.instance
 }
 
-// Destination endpoint (the resolver)
+// Resolver endpoint info goes to dst_endpoint since it's the DNS server.
 if aws.srcids?.resolver_endpoint? != null {
   ocsf.dst_endpoint.uid = move aws.srcids.resolver_endpoint
 }
@@ -143,37 +175,22 @@ if aws.srcids?.resolver_network_interface? != null {
 }
 drop aws.srcids?
 
-// Transport protocol
-let $proto_nums = {
-  UDP: 17,
-  TCP: 6,
-}
 if aws.has("transport") {
   ocsf.connection_info.protocol_name = aws.transport.to_lower()
   ocsf.connection_info.protocol_num = $proto_nums[aws.transport] else -1
   drop aws.transport
 }
 
-// --- DNS Firewall (security_control profile) ---
+// --- DNS Firewall (security_control profile) --
 
 if aws.has("firewall_rule_action") {
   ocsf.metadata.profiles = ["cloud", "security_control"]
-  if aws.firewall_rule_action == "BLOCK" {
-    ocsf.action_id = 2
-    ocsf.action = "Denied"
-    ocsf.disposition_id = 2
-    ocsf.disposition = "Blocked"
-  } else if aws.firewall_rule_action == "ALLOW" {
-    ocsf.action_id = 1
-    ocsf.action = "Allowed"
-    ocsf.disposition_id = 1
-    ocsf.disposition = "Allowed"
-  } else if aws.firewall_rule_action == "ALERT" {
-    ocsf.action_id = 1
-    ocsf.action = "Allowed"
-    ocsf.disposition_id = 15
-    ocsf.disposition = "Detected"
-    ocsf.is_alert = true
+  ocsf.action_id = $firewall_actions[aws.firewall_rule_action].action_id
+  ocsf.action = $firewall_actions[aws.firewall_rule_action].action
+  ocsf.disposition_id = $firewall_actions[aws.firewall_rule_action].disposition_id
+  ocsf.disposition = $firewall_actions[aws.firewall_rule_action].disposition
+  if $firewall_actions[aws.firewall_rule_action].is_alert? != null {
+    ocsf.is_alert = $firewall_actions[aws.firewall_rule_action].is_alert
   }
   drop aws.firewall_rule_action
   ocsf.firewall_rule = {
