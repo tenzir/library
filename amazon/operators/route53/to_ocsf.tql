@@ -32,20 +32,6 @@ let $rcode_id = {
   BADCOOKIE: 23,
 }
 
-let $rcode_name = {
-  NOERROR: "NoError",
-  FORMERR: "FormError",
-  SERVFAIL: "ServError",
-  NXDOMAIN: "NXDomain",
-  NOTIMP: "NotImp",
-  REFUSED: "Refused",
-  YXDOMAIN: "YXDomain",
-  YXRRSET: "YXRRSet",
-  NXRRSET: "NXRRSet",
-  NOTAUTH: "NotAuth",
-  NOTZONE: "NotZone",
-}
-
 let $proto_nums = {
   UDP: 17,
   TCP: 6,
@@ -81,13 +67,10 @@ this = {aws: this}
 // --- OCSF: classification attributes ----------
 
 ocsf.category_uid = 4
-ocsf.category_name = "Network Activity"
 ocsf.class_uid = 4003
-ocsf.class_name = "DNS Activity"
 ocsf.severity_id = 1
 ocsf.severity = "Informational"
 ocsf.activity_id = 6
-ocsf.activity_name = "Traffic"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
@@ -141,7 +124,6 @@ if aws.has("answers") and aws.answers.length() > 0 {
 // Map DNS response codes to OCSF rcode_id values.
 if aws.has("rcode") {
   ocsf.rcode_id = $rcode_id[aws.rcode] else 99
-  ocsf.rcode = $rcode_name[aws.rcode] else aws.rcode
   ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
   ocsf.status = "Success" if ocsf.rcode_id == 0 else "Failure"
   drop aws.rcode
@@ -176,6 +158,7 @@ if aws.srcids?.resolver_network_interface? != null {
 drop aws.srcids?
 
 if aws.has("transport") {
+  // FIXME: Remove protocol_name once ocsf::derive supports nested sibling fields.
   ocsf.connection_info.protocol_name = aws.transport.to_lower()
   ocsf.connection_info.protocol_num = $proto_nums[aws.transport] else -1
   drop aws.transport
