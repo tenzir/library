@@ -1,0 +1,75 @@
+---
+description: "Okta → OCSF Group Management (3006)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  "group.lifecycle.create": 1,
+  "group.user_membership.add": 3,
+  "group.user_membership.remove": 4,
+  "group.lifecycle.delete": 5,
+  "group.privilege.grant": 99,
+  "group.application_assignment.add": 99,
+  "group.application_assignment.remove": 99,
+  "group.application_assignment.update": 99,
+  "group.user_membership.rule.add_exclusion": 99,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.category_uid = 3
+ocsf.class_uid = 3006
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+ocsf.actor.session.uid = move okta.authenticationContext.externalSessionId?
+
+// --- OCSF: group and user from target[] -------
+
+if okta.target? != null {
+  ocsf.group = okta.target.where(t => t.type == "UserGroup").map(t => {
+    uid: t.id,
+    name: t.displayName,
+  })[0]?
+  ocsf.user = okta.target.where(t => t.type == "User").map(t => {
+    uid: t.id,
+    name: t.alternateId?.split("@")[0]?,
+    full_name: t.displayName,
+    email_addr: t.alternateId,
+    type_id: 1,
+  })[0]?
+}
+
+// --- Epilogue ---------------------------------
+
+drop okta.uuid?
+drop okta.version?
+drop okta.severity?
+drop okta.legacyEventType?
+drop okta.debugContext.debugData.threatSuspected?
+drop okta.debugContext.debugData.responseTime?
+drop okta.target?
+drop okta.client?
+drop okta.securityContext?
+drop okta.request?
+drop okta.transaction?
+drop okta.authenticationContext?
+
+this = {...ocsf, unmapped: okta}
+@name = "ocsf.group_management"
+drop_null_fields unmapped
+ocsf::derive

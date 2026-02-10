@@ -1,0 +1,44 @@
+---
+description: Okta → OCSF
+---
+
+okta::clean
+
+if eventType.starts_with("user.session.") or
+   eventType.starts_with("user.authentication.") or
+   eventType == "policy.evaluate_sign_on" or
+   eventType == "system.push.send_factor_verify_push" or
+   eventType == "application.policy.sign_on.deny_access" or
+   eventType.starts_with("app.generic.unauth_app_access_attempt") or
+   eventType.starts_with("app.oauth2.authorize") {
+  okta::ocsf::event::authentication
+} else if eventType.starts_with("user.lifecycle.") or
+          eventType.starts_with("user.account.") or
+          eventType.starts_with("user.mfa.factor.") {
+  okta::ocsf::event::account_change
+} else if eventType.starts_with("group.") {
+  okta::ocsf::event::group_management
+} else if eventType == "security.threat.detected" or
+          eventType == "user.mfa.attempt_bypass" or
+          eventType == "security.protected_action.attempt" {
+  okta::ocsf::event::detection_finding
+} else if eventType.starts_with("system.api_token.") or
+          eventType.starts_with("app.oauth2.token.") or
+          eventType.starts_with("app.oauth2.client.") or
+          eventType.starts_with("app.oauth2.credentials.") or
+          eventType == "app.oauth2.client.read_client_secret" or
+          eventType == "application.configuration.read_client_secret" or
+          eventType == "system.idp.lifecycle.read_client_secret" or
+          eventType.starts_with("system.idp.lifecycle.") or
+          eventType.starts_with("system.log_stream.") or
+          eventType.starts_with("workflows.") {
+  okta::ocsf::event::api_activity
+} else if eventType.starts_with("application.") or
+          eventType.starts_with("policy.") or
+          eventType.starts_with("zone.") or
+          eventType.starts_with("device.") or
+          eventType.starts_with("directory.") {
+  okta::ocsf::event::entity_management
+} else {
+  okta::ocsf::base
+}

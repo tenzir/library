@@ -1,0 +1,122 @@
+---
+description: "Okta → OCSF Entity Management (3004)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  // Policy events
+  "policy.lifecycle.create": 1,
+  "policy.lifecycle.update": 3,
+  "policy.lifecycle.delete": 4,
+  "policy.lifecycle.activate": 10,
+  "policy.lifecycle.deactivate": 11,
+  "policy.rule.add": 1,
+  "policy.rule.update": 3,
+  "policy.mapping.create": 1,
+  // Application events
+  "application.lifecycle.create": 1,
+  "application.lifecycle.update": 3,
+  "application.lifecycle.delete": 4,
+  "application.lifecycle.deactivate": 11,
+  "application.user_membership.add": 1,
+  "application.user_membership.remove": 4,
+  "application.user_membership.update": 3,
+  "application.user_membership.restore": 2,
+  // Device events
+  "device.enrollment.create": 6,
+  "device.lifecycle.activate": 2,
+  "device.user.add": 1,
+  "device.user.remove": 4,
+  "device.assurance.policy.add": 1,
+  "device.assurance.policy.update": 3,
+  "device.assurance.policy.delete": 4,
+  // Zone events
+  "zone.lifecycle.create": 1,
+  "zone.lifecycle.update": 3,
+  "zone.lifecycle.delete": 4,
+  // Directory events
+  "directory.app_user_profile.bootstrap": 1,
+  "directory.app_user_profile.update": 3,
+  "directory.mapping.update": 3,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.category_uid = 3
+ocsf.class_uid = 3004
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+ocsf.actor.session.uid = move okta.authenticationContext.externalSessionId?
+
+// --- OCSF: entity from target[] ---------------
+
+// Route entity extraction by event type prefix since target[] contains
+// different object types depending on the Okta event category.
+if okta.target? != null {
+  if ocsf.metadata.event_code.starts_with("policy.") {
+    ocsf.entity = okta.target.where(t => t.type == "PolicyEntity").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 5
+  } else if ocsf.metadata.event_code.starts_with("application.") {
+    ocsf.entity = okta.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 6
+  } else if ocsf.metadata.event_code.starts_with("device.") {
+    ocsf.entity = okta.target.where(t => t.type == "UDDevice").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 1
+  } else if ocsf.metadata.event_code.starts_with("zone.") {
+    ocsf.entity = okta.target.where(t => t.type == "NetworkZoneEntity").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 9
+  } else if ocsf.metadata.event_code.starts_with("directory.") {
+    ocsf.entity = okta.target.where(t => t.type == "AppUser").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 99
+  }
+}
+
+// --- Epilogue ---------------------------------
+
+drop okta.uuid?
+drop okta.version?
+drop okta.severity?
+drop okta.legacyEventType?
+drop okta.debugContext.debugData.threatSuspected?
+drop okta.debugContext.debugData.responseTime?
+drop okta.target?
+drop okta.client?
+drop okta.securityContext?
+drop okta.request?
+drop okta.transaction?
+drop okta.authenticationContext?
+
+this = {...ocsf, unmapped: okta}
+@name = "ocsf.entity_management"
+drop_null_fields unmapped
+ocsf::derive

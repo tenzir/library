@@ -1,0 +1,84 @@
+---
+description: Maps common Okta System Log fields to OCSF.
+---
+
+// --- OCSF: classification attributes ----------
+
+let $severity_map = {
+  HIGH: 4,
+  MEDIUM: 3,
+  LOW: 2,
+}
+ocsf.severity_id = $severity_map[okta.debugContext.debugData.risk?]? else 1
+drop okta.debugContext.debugData.risk?
+
+// --- OCSF: occurrence attributes ---------------
+
+ocsf.time = time(move okta.published)
+ocsf.message = move okta.displayMessage
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  event_code: move okta.eventType,
+  product: {
+    name: "Okta",
+    vendor_name: "Okta",
+  },
+  version: "1.7.0",
+}
+
+ocsf.http_request = {
+  uid: move okta.debugContext.debugData.requestId?,
+  url: {
+    path: move okta.debugContext.debugData.url?,
+    hostname: okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
+  },
+}
+drop okta.debugContext.debugData.authnRequestId?
+if okta.client.userAgent? != null {
+  ocsf.http_request.user_agent = move okta.client.userAgent.rawUserAgent?
+}
+
+// --- OCSF: actor attributes -------------------
+
+let $actor_type_id = {
+  User: 1,
+  SystemPrincipal: 2,
+}
+
+ocsf.actor = {
+  user: {
+    uid: move okta.actor.id?,
+    name: okta.actor.alternateId?.split("@")[0]?,
+    domain: okta.actor.alternateId?.split("@")[1]?,
+    full_name: move okta.actor.displayName?,
+    email_addr: move okta.actor.alternateId?,
+    type_id: $actor_type_id[okta.actor.type?]? else 99,
+  },
+}
+drop okta.actor?
+
+// --- OCSF: src_endpoint -----------------------
+
+ocsf.src_endpoint = {
+  ip: move okta.client.ipAddress?,
+  uid: move okta.client.id?,
+  domain: move okta.securityContext.domain?,
+  autonomous_system: {
+    number: move okta.securityContext.asNumber?,
+  },
+  owner: {
+    org: {
+      name: move okta.securityContext.asOrg?,
+    },
+  },
+}
+ocsf.src_endpoint.location.isp = move okta.securityContext.isp?
+if okta.client.geographicalContext? != null {
+  ocsf.src_endpoint.location.city = move okta.client.geographicalContext.city?
+  ocsf.src_endpoint.location.country = move okta.client.geographicalContext.country?
+  ocsf.src_endpoint.location.postal_code = move okta.client.geographicalContext.postalCode?
+  ocsf.src_endpoint.location.lat = move okta.client.geographicalContext.geolocation?.lat?
+  ocsf.src_endpoint.location.long = move okta.client.geographicalContext.geolocation?.lon?
+}

@@ -1,0 +1,86 @@
+---
+description: "Okta → OCSF Account Change (3001)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  "user.lifecycle.create": 1,
+  "user.lifecycle.activate": 2,
+  "user.lifecycle.unsuspend": 2,
+  "user.lifecycle.reactivate": 2,
+  "user.lifecycle.deactivate": 5,
+  "user.lifecycle.suspend": 5,
+  "user.lifecycle.delete.completed": 6,
+  "user.lifecycle.delete.initiated": 6,
+  "user.account.lock": 9,
+  "user.account.lock.limit": 9,
+  "user.account.unlock": 12,
+  "user.account.unlock_by_admin": 12,
+  "user.account.privilege.grant": 7,
+  "user.account.privilege.revoke": 8,
+  "user.account.reset_password": 4,
+  "user.account.update_password": 3,
+  "user.account.update_profile": 99,
+  "user.account.update_primary_email": 99,
+  "user.mfa.factor.activate": 99,
+  "user.mfa.factor.deactivate": 99,
+  "user.mfa.factor.update": 99,
+  "user.mfa.factor.reset_all": 99,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.category_uid = 3
+ocsf.class_uid = 3001
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+// --- OCSF: target user from target[] ----------
+
+if okta.target? != null {
+  ocsf.user = okta.target.where(t => t.type == "User").map(t => {
+    uid: t.id,
+    name: t.alternateId?.split("@")[0]?,
+    full_name: t.displayName,
+    email_addr: t.alternateId,
+    type_id: 1,
+  })[0]?
+  ocsf.user.groups = okta.target.where(t => t.type == "UserGroup").map(t => {
+    uid: t.id,
+    name: t.displayName,
+  })
+}
+
+// --- Epilogue ---------------------------------
+
+drop okta.uuid?
+drop okta.version?
+drop okta.severity?
+drop okta.legacyEventType?
+drop okta.debugContext.debugData.threatSuspected?
+drop okta.debugContext.debugData.responseTime?
+drop okta.target?
+drop okta.client?
+drop okta.securityContext?
+drop okta.request?
+drop okta.transaction?
+drop okta.authenticationContext?
+
+this = {...ocsf, unmapped: okta}
+@name = "ocsf.account_change"
+drop_null_fields unmapped
+ocsf::derive
