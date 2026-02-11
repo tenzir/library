@@ -21,23 +21,33 @@ ocsf.message = move okta.displayMessage
 
 ocsf.metadata = {
   event_code: move okta.eventType,
+  log_provider: "Okta",
   product: {
     name: "Okta",
     vendor_name: "Okta",
+    version: move okta.version?,
   },
+  profiles: ["cloud"],
   version: "1.7.0",
+  loggers: [{event_uid: move okta.uuid?}],
 }
 
 ocsf.http_request = {
   uid: move okta.debugContext.debugData.requestId?,
   url: {
     path: move okta.debugContext.debugData.url?,
-    hostname: okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
+    hostname: move okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
   },
 }
-drop okta.debugContext.debugData.authnRequestId?
 if okta.client.userAgent? != null {
   ocsf.http_request.user_agent = move okta.client.userAgent.rawUserAgent?
+}
+
+// --- OCSF: cloud attributes -------------------
+
+ocsf.cloud = {
+  provider: "AWS" if okta.source?.contains("aws.partner") else "Other",
+  region: move okta.region?,
 }
 
 // --- OCSF: actor attributes -------------------
@@ -56,6 +66,10 @@ ocsf.actor = {
     email_addr: move okta.actor.alternateId?,
     type_id: $actor_type_id[okta.actor.type?]? else 99,
   },
+  session: {
+    uid: okta.authenticationContext.externalSessionId?,
+    uid_alt: move okta.authenticationContext.rootSessionId?,
+  },
 }
 drop okta.actor?
 
@@ -64,6 +78,7 @@ drop okta.actor?
 ocsf.src_endpoint = {
   ip: move okta.client.ipAddress?,
   uid: move okta.client.id?,
+  type: move okta.client.device?,
   domain: move okta.securityContext.domain?,
   autonomous_system: {
     number: move okta.securityContext.asNumber?,
@@ -81,4 +96,21 @@ if okta.client.geographicalContext? != null {
   ocsf.src_endpoint.location.postal_code = move okta.client.geographicalContext.postalCode?
   ocsf.src_endpoint.location.lat = move okta.client.geographicalContext.geolocation?.lat?
   ocsf.src_endpoint.location.long = move okta.client.geographicalContext.geolocation?.lon?
+}
+
+// --- OCSF: src_endpoint OS from userAgent ------
+
+let $os_type_map = {
+  Windows: {name: "Windows", type_id: 100},
+  Mac: {name: "macOS", type_id: 300},
+  Linux: {name: "Linux", type_id: 200},
+  Ubuntu: {name: "Linux", type_id: 200},
+  ChromeOS: {name: "ChromeOS", type_id: 100},
+}
+if okta.client.userAgent?.os? != null {
+  if okta.client.userAgent.os.contains("Windows") { ocsf.src_endpoint.os = $os_type_map["Windows"] }
+  else if okta.client.userAgent.os.contains("Mac") { ocsf.src_endpoint.os = $os_type_map["Mac"] }
+  else if okta.client.userAgent.os.contains("Linux") { ocsf.src_endpoint.os = $os_type_map["Linux"] }
+  else if okta.client.userAgent.os.contains("Ubuntu") { ocsf.src_endpoint.os = $os_type_map["Ubuntu"] }
+  else if okta.client.userAgent.os.contains("ChromeOS") or okta.client.userAgent.os.contains("Chrome OS") { ocsf.src_endpoint.os = $os_type_map["ChromeOS"] }
 }

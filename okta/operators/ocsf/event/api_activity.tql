@@ -47,6 +47,9 @@ ocsf.api = {
     uid: okta.debugContext.debugData.requestId?,
   },
 }
+if okta.eventType == "system.api_token.create" {
+  ocsf.api.operation = "PUT"
+}
 
 // --- OCSF: common attributes -----------------
 
@@ -60,12 +63,17 @@ if okta.target? != null {
     name: t.displayName,
     type: t.type,
   })
+  ocsf.user = okta.target.where(t => t.type == "User").map(t => {
+    uid: t.id,
+    name: t.alternateId?.split("@")[0]?,
+    full_name: t.displayName,
+    email_addr: t.alternateId,
+    type_id: 1,
+  })[0]?
 }
 
 // --- Epilogue ---------------------------------
 
-drop okta.uuid?
-drop okta.version?
 drop okta.severity?
 drop okta.legacyEventType?
 drop okta.debugContext.debugData.threatSuspected?

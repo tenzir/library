@@ -37,11 +37,15 @@ ocsf.message = move okta.displayMessage
 
 ocsf.metadata = {
   event_code: move okta.eventType,
+  log_provider: "Okta",
   product: {
     name: "Okta",
     vendor_name: "Okta",
+    version: move okta.version?,
   },
+  profiles: ["cloud"],
   version: "1.7.0",
+  loggers: [{event_uid: okta.uuid?}],
 }
 
 // --- OCSF: finding_info -----------------------
@@ -64,54 +68,56 @@ ocsf.evidences = [{
   actor: {
     session: {
       uid: okta.authenticationContext.externalSessionId?,
+      uid_alt: okta.authenticationContext.rootSessionId?,
     },
     user: {
-      uid: okta.actor.id?,
+      uid: move okta.actor.id?,
       name: okta.actor.alternateId?.split("@")[0]?,
       domain: okta.actor.alternateId?.split("@")[1]?,
-      full_name: string(okta.actor.displayName?),
-      email_addr: okta.actor.alternateId?,
+      full_name: string(move okta.actor.displayName?),
+      email_addr: move okta.actor.alternateId?,
       type_id: $actor_type_id[okta.actor.type?]? else 99,
     },
   },
   src_endpoint: {
-    ip: okta.client.ipAddress?,
-    uid: okta.client.id?,
-    domain: okta.securityContext.domain?,
+    ip: move okta.client.ipAddress?,
+    uid: move okta.client.id?,
+    type: move okta.client.device?,
+    domain: move okta.securityContext.domain?,
     location: {
       city: okta.client.geographicalContext?.city?,
       country: okta.client.geographicalContext?.country?,
       postal_code: okta.client.geographicalContext?.postalCode?,
       lat: okta.client.geographicalContext?.geolocation?.lat?,
       long: okta.client.geographicalContext?.geolocation?.lon?,
-      isp: okta.securityContext.isp?,
+      isp: move okta.securityContext.isp?,
     },
     autonomous_system: {
-      number: okta.securityContext.asNumber?,
+      number: move okta.securityContext.asNumber?,
     },
     owner: {
       org: {
-        name: okta.securityContext.asOrg?,
+        name: move okta.securityContext.asOrg?,
       },
     },
   },
   http_request: {
-    uid: okta.debugContext.debugData.requestId?,
+    uid: move okta.debugContext.debugData.requestId?,
     url: {
-      path: okta.debugContext.debugData.url?,
-      hostname: okta.debugContext.debugData.authnRequestId? else okta.debugContext.debugData.origin?,
+      path: move okta.debugContext.debugData.url?,
+      hostname: move okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
     },
     user_agent: okta.client.userAgent?.rawUserAgent?,
   },
+  data: okta.debugContext.debugData?,
 }]
 
 // --- Epilogue ---------------------------------
 
 drop okta.actor?
-drop okta.version?
+drop okta.debugContext?
 drop okta.severity?
 drop okta.legacyEventType?
-drop okta.debugContext?
 drop okta.target?
 drop okta.client?
 drop okta.securityContext?

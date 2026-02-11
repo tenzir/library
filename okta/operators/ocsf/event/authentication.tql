@@ -16,6 +16,8 @@ let $activity_map = {
   "user.authentication.auth_via_mfa": 1,
   "user.authentication.auth_via_radius": 1,
   "user.authentication.auth_via_AD_agent": 1,
+  "user.authentication.auth_via_social": 1,
+  "user.authentication.auth_via_IDP": 1,
   "user.authentication.slo": 2,
   "user.authentication.verify": 1,
   "user.session.access_admin_app": 1,
@@ -49,7 +51,13 @@ if okta.outcome.result == "SUCCESS" or okta.outcome.result == "ALLOW" {
   ocsf.disposition_id = 1
 } else if okta.outcome.result == "FAILURE" or okta.outcome.result == "DENY" {
   ocsf.action_id = 2
-  ocsf.disposition_id = 2
+  if okta.eventType == "app.generic.unauth_app_access_attempt" {
+    ocsf.disposition_id = 26
+  } else if okta.debugContext.debugData.threatSuspected? == "true" {
+    ocsf.disposition_id = 2
+  } else {
+    ocsf.disposition_id = 2
+  }
 } else if okta.outcome.result == "CHALLENGE" {
   ocsf.action_id = 99
   ocsf.disposition_id = 16
@@ -76,10 +84,17 @@ if okta.debugContext.debugData.signOnMode? != null {
 
 okta::ocsf::map_common
 
-ocsf.metadata.profiles = ["security_control"]
+ocsf.metadata.profiles = ["cloud", "security_control"]
 
 ocsf.session = {
   uid: move okta.authenticationContext.externalSessionId?,
+}
+
+// --- OCSF: risk & alert ----------------------
+
+ocsf.risk_details = move okta.debugContext.debugData.behaviors?
+if okta.debugContext.debugData.threatSuspected? == "true" or okta.debugContext.debugData.threatDetections? != null {
+  ocsf.is_alert = true
 }
 
 // --- OCSF: target user from target[] ----------
@@ -96,8 +111,6 @@ if okta.target? != null {
 
 // --- Epilogue ---------------------------------
 
-drop okta.uuid?
-drop okta.version?
 drop okta.severity?
 drop okta.legacyEventType?
 drop okta.debugContext.debugData.threatSuspected?

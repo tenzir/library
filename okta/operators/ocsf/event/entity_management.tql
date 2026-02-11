@@ -15,8 +15,14 @@ let $activity_map = {
   "policy.lifecycle.delete": 4,
   "policy.lifecycle.activate": 10,
   "policy.lifecycle.deactivate": 11,
+  "policy.lifecycle.overwrite": 3,
   "policy.rule.add": 1,
   "policy.rule.update": 3,
+  "policy.rule.delete": 4,
+  "policy.rule.deactivate": 9,
+  "policy.rule.activate": 10,
+  "policy.rule.invalidate": 9,
+  "policy.rule.action.execute": 8,
   "policy.mapping.create": 1,
   // Application events
   "application.lifecycle.create": 1,
@@ -27,6 +33,9 @@ let $activity_map = {
   "application.user_membership.remove": 4,
   "application.user_membership.update": 3,
   "application.user_membership.restore": 2,
+  "application.policy.sign_on.rule.create": 1,
+  "application.policy.sign_on.rule.delete": 4,
+  "application.policy.sign_on.update": 3,
   // Device events
   "device.enrollment.create": 6,
   "device.lifecycle.activate": 2,
@@ -39,10 +48,16 @@ let $activity_map = {
   "zone.lifecycle.create": 1,
   "zone.lifecycle.update": 3,
   "zone.lifecycle.delete": 4,
+  "zone.activate": 10,
+  "zone.deactivate": 11,
+  "zone.remove_blacklist": 3,
   // Directory events
   "directory.app_user_profile.bootstrap": 1,
   "directory.app_user_profile.update": 3,
   "directory.mapping.update": 3,
+  // Trusted origin events
+  "security.trusted_origin.create": 1,
+  "security.trusted_origin.activate": 10,
 }
 ocsf.activity_id = $activity_map[okta.eventType]? else 99
 ocsf.category_uid = 3
@@ -61,8 +76,6 @@ drop okta.outcome?
 
 okta::ocsf::map_common
 
-ocsf.actor.session.uid = move okta.authenticationContext.externalSessionId?
-
 // --- OCSF: entity from target[] ---------------
 
 // Route entity extraction by event type prefix since target[] contains
@@ -74,6 +87,9 @@ if okta.target? != null {
       name: t.displayName,
     })[0]?
     ocsf.entity.type_id = 5
+    ocsf.entity.policy = {
+      desc: move okta.debugContext.debugData.policyType?,
+    }
   } else if ocsf.metadata.event_code.starts_with("application.") {
     ocsf.entity = okta.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
       uid: t.id,
@@ -92,19 +108,24 @@ if okta.target? != null {
       name: t.displayName,
     })[0]?
     ocsf.entity.type_id = 9
+    ocsf.entity.data = move okta.debugContext.debugData.zoneData?
   } else if ocsf.metadata.event_code.starts_with("directory.") {
     ocsf.entity = okta.target.where(t => t.type == "AppUser").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
     ocsf.entity.type_id = 99
+  } else if ocsf.metadata.event_code.starts_with("security.trusted_origin.") {
+    ocsf.entity = okta.target.where(t => t.type == "TrustedOrigin").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 7
   }
 }
 
 // --- Epilogue ---------------------------------
 
-drop okta.uuid?
-drop okta.version?
 drop okta.severity?
 drop okta.legacyEventType?
 drop okta.debugContext.debugData.threatSuspected?
