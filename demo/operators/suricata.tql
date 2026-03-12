@@ -1,4 +1,7 @@
 ---
+description: >-
+  Generates a continuous stream of Suricata events from the M57 dataset,
+  replayed in real time. Use `speed` to control the replay rate.
 args:
   named:
     - name: speed
@@ -13,25 +16,22 @@ let $period = $default / $speed
 let $factor = ($last - $first) / $period
 
 every $period {
-  from {
-    url: "https://datasets.tenzir.tools/M57/suricata.json.zst",
+  from_http "https://datasets.tenzir.tools/M57/suricata.json.zst" {
+    decompress_zstd
+    read_suricata
+    head 30k
   }
 }
-http url {
-  decompress_zstd
-  read_suricata
-  head 30k
-  where $first <= timestamp and timestamp <= $last
-  sort timestamp
-  // Drop some very frequent data to get a more even distribution.
-  if @name == "suricata.dns" {
-    if random() > 0.01 {
-      discard
-    }
-  } else if @name == "suricata.tls" {
-    if random() > 0.3 {
-      discard
-    }
+where $first <= timestamp and timestamp <= $last
+sort timestamp
+// Drop some very frequent data to get a more even distribution.
+if @name == "suricata.dns" {
+  if random() > 0.01 {
+    discard
   }
-  delay timestamp, start=$first, speed=$factor
+} else if @name == "suricata.tls" {
+  if random() > 0.3 {
+    discard
+  }
 }
+delay timestamp, start=$first, speed=$factor
