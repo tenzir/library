@@ -13,6 +13,7 @@ ocsf.category_uid = 2
 ocsf.class_uid = 2004
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
+// NB: mirrors $severity_map in map_common.tql — keep in sync.
 let $severity_map = {
   HIGH: 4,
   MEDIUM: 3,
@@ -31,6 +32,9 @@ ocsf.status_detail = move okta.outcome.reason?
 drop okta.outcome?
 
 // --- OCSF: context attributes -----------------
+// NB: mirrors metadata/time in map_common.tql — keep in sync.
+// Detection findings don't use map_common because they embed actor and
+// src_endpoint inside evidences[] rather than at the top level.
 
 ocsf.time = time(move okta.published)
 ocsf.message = move okta.displayMessage
@@ -58,6 +62,7 @@ ocsf.finding_info = {
 
 // --- OCSF: evidences[] -----------------------
 
+// NB: mirrors $actor_type_id in map_common.tql — keep in sync.
 let $actor_type_id = {
   User: 1,
   SystemPrincipal: 2,
@@ -119,18 +124,9 @@ ocsf.evidences = [{
 
 // --- Epilogue ---------------------------------
 
+// Detection findings consume actor and debugContext inline in evidences[],
+// so drop them before the shared epilogue.
 drop okta.actor?
 drop okta.debugContext?
-drop okta.severity?
-drop okta.legacyEventType?
-drop okta.target?
-drop okta.client?
-drop okta.securityContext?
-drop okta.request?
-drop okta.transaction?
-drop okta.authenticationContext?
-
-this = {...ocsf, unmapped: okta}
+okta::ocsf::epilogue
 @name = "ocsf.detection_finding"
-drop_null_fields unmapped
-ocsf::derive
