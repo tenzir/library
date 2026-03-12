@@ -1,0 +1,116 @@
+---
+description: "Okta → OCSF Authentication (3002)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  "user.session.start": 1,
+  "user.session.end": 2,
+  "user.session.clear": 2,
+  "user.authentication.sso": 1,
+  "user.authentication.auth_via_mfa": 1,
+  "user.authentication.auth_via_radius": 1,
+  "user.authentication.auth_via_AD_agent": 1,
+  "user.authentication.auth_via_social": 1,
+  "user.authentication.auth_via_IDP": 1,
+  "user.authentication.slo": 2,
+  "user.authentication.verify": 1,
+  "user.session.access_admin_app": 1,
+  "policy.evaluate_sign_on": 1,
+  "app.generic.unauth_app_access_attempt": 1,
+  "application.policy.sign_on.deny_access": 1,
+  "app.oauth2.authorize": 1,
+  "app.oauth2.authorize.code": 1,
+  "system.push.send_factor_verify_push": 6,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 0
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Status with security control profile.
+let $status_map = {
+  SUCCESS: 1,
+  ALLOW: 1,
+  FAILURE: 2,
+  DENY: 2,
+  CHALLENGE: 99,
+}
+if okta.eventType == "application.policy.sign_on.deny_access" {
+  ocsf.status_id = 2
+} else {
+  ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+}
+if okta.outcome.result == "SUCCESS" or okta.outcome.result == "ALLOW" {
+  ocsf.action_id = 1
+  ocsf.disposition_id = 1
+} else if okta.outcome.result == "FAILURE" or okta.outcome.result == "DENY" {
+  ocsf.action_id = 2
+  if okta.eventType == "app.generic.unauth_app_access_attempt" {
+    ocsf.disposition_id = 26
+  } else if string(okta.debugContext.debugData.threatSuspected?) == "true" {
+    ocsf.disposition_id = 2
+  } else {
+    ocsf.disposition_id = 2
+  }
+} else if okta.outcome.result == "CHALLENGE" {
+  ocsf.action_id = 99
+  ocsf.disposition_id = 16
+} else {
+  ocsf.action_id = 0
+  ocsf.disposition_id = 0
+}
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// Auth protocol.
+let $auth_protocol_map = {
+  "OpenID Connect": 4,
+  "SAML 2.0": 5,
+}
+if okta.debugContext.debugData.signOnMode? != null {
+  ocsf.auth_protocol_id = $auth_protocol_map[okta.debugContext.debugData.signOnMode]? else 99
+  drop okta.debugContext.debugData.signOnMode
+} else if okta.eventType == "user.authentication.auth_via_radius" {
+  ocsf.auth_protocol_id = 10
+}
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+ocsf.metadata.profiles = ["cloud", "security_control"]
+
+ocsf.session = {
+  uid: move okta.authenticationContext.externalSessionId?,
+}
+
+// --- OCSF: risk & alert ----------------------
+
+ocsf.risk_details = move okta.debugContext.debugData.behaviors?
+ocsf.is_alert = false
+if string(okta.debugContext.debugData.threatSuspected?) == "true" or okta.debugContext.debugData.threatDetections? != null {
+  ocsf.is_alert = true
+}
+
+// --- OCSF: target user from target[] ----------
+
+if okta.target? != null {
+  ocsf.user = okta.target.where(t => t.type == "User" or t.type == "AppUser").map(t => {
+    uid: t.id,
+    name: t.alternateId?.split("@")[0]?,
+    full_name: t.displayName,
+    email_addr: t.alternateId,
+    type_id: 1,
+  })[0]?
+}
+
+// --- Epilogue ---------------------------------
+
+okta::ocsf::epilogue
+@name = "ocsf.authentication"

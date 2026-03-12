@@ -1,0 +1,26 @@
+---
+description: Fetches Okta system logs via HTTP
+args:
+  positional:
+   - name: domain
+     type: string
+  named:
+   - name: limit
+     type: int
+     default: 200
+   - name: bearer_token
+     type: secret
+   - name: swss_token
+     type: secret
+---
+
+// See:
+// - https://developer.okta.com/docs/api/
+// - https://developer.okta.com/docs/api/openapi/okta-management/guides/overview/
+
+let $endpoint = f"https://{$domain}/api/v1/logs?limit={$limit}"
+let $auth = f"Bearer {$bearer_token}" if $bearer_token != null else f"SWSS {$swss_token}"
+
+from_http $endpoint, headers={Authorization: $auth}, paginate="link" {
+  read_json
+}

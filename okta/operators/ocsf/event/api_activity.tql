@@ -1,0 +1,71 @@
+---
+description: "Okta → OCSF API Activity (6003)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  "system.api_token.create": 1,
+  "system.idp.lifecycle.create": 1,
+  "system.idp.lifecycle.read_client_secret": 2,
+  "application.configuration.read_client_secret": 2,
+  "app.oauth2.client.read_client_secret": 2,
+  "app.oauth2.token.grant": 99,
+  "app.oauth2.token.grant.access_token": 99,
+  "app.oauth2.token.grant.id_token": 99,
+  "app.oauth2.token.grant.refresh_token": 99,
+  "app.oauth2.token.revoke": 4,
+  "app.oauth2.credentials.lifecycle.create": 1,
+  "app.oauth2.credentials.lifecycle.activate": 99,
+  "app.oauth2.client.lifecycle.deactivate": 99,
+  "app.oauth2.client.lifecycle.delete": 4,
+  "workflows.user.flow.create": 1,
+  "workflows.user.connection.create": 1,
+  "system.log_stream.lifecycle.update": 3,
+  "system.log_stream.lifecycle.delete": 4,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.category_uid = 6
+ocsf.class_uid = 6003
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// Capture API request UID before map_common moves requestId.
+ocsf.api = {
+  request: {
+    uid: okta.debugContext.debugData.requestId?,
+  },
+}
+if okta.eventType == "system.api_token.create" {
+  ocsf.api.operation = "PUT"
+}
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+// --- OCSF: resources from target[] ------------
+
+if okta.target? != null {
+  ocsf.resources = okta.target.where(t => t.type == "access_token" or t.type == "Token" or t.type == "id_token" or t.type == "refresh_token").map(t => {
+    uid: t.id,
+    name: t.displayName,
+    type: t.type,
+  })
+}
+
+// --- Epilogue ---------------------------------
+
+okta::ocsf::epilogue
+@name = "ocsf.api_activity"

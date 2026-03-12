@@ -1,0 +1,130 @@
+---
+description: "Okta → OCSF Entity Management (3004)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+let $activity_map = {
+  // Policy events
+  "policy.lifecycle.create": 1,
+  "policy.lifecycle.update": 3,
+  "policy.lifecycle.delete": 4,
+  "policy.lifecycle.activate": 10,
+  "policy.lifecycle.deactivate": 11,
+  "policy.lifecycle.overwrite": 3,
+  "policy.rule.add": 1,
+  "policy.rule.update": 3,
+  "policy.rule.delete": 4,
+  "policy.rule.deactivate": 9,
+  "policy.rule.activate": 10,
+  "policy.rule.invalidate": 9,
+  "policy.rule.action.execute": 8,
+  "policy.mapping.create": 1,
+  // Application events
+  "application.lifecycle.create": 1,
+  "application.lifecycle.update": 3,
+  "application.lifecycle.delete": 4,
+  "application.lifecycle.deactivate": 11,
+  "application.user_membership.add": 1,
+  "application.user_membership.remove": 4,
+  "application.user_membership.update": 3,
+  "application.user_membership.restore": 2,
+  "application.policy.sign_on.rule.create": 1,
+  "application.policy.sign_on.rule.delete": 4,
+  "application.policy.sign_on.update": 3,
+  // Device events
+  "device.enrollment.create": 6,
+  "device.lifecycle.activate": 2,
+  "device.user.add": 1,
+  "device.user.remove": 4,
+  "device.assurance.policy.add": 1,
+  "device.assurance.policy.update": 3,
+  "device.assurance.policy.delete": 4,
+  // Zone events
+  "zone.lifecycle.create": 1,
+  "zone.lifecycle.update": 3,
+  "zone.lifecycle.delete": 4,
+  "zone.activate": 10,
+  "zone.deactivate": 11,
+  "zone.remove_blacklist": 3,
+  // Directory events
+  "directory.app_user_profile.bootstrap": 1,
+  "directory.app_user_profile.update": 3,
+  "directory.mapping.update": 3,
+  // Trusted origin events
+  "security.trusted_origin.create": 1,
+  "security.trusted_origin.activate": 10,
+}
+ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.category_uid = 3
+ocsf.class_uid = 3004
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// --- OCSF: common attributes -----------------
+
+okta::ocsf::map_common
+
+// --- OCSF: entity from target[] ---------------
+
+// Route entity extraction by event type prefix since target[] contains
+// different object types depending on the Okta event category.
+if okta.target? != null {
+  if ocsf.metadata.event_code.starts_with("policy.") {
+    ocsf.entity = okta.target.where(t => t.type == "PolicyEntity").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 5
+    ocsf.entity.policy = {
+      desc: move okta.debugContext.debugData.policyType?,
+    }
+  } else if ocsf.metadata.event_code.starts_with("application.") {
+    ocsf.entity = okta.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 6
+  } else if ocsf.metadata.event_code.starts_with("device.") {
+    ocsf.entity = okta.target.where(t => t.type == "UDDevice").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 1
+  } else if ocsf.metadata.event_code.starts_with("zone.") {
+    ocsf.entity = okta.target.where(t => t.type == "NetworkZoneEntity").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 9
+    ocsf.entity.data = move okta.debugContext.debugData.zoneData?
+  } else if ocsf.metadata.event_code.starts_with("directory.") {
+    ocsf.entity = okta.target.where(t => t.type == "AppUser").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 99
+  } else if ocsf.metadata.event_code.starts_with("security.trusted_origin.") {
+    ocsf.entity = okta.target.where(t => t.type == "TrustedOrigin").map(t => {
+      uid: t.id,
+      name: t.displayName,
+    })[0]?
+    ocsf.entity.type_id = 7
+  }
+}
+
+// --- Epilogue ---------------------------------
+
+okta::ocsf::epilogue
+@name = "ocsf.entity_management"

@@ -1,0 +1,132 @@
+---
+description: "Okta → OCSF Detection Finding (2004)"
+---
+
+// --- Preamble ---------------------------------
+
+this = {okta: this}
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 1
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// NB: mirrors $severity_map in map_common.tql — keep in sync.
+let $severity_map = {
+  HIGH: 4,
+  MEDIUM: 3,
+  LOW: 2,
+}
+ocsf.severity_id = $severity_map[okta.debugContext.debugData.risk?]? else 1
+drop okta.debugContext.debugData.risk?
+
+let $status_map = {
+  SUCCESS: 1,
+  FAILURE: 2,
+  DENY: 2,
+}
+ocsf.status_id = $status_map[okta.outcome.result?]? else 0
+ocsf.status_detail = move okta.outcome.reason?
+drop okta.outcome?
+
+// --- OCSF: context attributes -----------------
+// NB: mirrors metadata/time in map_common.tql — keep in sync.
+// Detection findings don't use map_common because they embed actor and
+// src_endpoint inside evidences[] rather than at the top level.
+
+ocsf.time = time(move okta.published)
+ocsf.message = move okta.displayMessage
+
+ocsf.metadata = {
+  event_code: move okta.eventType,
+  log_provider: "Okta",
+  product: {
+    name: "Okta",
+    vendor_name: "Okta",
+    version: move okta.version?,
+  },
+  profiles: ["cloud"],
+  version: "1.7.0",
+  loggers: [{event_uid: okta.uuid?}],
+}
+
+// --- OCSF: finding_info -----------------------
+
+ocsf.finding_info = {
+  title: ocsf.metadata.event_code,
+  uid: move okta.uuid?,
+  desc: ocsf.message,
+}
+
+// --- OCSF: evidences[] -----------------------
+
+// NB: mirrors $actor_type_id in map_common.tql — keep in sync.
+let $actor_type_id = {
+  User: 1,
+  SystemPrincipal: 2,
+}
+
+let $device_type_map = {
+  Computer: "Desktop",
+  Mobile: "Mobile",
+}
+
+// Detection events always carry client context, so inline access is safe.
+ocsf.evidences = [{
+  actor: {
+    session: {
+      uid: okta.authenticationContext.externalSessionId?,
+      uid_alt: okta.authenticationContext.rootSessionId?,
+    },
+    user: {
+      uid: move okta.actor.id?,
+      name: okta.actor.alternateId?.split("@")[0]?,
+      domain: okta.actor.alternateId?.split("@")[1]?,
+      full_name: string(move okta.actor.displayName?),
+      email_addr: move okta.actor.alternateId?,
+      type_id: $actor_type_id[okta.actor.type?]? else 99,
+    },
+  },
+  src_endpoint: {
+    ip: move okta.client.ipAddress?,
+    uid: move okta.client.id?,
+    type: $device_type_map[move okta.client.device?]?,
+    domain: move okta.securityContext.domain?,
+    location: {
+      city: okta.client.geographicalContext?.city?,
+      country: okta.client.geographicalContext?.country?,
+      postal_code: okta.client.geographicalContext?.postalCode?,
+      lat: okta.client.geographicalContext?.geolocation?.lat?,
+      long: okta.client.geographicalContext?.geolocation?.lon?,
+      isp: move okta.securityContext.isp?,
+    },
+    autonomous_system: {
+      number: move okta.securityContext.asNumber?,
+    },
+    owner: {
+      org: {
+        name: move okta.securityContext.asOrg?,
+      },
+    },
+  },
+  http_request: {
+    uid: move okta.debugContext.debugData.requestId?,
+    url: {
+      path: move okta.debugContext.debugData.url?,
+      hostname: move okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
+    },
+    user_agent: okta.client.userAgent?.rawUserAgent?,
+  },
+  data: okta.debugContext.debugData?,
+}]
+
+// --- Epilogue ---------------------------------
+
+// Detection findings consume actor and debugContext inline in evidences[],
+// so drop them before the shared epilogue.
+drop okta.actor?
+drop okta.debugContext?
+okta::ocsf::epilogue
+@name = "ocsf.detection_finding"

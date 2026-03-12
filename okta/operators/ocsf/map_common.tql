@@ -1,0 +1,127 @@
+---
+description: Maps common Okta System Log fields to OCSF.
+---
+
+// --- OCSF: classification attributes ----------
+
+let $severity_map = {
+  HIGH: 4,
+  MEDIUM: 3,
+  LOW: 2,
+}
+ocsf.severity_id = $severity_map[okta.debugContext.debugData.risk?]? else 1
+drop okta.debugContext.debugData.risk?
+
+// --- OCSF: occurrence attributes ---------------
+
+ocsf.time = time(move okta.published)
+ocsf.message = move okta.displayMessage
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  event_code: move okta.eventType,
+  log_provider: "Okta",
+  product: {
+    name: "Okta",
+    vendor_name: "Okta",
+    version: move okta.version?,
+  },
+  profiles: ["cloud"],
+  version: "1.7.0",
+  loggers: [{event_uid: move okta.uuid?}],
+}
+
+ocsf.http_request = {
+  uid: move okta.debugContext.debugData.requestId?,
+  url: {
+    path: move okta.debugContext.debugData.url?,
+    hostname: move okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
+  },
+}
+if okta.client.userAgent? != null {
+  ocsf.http_request.user_agent = move okta.client.userAgent.rawUserAgent?
+}
+
+// --- OCSF: cloud attributes -------------------
+
+ocsf.cloud = {
+  provider: "AWS" if okta.source?.contains("aws.partner") else "Other",
+  region: move okta.region?,
+}
+
+// --- OCSF: actor attributes -------------------
+
+let $actor_type_id = {
+  User: 1,
+  SystemPrincipal: 2,
+}
+
+ocsf.actor = {
+  user: {
+    uid: move okta.actor.id?,
+    name: okta.actor.alternateId?.split("@")[0]?,
+    domain: okta.actor.alternateId?.split("@")[1]?,
+    full_name: move okta.actor.displayName?,
+    email_addr: move okta.actor.alternateId?,
+    type_id: $actor_type_id[okta.actor.type?]? else 99,
+  },
+  session: {
+    uid: okta.authenticationContext.externalSessionId?,
+    uid_alt: move okta.authenticationContext.rootSessionId?,
+  },
+}
+drop okta.actor?
+
+// --- OCSF: src_endpoint -----------------------
+
+let $device_type_map = {
+  Computer: "Desktop",
+  Mobile: "Mobile",
+}
+
+ocsf.src_endpoint = {
+  ip: move okta.client.ipAddress?,
+  uid: move okta.client.id?,
+  type: $device_type_map[move okta.client.device?]?,
+  domain: move okta.securityContext.domain?,
+  autonomous_system: {
+    number: move okta.securityContext.asNumber?,
+  },
+  owner: {
+    org: {
+      name: move okta.securityContext.asOrg?,
+    },
+  },
+}
+ocsf.src_endpoint.location.isp = move okta.securityContext.isp?
+if okta.client.geographicalContext? != null {
+  ocsf.src_endpoint.location.city = move okta.client.geographicalContext.city?
+  ocsf.src_endpoint.location.country = move okta.client.geographicalContext.country?
+  ocsf.src_endpoint.location.postal_code = move okta.client.geographicalContext.postalCode?
+  ocsf.src_endpoint.location.lat = move okta.client.geographicalContext.geolocation?.lat?
+  ocsf.src_endpoint.location.long = move okta.client.geographicalContext.geolocation?.lon?
+}
+
+// --- OCSF: src_endpoint OS from userAgent ------
+
+// Okta reports "Mac OS X (iPhone)" for iPhones, so check for mobile OS
+// indicators before the generic "Mac" match.
+let $os_type_map = {
+  iOS: {name: "iOS", type_id: 301},
+  iPadOS: {name: "iPadOS", type_id: 302},
+  Android: {name: "Android", type_id: 201},
+  Windows: {name: "Windows", type_id: 100},
+  macOS: {name: "macOS", type_id: 300},
+  Linux: {name: "Linux", type_id: 200},
+  ChromeOS: {name: "ChromeOS", type: "ChromeOS", type_id: 99},
+}
+if okta.client.userAgent?.os? != null {
+  if okta.client.userAgent.os.contains("iPhone") or okta.client.userAgent.os == "iOS" { ocsf.src_endpoint.os = $os_type_map["iOS"] }
+  else if okta.client.userAgent.os.contains("iPad") or okta.client.userAgent.os == "iPadOS" { ocsf.src_endpoint.os = $os_type_map["iPadOS"] }
+  else if okta.client.userAgent.os.contains("Android") { ocsf.src_endpoint.os = $os_type_map["Android"] }
+  else if okta.client.userAgent.os.contains("Windows") { ocsf.src_endpoint.os = $os_type_map["Windows"] }
+  else if okta.client.userAgent.os.contains("Mac") { ocsf.src_endpoint.os = $os_type_map["macOS"] }
+  else if okta.client.userAgent.os.contains("Linux") or okta.client.userAgent.os.contains("Ubuntu") { ocsf.src_endpoint.os = $os_type_map["Linux"] }
+  else if okta.client.userAgent.os.contains("ChromeOS") or okta.client.userAgent.os.contains("Chrome OS") or okta.client.userAgent.os.contains("CrOS") { ocsf.src_endpoint.os = $os_type_map["ChromeOS"] }
+}
