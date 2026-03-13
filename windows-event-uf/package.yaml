@@ -1,0 +1,71 @@
+id: winevent-uf
+name: Windows EventLog UF
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/author.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/windows-event-uf/package.svg
+
+description: |
+  This package integrates Windows Event logs collection via a Splunk Universal or Heavy Forwarder.
+
+  Splunk Forwarders can send raw logs to Tenzir by adding the following stanza to the outputs.conf file:
+
+    [tcpout:fastlane]
+    server = <ip of Tenzir Node>:<Port>
+    sendCookedData = false
+
+  You need to configure an additional pipeline that moves the incoming data from the "windows_text_message" to
+  the "windows_text_optimized" topics. At this stage you can implement event filters and text transformations
+  to reduce the data volume.
+
+
+inputs:
+  listen-endpoint:
+    name: Listen Endpoint
+    description: The ip:port pair on which to listen for incoming TCP connections from the Universal Forwarders
+    type: string
+    default: 0.0.0.0:12000
+
+  splunk-url:
+    name: Splunk URL
+    description: The URL to send the reassembled packages to.
+    type: string
+
+pipelines:
+  onboard-windows-event-text:
+    name: Onboard text formatted Windows Event logs
+    description: |
+      A pipeline that receives text formatted Windows Event logs from a Splunk UF or a compatible log agent at
+      the configured listening endpoint.
+    definition: |
+      let $patterns = {
+        WIN_TIMESTAMP: "%{MONTHNUM2}/%{MONTHDAY}/%{YEAR} %{HOUR}:%{MINUTE}:%{SECOND} (AM|PM)",
+      }
+      from "tcp://{{ inputs.listen-endpoint }}" {
+        read_lines split_at_regex="(\\r)?\n(?=[0-9]{2}/[0-9]{2})"
+        // The UF sends a few internal events over the connection before the first winevent.
+        slice begin=1
+      }
+      unpack_1 = line.parse_grok("%{WIN_TIMESTAMP:timestamp}\n%{GREEDYDATA:rest}", pattern_definitions=$patterns)
+      unpack_2 = unpack_1.?rest.split("Message=")
+      this = {
+        Timestamp: unpack_1.timestamp,
+        ...unpack_2[0].parse_kv(field_split="\n", value_split="="),
+        Message: unpack_2[1]
+      }
+      publish "windows_text_message"
+
+  forward-windows-event-text:
+    name: Forward Windows Event logs
+    description: |
+      A pipeline that reassembles the windows text log format from the parsed events and forwards the data to Splunk
+      This can be used to ensure compatibility with the Splunk Windows Technical Addon.
+      Use the Splunk package if you want to send the data to a Splunk HEC endpoint instead.
+    definition: |
+      subscribe "windows_text_optimized"
+      this = {kv: this}
+      Message = move kv.Message
+      kv_string = (move kv.Timestamp) + "\n"
+      kv_string = kv_string + kv.print_kv(field_separator="\n")
+      kv_string = kv_string + "\nMessage=" + Message
+      select kv_string
+      to "{{ inputs.splunk-url }}" { write_lines }
