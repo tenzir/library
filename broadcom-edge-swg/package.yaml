@@ -1,0 +1,237 @@
+id: broadcom-edge-swg
+name: Broadcom Edge SWG / Blue Coat ProxySG
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/broadcom/package.svg
+categories:
+- sources
+- mappings
+
+description: |
+  [Broadcom Edge SWG](https://www.broadcom.com/products/cybersecurity/network/web-protection/proxy-sg-and-advanced-secure-gateway),
+  formerly known as Blue Coat ProxySG, is a secure web gateway that provides
+  web security, web filtering, and inspection for SSL encrypted traffic.
+
+  This package provides pipelines to onboard ProxySG logs and map them to
+  OCSF HTTP Activity events.
+
+inputs:
+  transport:
+    name: Transport Protocol
+    description: |
+      The transport protocol to use for receiving ProxySG logs.
+    type: string
+    default: tcp
+  listen-endpoint:
+    name: Listen Address
+    description: The endpoint to listen on for incoming ProxySG logs.
+    type: string
+    default: 0.0.0.0:514
+
+pipelines:
+  onboard-proxysg-logs-via-udp:
+    name: Onboard ProxySG logs via UDP
+    description: Receives ProxySG logs via UDP.
+    definition: |
+      from_udp "{{ inputs.listen-endpoint }}" {
+        this = data.parse_syslog()
+        content = content.parse_kv()
+      }
+      @name = "broadcom.proxysg"
+      publish "broadcom"
+    disabled: true
+
+  onboard-proxysg-logs-via-tcp:
+    name: Onboard ProxySG logs via TCP
+    description: Receives ProxySG logs via TCP.
+    definition: |
+      from "tcp://{{ inputs.listen-endpoint }}" {
+        read_syslog
+        content = content.parse_kv()
+      }
+      @name = "broadcom.proxysg"
+      publish "broadcom"
+    disabled: true
+
+  map-proxysg-to-ocsf:
+    name: ProxySG to OCSF HTTP Activity
+    description: Maps ProxySG logs to OCSF HTTP Activity events.
+    definition: |
+      let $http_methods = {
+        CONNECT: 1,
+        DELETE: 2,
+        GET: 3,
+        HEAD: 4,
+        OPTIONS: 5,
+        POST: 6,
+        PUT: 7,
+        TRACE: 8,
+        PATCH: 9
+      }
+      let $activity_names = [
+        "Unknown",
+        "Connect",
+        "Delete",
+        "Get",
+        "Head",
+        "Options",
+        "Post",
+        "Put",
+        "Trace",
+        "Patch"
+      ]
+      let $dispositions = {
+        OBSERVED: {id: 15, name: "Detected"},
+        LOGGED: {id: 17, name: "Logged"},
+        ALLOWED: {id: 1, name: "Allowed"},
+        BLOCKED: {id: 2, name: "Blocked"},
+        DENIED: {id: 2, name: "Blocked"}
+      }
+
+      subscribe "broadcom"
+      where @name == "broadcom.proxysg"
+      this = { proxysg: this }
+
+      // === Classification ===
+      ocsf.activity_id = $http_methods[proxysg["cs-method"]]? else 99
+      ocsf.activity_name = $activity_names[ocsf.activity_id]? else "Other"
+      ocsf.category_uid = 4
+      ocsf.category_name = "Network Activity"
+      ocsf.class_uid = 4002
+      ocsf.class_name = "HTTP Activity"
+      ocsf.severity_id = 1
+      ocsf.severity = "Informational"
+      ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+      // === Occurrence ===
+      ocsf.duration = int(move proxysg["time-taken"]? else 0)
+      ocsf.time = now()
+
+      // === Context ===
+      ocsf.metadata = {
+        product: {
+          name: "Edge SWG",
+          vendor_name: "Broadcom"
+        },
+        version: "1.6.0",
+        profiles: ["network_proxy", "security_control"]
+      }
+
+      // === Primary ===
+      ocsf.http_request = {
+        http_method: move proxysg["cs-method"],
+        url: {
+          hostname: move proxysg["cs-host"],
+          port: int(move proxysg["cs-uri-port"]),
+          scheme: move proxysg["cs-uri-scheme"],
+          path: move proxysg["cs-uri-path"]
+        },
+        user_agent: move proxysg["cs-User-Agent"]
+      }
+
+      // Categories as HTTP headers
+      if proxysg["cs-categories"]? != null {
+        ocsf.http_request.http_headers = [{
+          name: "X-Categories",
+          value: move proxysg["cs-categories"]
+        }]
+      }
+
+      ocsf.http_response = {
+        code: int(move proxysg["sc-status"])
+      }
+
+      ocsf.src_endpoint = {
+        ip: ip(move proxysg["c-ip"])
+      }
+
+      ocsf.dst_endpoint = {
+        ip: ip(move proxysg["r-ip"])
+      }
+
+      // Destination country location
+      if proxysg["s-supplier-country"]? not in [null, "None"] {
+        ocsf.dst_endpoint.location = {
+          country: move proxysg["s-supplier-country"]
+        }
+        drop proxysg["s-supplier-country"]?
+      }
+
+      ocsf.proxy_endpoint = {
+        ip: ip(move proxysg["s-ip"])
+      }
+
+      // Drop duplicate client IP (already used in src_endpoint)
+      drop proxysg["cs-ip"]
+
+      ocsf.traffic = {
+        bytes_in: int(move proxysg["sc-bytes"]),
+        bytes_out: int(move proxysg["cs-bytes"])
+      }
+
+      // Security control fields
+      disposition = $dispositions[proxysg["sc-filter-result"]]? else {id: 99, name: "Other"}
+      ocsf.disposition_id = disposition.id
+      ocsf.disposition = disposition.name
+      drop proxysg["sc-filter-result"]
+
+      // Proxy action is always "Observed" for ProxySG logs
+      ocsf.action_id = 3
+      ocsf.action = "Observed"
+      // Keep vendor-specific action in unmapped
+      move proxysg["proxy_action"] = proxysg["s-action"]
+
+      // Risk score
+      if proxysg["cs-threat-risk"] != null {
+        ocsf.risk_score = int(move proxysg["cs-threat-risk"])
+      }
+
+      // ICAP scanning status as proxy HTTP headers
+      icap_headers = []
+      if proxysg["cs-icap-status"] != null {
+        icap_headers = icap_headers.append({
+          name: "X-ICAP-Status",
+          value: move proxysg["cs-icap-status"]
+        })
+      }
+      if proxysg["rs-icap-status"] != null {
+        icap_headers = icap_headers.append({
+          name: "X-Response-ICAP-Status",
+          value: move proxysg["rs-icap-status"]
+        })
+      }
+      if proxysg["s-icap-status"] != null {
+        icap_headers = icap_headers.append({
+          name: "X-Server-ICAP-Status",
+          value: move proxysg["s-icap-status"]
+        })
+      }
+      if icap_headers != [] {
+        ocsf.proxy_http_request = {
+          http_headers: icap_headers
+        }
+      }
+
+      // TLS cipher information
+      if proxysg["x-cs-connection-negotiated-cipher"]? not in [null, "none"] {
+        ocsf.tls = {
+          cipher: move proxysg["x-cs-connection-negotiated-cipher"]
+        }
+        drop proxysg["x-cs-connection-negotiated-cipher"]
+      }
+
+      if proxysg["x-rs-connection-negotiated-cipher"]? not in [null, "none"] {
+        ocsf.proxy_tls = {
+          cipher: move proxysg["x-rs-connection-negotiated-cipher"]
+        }
+        drop proxysg["x-rs-connection-negotiated-cipher"]
+      }
+
+      // HTTP status mapping
+      ocsf.status_code = string(ocsf.http_response.code)
+      ocsf.status_id = 1 if ocsf.http_response.code >= 200 and ocsf.http_response.code < 300 else 2
+      ocsf.status = "Success" if ocsf.status_id == 1 else "Failure"
+
+      this = {...ocsf, unmapped: proxysg}
+      @name = "ocsf.http_activity"
+      publish "ocsf"
