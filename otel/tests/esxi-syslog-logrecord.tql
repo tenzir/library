@@ -1,0 +1,51 @@
+from_file env("TENZIR_INPUT") {
+  read_syslog
+}
+
+originator = structured_data["Originator@6876"]
+user_parts = originator.user.split(":")
+domain_parts = user_parts[1].split(r#"\"#)
+task = message.parse_grok(r#"Task %{WORD:task_state} : %{DATA:task_id} Status %{WORD:task_status}"#)
+
+task_type = task.task_id.replace_regex(r#"^.*\."#, "").replace_regex(r#"-[0-9]+$"#, "")
+
+attrs = {
+  "syslog.facility": facility,
+  "syslog.severity": severity,
+  "process.pid": process_id.int(),
+  subsystem: originator.sub,
+  "operation.id": originator.opID,
+  "session.id": originator.sid,
+  "user.name": user_parts[0],
+  "user.domain": domain_parts[0],
+  "task.id": task.task_id,
+  "task.type": task_type,
+  "task.status": task.task_status,
+  "task.state": task.task_state.to_lower(),
+}
+
+resource = {
+  "host.name": hostname,
+  "service.name": app_name,
+  "product.name": "VMware ESXi",
+  "product.vendor": "VMware",
+}
+
+trace_id = ""
+span_id = ""
+severity_number = 9
+severity_text = "INFO"
+
+otel::logrecord attrs,
+  body=message,
+  time=timestamp,
+  observed_time=timestamp,
+  severity_number=severity_number,
+  severity_text=severity_text,
+  trace_id=trace_id,
+  span_id=span_id
+
+otel::export_logs resource,
+  log_record=log_record,
+  scope_name="syslog-collector",
+  scope_version="1.0.0"

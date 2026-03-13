@@ -1,0 +1,24 @@
+---
+description: Converts a record field into OTLP log attributes.
+args:
+  positional:
+    - name: input
+      type: field
+      description: Record field to convert to OTLP KeyValue entries.
+---
+
+attributes = null if $input == null else $input.keys().map(k => {
+  key: k,
+  value: {
+    // Shortcut on purpose: until we add proper arrayValue/kvlistValue/bytesValue
+    // support, stringify unsupported non-null kinds instead of emitting an
+    // empty AnyValue.
+    stringValue: $input[k] if $input[k] != null and type_of($input[k]).kind == "string" else
+                 $input[k].string() if $input[k] != null and type_of($input[k]).kind in ["ip", "subnet", "time", "duration"] else
+                 $input[k].string() if $input[k] != null and type_of($input[k]).kind not in ["string", "ip", "subnet", "time", "duration", "bool", "int64", "uint64", "double"] else
+                 null,
+    boolValue: $input[k] if $input[k] != null and type_of($input[k]).kind == "bool" else null,
+    intValue: $input[k].string() if $input[k] != null and type_of($input[k]).kind in ["int64", "uint64"] else null,
+    doubleValue: $input[k] if $input[k] != null and type_of($input[k]).kind == "double" else null,
+  },
+})

@@ -1,0 +1,70 @@
+---
+description: Builds one OTLP LogRecord from the current event.
+args:
+  positional:
+    - name: attributes
+      type: field
+      description: Record field that becomes OTLP attributes.
+  named:
+    - name: body
+      type: field
+      default: null
+      description: Field to encode as the OTLP body AnyValue.
+    - name: time
+      type: field
+      default: null
+      description: Event timestamp field.
+    - name: observed_time
+      type: field
+      default: null
+      description: Observation timestamp field.
+    - name: severity_number
+      type: field
+      default: null
+      description: OTLP severity number.
+    - name: severity_text
+      type: field
+      default: null
+      description: OTLP severity text.
+    - name: flags
+      type: field
+      default: null
+      description: OTLP log flags.
+    - name: trace_id
+      type: field
+      default: null
+      description: Trace identifier, typically a hex string.
+    - name: span_id
+      type: field
+      default: null
+      description: Span identifier, typically a hex string.
+---
+
+_body_kind = type_of($body).kind if $body != null else null
+
+otel::attributes $attributes
+
+log_record = {
+  timeUnixNano: $time.since_epoch().count_nanoseconds().string() if $time != null else null,
+  observedTimeUnixNano: $observed_time.since_epoch().count_nanoseconds().string() if $observed_time != null else null,
+  severityNumber: $severity_number,
+  severityText: $severity_text,
+  body: {
+    // Shortcut on purpose: until we add proper arrayValue/kvlistValue/bytesValue
+    // support, stringify unsupported non-null body kinds instead of emitting an
+    // empty AnyValue.
+    stringValue: $body if _body_kind == "string" else
+                 $body.string() if _body_kind in ["ip", "subnet", "time", "duration"] else
+                 $body.string() if _body_kind not in ["string", "ip", "subnet", "time", "duration", "bool", "int64", "uint64", "double"] else
+                 null,
+    boolValue: $body if _body_kind == "bool" else null,
+    intValue: $body.string() if _body_kind in ["int64", "uint64"] else null,
+    doubleValue: $body if _body_kind == "double" else null,
+  } if $body != null else null,
+  attributes: move attributes,
+  flags: $flags,
+  traceId: $trace_id,
+  spanId: $span_id,
+}
+
+drop _body_kind
