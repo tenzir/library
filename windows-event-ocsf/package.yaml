@@ -1,0 +1,296 @@
+---
+id: wec
+name: Windows Event Collector
+author: Tenzir
+author_icon: https://github.com/tenzir.png
+package_icon: https://github.com/microsoft.png
+description: |
+  Handles onboarding and OCSF mapping of Windows Event Collector logs.
+  This package currently supports input from nxlog in the xm_json format.
+  Please contact us if you would like to use a different schema or log shipper.
+
+inputs:
+  windows-event-feed:
+    name: WEC Feed
+    type: string
+    description: |
+      The address of the Windows Event feed.
+    default: 0.0.0.0:9356
+
+pipelines:
+  onboard-windows-events:
+    name: Onboard Windows Event Feed
+    description: Onboard and publish Microsoft Windows events.
+    definition: |
+      // tql2
+      load_tcp "{{ inputs.windows-event-feed }}" {
+        read_ndjson
+      }
+      @name = "windows_event"
+      publish "windows-event"
+    restart-on-error: 1.0m
+    unstoppable: true
+
+  publish-ocsf-authentication-winevent-login:
+    name: Publish OCSF Authentication from Windows Event 4624
+    description: Create and publish an OCSF event for the Windows Event 4624.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4624
+      if type_id(IpAddress) != type_id(127.0.0.1) {
+        dst_endpoint.ip = ip(null)
+      } else {
+        dst_endpoint.ip = IpAddress
+      }
+      this = {
+        time: EventTime,
+        class_uid: 3002,
+        category_uid: 3,
+        activity_id: 1,
+        type_uid: 300201,
+        severity_id: 1,
+        metadata: {
+          log_name: "Windows logging subsystem: Security",
+          event_code: "4624",
+          version: "1.3.0",
+          product: {
+            name: "Microsoft Windows",
+            vendor_name: "Microsoft"
+          },
+          profiles: ["host"],
+        },
+        status_id: 1,
+        dst_endpoint: {
+          hostname: Hostname,
+          ip: dst_endpoint.ip,
+        },
+        session: {
+          uid: TargetLogonId,
+          uuid: LogonGuid,
+        },
+        actor: {
+          process: {
+            pid: ProcessID,
+            name: ProcessName,
+          },
+          session: {
+            uid: SubjectLogonId,
+          },
+          user: {
+            account: {
+              type_id: 2,
+              uid: SubjectUserSid,
+            },
+          },
+        },
+        user: {
+          name: TargetUserName,
+          type_id: 0,
+          uid: TargetUserSid,
+          domain: TargetDomainName,
+        },
+        device: {
+          type_id: 0,
+          name: WorkstationName,
+        },
+        unmapped: {
+          ImpersonationLevel: ImpersonationLevel,
+          environment: uhh_environment,
+        }
+      }
+      @name = "ocsf.authentication"
+      publish "ocsf"
+    restart-on-error: 1.0m
+
+  publish-ocsf-authentication-winevent-failure:
+    name: Publish OCSF Authentication Failure from Windows Event 4625
+    description: Create and publish an OCSF event for the Windows Event 4625.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4625
+      if type_id(IpAddress) != type_id(127.0.0.1) {
+        dst_endpoint.ip = ip(null)
+      } else {
+        dst_endpoint.ip = IpAddress
+      }
+      this = {
+        time: EventTime,
+        class_uid: 3002,
+        category_uid: 3,
+        activity_id: 1,
+        type_uid: 300201,
+        severity_id: 1,
+        metadata: {
+          log_name: "Windows logging subsystem: Security",
+          event_code: "4625",
+          version: "1.3.0",
+          product: {
+            name: "Microsoft Windows",
+            vendor_name: "Microsoft",
+          },
+          profiles: ["host"],
+        },
+        status_id: 2,
+        dst_endpoint: {
+          hostname: Hostname,
+          ip: dst_endpoint.ip,
+        },
+        actor: {
+          process: {
+              pid: ProcessID,
+              name: ProcessName,
+            },
+          session: {
+            uid: SubjectLogonId,
+          },
+          user: {
+            account: {
+              type_id: 2,
+              uid: SubjectUserSid,
+            },
+          },
+        },
+        user: {
+          name: TargetUserName,
+          type_id: 0,
+          uid: TargetUserSid,
+          domain: TargetDomainName,
+        },
+        device: {
+          type_id: 0,
+          name: WorkstationName,
+        },
+        unmapped: {
+          environment: uhh_environment,
+        },
+        status_detail: FailureReason,
+      }
+      @name = "ocsf.authentication"
+      publish "ocsf"
+    restart-on-error: 1.0m
+
+  publish-ocsf-authentication-winevent-logout:
+    name: Publish OCSF Authentication Logout from Windows Event 4634
+    description: Create and publish an OCSF event for the Windows Event 4634.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4634
+      this = {
+        time: EventTime,
+        class_uid: 3002,
+        category_uid: 3,
+        activity_id: 2,
+        type_uid: 300202,
+        severity_id: 1,
+        metadata: {
+          log_name: "Windows logging subsystem: Security",
+          event_code: "4634",
+          version: "1.3.0",
+          product: {
+            name: "Microsoft Windows",
+            vendor_name: "Microsoft"
+          },
+        },
+        status_id: 1,
+        dst_endpoint: {
+          hostname: Hostname
+        },
+        session: {
+          uid: TargetLogonId
+        },
+        user: {
+          name: TargetUserName,
+          type_id: 0,
+          uid: TargetUserSid,
+          domain: TargetDomainName
+        },
+        unmapped: {
+          environment: uhh_environment
+        },
+      }
+      @name = "ocsf.authentication"
+      publish "ocsf"
+    restart-on-error: 1.0m
+
+  publish-ocsf-system-audit-policy-changed-4719:
+    name: Publish OCSF System Audit Policy Changed from Windows Event 4719
+    description: Create and publish an OCSF event for the Windows Event 4719.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4719
+      dst_endpoint.ip = IpAddress
+      if type_id(IpAddress) != type_id(127.0.0.1) {
+        dst_endpoint.ip = ip(null)
+      } else {
+        dst_endpoint.ip = IpAddress
+      }
+      this = {
+        time: EventTime,
+        class_uid: 3004,
+        type_uid: 300403,
+        category_uid: 3,
+        activity_id: 3,
+        severity_id: 1,
+        metadata: {
+          log_name: "Windows logging subsystem: Security",
+          event_code: "4719",
+          version: "1.3.0",
+          product: {
+            name: "Microsoft Windows",
+            vendor_name: "Microsoft",
+          },
+          profiles: ["host"],
+        },
+        actor: {
+          user: {
+            account: {
+              type_id: 2,
+              uid: SubjectUserSid,
+            },
+            name: SubjectUserName,
+            domain: SubjectDomainName,
+          },
+          session: {
+            uid: SubjectLogonId,
+          },
+        },
+        entity: {
+          type_id: 5,
+          policy: {
+            uid: SubcategoryId,
+            name: SubcategoryGuid,
+            group: {
+              uid: CategoryId,
+            },
+          },
+        },
+        unmapped: {
+          environment: uhh_environment,
+          AuditPolicyChanges: AuditPolicyChanges,
+        },
+      }
+      @name = "ocsf.entity_management"
+      publish "ocsf"
+    restart-on-error: 1.0m
+
+  publish-ocsf-system-audit-policy-changed-4720:
+    name: Publish OCSF System Audit Policy Changed from Windows Event 4720
+    description: Create and publish an OCSF event for the Windows Event 4720.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4720
+      // TODO
+
+  publish-ocsf-system-audit-policy-changed-4723:
+    name: Publish OCSF System Audit Policy Changed from Windows Event 4723
+    description: Create and publish an OCSF event for the Windows Event 4723.
+    definition: |
+      // tql2
+      subscribe "windows-event"
+      where EventID == 4723
+      // TODO
