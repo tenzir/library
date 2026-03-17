@@ -8,7 +8,9 @@ drop fortigate._type?
 drop fortigate._subtype?
 drop fortigate._action?
 
-_level = fortigate.severity? else fortigate.level?
+// Prefer FortiGate's string `level` over the syslog numeric `severity` field
+// that read_syslog injects on the envelope.
+_level = (fortigate.level? else fortigate.severity?).to_lower()
 if _level in ["information", "informational", "notice"] {
   ocsf.severity_id = 1
   ocsf.severity = "Informational"
@@ -107,9 +109,9 @@ if fortigate.dstcountry? != null {
   ocsf.dst_endpoint.location.country = move fortigate.dstcountry
 }
 
-if (ocsf.src_endpoint.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
-   (ocsf.dst_endpoint.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
+if (ocsf.src_endpoint?.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
+   (ocsf.dst_endpoint?.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
   ocsf.connection_info.protocol_ver_id = 6
-} else if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
+} else if ocsf.src_endpoint?.ip? != null or ocsf.dst_endpoint?.ip? != null {
   ocsf.connection_info.protocol_ver_id = 4
 }
