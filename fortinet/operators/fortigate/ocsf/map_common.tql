@@ -5,6 +5,14 @@ description: Common FortiGate → OCSF mappings
 // FortiGate level/severity → OCSF severity_id. Prefer FortiGate's string
 // `level` over the syslog numeric `severity` field that read_syslog injects on
 // the envelope. The sibling `severity` name is filled by ocsf::derive.
+// IANA protocol numbers to names.
+let $protocols = {
+  "1": "icmp",
+  "6": "tcp",
+  "17": "udp",
+  "58": "icmpv6",
+}
+
 let $severities = {
   information: 1,
   informational: 1,
@@ -76,10 +84,9 @@ if fortigate.sessionid? != null {
 }
 
 if fortigate.proto? != null {
-  ocsf.connection_info.protocol_num = move fortigate.proto
-}
-if fortigate.protocol_name? != null {
-  ocsf.connection_info.protocol_name = move fortigate.protocol_name
+  ocsf.connection_info.protocol_num = fortigate.proto
+  ocsf.connection_info.protocol_name = $protocols[fortigate.proto.string()]?
+  drop fortigate.proto
 }
 
 if fortigate.srcip? != null {
