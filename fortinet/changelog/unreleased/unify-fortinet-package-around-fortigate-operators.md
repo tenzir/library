@@ -4,8 +4,6 @@ type: breaking
 authors:
   - mavam
   - codex
-components:
-  - fortinet
 created: 2026-03-17T08:59:41.370501Z
 ---
 
