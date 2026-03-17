@@ -2,23 +2,23 @@
 description: Common FortiGate → OCSF mappings
 ---
 
-// FortiGate level/severity → OCSF severity. Prefer FortiGate's string `level`
-// over the syslog numeric `severity` field that read_syslog injects on the
-// envelope.
+// FortiGate level/severity → OCSF severity_id. Prefer FortiGate's string
+// `level` over the syslog numeric `severity` field that read_syslog injects on
+// the envelope. The sibling `severity` name is filled by ocsf::derive.
 let $severities = {
-  information: {id: 1, name: "Informational"},
-  informational: {id: 1, name: "Informational"},
-  notice: {id: 1, name: "Informational"},
-  debug: {id: 1, name: "Informational"},
-  low: {id: 2, name: "Low"},
-  warning: {id: 3, name: "Medium"},
-  medium: {id: 3, name: "Medium"},
-  error: {id: 4, name: "High"},
-  high: {id: 4, name: "High"},
-  alert: {id: 5, name: "Critical"},
-  critical: {id: 5, name: "Critical"},
-  fatal: {id: 6, name: "Fatal"},
-  emergency: {id: 6, name: "Fatal"},
+  information: 1,
+  informational: 1,
+  notice: 1,
+  debug: 1,
+  low: 2,
+  warning: 3,
+  medium: 3,
+  error: 4,
+  high: 4,
+  alert: 5,
+  critical: 5,
+  fatal: 6,
+  emergency: 6,
 }
 
 _fortigate = merge(this, content?) if content? != null else this
@@ -31,9 +31,7 @@ _level = fortigate.level? else fortigate.severity?
 if _level != null {
   _level = _level.to_lower()
 }
-_sev = $severities[_level]? else {id: 0, name: "Unknown"}
-ocsf.severity_id = _sev.id
-ocsf.severity = _sev.name
+ocsf.severity_id = $severities[_level]? else 0
 
 if fortigate.timestamp? != null {
   ocsf.time = move fortigate.timestamp

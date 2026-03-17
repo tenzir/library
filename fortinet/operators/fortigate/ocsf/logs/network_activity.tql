@@ -2,32 +2,29 @@
 description: "FortiGate traffic logs → OCSF Network Activity (4001)"
 ---
 
-// FortiGate action → OCSF action/disposition/status.
+// FortiGate action → OCSF action_id/disposition_id/status_id.
+// Sibling names are filled by ocsf::derive.
 let $actions = {
-  allow: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
-  accept: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
-  pass: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
-  block: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked", status_id: 2, status: "Failure"},
-  blocked: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked", status_id: 2, status: "Failure"},
-  drop: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
-  dropped: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
-  clear_session: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
+  allow: {action_id: 1, disposition_id: 1, status_id: 1},
+  accept: {action_id: 1, disposition_id: 1, status_id: 1},
+  pass: {action_id: 1, disposition_id: 1, status_id: 1},
+  block: {action_id: 2, disposition_id: 2, status_id: 2},
+  blocked: {action_id: 2, disposition_id: 2, status_id: 2},
+  drop: {action_id: 2, disposition_id: 6, status_id: 2},
+  dropped: {action_id: 2, disposition_id: 6, status_id: 2},
+  clear_session: {action_id: 2, disposition_id: 6, status_id: 2},
 }
 
 fortinet::fortigate::ocsf::map_common
 
 ocsf.activity_id = 6
-ocsf.activity_name = "Traffic"
 ocsf.category_uid = 4
-ocsf.category_name = "Network Activity"
 ocsf.class_uid = 4001
-ocsf.class_name = "Network Activity"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.is_src_dst_assignment_known = true
 
 if fortigate.action? in ["client-rst", "server-rst"] {
   ocsf.activity_id = 3
-  ocsf.activity_name = "Reset"
   ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 }
 
@@ -56,14 +53,10 @@ _decision = fortigate.utmaction? else fortigate.action?
 _mapped = $actions[_decision]?
 if _mapped != null {
   ocsf.action_id = _mapped.action_id
-  ocsf.action = _mapped.action
   ocsf.disposition_id = _mapped.disposition_id
-  ocsf.disposition = _mapped.disposition
   ocsf.status_id = _mapped.status_id
-  ocsf.status = _mapped.status
 } else if fortigate.action? in ["client-rst", "server-rst"] {
   ocsf.disposition_id = 21
-  ocsf.disposition = "Reset"
 }
 
 if fortigate.policyid? != null {

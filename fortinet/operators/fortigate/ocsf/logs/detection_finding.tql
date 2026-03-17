@@ -2,33 +2,31 @@
 description: "FortiGate UTM alerts → OCSF Detection Finding (2004)"
 ---
 
-// FortiGate action → OCSF action/disposition.
+// FortiGate action → OCSF action_id/disposition_id.
+// Sibling names are filled by ocsf::derive.
 let $actions = {
-  pass: {action_id: 3, action: "Observed", disposition_id: 15, disposition: "Detected"},
-  allow: {action_id: 3, action: "Observed", disposition_id: 15, disposition: "Detected"},
-  block: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked"},
-  blocked: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked"},
-  drop: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
-  dropped: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
-  clear_session: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
+  pass: {action_id: 3, disposition_id: 15},
+  allow: {action_id: 3, disposition_id: 15},
+  block: {action_id: 2, disposition_id: 2},
+  blocked: {action_id: 2, disposition_id: 2},
+  drop: {action_id: 2, disposition_id: 6},
+  dropped: {action_id: 2, disposition_id: 6},
+  clear_session: {action_id: 2, disposition_id: 6},
 }
 
-// FortiGate crlevel → OCSF risk level.
+// FortiGate crlevel → OCSF risk_level_id.
 let $risk_levels = {
-  low: {id: 1, name: "Low"},
-  medium: {id: 2, name: "Medium"},
-  high: {id: 3, name: "High"},
-  critical: {id: 4, name: "Critical"},
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
 }
 
 fortinet::fortigate::ocsf::map_common
 
 ocsf.activity_id = 1
-ocsf.activity_name = "Create"
 ocsf.category_uid = 2
-ocsf.category_name = "Findings"
 ocsf.class_uid = 2004
-ocsf.class_name = "Detection Finding"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.is_alert = true
 
@@ -48,22 +46,18 @@ ocsf.finding_info = {
 // Finding status uses the Finding enum (New/In Progress/Suppressed/Resolved),
 // not the Base Event enum (Success/Failure). All FortiGate detections are new.
 ocsf.status_id = 1
-ocsf.status = "New"
 
 _decision = fortigate.action? else fortigate.utmaction?
-_mapped = $actions[_decision]? else {action_id: 0, action: "Unknown", disposition_id: 0, disposition: "Unknown"}
+_mapped = $actions[_decision]? else {action_id: 0, disposition_id: 0}
 ocsf.action_id = _mapped.action_id
-ocsf.action = _mapped.action
 ocsf.disposition_id = _mapped.disposition_id
-ocsf.disposition = _mapped.disposition
 
 if fortigate.crscore? != null {
   ocsf.risk_score = move fortigate.crscore
 }
 _risk = $risk_levels[fortigate.crlevel?]?
 if _risk != null {
-  ocsf.risk_level_id = _risk.id
-  ocsf.risk_level = _risk.name
+  ocsf.risk_level_id = _risk
 }
 
 _evidence = {
