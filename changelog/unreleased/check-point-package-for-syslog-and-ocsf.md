@@ -17,6 +17,7 @@ from "udp://0.0.0.0:514" {
 }
 checkpoint::parse
 checkpoint::ocsf::map
+ocsf::cast
 ```
 
 The package covers raw Check Point syslog parsing, normalization of firewall traffic and detection records, and tested OCSF mappings for `network_activity` and `detection_finding`.
