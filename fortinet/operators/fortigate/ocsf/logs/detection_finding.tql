@@ -1,0 +1,90 @@
+---
+description: "FortiGate UTM alerts → OCSF Detection Finding (2004)"
+---
+
+fortinet::fortigate::ocsf::map_common
+
+ocsf.activity_id = 1
+ocsf.activity_name = "Create"
+ocsf.category_uid = 2
+ocsf.category_name = "Findings"
+ocsf.class_uid = 2004
+ocsf.class_name = "Detection Finding"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.is_alert = true
+
+_title = fortigate.attack? else fortigate.virus? else fortigate.msg? else fortigate.logdesc?
+ocsf.finding_info = {
+  title: _title,
+  desc: ocsf.message,
+  uid: fortigate.logid?.string(),
+  analytic: {
+    name: _title,
+    type: "Rule",
+    type_id: 1,
+    uid: fortigate.attackid?.string() else fortigate.virusid?.string() else fortigate.logid?.string(),
+  },
+}
+
+_decision = fortigate.action? else fortigate.utmaction?
+if _decision in ["pass", "allow"] {
+  ocsf.action_id = 3
+  ocsf.action = "Observed"
+  ocsf.disposition_id = 15
+  ocsf.disposition = "Detected"
+  ocsf.status_id = 1
+  ocsf.status = "Success"
+} else if _decision in ["block", "blocked"] {
+  ocsf.action_id = 2
+  ocsf.action = "Denied"
+  ocsf.disposition_id = 2
+  ocsf.disposition = "Blocked"
+  ocsf.status_id = 2
+  ocsf.status = "Failure"
+} else if _decision in ["drop", "dropped", "clear_session"] {
+  ocsf.action_id = 2
+  ocsf.action = "Denied"
+  ocsf.disposition_id = 6
+  ocsf.disposition = "Dropped"
+  ocsf.status_id = 2
+  ocsf.status = "Failure"
+}
+
+if fortigate.crscore? != null {
+  ocsf.risk_score = move fortigate.crscore
+}
+if fortigate.crlevel? == "low" {
+  ocsf.risk_level_id = 1
+  ocsf.risk_level = "Low"
+} else if fortigate.crlevel? == "medium" {
+  ocsf.risk_level_id = 2
+  ocsf.risk_level = "Medium"
+} else if fortigate.crlevel? == "high" {
+  ocsf.risk_level_id = 3
+  ocsf.risk_level = "High"
+} else if fortigate.crlevel? == "critical" {
+  ocsf.risk_level_id = 4
+  ocsf.risk_level = "Critical"
+}
+
+_evidence = {
+  src_endpoint: move ocsf.src_endpoint?,
+  dst_endpoint: move ocsf.dst_endpoint?,
+  connection_info: move ocsf.connection_info?,
+}
+if fortigate.url? != null {
+  _evidence.url = {
+    url_string: move fortigate.url,
+  }
+}
+if fortigate.filename? != null {
+  _evidence.file = {
+    name: move fortigate.filename,
+  }
+}
+ocsf.evidences = [_evidence]
+
+this = {...ocsf, unmapped: fortigate}
+@name = "ocsf.detection_finding"
+drop_null_fields unmapped
+ocsf::derive

@@ -1,0 +1,79 @@
+---
+description: "FortiGate traffic logs → OCSF Network Activity (4001)"
+---
+
+fortinet::fortigate::ocsf::map_common
+
+ocsf.activity_id = 6
+ocsf.activity_name = "Traffic"
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4001
+ocsf.class_name = "Network Activity"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.is_src_dst_assignment_known = true
+
+if fortigate.action? in ["client-rst", "server-rst"] {
+  ocsf.activity_id = 3
+  ocsf.activity_name = "Reset"
+  ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+}
+
+ocsf.traffic = {
+  bytes_in: move fortigate.rcvdbyte?,
+  bytes_out: move fortigate.sentbyte?,
+  packets_in: move fortigate.rcvdpkt?,
+  packets_out: move fortigate.sentpkt?,
+}
+if ocsf.traffic.bytes_in? != null or ocsf.traffic.bytes_out? != null {
+  ocsf.traffic.bytes = (ocsf.traffic.bytes_in? else 0) + (ocsf.traffic.bytes_out? else 0)
+}
+if ocsf.traffic.packets_in? != null or ocsf.traffic.packets_out? != null {
+  ocsf.traffic.packets = (ocsf.traffic.packets_in? else 0) + (ocsf.traffic.packets_out? else 0)
+}
+
+if fortigate.duration? != null {
+  ocsf.duration = move fortigate.duration * 1000
+}
+
+if fortigate.app? != null {
+  ocsf.app_name = move fortigate.app
+}
+
+_decision = fortigate.utmaction? else fortigate.action?
+if _decision in ["allow", "accept", "pass"] {
+  ocsf.action_id = 1
+  ocsf.action = "Allowed"
+  ocsf.disposition_id = 1
+  ocsf.disposition = "Allowed"
+  ocsf.status_id = 1
+  ocsf.status = "Success"
+} else if _decision in ["block", "blocked"] {
+  ocsf.action_id = 2
+  ocsf.action = "Denied"
+  ocsf.disposition_id = 2
+  ocsf.disposition = "Blocked"
+  ocsf.status_id = 2
+  ocsf.status = "Failure"
+} else if _decision in ["drop", "dropped", "clear_session"] {
+  ocsf.action_id = 2
+  ocsf.action = "Denied"
+  ocsf.disposition_id = 6
+  ocsf.disposition = "Dropped"
+  ocsf.status_id = 2
+  ocsf.status = "Failure"
+} else if fortigate.action? in ["client-rst", "server-rst"] {
+  ocsf.disposition_id = 21
+  ocsf.disposition = "Reset"
+}
+
+if fortigate.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: fortigate.policyid.string(),
+  }
+}
+
+this = {...ocsf, unmapped: fortigate}
+@name = "ocsf.network_activity"
+drop_null_fields unmapped
+ocsf::derive

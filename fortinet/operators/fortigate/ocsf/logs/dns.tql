@@ -1,0 +1,63 @@
+---
+description: "FortiGate DNS filter logs → OCSF DNS Activity (4003)"
+---
+
+fortinet::fortigate::ocsf::map_common
+
+ocsf.category_uid = 4
+ocsf.category_name = "Network Activity"
+ocsf.class_uid = 4003
+ocsf.class_name = "DNS Activity"
+ocsf.activity_id = 2 if fortigate.eventtype? == "dns-response" else 1
+ocsf.activity_name = "Response" if ocsf.activity_id == 2 else "Query"
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.query = {
+  hostname: move fortigate.qname?,
+  class: move fortigate.qclass?,
+  type: move fortigate.qtype?,
+}
+ocsf.query_time = ocsf.time
+if fortigate.eventtype? == "dns-response" {
+  ocsf.response_time = ocsf.time
+}
+
+if fortigate.ipaddr? != null {
+  ocsf.answers = [{
+    rdata: fortigate.ipaddr.string(),
+  }]
+  ocsf.rcode_id = 0
+  ocsf.rcode = "NoError"
+}
+
+if fortigate.xid? != null {
+  ocsf.connection_info.uid = fortigate.xid.string()
+}
+
+if fortigate.action? in ["pass", "allow"] {
+  ocsf.action_id = 1
+  ocsf.action = "Allowed"
+  ocsf.disposition_id = 1
+  ocsf.disposition = "Allowed"
+  ocsf.status_id = 1
+  ocsf.status = "Success"
+} else if fortigate.action? in ["block", "blocked"] {
+  ocsf.action_id = 2
+  ocsf.action = "Denied"
+  ocsf.disposition_id = 2
+  ocsf.disposition = "Blocked"
+  ocsf.status_id = 2
+  ocsf.status = "Failure"
+} else {
+  ocsf.status_id = 0
+  ocsf.status = "Unknown"
+}
+
+if fortigate.catdesc? != null {
+  ocsf.status_detail = move fortigate.catdesc
+}
+
+this = {...ocsf, unmapped: fortigate}
+@name = "ocsf.dns_activity"
+drop_null_fields unmapped
+ocsf::derive

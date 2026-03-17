@@ -1,0 +1,105 @@
+---
+description: Common FortiGate → OCSF mappings
+---
+
+_fortigate = merge(this, content) if content? != null and type_of(content).kind == "record" else this
+this = {fortigate: _fortigate}
+drop fortigate._type?
+drop fortigate._subtype?
+drop fortigate._action?
+
+_level = fortigate.severity? else fortigate.level?
+if _level in ["information", "informational", "notice"] {
+  ocsf.severity_id = 1
+  ocsf.severity = "Informational"
+} else if _level in ["warning", "medium"] {
+  ocsf.severity_id = 3
+  ocsf.severity = "Medium"
+} else if _level in ["error", "high"] {
+  ocsf.severity_id = 4
+  ocsf.severity = "High"
+} else if _level in ["alert", "critical"] {
+  ocsf.severity_id = 5
+  ocsf.severity = "Critical"
+} else if _level == "fatal" {
+  ocsf.severity_id = 6
+  ocsf.severity = "Fatal"
+} else {
+  ocsf.severity_id = 0
+  ocsf.severity = "Unknown"
+}
+
+ocsf.time = move fortigate.timestamp? else parse_time(
+  f"{fortigate.date} {fortigate.time}",
+  "%Y-%m-%dT%H:%M:%SZ %H:%M:%S",
+)
+ocsf.message = move fortigate.msg? else move fortigate.logdesc? else move fortigate.action?
+ocsf.metadata = {
+  version: "1.7.0",
+  product: {
+    name: "FortiGate",
+    vendor_name: "Fortinet",
+  },
+  profiles: ["host", "security_control"],
+}
+if fortigate.logid? != null {
+  ocsf.metadata.event_code = fortigate.logid.string()
+}
+if fortigate.type? != null and fortigate.subtype? != null {
+  ocsf.metadata.log_name = f"{fortigate.type}.{fortigate.subtype}"
+} else {
+  ocsf.metadata.log_name = move fortigate.type?
+}
+
+if fortigate.hostname? != null {
+  ocsf.device = {
+    hostname: move fortigate.hostname,
+  }
+}
+
+if fortigate.sessionid? != null {
+  ocsf.connection_info.uid = fortigate.sessionid.string()
+}
+
+if fortigate.proto? != null {
+  ocsf.connection_info.protocol_num = move fortigate.proto
+}
+if fortigate.protocol_name? != null {
+  ocsf.connection_info.protocol_name = move fortigate.protocol_name
+}
+
+if fortigate.srcip? != null {
+  ocsf.src_endpoint.ip = move fortigate.srcip
+}
+if fortigate.srcport? != null {
+  ocsf.src_endpoint.port = move fortigate.srcport
+}
+if fortigate.srcmac? != null {
+  ocsf.src_endpoint.mac = move fortigate.srcmac
+}
+if fortigate.srcintf? != null {
+  ocsf.src_endpoint.interface_uid = move fortigate.srcintf
+}
+if fortigate.srccountry? != null {
+  ocsf.src_endpoint.location.country = move fortigate.srccountry
+}
+
+if fortigate.dstip? != null {
+  ocsf.dst_endpoint.ip = move fortigate.dstip
+}
+if fortigate.dstport? != null {
+  ocsf.dst_endpoint.port = move fortigate.dstport
+}
+if fortigate.dstintf? != null {
+  ocsf.dst_endpoint.interface_uid = move fortigate.dstintf
+}
+if fortigate.dstcountry? != null {
+  ocsf.dst_endpoint.location.country = move fortigate.dstcountry
+}
+
+if (ocsf.src_endpoint.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
+   (ocsf.dst_endpoint.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
+  ocsf.connection_info.protocol_ver_id = 6
+} else if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
+  ocsf.connection_info.protocol_ver_id = 4
+}

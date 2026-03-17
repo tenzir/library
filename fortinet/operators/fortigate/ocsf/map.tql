@@ -1,0 +1,24 @@
+---
+description: FortiGate → OCSF
+---
+
+fortinet::fortigate::clean
+
+_type = content.type? else type?
+_subtype = content.subtype? else subtype?
+_action = content.action? else action?
+
+if _type == "traffic" {
+  fortinet::fortigate::ocsf::logs::network_activity
+} else if _type == "utm" and _subtype == "dns" {
+  fortinet::fortigate::ocsf::logs::dns
+} else if _type == "event" and (
+  (_subtype == "system" and _action == "login") or
+  (_subtype == "user" and _action == "authentication")
+) {
+  fortinet::fortigate::ocsf::logs::authentication
+} else if _type == "utm" and _subtype in ["virus", "webfilter", "ips", "anomaly", "ssl"] {
+  fortinet::fortigate::ocsf::logs::detection_finding
+} else {
+  fortinet::fortigate::ocsf::base
+}
