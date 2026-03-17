@@ -1,0 +1,83 @@
+---
+description: Common Check Point → OCSF mappings
+---
+
+this = {checkpoint: this}
+
+if checkpoint.action == "Accept" {
+  ocsf.severity_id = 1
+  ocsf.severity = "Informational"
+} else if checkpoint.action == "Detect" {
+  ocsf.severity_id = 3
+  ocsf.severity = "Medium"
+} else if checkpoint.action in ["Drop", "Reject"] {
+  ocsf.severity_id = 2
+  ocsf.severity = "Low"
+} else {
+  ocsf.severity_id = 0
+  ocsf.severity = "Unknown"
+}
+
+ocsf.time = checkpoint.time? else checkpoint.syslog?.timestamp?
+ocsf.message = checkpoint.message_info? else checkpoint.action?
+
+ocsf.metadata = {
+  version: "1.7.0",
+  product: {
+    name: checkpoint.product? else "Check Point Firewall",
+    vendor_name: "Check Point",
+  },
+  profiles: [
+    "host",
+    "security_control",
+  ],
+}
+
+if checkpoint.loguid? != null {
+  ocsf.metadata.uid = checkpoint.loguid
+  ocsf.connection_info.uid = checkpoint.loguid
+}
+if checkpoint.logid? != null {
+  ocsf.metadata.event_code = checkpoint.logid.string()
+}
+if checkpoint.action? != null {
+  ocsf.metadata.log_name = checkpoint.action
+}
+if checkpoint.syslog?.hostname? != null {
+  ocsf.device = {
+    hostname: checkpoint.syslog.hostname.string(),
+  }
+}
+
+if checkpoint.proto? != null {
+  ocsf.connection_info.protocol_num = checkpoint.proto
+}
+if checkpoint.protocol_name? != null {
+  ocsf.connection_info.protocol_name = checkpoint.protocol_name
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = checkpoint.service
+}
+if checkpoint.service_id? != null {
+  ocsf.dst_endpoint.svc_name = checkpoint.service_id
+}
+if checkpoint.dst_domain_name? != null {
+  ocsf.dst_endpoint.domain = checkpoint.dst_domain_name
+}
+
+if (ocsf.src_endpoint.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
+   (ocsf.dst_endpoint.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
+  ocsf.connection_info.protocol_ver_id = 6
+} else if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
+  ocsf.connection_info.protocol_ver_id = 4
+}

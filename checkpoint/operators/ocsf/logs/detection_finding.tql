@@ -1,0 +1,45 @@
+---
+description: "Check Point detections → OCSF Detection Finding (2004)"
+---
+
+checkpoint::ocsf::map_common
+
+ocsf.activity_id = 1
+ocsf.activity_name = "Create"
+ocsf.category_uid = 2
+ocsf.category_name = "Findings"
+ocsf.class_uid = 2004
+ocsf.class_name = "Detection Finding"
+ocsf.type_uid = 200401
+ocsf.type_name = "Detection Finding: Create"
+ocsf.is_alert = true
+ocsf.action_id = 3
+ocsf.action = "Observed"
+ocsf.disposition_id = 15
+ocsf.disposition = "Detected"
+
+_title = checkpoint.message_info? else checkpoint.action? else "Check Point detection"
+_uid = checkpoint.loguid? else checkpoint.sequencenum?.string()
+
+ocsf.finding_info = {
+  title: _title,
+  desc: ocsf.message,
+  uid: _uid,
+  analytic: {
+    name: _title,
+    type: "Rule",
+    type_id: 1,
+    uid: _uid,
+  },
+}
+
+ocsf.evidences = [{
+  src_endpoint: move ocsf.src_endpoint?,
+  dst_endpoint: move ocsf.dst_endpoint?,
+  connection_info: move ocsf.connection_info?,
+}]
+
+this = {...ocsf, unmapped: checkpoint}
+@name = "ocsf.detection_finding"
+drop_null_fields unmapped
+ocsf::derive

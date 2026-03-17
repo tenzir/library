@@ -1,0 +1,67 @@
+---
+description: Parse raw Check Point syslog into structured firewall fields
+---
+
+if structured_data?.checkpoint_2620? != null {
+  this = {
+    ...move structured_data.checkpoint_2620,
+    syslog: {
+      facility: move facility?,
+      severity: move severity?,
+      version: move version?,
+      timestamp: move timestamp?,
+      hostname: move hostname?,
+      app_name: move app_name?,
+      process_id: move process_id?,
+      message_id: move message_id?,
+    },
+  }
+} else if structured_data? != null and structured_data["Fields@1.3.6.1.4.1.2620"]? != null {
+  this = {
+    ...move structured_data["Fields@1.3.6.1.4.1.2620"],
+    syslog: {
+      facility: move facility?,
+      severity: move severity?,
+      version: move version?,
+      timestamp: move timestamp?,
+      hostname: move hostname?,
+      app_name: move app_name?,
+      process_id: move process_id?,
+      message_id: move message_id?,
+    },
+  }
+} else if message? != null and "|" in message {
+  this = {
+    ...message.parse_kv(field_split="\\|", value_split="="),
+    syslog: {
+      facility: move facility?,
+      severity: move severity?,
+      version: move version?,
+      timestamp: move timestamp?,
+      hostname: move hostname?,
+      app_name: move app_name?,
+      process_id: move process_id?,
+      message_id: move message_id?,
+    },
+  }
+} else if syslog_message? != null {
+  _syslog = syslog_message.parse_grok(
+    r#"<%{INT:pri}>%{INT:version} %{TIMESTAMP_ISO8601:timestamp} %{HOSTNAME:hostname} %{WORD:app_name} %{DATA:process_id} - %{GREEDYDATA:message}"#,
+  )
+  if _syslog != null and "|" in _syslog.message {
+    this = {
+      ..._syslog.message.parse_kv(field_split="\\|", value_split="="),
+      syslog: {
+        version: move _syslog.version,
+        timestamp: move _syslog.timestamp,
+        hostname: move _syslog.hostname,
+        app_name: move _syslog.app_name,
+        process_id: move _syslog.process_id,
+      },
+    }
+  }
+} else if content? != null and "|" in content {
+  this = {
+    ...content.parse_kv(field_split="\\|", value_split="="),
+  }
+}
