@@ -2,40 +2,38 @@
 description: Common FortiGate → OCSF mappings
 ---
 
+// FortiGate level/severity → OCSF severity. Prefer FortiGate's string `level`
+// over the syslog numeric `severity` field that read_syslog injects on the
+// envelope.
+let $severities = {
+  information: {id: 1, name: "Informational"},
+  informational: {id: 1, name: "Informational"},
+  notice: {id: 1, name: "Informational"},
+  debug: {id: 1, name: "Informational"},
+  low: {id: 2, name: "Low"},
+  warning: {id: 3, name: "Medium"},
+  medium: {id: 3, name: "Medium"},
+  error: {id: 4, name: "High"},
+  high: {id: 4, name: "High"},
+  alert: {id: 5, name: "Critical"},
+  critical: {id: 5, name: "Critical"},
+  fatal: {id: 6, name: "Fatal"},
+  emergency: {id: 6, name: "Fatal"},
+}
+
 _fortigate = merge(this, content?) if content? != null else this
 this = {fortigate: _fortigate}
 drop fortigate._type?
 drop fortigate._subtype?
 drop fortigate._action?
 
-// Prefer FortiGate's string `level` over the syslog numeric `severity` field
-// that read_syslog injects on the envelope.
 _level = fortigate.level? else fortigate.severity?
 if _level != null {
   _level = _level.to_lower()
 }
-if _level in ["information", "informational", "notice", "debug"] {
-  ocsf.severity_id = 1
-  ocsf.severity = "Informational"
-} else if _level == "low" {
-  ocsf.severity_id = 2
-  ocsf.severity = "Low"
-} else if _level in ["warning", "medium"] {
-  ocsf.severity_id = 3
-  ocsf.severity = "Medium"
-} else if _level in ["error", "high"] {
-  ocsf.severity_id = 4
-  ocsf.severity = "High"
-} else if _level in ["alert", "critical"] {
-  ocsf.severity_id = 5
-  ocsf.severity = "Critical"
-} else if _level in ["fatal", "emergency"] {
-  ocsf.severity_id = 6
-  ocsf.severity = "Fatal"
-} else {
-  ocsf.severity_id = 0
-  ocsf.severity = "Unknown"
-}
+_sev = $severities[_level]? else {id: 0, name: "Unknown"}
+ocsf.severity_id = _sev.id
+ocsf.severity = _sev.name
 
 if fortigate.timestamp? != null {
   ocsf.time = move fortigate.timestamp

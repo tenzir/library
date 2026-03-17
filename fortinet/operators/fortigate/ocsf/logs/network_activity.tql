@@ -2,6 +2,18 @@
 description: "FortiGate traffic logs → OCSF Network Activity (4001)"
 ---
 
+// FortiGate action → OCSF action/disposition/status.
+let $actions = {
+  allow: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
+  accept: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
+  pass: {action_id: 1, action: "Allowed", disposition_id: 1, disposition: "Allowed", status_id: 1, status: "Success"},
+  block: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked", status_id: 2, status: "Failure"},
+  blocked: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked", status_id: 2, status: "Failure"},
+  drop: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
+  dropped: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
+  clear_session: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped", status_id: 2, status: "Failure"},
+}
+
 fortinet::fortigate::ocsf::map_common
 
 ocsf.activity_id = 6
@@ -41,27 +53,14 @@ if fortigate.app? != null {
 }
 
 _decision = fortigate.utmaction? else fortigate.action?
-if _decision in ["allow", "accept", "pass"] {
-  ocsf.action_id = 1
-  ocsf.action = "Allowed"
-  ocsf.disposition_id = 1
-  ocsf.disposition = "Allowed"
-  ocsf.status_id = 1
-  ocsf.status = "Success"
-} else if _decision in ["block", "blocked"] {
-  ocsf.action_id = 2
-  ocsf.action = "Denied"
-  ocsf.disposition_id = 2
-  ocsf.disposition = "Blocked"
-  ocsf.status_id = 2
-  ocsf.status = "Failure"
-} else if _decision in ["drop", "dropped", "clear_session"] {
-  ocsf.action_id = 2
-  ocsf.action = "Denied"
-  ocsf.disposition_id = 6
-  ocsf.disposition = "Dropped"
-  ocsf.status_id = 2
-  ocsf.status = "Failure"
+_mapped = $actions[_decision]?
+if _mapped != null {
+  ocsf.action_id = _mapped.action_id
+  ocsf.action = _mapped.action
+  ocsf.disposition_id = _mapped.disposition_id
+  ocsf.disposition = _mapped.disposition
+  ocsf.status_id = _mapped.status_id
+  ocsf.status = _mapped.status
 } else if fortigate.action? in ["client-rst", "server-rst"] {
   ocsf.disposition_id = 21
   ocsf.disposition = "Reset"

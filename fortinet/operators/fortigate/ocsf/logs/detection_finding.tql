@@ -2,6 +2,25 @@
 description: "FortiGate UTM alerts → OCSF Detection Finding (2004)"
 ---
 
+// FortiGate action → OCSF action/disposition.
+let $actions = {
+  pass: {action_id: 3, action: "Observed", disposition_id: 15, disposition: "Detected"},
+  allow: {action_id: 3, action: "Observed", disposition_id: 15, disposition: "Detected"},
+  block: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked"},
+  blocked: {action_id: 2, action: "Denied", disposition_id: 2, disposition: "Blocked"},
+  drop: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
+  dropped: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
+  clear_session: {action_id: 2, action: "Denied", disposition_id: 6, disposition: "Dropped"},
+}
+
+// FortiGate crlevel → OCSF risk level.
+let $risk_levels = {
+  low: {id: 1, name: "Low"},
+  medium: {id: 2, name: "Medium"},
+  high: {id: 3, name: "High"},
+  critical: {id: 4, name: "Critical"},
+}
+
 fortinet::fortigate::ocsf::map_common
 
 ocsf.activity_id = 1
@@ -32,43 +51,19 @@ ocsf.status_id = 1
 ocsf.status = "New"
 
 _decision = fortigate.action? else fortigate.utmaction?
-if _decision in ["pass", "allow"] {
-  ocsf.action_id = 3
-  ocsf.action = "Observed"
-  ocsf.disposition_id = 15
-  ocsf.disposition = "Detected"
-} else if _decision in ["block", "blocked"] {
-  ocsf.action_id = 2
-  ocsf.action = "Denied"
-  ocsf.disposition_id = 2
-  ocsf.disposition = "Blocked"
-} else if _decision in ["drop", "dropped", "clear_session"] {
-  ocsf.action_id = 2
-  ocsf.action = "Denied"
-  ocsf.disposition_id = 6
-  ocsf.disposition = "Dropped"
-} else {
-  ocsf.action_id = 0
-  ocsf.action = "Unknown"
-  ocsf.disposition_id = 0
-  ocsf.disposition = "Unknown"
-}
+_mapped = $actions[_decision]? else {action_id: 0, action: "Unknown", disposition_id: 0, disposition: "Unknown"}
+ocsf.action_id = _mapped.action_id
+ocsf.action = _mapped.action
+ocsf.disposition_id = _mapped.disposition_id
+ocsf.disposition = _mapped.disposition
 
 if fortigate.crscore? != null {
   ocsf.risk_score = move fortigate.crscore
 }
-if fortigate.crlevel? == "low" {
-  ocsf.risk_level_id = 1
-  ocsf.risk_level = "Low"
-} else if fortigate.crlevel? == "medium" {
-  ocsf.risk_level_id = 2
-  ocsf.risk_level = "Medium"
-} else if fortigate.crlevel? == "high" {
-  ocsf.risk_level_id = 3
-  ocsf.risk_level = "High"
-} else if fortigate.crlevel? == "critical" {
-  ocsf.risk_level_id = 4
-  ocsf.risk_level = "Critical"
+_risk = $risk_levels[fortigate.crlevel?]?
+if _risk != null {
+  ocsf.risk_level_id = _risk.id
+  ocsf.risk_level = _risk.name
 }
 
 _evidence = {

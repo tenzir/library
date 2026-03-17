@@ -2,10 +2,45 @@
 description: "FortiGate authentication logs → OCSF Authentication (3002)"
 ---
 
+// FortiGate action → OCSF activity.
+let $activities = {
+  logout: {id: 2, name: "Logoff"},
+}
+
+// FortiGate auth method/protocol keywords → OCSF auth protocol.
+let $auth_protocols = {
+  radius: {id: 10, name: "RADIUS"},
+  ldap: {id: 12, name: "LDAP"},
+  saml: {id: 5, name: "SAML"},
+  oauth: {id: 6, name: "OAUTH 2.0"},
+}
+
+// FortiGate status → OCSF action/disposition/status.
+let $statuses = {
+  success: {
+    action_id: 1,
+    action: "Allowed",
+    disposition_id: 1,
+    disposition: "Allowed",
+    status_id: 1,
+    status: "Success",
+  },
+}
+
+let $status_failure = {
+  action_id: 2,
+  action: "Denied",
+  disposition_id: 26,
+  disposition: "Unauthorized",
+  status_id: 2,
+  status: "Failure",
+}
+
 fortinet::fortigate::ocsf::map_common
 
-ocsf.activity_id = 2 if fortigate.action? == "logout" else 1
-ocsf.activity_name = "Logoff" if ocsf.activity_id == 2 else "Logon"
+_act = $activities[fortigate.action?]? else {id: 1, name: "Logon"}
+ocsf.activity_id = _act.id
+ocsf.activity_name = _act.name
 ocsf.category_uid = 3
 ocsf.category_name = "Identity & Access Management"
 ocsf.class_uid = 3002
@@ -22,41 +57,36 @@ if fortigate.user? != null {
   }
 }
 
+// Match auth protocol keywords in the method/authproto string.
 _auth = fortigate.method? else fortigate.authproto?
 if _auth != null {
   _auth = _auth.to_lower()
-  if "radius" in _auth {
-    ocsf.auth_protocol = "RADIUS"
-    ocsf.auth_protocol_id = 10
-  } else if "ldap" in _auth {
-    ocsf.auth_protocol = "LDAP"
-    ocsf.auth_protocol_id = 12
-  } else if "saml" in _auth {
-    ocsf.auth_protocol = "SAML"
-    ocsf.auth_protocol_id = 5
-  } else if "oauth" in _auth {
-    ocsf.auth_protocol = "OAUTH 2.0"
-    ocsf.auth_protocol_id = 6
-  } else {
-    ocsf.auth_protocol = "Unknown"
-    ocsf.auth_protocol_id = 0
+  _proto = $auth_protocols[_auth]?
+  // Try substring matching when an exact match fails (e.g.,
+  // "telnet(10.1.100.11)" doesn't match, but "radius-server" contains
+  // "radius").
+  if _proto == null and "radius" in _auth {
+    _proto = $auth_protocols["radius"]
+  } else if _proto == null and "ldap" in _auth {
+    _proto = $auth_protocols["ldap"]
+  } else if _proto == null and "saml" in _auth {
+    _proto = $auth_protocols["saml"]
+  } else if _proto == null and "oauth" in _auth {
+    _proto = $auth_protocols["oauth"]
   }
+  _proto = _proto else {id: 0, name: "Unknown"}
+  ocsf.auth_protocol_id = _proto.id
+  ocsf.auth_protocol = _proto.name
 }
 
-if fortigate.status? == "success" {
-  ocsf.action_id = 1
-  ocsf.action = "Allowed"
-  ocsf.disposition_id = 1
-  ocsf.disposition = "Allowed"
-  ocsf.status_id = 1
-  ocsf.status = "Success"
-} else if fortigate.status? != null {
-  ocsf.action_id = 2
-  ocsf.action = "Denied"
-  ocsf.disposition_id = 26
-  ocsf.disposition = "Unauthorized"
-  ocsf.status_id = 2
-  ocsf.status = "Failure"
+_st = $statuses[fortigate.status?]? else $status_failure if fortigate.status? != null else null
+if _st != null {
+  ocsf.action_id = _st.action_id
+  ocsf.action = _st.action
+  ocsf.disposition_id = _st.disposition_id
+  ocsf.disposition = _st.disposition
+  ocsf.status_id = _st.status_id
+  ocsf.status = _st.status
 }
 
 ocsf.status_code = move fortigate.status?
