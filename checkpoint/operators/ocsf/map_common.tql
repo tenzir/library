@@ -4,19 +4,16 @@ description: Common Check Point → OCSF mappings
 
 this = {checkpoint: this}
 
-if checkpoint.action == "Accept" {
-  ocsf.severity_id = 1
-  ocsf.severity = "Informational"
-} else if checkpoint.action == "Detect" {
-  ocsf.severity_id = 3
-  ocsf.severity = "Medium"
-} else if checkpoint.action in ["Drop", "Reject"] {
-  ocsf.severity_id = 2
-  ocsf.severity = "Low"
-} else {
-  ocsf.severity_id = 0
-  ocsf.severity = "Unknown"
+// Map Check Point actions to OCSF severity levels.
+let $severities = {
+  Accept: {id: 1, name: "Informational"},
+  Detect: {id: 3, name: "Medium"},
+  Drop: {id: 2, name: "Low"},
+  Reject: {id: 2, name: "Low"},
 }
+_severity = $severities[checkpoint.action]? else {id: 0, name: "Unknown"}
+ocsf.severity_id = _severity.id
+ocsf.severity = _severity.name
 
 ocsf.time = checkpoint.time? else checkpoint.syslog?.timestamp?
 ocsf.message = checkpoint.message_info? else checkpoint.action?
@@ -29,7 +26,6 @@ ocsf.metadata = {
   },
   profiles: [
     "host",
-    "security_control",
   ],
 }
 
@@ -43,6 +39,10 @@ if checkpoint.logid? != null {
 if checkpoint.action? != null {
   ocsf.metadata.log_name = checkpoint.action
 }
+
+// Prefer the Check Point payload hostname over the syslog header hostname,
+// because in forwarded syslog deployments the header identifies the relay
+// while the payload hostname identifies the actual firewall.
 if checkpoint.hostname? != null {
   ocsf.device.hostname = checkpoint.hostname.string()
 } else if checkpoint.syslog?.hostname? != null {
