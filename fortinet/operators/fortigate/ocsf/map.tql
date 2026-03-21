@@ -23,7 +23,7 @@ ocsf.metadata = {
   log_format: "kv",
   log_level: move ocsf.unmapped.level,
   log_name: move ocsf.unmapped.subtype,
-  original_time: f"{move ocsf.unmapped.date} {move ocsf.unmapped.time}",
+  original_time: f"{(move ocsf.unmapped.date).format_time("%Y-%m-%d")} {move ocsf.unmapped.time}",
   original_event_uid: (move ocsf.unmapped.logid).string(),
   processed_time: now(),
   product: {
@@ -42,13 +42,11 @@ if ocsf.unmapped.msg? != null {
 }
 
 if ocsf.unmapped.eventtime? != null {
+  ocsf.time = move ocsf.unmapped.eventtime
   // FortiGate eventtime is seconds (10-digit) or nanoseconds (19-digit).
   // Values below 1e13 are seconds; above are nanoseconds.
-  if ocsf.unmapped.eventtime < 10T {
-    ocsf.time = (move ocsf.unmapped.eventtime).seconds().from_epoch()
-  } else {
-    ocsf.time = (move ocsf.unmapped.eventtime).nanoseconds().from_epoch()
-  }
+  ocsf.time = ocsf.time.seconds() if ocsf.time < 10T else ocsf.time.nanoseconds()
+  ocsf.time = ocsf.time.from_epoch()
 } else {
   ocsf.time = ocsf.metadata.original_time.parse_time("%Y-%m-%dT%H:%M:%SZ %H:%M:%S")
 }
