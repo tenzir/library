@@ -1,0 +1,82 @@
+---
+description: "FortiGate user/system event logs → OCSF Authentication (3002)"
+---
+
+@name = "ocsf.authentication"
+
+// FortiGate action → OCSF activity_id.
+let $actions = {
+  login: 1,
+  logout: 2,
+  authentication: 1,
+}
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// The authenticating user.
+ocsf.user = {
+  name: move ocsf.unmapped.user,
+}
+
+// event/user: `group` is the local user group.
+if ocsf.unmapped.group? != null {
+  ocsf.user.groups = [{ name: move ocsf.unmapped.group }]
+}
+
+// event/system: `profile` is the admin privilege profile; presence implies
+// an administrative account.
+if ocsf.unmapped.profile? != null {
+  ocsf.user.type_id = 2  // Admin
+  ocsf.user.groups = [{ name: move ocsf.unmapped.profile }]
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  // event/user: `interface` is the ingress network interface.
+  interface_name: move ocsf.unmapped.interface?,
+}
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+}
+
+// Both events involve a remote authentication attempt.
+ocsf.is_remote = true
+
+// `status` is the authentication outcome.
+if ocsf.unmapped.status? != null {
+  let $statuses = {
+    success: 1,
+    failed: 2,
+  }
+  ocsf.status_id = $statuses[move ocsf.unmapped.status]? else 0
+}
+
+// event/system: `method` is the access method (e.g. "ssh", "https").
+// event/user: `authproto` carries the protocol and source, e.g. "TELNET(ip)".
+if ocsf.unmapped.method? != null {
+  ocsf.auth_protocol_id = 99  // Other: SSH, HTTPS etc. not in OCSF enum
+  ocsf.auth_protocol = move ocsf.unmapped.method
+  ocsf.logon_type_id = 10  // Remote Interactive
+}
+if ocsf.unmapped.authproto? != null {
+  ocsf.auth_protocol_id = 99
+  // Keep the full "PROTOCOL(ip)" string; TELNET is cleartext.
+  ocsf.auth_protocol = move ocsf.unmapped.authproto
+  ocsf.logon_type_id = 8  // Network Cleartext
+  ocsf.is_cleartext = true
+}
+
+// event/system: `ui` duplicates method + srcip (e.g. "ssh(ip)"), drop it.
+drop ocsf.unmapped.ui?
+
+// Security-control profile: event/user carries policyid.
+if ocsf.unmapped.policyid? != null {
+  ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
