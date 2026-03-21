@@ -1,0 +1,47 @@
+---
+description: "FortiGate endpoint event logs → OCSF Tunnel Activity (4014)"
+---
+
+@name = "ocsf.tunnel_activity"
+
+// FortiClient connections are SSL VPN tunnels.
+let $actions = {
+  add: 1,    // Open
+  close: 2,  // Close
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4014
+ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// `connection_type` is the VPN type (e.g. "sslvpn").
+ocsf.protocol_name = move ocsf.unmapped.connection_type
+
+// `ip` is the client endpoint IP; `name` is the device name.
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.ip,
+  hostname: move ocsf.unmapped.name,
+}
+
+// `user` is the authenticated FortiClient user.
+if ocsf.unmapped.user? != null {
+  ocsf.user = {
+    name: move ocsf.unmapped.user,
+  }
+}
+
+// `fctuid` is the FortiClient unique device identifier; use as session uid.
+if ocsf.unmapped.fctuid? != null {
+  ocsf.session = {
+    uid: move ocsf.unmapped.fctuid,
+  }
+}
+
+if ocsf.unmapped.status? != null {
+  let $statuses = {
+    success: 1,
+    failed: 2,
+  }
+  ocsf.status_id = $statuses[move ocsf.unmapped.status]? else 0
+}

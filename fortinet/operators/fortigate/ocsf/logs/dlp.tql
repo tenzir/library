@@ -1,0 +1,40 @@
+---
+description: "FortiGate DLP logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `dlpextra` is the matched DLP rule/filter name; `filteridx` its index.
+ocsf.finding_info = {
+  uid: (move ocsf.unmapped.filteridx).string(),
+  title: move ocsf.unmapped.dlpextra,
+  analytic: {
+    type_id: 1,  // Rule
+    category: move ocsf.unmapped.filtertype,
+  },
+}
+
+// Network context goes into evidences for Detection Finding.
+// `hostname` is consumed by the network_evidence UDO.
+fortinet::fortigate::ocsf::network_evidence
+
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    block: 2,
+    allow: 1,
+    log_only: 17,
+    quarantine: 3,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}

@@ -1,0 +1,55 @@
+---
+description: "FortiGate DNS filter logs → OCSF DNS Activity (4003)"
+---
+
+@name = "ocsf.dns_activity"
+
+// FortiGate eventtype → OCSF activity_id.
+let $activities = {
+  "dns-query": 1,
+  "dns-response": 2,
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4003
+ocsf.activity_id = $activities[move ocsf.unmapped.eventtype]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+fortinet::fortigate::ocsf::network_endpoints
+ocsf.src_endpoint.mac = move ocsf.unmapped.srcmac
+
+fortinet::fortigate::ocsf::connection_info
+
+ocsf.query = {
+  hostname: move ocsf.unmapped.qname,
+  class: move ocsf.unmapped.qclass,
+  packet_uid: move ocsf.unmapped.xid,
+  type: move ocsf.unmapped.qtype,
+}
+
+// DNS responses carry the resolved address(es).
+if ocsf.unmapped.ipaddr? != null {
+  ocsf.answers = [{
+    rdata: (move ocsf.unmapped.ipaddr).string(),
+    type: ocsf.query.type,
+    class: ocsf.query.class,
+  }]
+}
+
+// Security-control profile
+
+// Only response events carry an action (pass/block); queries are observation-only.
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    pass: 1,
+    block: 2,
+    drop: 6,
+    monitor: 17,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `profile` is the DNS filter profile (UTM security policy) applied to the session.
+// `policyid` is the firewall policy rule that matched the session, distinct from
+// the DNS filter profile above.
+fortinet::fortigate::ocsf::security_control

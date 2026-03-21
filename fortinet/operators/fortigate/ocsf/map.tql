@@ -1,0 +1,147 @@
+---
+description: FortiGate → OCSF
+args:
+  positional:
+    - name: log
+      description: The field containing the Fortigate log as string.
+      type: field
+---
+
+ocsf = {}
+
+ocsf.raw_data = $log
+ocsf.raw_data_size = $log.length_bytes()
+
+ocsf.unmapped = $log.parse_kv()
+
+// Normalize FortiGate sentinel strings to null.
+replace what="N/A", with=null
+replace what="none", with=null
+replace what="undefined", with=null
+
+ocsf.metadata = {
+  log_format: "kv",
+  log_level: move ocsf.unmapped.level,
+  log_name: move ocsf.unmapped.subtype,
+  original_time: f"{(move ocsf.unmapped.date).format_time("%Y-%m-%d")} {move ocsf.unmapped.time}",
+  original_event_uid: (move ocsf.unmapped.logid).string(),
+  processed_time: now(),
+  product: {
+    name: "FortiGate",
+    vendor_name: "Fortinet",
+  },
+  profiles: ["host"],
+  type: move ocsf.unmapped.type?,
+  // FIXME: ocsf::derive doesn't support 1.8.0 yet
+  //version: "1.8.0",
+  version: "1.7.0",
+}
+
+if ocsf.unmapped.msg? != null {
+  ocsf.message = move ocsf.unmapped.msg
+}
+
+if ocsf.unmapped.eventtime? != null {
+  ocsf.time = move ocsf.unmapped.eventtime
+  // FortiGate eventtime is seconds (10-digit) or nanoseconds (19-digit).
+  // Values below 1e13 are seconds; above are nanoseconds.
+  ocsf.time = ocsf.time.seconds() if ocsf.time < 10T else ocsf.time.nanoseconds()
+  ocsf.time = ocsf.time.from_epoch()
+} else {
+  ocsf.time = ocsf.metadata.original_time.parse_time("%Y-%m-%d %H:%M:%S")
+}
+
+if ocsf.unmapped.logdesc? != null  {
+  ocsf.status_detail = move ocsf.unmapped.logdesc
+}
+
+// `severity` is present on some UTM logs; `level` appears on all logs and is
+// already captured in metadata.log_level. Use severity first, fall back to
+// level so events without an explicit severity are not silently downgraded to
+// Informational.
+if ocsf.unmapped.severity? != null {
+  let $severities = {
+    low: 2,
+    medium: 3,
+    high: 4,
+    critical: 5,
+  }
+  ocsf.severity_id = $severities[move ocsf.unmapped.severity]
+} else if ocsf.metadata.log_level? != null {
+  let $levels = {
+    debug: 1,
+    information: 1,
+    notice: 1,
+    warning: 3,
+    error: 4,
+    alert: 5,
+    critical: 5,
+    emergency: 6,
+  }
+  ocsf.severity_id = $levels[ocsf.metadata.log_level]? else 1
+} else {
+  ocsf.severity_id = 1
+}
+
+// Host profile
+if ocsf.unmapped.vd? != null {
+  ocsf.device.zone = move ocsf.unmapped.vd
+}
+
+// Specific event type mappings
+if ocsf.metadata.type == "utm" {
+  if ocsf.metadata.log_name == "dns" {
+    fortinet::fortigate::ocsf::logs::dns
+  } else if ocsf.metadata.log_name == "ips" {
+    fortinet::fortigate::ocsf::logs::ips
+  } else if ocsf.metadata.log_name == "webfilter" {
+    fortinet::fortigate::ocsf::logs::webfilter
+  } else if ocsf.metadata.log_name == "anomaly" {
+    fortinet::fortigate::ocsf::logs::anomaly
+  } else if ocsf.metadata.log_name == "virus" {
+    fortinet::fortigate::ocsf::logs::virus
+  } else if ocsf.metadata.log_name == "ssh" {
+    fortinet::fortigate::ocsf::logs::ssh
+  } else if ocsf.metadata.log_name == "ssl" {
+    fortinet::fortigate::ocsf::logs::ssl
+  } else if ocsf.metadata.log_name == "emailfilter" {
+    fortinet::fortigate::ocsf::logs::emailfilter
+  } else if ocsf.metadata.log_name == "app-ctrl" {
+    fortinet::fortigate::ocsf::logs::app_ctrl
+  } else if ocsf.metadata.log_name == "dlp" {
+    fortinet::fortigate::ocsf::logs::dlp
+  } else if ocsf.metadata.log_name == "cifs" {
+    fortinet::fortigate::ocsf::logs::cifs
+  } else {
+    // Unknown UTM subtype: emit as Base Event so ocsf::derive does not drop
+    // the record for a missing class_uid.
+    fortinet::fortigate::ocsf::base
+  }
+} else if ocsf.metadata.type == "traffic" {
+  fortinet::fortigate::ocsf::logs::traffic
+} else if ocsf.metadata.type == "event" {
+  if ocsf.metadata.log_name == "user" {
+    fortinet::fortigate::ocsf::logs::authentication
+  } else if ocsf.metadata.log_name == "system" {
+    // Only admin login/logout events map to Authentication; subtype="system"
+    // also covers startup, config changes, and performance stats which should
+    // fall through to Base Event.
+    if ocsf.unmapped.action? == "login" or ocsf.unmapped.action? == "logout" {
+      fortinet::fortigate::ocsf::logs::authentication
+    } else {
+      fortinet::fortigate::ocsf::base
+    }
+  } else if ocsf.metadata.log_name == "vpn" {
+    fortinet::fortigate::ocsf::logs::vpn
+  } else if ocsf.metadata.log_name == "endpoint" {
+    fortinet::fortigate::ocsf::logs::endpoint
+  } else if ocsf.metadata.log_name == "wad" {
+    fortinet::fortigate::ocsf::logs::wad
+  } else if ocsf.metadata.log_name == "wireless" {
+    fortinet::fortigate::ocsf::logs::wireless
+  } else {
+    fortinet::fortigate::ocsf::base
+  }
+} else {
+  fortinet::fortigate::ocsf::base
+}

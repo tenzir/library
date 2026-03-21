@@ -1,0 +1,34 @@
+---
+description: "FortiGate CIFS/SMB inspection logs → OCSF SMB Activity (4006)"
+---
+
+@name = "ocsf.smb_activity"
+
+// CIFS file filter: a file was blocked or allowed during a file transfer.
+// Map to File Open since the activity is a client trying to access a file.
+ocsf.category_uid = 4
+ocsf.class_uid = 4006
+ocsf.activity_id = 2  // File Open
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::connection_info
+
+// `filename` and `filesize` describe the file being transferred.
+// `filetype` stays in unmapped: type_name requires type_id sibling.
+ocsf.file = {
+  name: move ocsf.unmapped.filename,
+  size: move ocsf.unmapped.filesize,
+}
+
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    allowed: 1,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}

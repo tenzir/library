@@ -1,0 +1,64 @@
+---
+description: "FortiGate anomaly/DoS logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create: a new anomaly detection
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `attack` is the anomaly/DoS signature name; `attackid` is its numeric ID.
+// Cache attackid as a temp field so both uid slots can reference it without
+// consuming it on first use (let doesn't support move).
+ocsf._attackid = (move ocsf.unmapped.attackid).string()
+ocsf.finding_info = {
+  uid: ocsf._attackid,
+  title: ocsf.unmapped.attack,
+  src_url: move ocsf.unmapped.ref,
+  analytic: {
+    type_id: 1,  // Rule
+    uid: ocsf._attackid,
+    name: move ocsf.unmapped.attack,
+  },
+}
+drop ocsf._attackid
+
+// Network context goes into evidences for Detection Finding.
+fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::connection_info
+// Only emit evidences when at least one endpoint IP is present.
+if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
+  ocsf.evidences = [{
+    src_endpoint: move ocsf.src_endpoint,
+    dst_endpoint: move ocsf.dst_endpoint,
+    connection_info: move ocsf.connection_info,
+  }]
+} else {
+  drop ocsf.src_endpoint?
+  drop ocsf.dst_endpoint?
+  drop ocsf.connection_info?
+}
+
+// Security-control profile: `policytype` identifies the policy table (e.g.
+// "DoS-policy"); extend firewall_rule after the common UDO sets uid.
+fortinet::fortigate::ocsf::security_control
+if ocsf.unmapped.policytype? != null {
+  ocsf.firewall_rule.type = move ocsf.unmapped.policytype
+}
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    "clear_session": 6,   // Dropped
+    pass: 1,
+    block: 2,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+fortinet::fortigate::ocsf::risk

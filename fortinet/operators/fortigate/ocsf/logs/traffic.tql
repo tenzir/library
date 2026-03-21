@@ -1,0 +1,124 @@
+---
+description: "FortiGate traffic logs → OCSF Network Activity (4001)"
+---
+
+@name = "ocsf.network_activity"
+
+// FortiGate traffic action → OCSF activity_id.
+// Traffic logs are session-end summaries; action reflects how the session ended.
+let $actions = {
+  close: 2,         // normal TCP FIN
+  accept: 6,        // flow accepted (typical for UDP or sniffer)
+  "client-rst": 3,  // TCP RST from client
+  "server-rst": 3,  // TCP RST from server
+  deny: 5,          // blocked by policy before session established
+  drop: 4,          // packet dropped mid-session
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+  mac: move ocsf.unmapped.srcmac?,
+}
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  // `service` is the application-layer protocol name for the destination port.
+  svc_name: move ocsf.unmapped.service,
+}
+
+// `srcintfrole`/`dstintfrole` are the network zones of the ingress/egress
+// interfaces (e.g. "lan", "wan", "dmz"). Map to endpoint.zone and derive
+// connection direction from the pairing when possible.
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+if ocsf.unmapped.srcintfrole? == "lan" and ocsf.unmapped.dstintfrole? == "wan" {
+  ocsf.connection_info.direction_id = 2  // Outbound
+} else if ocsf.unmapped.srcintfrole? == "wan" and ocsf.unmapped.dstintfrole? == "lan" {
+  ocsf.connection_info.direction_id = 1  // Inbound
+}
+drop ocsf.unmapped.srcintfrole?
+drop ocsf.unmapped.dstintfrole?
+
+// `duration` is the session lifetime in seconds; `ocsf.time` is the end.
+ocsf.traffic = {
+  bytes_in: move ocsf.unmapped.rcvdbyte,
+  bytes_out: move ocsf.unmapped.sentbyte,
+  packets_in: move ocsf.unmapped.rcvdpkt?,
+  packets_out: move ocsf.unmapped.sentpkt,
+  end_time: ocsf.time,
+  start_time: ocsf.time - (move ocsf.unmapped.duration?).seconds(),
+}
+
+// `trandisp` is the NAT type applied; `transip`/`transport` are the translated
+// address/port. SNAT rewrites the source, DNAT rewrites the destination.
+// transip=0.0.0.0 means no effective translation (e.g. sniffer mode).
+if ocsf.unmapped.trandisp? == "snat" and ocsf.unmapped.transip? != 0.0.0.0 {
+  ocsf.src_endpoint.proxy_endpoint = {
+    ip: move ocsf.unmapped.transip,
+    port: move ocsf.unmapped.transport,
+  }
+} else if ocsf.unmapped.trandisp? == "dnat" and ocsf.unmapped.transip? != 0.0.0.0 {
+  ocsf.dst_endpoint.proxy_endpoint = {
+    ip: move ocsf.unmapped.transip,
+    port: move ocsf.unmapped.transport,
+  }
+}
+drop ocsf.unmapped.trandisp?
+drop ocsf.unmapped.transip?
+drop ocsf.unmapped.transport?
+
+// `app` is the application identified by deep packet inspection.
+if ocsf.unmapped.app? != null {
+  ocsf.app_name = move ocsf.unmapped.app
+}
+
+// `osname` is the source device OS as fingerprinted by FortiGate.
+if ocsf.unmapped.osname? != null {
+  ocsf.src_endpoint.os = {
+    name: move ocsf.unmapped.osname,
+  }
+}
+
+// Traffic logs always reflect a firewall policy decision.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+// Firewall policy that matched the session.
+// `poluuid` is the policy UUID (absent in local/multicast/sniffer logs);
+// `policyid` is its numeric ID; `policytype` is the policy table
+// (e.g., "policy", "local-in-policy", "multicast-policy", "sniffer").
+ocsf.firewall_rule = {
+  uid: move ocsf.unmapped.poluuid?,
+  name: (move ocsf.unmapped.policyid).string(),
+  type: move ocsf.unmapped.policytype,
+}
+
+// `utmaction` is the outcome of the UTM/IPS engine, distinct from `action`
+// which reflects how the TCP/UDP session itself ended.
+if ocsf.unmapped.utmaction? != null {
+  let $dispositions = {
+    allow: 1,
+    block: 2,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.utmaction]? else 0
+}
+
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+fortinet::fortigate::ocsf::risk

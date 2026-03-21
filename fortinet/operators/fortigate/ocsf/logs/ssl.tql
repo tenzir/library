@@ -1,0 +1,36 @@
+---
+description: "FortiGate SSL inspection logs → OCSF Network Activity (4001)"
+---
+
+@name = "ocsf.network_activity"
+
+// ssl-anomalies = connection blocked due to cert/TLS issue (Reset/Refuse).
+// ssl-exempt    = connection allowed to bypass SSL inspection (Traffic).
+let $activities = {
+  "ssl-anomalies": 3,  // Reset
+  "ssl-exempt": 6,     // Traffic
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = $activities[move ocsf.unmapped.eventtype]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::connection_info
+
+// `reason` is the specific SSL inspection verdict (e.g. block-cert-invalid).
+if ocsf.unmapped.reason? != null {
+  ocsf.status_detail = move ocsf.unmapped.reason
+}
+
+// SSL inspection is a security control.
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    exempt: 1,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}

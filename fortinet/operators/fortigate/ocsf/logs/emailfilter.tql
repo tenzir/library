@@ -1,0 +1,49 @@
+---
+description: "FortiGate email filter logs → OCSF Email Activity (4009)"
+---
+
+@name = "ocsf.email_activity"
+
+// Email filter events are scan actions on in-transit email.
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
+ocsf.activity_id = 3  // Scan
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+// `direction` maps to OCSF direction_id for the email flow (Email Activity
+// class carries this at the top level, not in connection_info).
+ocsf.direction_id = 0
+if ocsf.unmapped.direction? == "incoming" {
+  ocsf.direction_id = 1  // Inbound
+} else if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.direction_id = 2  // Outbound
+}
+drop ocsf.unmapped.direction?
+
+// Email envelope fields.
+ocsf.email = {
+  from: move ocsf.unmapped.from,
+  to: [move ocsf.unmapped.to],
+  subject: move ocsf.unmapped.subject,
+  size: move ocsf.unmapped.size,
+}
+
+// `service` identifies the email protocol (IMAPS, SMTPS, POP3S).
+// Use move so network_endpoints does not also map it to dst_endpoint.svc_name.
+ocsf.protocol_name = move ocsf.unmapped.service
+
+fortinet::fortigate::ocsf::network_endpoints
+// Email Activity has no connection_info field; proto/sessionid stay in unmapped.
+
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    allowed: 1,
+    monitored: 17,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}

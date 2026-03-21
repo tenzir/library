@@ -1,0 +1,47 @@
+---
+description: "FortiGate application control logs → OCSF Network Activity (4001)"
+---
+
+@name = "ocsf.network_activity"
+
+// Application control events report traffic matched by app signatures.
+let $actions = {
+  pass: 6,    // Traffic
+  block: 5,   // Refuse
+  drop: 4,    // Fail
+  reset: 3,   // Reset
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = $actions[ocsf.unmapped.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+fortinet::fortigate::ocsf::network_endpoints
+ocsf.dst_endpoint.hostname = move ocsf.unmapped.hostname
+
+fortinet::fortigate::ocsf::connection_info
+
+// `app` is the identified application; `appcat` is its category.
+if ocsf.unmapped.app? != null {
+  ocsf.app_name = move ocsf.unmapped.app
+}
+
+// `applist` is the application control profile; used as policy.name instead
+// of `profile` since app-ctrl logs use applist for the applied rule set.
+fortinet::fortigate::ocsf::security_control
+if ocsf.unmapped.applist? != null {
+  ocsf.policy = { name: move ocsf.unmapped.applist }
+}
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    pass: 1,
+    block: 2,
+    drop: 6,
+    reset: 21,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}

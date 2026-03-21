@@ -1,0 +1,51 @@
+---
+description: "FortiGate antivirus logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `virus` is the malware name; `virusid` is the signature ID;
+// `dtype` is the detection type (e.g. "Virus", "Botnet").
+ocsf.malware = [{
+  name: move ocsf.unmapped.virus,
+  uid: (move ocsf.unmapped.virusid).string(),
+  // `dtype` maps to classification: "Virus" → 19.
+  classification_ids: [19],
+  provider: "FortiGate",
+}]
+
+ocsf.finding_info = {
+  uid: ocsf.malware[0].uid,
+  title: ocsf.malware[0].name,
+  src_url: move ocsf.unmapped.ref,
+  analytic: {
+    type_id: 1,  // Rule
+    name: ocsf.malware[0].name,
+  },
+}
+
+// Network context goes into evidences for Detection Finding.
+fortinet::fortigate::ocsf::network_evidence
+
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    allowed: 1,
+    monitored: 17,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+fortinet::fortigate::ocsf::risk

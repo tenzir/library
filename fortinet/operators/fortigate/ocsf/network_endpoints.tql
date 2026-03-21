@@ -1,0 +1,32 @@
+---
+description: >-
+  Map common FortiGate src/dst endpoint fields to OCSF network endpoints.
+  Sets ip, port, interface_name, and zone (from intfrole) on both endpoints.
+  Conditionally sets dst_endpoint.svc_name from `service` if present.
+  Callers may extend endpoints further (e.g. hostname, mac, login).
+---
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport?,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+drop ocsf.unmapped.srcintfrole?
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport?,
+  interface_name: move ocsf.unmapped.dstintf?,
+}
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+drop ocsf.unmapped.dstintfrole?
+
+// `service` is the application-layer protocol name for the destination port.
+if ocsf.unmapped.service? != null {
+  ocsf.dst_endpoint.svc_name = move ocsf.unmapped.service
+}

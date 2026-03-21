@@ -1,0 +1,52 @@
+---
+description: "FortiGate IPS logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+// IPS events are always new detections.
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// IPS detections are always alertable.
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `attack` is the signature name; `attackid` is its numeric ID;
+// `incidentserialno` is the unique identifier of this detection instance.
+ocsf.finding_info = {
+  uid: (move ocsf.unmapped.incidentserialno).string(),
+  title: ocsf.unmapped.attack,
+  src_url: move ocsf.unmapped.ref,
+  analytic: {
+    // IPS signatures are rule-based detections.
+    type_id: 1,
+    uid: (move ocsf.unmapped.attackid).string(),
+    name: move ocsf.unmapped.attack,
+  },
+}
+
+// Network context goes into evidences for Detection Finding.
+// `hostname` is consumed by the network_evidence UDO.
+fortinet::fortigate::ocsf::network_evidence
+
+// IPS is a security control: it detected and acted on the traffic.
+// `action` is the IPS response; map to disposition.
+fortinet::fortigate::ocsf::security_control
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    dropped: 6,
+    pass: 1,
+    reset: 21,
+    block: 2,
+    alert: 19,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+fortinet::fortigate::ocsf::risk
