@@ -1,0 +1,103 @@
+---
+description: "FortiGate web filter logs → OCSF HTTP Activity (4002)"
+---
+
+@name = "ocsf.http_activity"
+
+// Web filter logs report a URL access attempt; the HTTP method is unknown.
+ocsf.category_uid = 4
+ocsf.class_uid = 4002
+ocsf.activity_id = 0  // Unknown: FortiGate doesn't log the HTTP verb here
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+drop ocsf.unmapped.srcintfrole?
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  // `hostname` is the virtual host name of the requested site.
+  hostname: move ocsf.unmapped.hostname,
+  svc_name: move ocsf.unmapped.service,
+}
+
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+drop ocsf.unmapped.dstintfrole?
+
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.connection_info.direction_id = 2
+} else if ocsf.unmapped.direction? == "incoming" {
+  ocsf.connection_info.direction_id = 1
+}
+drop ocsf.unmapped.direction?
+
+// `url` is the path; `hostname` (already mapped above) is the host.
+ocsf.http_request = {
+  url: {
+    hostname: ocsf.dst_endpoint.hostname,
+    path: move ocsf.unmapped.url,
+  },
+}
+
+ocsf.traffic = {
+  bytes_in: move ocsf.unmapped.rcvdbyte,
+  bytes_out: move ocsf.unmapped.sentbyte,
+}
+
+// Web filter is a security control: it evaluated and acted on the request.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+// `action` is the web filter verdict.
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    allowed: 1,
+    monitored: 17,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `profile` is the web filter profile applied.
+if ocsf.unmapped.profile? != null {
+  ocsf.policy = {
+    name: move ocsf.unmapped.profile,
+  }
+}
+
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
+
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+if ocsf.unmapped.crscore? != null {
+  ocsf.risk_score = move ocsf.unmapped.crscore
+}
+if ocsf.unmapped.crlevel? != null {
+  let $levels = {
+    low: 1,
+    medium: 2,
+    high: 3,
+    critical: 4,
+  }
+  ocsf.risk_level_id = $levels[move ocsf.unmapped.crlevel]? else 99
+}
