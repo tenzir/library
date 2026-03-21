@@ -2,62 +2,20 @@
 description: "FortiGate DNS filter logs → OCSF DNS Activity (4003)"
 ---
 
+@name = "ocsf.dns_activity"
+
 // FortiGate eventtype → OCSF activity_id.
 let $activities = {
   "dns-response": 2,
 }
 
-// FortiGate action → OCSF action_id/disposition_id/status_id.
-// Sibling names are filled by ocsf::derive.
-let $actions = {
-  pass: {action_id: 1, disposition_id: 1, status_id: 1},
-  allow: {action_id: 1, disposition_id: 1, status_id: 1},
-  block: {action_id: 2, disposition_id: 2, status_id: 2},
-  blocked: {action_id: 2, disposition_id: 2, status_id: 2},
-}
-
-fortinet::fortigate::ocsf::map_common
-
 ocsf.category_uid = 4
 ocsf.class_uid = 4003
-ocsf.activity_id = $activities[fortigate.eventtype?]? else 1
+ocsf.activity_id = $activities[unmapped.eventtype?]? else 1
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 ocsf.query = {
-  hostname: move fortigate.qname?,
-  class: move fortigate.qclass?,
-  type: move fortigate.qtype?,
+  hostname: move unmapped.qname,
+  class: move unmapped.qclass,
+  type: move unmapped.qtype
 }
-ocsf.query_time = ocsf.time
-if fortigate.eventtype? == "dns-response" {
-  ocsf.response_time = ocsf.time
-}
-
-if fortigate.ipaddr? != null {
-  ocsf.answers = [{
-    rdata: fortigate.ipaddr.string(),
-  }]
-  ocsf.rcode_id = 0
-}
-
-if fortigate.xid? != null {
-  ocsf.connection_info.uid = fortigate.xid.string()
-}
-
-_mapped = $actions[fortigate.action?]?
-if _mapped != null {
-  ocsf.action_id = _mapped.action_id
-  ocsf.disposition_id = _mapped.disposition_id
-  ocsf.status_id = _mapped.status_id
-} else {
-  ocsf.status_id = 0
-}
-
-if fortigate.catdesc? != null {
-  ocsf.status_detail = move fortigate.catdesc
-}
-
-this = {...ocsf, unmapped: fortigate}
-@name = "ocsf.dns_activity"
-drop_null_fields unmapped
-ocsf::derive

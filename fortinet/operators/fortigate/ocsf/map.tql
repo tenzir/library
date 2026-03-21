@@ -1,24 +1,80 @@
 ---
 description: FortiGate → OCSF
+args:
+  positional:
+    - name: log
+      description: The field containing the Fortigate log as string.
+      type: field
 ---
 
-fortinet::fortigate::clean
+ocsf = {}
 
-_type = content?.type? else type?
-_subtype = content?.subtype? else subtype?
-_action = content?.action? else action?
+ocsf.raw_data = $log
+ocsf.raw_data_size = $log.length_bytes()
 
-if _type == "traffic" {
-  fortinet::fortigate::ocsf::logs::network_activity
-} else if _type == "utm" and _subtype == "dns" {
-  fortinet::fortigate::ocsf::logs::dns
-} else if _type == "event" and (
-  (_subtype == "system" and _action in ["login", "logout"]) or
-  (_subtype == "user" and _action == "authentication")
-) {
-  fortinet::fortigate::ocsf::logs::authentication
-} else if _type == "utm" and _subtype in ["virus", "webfilter", "ips", "anomaly", "ssl"] {
-  fortinet::fortigate::ocsf::logs::detection_finding
+ocsf.unmapped = $log.parse_kv()
+
+ocsf.metadata = {
+  log_format: "kv",
+  log_level: move ocsf.unmapped.level,
+  log_name: move ocsf.unmapped.subtype,
+  original_time: f"{move ocsf.unmapped.date} {move ocsf.unmapped.time}",
+  original_event_uid: (move ocsf.unmapped.logid).string(),
+  processed_time: now(),
+  product: {
+    name: "FortiGate",
+    vendor_name: "Fortinet",
+  },
+  profiles: ["host"],
+  type: move ocsf.unmapped.type?,
+  // FIXME: ocsf::derive doesn't support 1.8.0 yet
+  //version: "1.8.0",
+  version: "1.7.0",
+}
+
+if ocsf.unmapped.msg? != null {
+  ocsf.message = move ocsf.unmapped.msg
+}
+
+if ocsf.unmapped.eventtime? != null {
+  ocsf.time = (move ocsf.unmapped.eventtime).nanoseconds().from_epoch()
 } else {
-  fortinet::fortigate::ocsf::base
+  ocsf.time = ocsf.metadata.original_time.parse_time("%Y-%m-%dT%H:%M:%SZ %H:%M:%S")
+}
+
+if ocsf.unmapped.logdesc? != null  {
+  ocsf.status_detail = move ocsf.unmapped.logdesc
+}
+
+if ocsf.unmapped.severity? != null {
+  let $severities = {
+    low: 2,
+    medium: 3,
+    high: 4,
+    critical: 5,
+  }
+  ocsf.severity_id = $severities[move ocsf.unmapped.severity]
+} else {
+  ocsf.severity_id = 1
+}
+
+// Host profile
+if ocsf.unmapped.vd? != null {
+  ocsf.device.zone = move ocsf.unmapped.vd
+}
+
+// Specific event type mappings
+if type? == "utm" {
+  if subtype == "dns" {
+    fortinet::fortigate::ocsf::logs::dns
+  }
+  // TODO: complete
+} else if type? == "traffic" {
+  // TODO: complete
+} else {
+  // Base Event
+  ocsf.activity_id = 0
+  ocsf.category_uid = 0
+  ocsf.class_uid = 0
+  ocsf.type_uid = 0
 }
