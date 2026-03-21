@@ -1,0 +1,83 @@
+---
+description: "FortiGate DLP logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `dlpextra` is the matched DLP rule/filter name; `filteridx` its index.
+ocsf.finding_info = {
+  uid: (move ocsf.unmapped.filteridx).string(),
+  title: move ocsf.unmapped.dlpextra,
+  analytic: {
+    type_id: 1,  // Rule
+    category: move ocsf.unmapped.filtertype,
+  },
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+drop ocsf.unmapped.srcintfrole?
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  hostname: move ocsf.unmapped.hostname,
+  svc_name: move ocsf.unmapped.service,
+}
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+drop ocsf.unmapped.dstintfrole?
+
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+if ocsf.unmapped.direction? == "incoming" {
+  ocsf.connection_info.direction_id = 1
+} else if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.connection_info.direction_id = 2
+}
+drop ocsf.unmapped.direction?
+
+// DLP is a security control.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    block: 2,
+    allow: 1,
+    log_only: 17,
+    quarantine: 3,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+if ocsf.unmapped.profile? != null {
+  ocsf.policy = {
+    name: move ocsf.unmapped.profile,
+  }
+}
+
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
