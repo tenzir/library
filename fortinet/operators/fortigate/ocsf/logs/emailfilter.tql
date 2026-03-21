@@ -1,0 +1,79 @@
+---
+description: "FortiGate email filter logs → OCSF Email Activity (4009)"
+---
+
+@name = "ocsf.email_activity"
+
+// Email filter events are scan actions on in-transit email.
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
+ocsf.activity_id = 3  // Scan
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+// `direction` maps to OCSF direction_id for the email flow.
+ocsf.direction_id = 0
+if ocsf.unmapped.direction? == "incoming" {
+  ocsf.direction_id = 1  // Inbound
+} else if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.direction_id = 2  // Outbound
+}
+drop ocsf.unmapped.direction?
+
+// Email envelope fields.
+ocsf.email = {
+  from: move ocsf.unmapped.from,
+  to: [move ocsf.unmapped.to],
+  subject: move ocsf.unmapped.subject,
+  size: move ocsf.unmapped.size,
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+drop ocsf.unmapped.srcintfrole?
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  svc_name: move ocsf.unmapped.service,
+}
+drop ocsf.unmapped.dstintfrole?
+
+// `service` identifies the email protocol (IMAPS, SMTPS, POP3S).
+ocsf.protocol_name = ocsf.dst_endpoint.svc_name
+
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+
+// Email filter is a security control.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    blocked: 2,
+    allowed: 1,
+    monitored: 17,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+if ocsf.unmapped.profile? != null {
+  ocsf.policy = {
+    // Profile name may be numeric (e.g. "822881"); coerce to string.
+    name: (move ocsf.unmapped.profile).string(),
+  }
+}
+
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
