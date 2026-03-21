@@ -1,0 +1,72 @@
+---
+description: "FortiGate VPN event logs → OCSF Tunnel Activity (4014)"
+---
+
+@name = "ocsf.tunnel_activity"
+
+// FortiGate VPN action → OCSF activity_id.
+// `negotiate` starts a tunnel; `delete` tears it down.
+let $actions = {
+  negotiate: 1,
+  "tunnel-up": 1,
+  "tunnel-down": 2,
+  delete: 2,
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4014
+ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// `remip`/`remport` is the remote peer; `locip`/`locport` is the local end.
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.locip,
+  port: move ocsf.unmapped.locport,
+  interface_name: move ocsf.unmapped.outintf?,
+}
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.remip,
+  port: move ocsf.unmapped.remport,
+}
+
+// `vpntunnel` is the configured tunnel name.
+if ocsf.unmapped.vpntunnel? != null {
+  ocsf.tunnel_interface = {
+    name: move ocsf.unmapped.vpntunnel,
+  }
+}
+
+// `mode` is the IKE exchange mode (main, aggressive).
+// `dir` is the negotiation direction (inbound, outbound).
+ocsf.connection_info = {
+  direction_id: 0,
+}
+if ocsf.unmapped.dir? == "outbound" {
+  ocsf.connection_info.direction_id = 2
+} else if ocsf.unmapped.dir? == "inbound" {
+  ocsf.connection_info.direction_id = 1
+}
+drop ocsf.unmapped.dir?
+
+// `status`/`result` reflect negotiation outcome.
+if ocsf.unmapped.status? != null {
+  let $statuses = {
+    success: 1,
+    failed: 2,
+  }
+  ocsf.status_id = $statuses[move ocsf.unmapped.status]? else 0
+}
+drop ocsf.unmapped.result?
+
+// IPsec-specific context: protocol is IKE (UDP 500).
+ocsf.protocol_name = "IPSec"
+
+// `user`/`group`/`xauthuser`/`xauthgroup` are already null after cleaning
+// (N/A → null); only populate if actually set.
+if ocsf.unmapped.user? != null {
+  ocsf.user = { name: move ocsf.unmapped.user }
+}
+drop ocsf.unmapped.group?
+drop ocsf.unmapped.xauthuser?
+drop ocsf.unmapped.xauthgroup?
