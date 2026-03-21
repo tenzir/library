@@ -116,8 +116,17 @@ if ocsf.metadata.type == "utm" {
 } else if ocsf.metadata.type == "traffic" {
   fortinet::fortigate::ocsf::logs::traffic
 } else if ocsf.metadata.type == "event" {
-  if ocsf.metadata.log_name == "user" or ocsf.metadata.log_name == "system" {
+  if ocsf.metadata.log_name == "user" {
     fortinet::fortigate::ocsf::logs::authentication
+  } else if ocsf.metadata.log_name == "system" {
+    // Only admin login/logout events map to Authentication; subtype="system"
+    // also covers startup, config changes, and performance stats which should
+    // fall through to Base Event.
+    if ocsf.unmapped.action? == "login" or ocsf.unmapped.action? == "logout" {
+      fortinet::fortigate::ocsf::logs::authentication
+    } else {
+      fortinet::fortigate::ocsf::base
+    }
   } else if ocsf.metadata.log_name == "vpn" {
     fortinet::fortigate::ocsf::logs::vpn
   } else if ocsf.metadata.log_name == "endpoint" {
