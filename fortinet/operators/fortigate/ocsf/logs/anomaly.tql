@@ -25,27 +25,27 @@ ocsf.finding_info = {
   },
 }
 
-// Anomaly logs lack srcport/dstport/dstintf; build endpoints manually.
-ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
-  interface_name: move ocsf.unmapped.srcintf,
-}
-if ocsf.unmapped.srcintfrole? != null {
-  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+// Network context goes into evidences for Detection Finding.
+// Anomaly logs have no srcport/dstport/dstintf; build evidence manually.
+ocsf._e = {
+  src_endpoint: {
+    ip: move ocsf.unmapped.srcip,
+    interface_name: move ocsf.unmapped.srcintf,
+  },
+  dst_endpoint: {
+    ip: move ocsf.unmapped.dstip,
+    svc_name: move ocsf.unmapped.service,
+  },
+  connection_info: {
+    protocol_num: move ocsf.unmapped.proto,
+    uid: (move ocsf.unmapped.sessionid).string(),
+    direction_id: 0,
+  },
 }
 drop ocsf.unmapped.srcintfrole?
-
-ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
-  svc_name: move ocsf.unmapped.service,
-}
 drop ocsf.unmapped.dstintfrole?
-
-ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.proto,
-  uid: (move ocsf.unmapped.sessionid).string(),
-  direction_id: 0,
-}
+ocsf.evidences = [ocsf._e]
+drop ocsf._e
 
 // Security-control profile: `policytype` identifies the policy table (e.g.
 // "DoS-policy"); extend firewall_rule after the common UDO sets uid.

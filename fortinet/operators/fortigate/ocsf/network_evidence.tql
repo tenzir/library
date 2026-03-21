@@ -1,0 +1,52 @@
+---
+description: >-
+  Map FortiGate network fields into ocsf.evidences[0] for Detection Finding.
+  Puts src_endpoint, dst_endpoint, and connection_info inside the evidence
+  artifact where Detection Finding can carry them. Uses a temporary field
+  ocsf._e to work around TQL's lack of array-index assignment syntax.
+---
+
+ocsf._e = {
+  src_endpoint: {
+    ip: move ocsf.unmapped.srcip,
+    port: move ocsf.unmapped.srcport?,
+    interface_name: move ocsf.unmapped.srcintf,
+  },
+  dst_endpoint: {
+    ip: move ocsf.unmapped.dstip,
+    port: move ocsf.unmapped.dstport?,
+    interface_name: move ocsf.unmapped.dstintf,
+  },
+  connection_info: {
+    protocol_num: move ocsf.unmapped.proto,
+    direction_id: 0,
+  },
+}
+
+if ocsf.unmapped.sessionid? != null {
+  ocsf._e.connection_info.uid = (move ocsf.unmapped.sessionid).string()
+}
+if ocsf.unmapped.service? != null {
+  ocsf._e.dst_endpoint.svc_name = move ocsf.unmapped.service
+}
+if ocsf.unmapped.hostname? != null {
+  // Coerce to string: parse_kv may parse IP-shaped hostnames as ip_t.
+  ocsf._e.dst_endpoint.hostname = (move ocsf.unmapped.hostname).string()
+}
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf._e.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+drop ocsf.unmapped.srcintfrole?
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf._e.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+drop ocsf.unmapped.dstintfrole?
+if ocsf.unmapped.direction? == "incoming" {
+  ocsf._e.connection_info.direction_id = 1
+} else if ocsf.unmapped.direction? == "outgoing" {
+  ocsf._e.connection_info.direction_id = 2
+}
+drop ocsf.unmapped.direction?
+
+ocsf.evidences = [ocsf._e]
+drop ocsf._e
