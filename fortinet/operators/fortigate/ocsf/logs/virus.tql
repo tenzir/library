@@ -33,41 +33,9 @@ ocsf.finding_info = {
   },
 }
 
-ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
-  port: move ocsf.unmapped.srcport,
-  interface_name: move ocsf.unmapped.srcintf,
-}
-if ocsf.unmapped.srcintfrole? != null {
-  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
-}
-drop ocsf.unmapped.srcintfrole?
-
-ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
-  port: move ocsf.unmapped.dstport,
-  interface_name: move ocsf.unmapped.dstintf,
-  svc_name: move ocsf.unmapped.service,
-}
-if ocsf.unmapped.dstintfrole? != null {
-  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
-}
-drop ocsf.unmapped.dstintfrole?
-
-ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.proto,
-  uid: (move ocsf.unmapped.sessionid).string(),
-  direction_id: 0,
-}
-if ocsf.unmapped.direction? == "incoming" {
-  ocsf.connection_info.direction_id = 1
-} else if ocsf.unmapped.direction? == "outgoing" {
-  ocsf.connection_info.direction_id = 2
-}
-drop ocsf.unmapped.direction?
-
-// Security-control profile.
-ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::security_control
 
 if ocsf.unmapped.action? != null {
   let $dispositions = {
@@ -78,27 +46,5 @@ if ocsf.unmapped.action? != null {
   ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
 }
 
-if ocsf.unmapped.profile? != null {
-  ocsf.policy = {
-    name: move ocsf.unmapped.profile,
-  }
-}
-
-if ocsf.unmapped.policyid? != null {
-  ocsf.firewall_rule = {
-    uid: (move ocsf.unmapped.policyid).string(),
-  }
-}
-
-if ocsf.unmapped.crscore? != null {
-  ocsf.risk_score = move ocsf.unmapped.crscore
-}
-if ocsf.unmapped.crlevel? != null {
-  let $levels = {
-    low: 1,
-    medium: 2,
-    high: 3,
-    critical: 4,
-  }
-  ocsf.risk_level_id = $levels[move ocsf.unmapped.crlevel]? else 99
-}
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+fortinet::fortigate::ocsf::risk

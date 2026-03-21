@@ -13,31 +13,8 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 drop ocsf.unmapped.eventtype
 
-ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
-  port: move ocsf.unmapped.srcport,
-  interface_name: move ocsf.unmapped.srcintf,
-}
-drop ocsf.unmapped.srcintfrole?
-
-ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
-  port: move ocsf.unmapped.dstport,
-  interface_name: move ocsf.unmapped.dstintf,
-  svc_name: move ocsf.unmapped.service,
-}
-drop ocsf.unmapped.dstintfrole?
-
-ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.proto,
-  direction_id: 0,
-}
-if ocsf.unmapped.direction? == "incoming" {
-  ocsf.connection_info.direction_id = 1
-} else if ocsf.unmapped.direction? == "outgoing" {
-  ocsf.connection_info.direction_id = 2
-}
-drop ocsf.unmapped.direction?
+fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::connection_info
 
 // `filename` and `filesize` describe the file being transferred.
 // `filetype` stays in unmapped: type_name requires type_id sibling.
@@ -46,8 +23,7 @@ ocsf.file = {
   size: move ocsf.unmapped.filesize,
 }
 
-// CIFS inspection is a security control.
-ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+fortinet::fortigate::ocsf::security_control
 
 if ocsf.unmapped.action? != null {
   let $dispositions = {
@@ -55,16 +31,4 @@ if ocsf.unmapped.action? != null {
     allowed: 1,
   }
   ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
-}
-
-if ocsf.unmapped.profile? != null {
-  ocsf.policy = {
-    name: move ocsf.unmapped.profile,
-  }
-}
-
-if ocsf.unmapped.policyid? != null {
-  ocsf.firewall_rule = {
-    uid: (move ocsf.unmapped.policyid).string(),
-  }
 }

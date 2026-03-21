@@ -29,46 +29,16 @@ ocsf.finding_info = {
   },
 }
 
-ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
-  port: move ocsf.unmapped.srcport,
-  interface_name: move ocsf.unmapped.srcintf,
-}
+fortinet::fortigate::ocsf::network_endpoints
+// `hostname` is the virtual host name of the destination.
+ocsf.dst_endpoint.hostname = move ocsf.unmapped.hostname
 
-ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
-  port: move ocsf.unmapped.dstport,
-  interface_name: move ocsf.unmapped.dstintf,
-  // `hostname` is the virtual host name of the destination.
-  hostname: move ocsf.unmapped.hostname,
-  svc_name: move ocsf.unmapped.service,
-}
-
-// Map interface zones and derive connection direction.
-if ocsf.unmapped.srcintfrole? != null {
-  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
-}
-if ocsf.unmapped.dstintfrole? != null {
-  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
-}
-ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.proto,
-  uid: (move ocsf.unmapped.sessionid).string(),
-  direction_id: 0,
-}
-if ocsf.unmapped.direction? == "incoming" {
-  ocsf.connection_info.direction_id = 1  // Inbound
-} else if ocsf.unmapped.direction? == "outgoing" {
-  ocsf.connection_info.direction_id = 2  // Outbound
-}
-drop ocsf.unmapped.srcintfrole?
-drop ocsf.unmapped.dstintfrole?
-drop ocsf.unmapped.direction?
+fortinet::fortigate::ocsf::connection_info
 
 // IPS is a security control: it detected and acted on the traffic.
-ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
-
 // `action` is the IPS response; map to disposition.
+fortinet::fortigate::ocsf::security_control
+
 if ocsf.unmapped.action? != null {
   let $dispositions = {
     dropped: 6,
@@ -80,28 +50,5 @@ if ocsf.unmapped.action? != null {
   ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
 }
 
-// `profile` is the IPS profile applied; `policyid` is the firewall rule.
-if ocsf.unmapped.profile? != null {
-  ocsf.policy = {
-    name: move ocsf.unmapped.profile,
-  }
-}
-if ocsf.unmapped.policyid? != null {
-  ocsf.firewall_rule = {
-    uid: (move ocsf.unmapped.policyid).string(),
-  }
-}
-
 // `crscore`/`crlevel` are the composite UTM risk score and level.
-if ocsf.unmapped.crscore? != null {
-  ocsf.risk_score = move ocsf.unmapped.crscore
-}
-if ocsf.unmapped.crlevel? != null {
-  let $levels = {
-    low: 1,
-    medium: 2,
-    high: 3,
-    critical: 4,
-  }
-  ocsf.risk_level_id = $levels[move ocsf.unmapped.crlevel]? else 99
-}
+fortinet::fortigate::ocsf::risk

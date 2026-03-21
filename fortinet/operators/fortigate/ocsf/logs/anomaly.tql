@@ -25,6 +25,7 @@ ocsf.finding_info = {
   },
 }
 
+// Anomaly logs lack srcport/dstport/dstintf; build endpoints manually.
 ocsf.src_endpoint = {
   ip: move ocsf.unmapped.srcip,
   interface_name: move ocsf.unmapped.srcintf,
@@ -38,6 +39,7 @@ ocsf.dst_endpoint = {
   ip: move ocsf.unmapped.dstip,
   svc_name: move ocsf.unmapped.service,
 }
+drop ocsf.unmapped.dstintfrole?
 
 ocsf.connection_info = {
   protocol_num: move ocsf.unmapped.proto,
@@ -45,8 +47,12 @@ ocsf.connection_info = {
   direction_id: 0,
 }
 
-// Security-control profile.
-ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+// Security-control profile: `policytype` identifies the policy table (e.g.
+// "DoS-policy"); extend firewall_rule after the common UDO sets uid.
+fortinet::fortigate::ocsf::security_control
+if ocsf.unmapped.policytype? != null {
+  ocsf.firewall_rule.type = move ocsf.unmapped.policytype
+}
 
 if ocsf.unmapped.action? != null {
   let $dispositions = {
@@ -57,22 +63,4 @@ if ocsf.unmapped.action? != null {
   ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
 }
 
-if ocsf.unmapped.policyid? != null {
-  ocsf.firewall_rule = {
-    uid: (move ocsf.unmapped.policyid).string(),
-    type: move ocsf.unmapped.policytype?,
-  }
-}
-
-if ocsf.unmapped.crscore? != null {
-  ocsf.risk_score = move ocsf.unmapped.crscore
-}
-if ocsf.unmapped.crlevel? != null {
-  let $levels = {
-    low: 1,
-    medium: 2,
-    high: 3,
-    critical: 4,
-  }
-  ocsf.risk_level_id = $levels[move ocsf.unmapped.crlevel]? else 99
-}
+fortinet::fortigate::ocsf::risk
