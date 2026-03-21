@@ -15,8 +15,16 @@ if ocsf.unmapped.hostname? != null {
 
 fortinet::fortigate::ocsf::connection_info
 
-ocsf.evidences = [{
-  src_endpoint: move ocsf.src_endpoint,
-  dst_endpoint: move ocsf.dst_endpoint,
-  connection_info: move ocsf.connection_info,
-}]
+// Only emit evidences when at least one endpoint IP is present; an all-null
+// evidence record is unhelpful and drop_null_fields does not recurse into lists.
+if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
+  ocsf.evidences = [{
+    src_endpoint: move ocsf.src_endpoint,
+    dst_endpoint: move ocsf.dst_endpoint,
+    connection_info: move ocsf.connection_info,
+  }]
+} else {
+  drop ocsf.src_endpoint?
+  drop ocsf.dst_endpoint?
+  drop ocsf.connection_info?
+}
