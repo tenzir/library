@@ -1,0 +1,55 @@
+---
+description: "FortiGate WAD SSL alert logs → OCSF Network Activity (4001)"
+---
+
+@name = "ocsf.network_activity"
+
+// SSL fatal alerts terminate the connection.
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = 3  // Reset
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// `desc` is the human-readable reason for the SSL alert.
+if ocsf.unmapped.desc? != null {
+  ocsf.status_detail = move ocsf.unmapped.desc
+}
+
+// Only map endpoints when srcip is a real address.
+if ocsf.unmapped.srcip? != null and ocsf.unmapped.srcip != 0.0.0.0 {
+  ocsf.src_endpoint = {
+    ip: move ocsf.unmapped.srcip,
+    port: move ocsf.unmapped.srcport,
+  }
+} else {
+  drop ocsf.unmapped.srcip?
+  drop ocsf.unmapped.srcport?
+}
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+}
+
+// `session_id` may be a hex string (e.g. "5f88ddd1") or 0.
+if ocsf.unmapped.session_id? != null and ocsf.unmapped.session_id != 0 {
+  ocsf.connection_info = {
+    direction_id: 0,
+    uid: (move ocsf.unmapped.session_id).string(),
+  }
+} else {
+  drop ocsf.unmapped.session_id?
+}
+
+// SSL inspection is a security control.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+ocsf.disposition_id = 2  // Blocked: fatal alert terminates the connection
+
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
+
+// `action` (send/receive) describes alert direction; consumed here.
+drop ocsf.unmapped.action?
