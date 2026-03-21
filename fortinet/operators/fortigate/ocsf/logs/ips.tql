@@ -1,0 +1,107 @@
+---
+description: "FortiGate IPS logs → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+// IPS events are always new detections.
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// IPS detections are always alertable.
+ocsf.is_alert = true
+
+drop ocsf.unmapped.eventtype
+
+// `attack` is the signature name; `attackid` is its numeric ID;
+// `incidentserialno` is the unique identifier of this detection instance.
+ocsf.finding_info = {
+  uid: (move ocsf.unmapped.incidentserialno).string(),
+  title: ocsf.unmapped.attack,
+  src_url: move ocsf.unmapped.ref,
+  analytic: {
+    // IPS signatures are rule-based detections.
+    type_id: 1,
+    uid: (move ocsf.unmapped.attackid).string(),
+    name: move ocsf.unmapped.attack,
+  },
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  // `hostname` is the virtual host name of the destination.
+  hostname: move ocsf.unmapped.hostname,
+  svc_name: move ocsf.unmapped.service,
+}
+
+// Map interface zones and derive connection direction.
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+if ocsf.unmapped.direction? == "incoming" {
+  ocsf.connection_info.direction_id = 1  // Inbound
+} else if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.connection_info.direction_id = 2  // Outbound
+}
+drop ocsf.unmapped.srcintfrole?
+drop ocsf.unmapped.dstintfrole?
+drop ocsf.unmapped.direction?
+
+// IPS is a security control: it detected and acted on the traffic.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+// `action` is the IPS response; map to disposition.
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    dropped: 6,
+    pass: 1,
+    reset: 21,
+    block: 2,
+    alert: 19,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `profile` is the IPS profile applied; `policyid` is the firewall rule.
+if ocsf.unmapped.profile? != null {
+  ocsf.policy = {
+    name: move ocsf.unmapped.profile,
+  }
+}
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
+
+// `crscore`/`crlevel` are the composite UTM risk score and level.
+if ocsf.unmapped.crscore? != null {
+  ocsf.risk_score = move ocsf.unmapped.crscore
+}
+if ocsf.unmapped.crlevel? != null {
+  let $levels = {
+    low: 1,
+    medium: 2,
+    high: 3,
+    critical: 4,
+  }
+  ocsf.risk_level_id = $levels[move ocsf.unmapped.crlevel]? else 99
+}
