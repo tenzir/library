@@ -55,6 +55,10 @@ if ocsf.unmapped.logdesc? != null  {
   ocsf.status_detail = move ocsf.unmapped.logdesc
 }
 
+// `severity` is present on some UTM logs; `level` appears on all logs and is
+// already captured in metadata.log_level. Use severity first, fall back to
+// level so events without an explicit severity are not silently downgraded to
+// Informational.
 if ocsf.unmapped.severity? != null {
   let $severities = {
     low: 2,
@@ -63,6 +67,18 @@ if ocsf.unmapped.severity? != null {
     critical: 5,
   }
   ocsf.severity_id = $severities[move ocsf.unmapped.severity]
+} else if ocsf.metadata.log_level? != null {
+  let $levels = {
+    debug: 1,
+    information: 1,
+    notice: 1,
+    warning: 3,
+    error: 4,
+    alert: 5,
+    critical: 5,
+    emergency: 6,
+  }
+  ocsf.severity_id = $levels[ocsf.metadata.log_level]? else 1
 } else {
   ocsf.severity_id = 1
 }
