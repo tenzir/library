@@ -1,0 +1,85 @@
+---
+description: "FortiGate application control logs → OCSF Network Activity (4001)"
+---
+
+@name = "ocsf.network_activity"
+
+// Application control events report traffic matched by app signatures.
+let $actions = {
+  pass: 6,    // Traffic
+  block: 5,   // Refuse
+  drop: 4,    // Fail
+  reset: 3,   // Reset
+}
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = $actions[ocsf.unmapped.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop ocsf.unmapped.eventtype
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.srcip,
+  port: move ocsf.unmapped.srcport,
+  interface_name: move ocsf.unmapped.srcintf,
+}
+if ocsf.unmapped.srcintfrole? != null {
+  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+}
+drop ocsf.unmapped.srcintfrole?
+
+ocsf.dst_endpoint = {
+  ip: move ocsf.unmapped.dstip,
+  port: move ocsf.unmapped.dstport,
+  interface_name: move ocsf.unmapped.dstintf,
+  hostname: move ocsf.unmapped.hostname,
+  svc_name: move ocsf.unmapped.service,
+}
+if ocsf.unmapped.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+}
+drop ocsf.unmapped.dstintfrole?
+
+ocsf.connection_info = {
+  protocol_num: move ocsf.unmapped.proto,
+  uid: (move ocsf.unmapped.sessionid).string(),
+  direction_id: 0,
+}
+if ocsf.unmapped.direction? == "outgoing" {
+  ocsf.connection_info.direction_id = 2
+} else if ocsf.unmapped.direction? == "incoming" {
+  ocsf.connection_info.direction_id = 1
+}
+drop ocsf.unmapped.direction?
+
+// `app` is the identified application; `appcat` is its category.
+if ocsf.unmapped.app? != null {
+  ocsf.app_name = move ocsf.unmapped.app
+}
+
+// Application control is a security control.
+ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
+
+if ocsf.unmapped.action? != null {
+  let $dispositions = {
+    pass: 1,
+    block: 2,
+    drop: 6,
+    reset: 21,
+  }
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+}
+
+// `applist` is the application control profile applied.
+if ocsf.unmapped.applist? != null {
+  ocsf.policy = {
+    name: move ocsf.unmapped.applist,
+  }
+}
+
+if ocsf.unmapped.policyid? != null {
+  ocsf.firewall_rule = {
+    uid: (move ocsf.unmapped.policyid).string(),
+  }
+}
