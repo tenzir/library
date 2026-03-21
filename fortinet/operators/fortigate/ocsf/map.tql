@@ -14,6 +14,11 @@ ocsf.raw_data_size = $log.length_bytes()
 
 ocsf.unmapped = $log.parse_kv()
 
+// Normalize FortiGate sentinel strings to null.
+replace what="N/A", with=null
+replace what="none", with=null
+replace what="undefined", with=null
+
 ocsf.metadata = {
   log_format: "kv",
   log_level: move ocsf.unmapped.level,
@@ -37,7 +42,13 @@ if ocsf.unmapped.msg? != null {
 }
 
 if ocsf.unmapped.eventtime? != null {
-  ocsf.time = (move ocsf.unmapped.eventtime).nanoseconds().from_epoch()
+  // FortiGate eventtime is seconds (10-digit) or nanoseconds (19-digit).
+  // Values below 1e13 are seconds; above are nanoseconds.
+  if ocsf.unmapped.eventtime < 10T {
+    ocsf.time = (move ocsf.unmapped.eventtime).seconds().from_epoch()
+  } else {
+    ocsf.time = (move ocsf.unmapped.eventtime).nanoseconds().from_epoch()
+  }
 } else {
   ocsf.time = ocsf.metadata.original_time.parse_time("%Y-%m-%dT%H:%M:%SZ %H:%M:%S")
 }
@@ -68,9 +79,8 @@ if ocsf.metadata.type == "utm" {
   if ocsf.metadata.log_name == "dns" {
     fortinet::fortigate::ocsf::logs::dns
   }
-  // TODO: complete
 } else if ocsf.metadata.type == "traffic" {
-  // TODO: complete
+  fortinet::fortigate::ocsf::logs::traffic
 } else {
   // Base Event
   ocsf.activity_id = 0
