@@ -18,12 +18,10 @@ replace ocsf.unmapped.EventData.DestinationHostname, what="-", with=null
 replace ocsf.unmapped.EventData.DestinationPortName, what="-", with=null
 
 ocsf.connection_info = {
-  direction_id:    2 if ocsf.unmapped.EventData.Initiated else 1,
+  direction_id:    2 if (move ocsf.unmapped.EventData.Initiated) else 1,
   protocol_name:   move ocsf.unmapped.EventData.Protocol,
-  protocol_ver_id: 6 if ocsf.unmapped.EventData.SourceIsIpv6 else 4,
+  protocol_ver_id: 6 if (move ocsf.unmapped.EventData.SourceIsIpv6) else 4,
 }
-drop ocsf.unmapped.EventData.Initiated
-drop ocsf.unmapped.EventData.SourceIsIpv6
 drop ocsf.unmapped.EventData.DestinationIsIpv6 // redundant to SourceIsIpv6
 
 let $protos = { tcp: 6, udp: 17 }
@@ -46,7 +44,6 @@ ocsf.dst_endpoint = {
 // The Host profile (applied globally in map.tql) adds actor to Network Activity.
 // Map the process that opened the connection accordingly.
 _user = (move ocsf.unmapped.EventData.User).split("\\")
-
 ocsf.actor = {
   process: {
     uid:  move ocsf.unmapped.EventData.ProcessGuid,
@@ -59,9 +56,8 @@ ocsf.actor = {
     domain: _user[0],
   },
 }
+drop _user
 
 ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
 ocsf.actor.process.file.name = ocsf.actor.process.name
 ocsf.actor.process.file.path = ocsf.actor.process.path
-
-drop _user
