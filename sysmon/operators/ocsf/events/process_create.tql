@@ -1,0 +1,102 @@
+---
+description: Sysmon ProcessCreate (EID 1) → OCSF Process Activity (1007, Launch)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 1  // Launch
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Stash multi-use fields in locals before the record literals consume them.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+_parent_user = (move ocsf.unmapped.EventData.ParentUser).split("\\")
+
+ocsf.launch_type_id = 1
+
+// Map IntegrityLevel string to its OCSF enum id.
+let $integrity_ids = {
+  Unknown:   0,
+  Untrusted: 1,
+  Low:       2,
+  Medium:    3,
+  High:      4,
+  System:    5,
+  Protected: 6,
+}
+
+// The newly created process.
+ocsf.process = {
+  pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+  uid: move ocsf.unmapped.EventData.ProcessGuid,
+  path: move ocsf.unmapped.EventData.Image,
+  cmd_line: move ocsf.unmapped.EventData.CommandLine,
+  created_time: ocsf.time,
+  working_directory: move ocsf.unmapped.EventData.CurrentDirectory,
+  integrity_id: $integrity_ids[move ocsf.unmapped.EventData.IntegrityLevel]? else 0,
+  file: {
+    type_id: 8,  // Executable File
+    version: move ocsf.unmapped.EventData.FileVersion,
+    desc: move ocsf.unmapped.EventData.Description,
+    company_name: move ocsf.unmapped.EventData.Company,
+    internal_name: move ocsf.unmapped.EventData.OriginalFileName,
+    product: {
+      name: move ocsf.unmapped.EventData.Product,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+  parent_process: {
+    pid: (move ocsf.unmapped.EventData.ParentProcessId).int(),
+    uid: move ocsf.unmapped.EventData.ParentProcessGuid,
+    path: move ocsf.unmapped.EventData.ParentImage,
+    cmd_line: move ocsf.unmapped.EventData.ParentCommandLine,
+    file: {
+      type_id: 8,
+    },
+    user: {
+      name: _parent_user[-1],
+      domain: _parent_user[0],
+    },
+  },
+}
+
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.parent_process.file.name = ocsf.process.parent_process.path.split("\\")[-1]
+ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
+
+drop _user, _parent_user
+
+let $algorithms = {
+  MD5: 1,
+  SHA1: 2,
+  SHA256: 3,
+}
+
+// Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
+ocsf.process.file.hashes = (move ocsf.unmapped.EventData.Hashes) \
+  .split(",") \
+  .map(h => h.split("=", max=1)) \
+  .map(kv => {
+    algorithm_id: $algorithms[kv[0]?]? else 99,
+    value: kv[1],
+  })
+
+
+// LogonGuid/LogonId identify the logon session under which the process was created.
+// TerminalSessionId (RDP/console slot number) has no direct OCSF home; stays in unmapped.
+ocsf.actor = {
+  session: {
+    uid: move ocsf.unmapped.EventData.LogonGuid,
+    uid_alt: move ocsf.unmapped.EventData.LogonId,
+  },
+}
+
+// EID 1 only fires on successful process creation; there is no failure variant.
+ocsf.status_id = 1
+
+// RuleName is Sysmon's filter-rule tag, not a property of the spawned process.
+drop ocsf.unmapped.EventData.RuleName?
