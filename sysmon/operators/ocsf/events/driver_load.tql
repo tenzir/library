@@ -1,0 +1,55 @@
+---
+description: Sysmon DriverLoad (EID 6) → OCSF Kernel Extension Activity (1002, Load)
+---
+
+@name = "ocsf.kernel_extension_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1002
+ocsf.activity_id = 1  // Load
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
+
+// Sysmon reports driver loads from the kernel (PID 4 / System), so there is no
+// meaningful user-space actor. The required actor object is left empty.
+ocsf.actor = {}
+
+_signed   = (move ocsf.unmapped.EventData.Signed).string()
+_sig_name = move ocsf.unmapped.EventData.Signature
+_sig_stat = move ocsf.unmapped.EventData.SignatureStatus
+
+ocsf.driver = {
+  file: {
+    path: move ocsf.unmapped.EventData.ImageLoaded,
+    type_id: 8,  // Executable File (kernel drivers are PE images)
+    hashes: (move ocsf.unmapped.EventData.Hashes)
+      .split(",")
+      .map(h => h.split("=", max=1))
+      .map(kv => {
+        algorithm_id: $algorithms[kv[0]?]? else 99,
+        value: kv[1],
+      }),
+  },
+}
+
+ocsf.driver.file.name = ocsf.driver.file.path.split("\\")[-1]
+
+// Attach digital-signature details when the driver is signed.
+if _signed == "true" {
+  ocsf.driver.file.signature = {
+    algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
+  }
+  if _sig_name != "-" { ocsf.driver.file.signature.certificate = { issuer: _sig_name } }
+  _state_id = 0
+  if _sig_stat == "Valid"     { _state_id = 1 }
+  if _sig_stat == "Expired"   { _state_id = 2 }
+  if _sig_stat == "Revoked"   { _state_id = 3 }
+  if _sig_stat == "Untrusted" { _state_id = 6 }
+  if _state_id != 0 { ocsf.driver.file.signature.state_id = _state_id }
+  drop _state_id
+}
+
+drop _signed, _sig_name, _sig_stat
+
+drop ocsf.unmapped.EventData.RuleName?
