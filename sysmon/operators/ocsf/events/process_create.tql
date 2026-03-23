@@ -44,7 +44,7 @@ ocsf.process = {
   },
   user: {
     name: _user[-1],
-    domain: _user[0],
+    domain: _user[0] if _user.length() > 1 else null,
   },
   parent_process: {
     pid: (move ocsf.unmapped.EventData.ParentProcessId).int(),
@@ -56,12 +56,14 @@ ocsf.process = {
     },
     user: {
       name: _parent_user[-1],
-      domain: _parent_user[0],
+      domain: _parent_user[0] if _parent_user.length() > 1 else null,
     },
   },
 }
 drop _user, _parent_user
 ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
 ocsf.process.parent_process.file.name = ocsf.process.parent_process.path.split("\\")[-1]
 ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
 
@@ -78,7 +80,7 @@ ocsf.process.file.hashes = ((move ocsf.unmapped.EventData.Hashes)
   .map(h => h.split("=", max=1))
   .map(kv => {
     algorithm_id: $algorithms[kv[0]?]? else 99,
-    value: kv[1],
+    value: kv[1]?,
   }))
 
 // The actor.process object duplicates process.parent_process per OCSF guidance:
@@ -95,6 +97,7 @@ ocsf.actor = {
     file: ocsf.process.parent_process.file,
     user: ocsf.process.parent_process.user,
   },
+  user: ocsf.process.parent_process.user,
   // LogonGuid/LogonId are the logon session of the spawned process, not the
   // creator. They are placed in actor.session because it is the only session
   // data available and is useful for cross-event correlation; the two sessions

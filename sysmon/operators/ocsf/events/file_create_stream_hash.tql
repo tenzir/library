@@ -28,12 +28,13 @@ ocsf.component = _target.split(":")[-1]
 
 drop _target
 
-// Wrap the single "ALGO=hash" entry in an array and reuse the multi-hash pipeline.
-ocsf.file.hashes = ([(move ocsf.unmapped.EventData.Hash)]
+// Hash field uses the same comma-separated "ALGO=value" format as Hashes on other EIDs.
+ocsf.file.hashes = ((move ocsf.unmapped.EventData.Hash)
+  .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
     algorithm_id: $algorithms[kv[0]?]? else 99,
-    value: kv[1],
+    value: kv[1]?,
   }))
 
 // Contents is the raw ADS content (e.g. Zone.Identifier data) — no OCSF field for it.
@@ -49,7 +50,7 @@ ocsf.actor = {
   },
   user: {
     name: _user[-1],
-    domain: _user[0],
+    domain: _user[0] if _user.length() > 1 else null,
   },
 }
 drop _user
