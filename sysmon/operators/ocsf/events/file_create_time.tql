@@ -1,0 +1,53 @@
+---
+description: Sysmon FileCreateTime (EID 2) → OCSF File System Activity (1001, Set Attributes)
+---
+
+@name = "ocsf.file_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1001
+ocsf.activity_id = 6  // Set Attributes (timestamp modification / timestomping)
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+// The target file — populated with its state *before* the timestamp was altered.
+ocsf.file = {
+  path: move ocsf.unmapped.EventData.TargetFilename,
+  created_time: move ocsf.unmapped.EventData.PreviousCreationUtcTime,
+  type_id: 1,  // Regular File
+}
+ocsf.file.name = ocsf.file.path.split("\\")[-1]
+
+// The resulting file — reflects the *new* (forged) creation timestamp.
+ocsf.file_result = {
+  path: ocsf.file.path,
+  name: ocsf.file.name,
+  created_time: move ocsf.unmapped.EventData.CreationUtcTime,
+  type_id: 1,  // Regular File
+}
+
+// The process that performed the timestamp modification.
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: {
+      type_id: 8,  // Executable File
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+// RuleName is a Sysmon filter-rule tag, not a property of the target file.
+drop ocsf.unmapped.EventData.RuleName?
