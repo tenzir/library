@@ -21,23 +21,16 @@ replace ocsf.unmapped.EventData.SourcePortName,      what="-", with=null
 replace ocsf.unmapped.EventData.DestinationHostname, what="-", with=null
 replace ocsf.unmapped.EventData.DestinationPortName, what="-", with=null
 
-// Build connection_info with safe defaults, then patch the two computed fields.
 ocsf.connection_info = {
-  direction_id: 1,  // Inbound default; overwritten below when Initiated=true
-  protocol_name: move ocsf.unmapped.EventData.Protocol,
-  protocol_num: 255,
-  protocol_ver_id: 4,  // IPv4 default; overwritten below when SourceIsIpv6=true
+  direction_id:    2 if ocsf.unmapped.EventData.Initiated   else 1,  // Outbound / Inbound
+  protocol_name:   move ocsf.unmapped.EventData.Protocol,
+  protocol_num:    255,
+  protocol_ver_id: 6 if ocsf.unmapped.EventData.SourceIsIpv6 else 4,  // IPv6 / IPv4
 }
+// Look up protocol_num from the already-written protocol_name.
 ocsf.connection_info.protocol_num = $protocol_nums[ocsf.connection_info.protocol_name]? else 255
 
-if ocsf.unmapped.EventData.Initiated == true {
-  ocsf.connection_info.direction_id = 2  // Outbound
-}
 drop ocsf.unmapped.EventData.Initiated
-
-if ocsf.unmapped.EventData.SourceIsIpv6 == true {
-  ocsf.connection_info.protocol_ver_id = 6
-}
 drop ocsf.unmapped.EventData.SourceIsIpv6
 
 // Drop the redundant DestinationIsIpv6 — it mirrors SourceIsIpv6 for the same flow.
