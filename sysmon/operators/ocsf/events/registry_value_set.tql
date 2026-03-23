@@ -1,0 +1,48 @@
+---
+description: Sysmon RegistryValueSet (EID 13) → OCSF Registry Value Activity (201002, Set)
+---
+
+@name = "ocsf.registry_value_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 201002
+ocsf.activity_id = 2  // Set
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+_user       = (move ocsf.unmapped.EventData.User).split("\\")
+_target_obj = move ocsf.unmapped.EventData.TargetObject
+
+// reg_value.name is the last path component; path is the parent key.
+_parts = _target_obj.split("\\")
+ocsf.reg_value = {
+  path: _parts.slice(end=-1).join("\\"),
+  name: _parts[-1],
+  reg_string_data: move ocsf.unmapped.EventData.Details,
+}
+drop _parts, _target_obj
+
+// EventType "SetValue" is redundant with activity_id — drop it.
+drop ocsf.unmapped.EventData.EventType
+
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+drop ocsf.unmapped.EventData.RuleName?

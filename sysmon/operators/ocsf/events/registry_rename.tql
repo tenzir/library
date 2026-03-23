@@ -1,0 +1,43 @@
+---
+description: Sysmon RegistryRename (EID 14) → OCSF Registry Key Activity (201001, Rename)
+---
+
+@name = "ocsf.registry_key_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 201001
+ocsf.activity_id = 5  // Rename
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+// reg_key holds the key at its new (post-rename) path.
+// prev_reg_key holds the original path before the rename.
+ocsf.reg_key      = { path: move ocsf.unmapped.EventData.NewName     }
+ocsf.prev_reg_key = { path: move ocsf.unmapped.EventData.TargetObject }
+
+// EventType "RenameKey" is redundant with activity_id — drop it.
+drop ocsf.unmapped.EventData.EventType
+
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+drop ocsf.unmapped.EventData.RuleName?
