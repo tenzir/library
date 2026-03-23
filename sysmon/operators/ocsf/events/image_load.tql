@@ -12,8 +12,6 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
 let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 
-_user = (move ocsf.unmapped.EventData.User).split("\\")
-
 // Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
 replace ocsf.unmapped.EventData.FileVersion, what="-", with=null
 replace ocsf.unmapped.EventData.Description, what="-", with=null
@@ -65,6 +63,7 @@ drop ocsf.unmapped.EventData.Signature
 drop ocsf.unmapped.EventData.SignatureStatus
 
 // The process that loaded the module.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
 ocsf.actor = {
   process: {
     uid: move ocsf.unmapped.EventData.ProcessGuid,
@@ -77,9 +76,7 @@ ocsf.actor = {
     domain: _user[0],
   },
 }
-
+drop _user
 ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
 ocsf.actor.process.file.name = ocsf.actor.process.name
 ocsf.actor.process.file.path = ocsf.actor.process.path
-
-drop _user
