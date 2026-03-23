@@ -87,9 +87,25 @@ ocsf.process.file.hashes = (move ocsf.unmapped.EventData.Hashes) \
   })
 
 
-// LogonGuid/LogonId identify the logon session under which the process was created.
-// TerminalSessionId (RDP/console slot number) has no direct OCSF home; stays in unmapped.
+// actor.process duplicates process.parent_process per OCSF guidance: for Launch
+// events both actor.process (creator) and process.parent_process (OS parent) should
+// be populated. Sysmon does not distinguish creator from parent, so the same data
+// fills both fields. See: articles/representing-process-parentage.md
 ocsf.actor = {
+  process: {
+    uid: ocsf.process.parent_process.uid,
+    pid: ocsf.process.parent_process.pid,
+    path: ocsf.process.parent_process.path,
+    name: ocsf.process.parent_process.file.name,
+    cmd_line: ocsf.process.parent_process.cmd_line,
+    file: ocsf.process.parent_process.file,
+    user: ocsf.process.parent_process.user,
+  },
+  // LogonGuid/LogonId are the logon session of the spawned process, not the
+  // creator. They are placed in actor.session because it is the only session
+  // data available and is useful for cross-event correlation; the two sessions
+  // are identical in the common case where the parent did not change the token.
+  // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
   session: {
     uid: move ocsf.unmapped.EventData.LogonGuid,
     uid_alt: move ocsf.unmapped.EventData.LogonId,
