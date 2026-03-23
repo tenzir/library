@@ -14,6 +14,13 @@ ocsf.is_src_dst_assignment_known = true
 
 let $protocol_nums = { tcp: 6, udp: 17 }
 
+// Replace Sysmon's "-" sentinel with null so optional fields can be moved
+// unconditionally — null values are treated as absent by downstream consumers.
+replace ocsf.unmapped.EventData.SourceHostname,      what="-", with=null
+replace ocsf.unmapped.EventData.SourcePortName,      what="-", with=null
+replace ocsf.unmapped.EventData.DestinationHostname, what="-", with=null
+replace ocsf.unmapped.EventData.DestinationPortName, what="-", with=null
+
 // Build connection_info with safe defaults, then patch the two computed fields.
 ocsf.connection_info = {
   direction_id: 1,  // Inbound default; overwritten below when Initiated=true
@@ -21,7 +28,6 @@ ocsf.connection_info = {
   protocol_num: 255,
   protocol_ver_id: 4,  // IPv4 default; overwritten below when SourceIsIpv6=true
 }
-// Look up protocol_num from the already-written protocol_name.
 ocsf.connection_info.protocol_num = $protocol_nums[ocsf.connection_info.protocol_name]? else 255
 
 if ocsf.unmapped.EventData.Initiated == true {
@@ -37,24 +43,19 @@ drop ocsf.unmapped.EventData.SourceIsIpv6
 // Drop the redundant DestinationIsIpv6 — it mirrors SourceIsIpv6 for the same flow.
 drop ocsf.unmapped.EventData.DestinationIsIpv6
 
-// Assign all endpoint fields, then drop dash-sentinels for optional ones.
 ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.EventData.SourceIp,
-  port: (move ocsf.unmapped.EventData.SourcePort).int(),
+  ip:       move ocsf.unmapped.EventData.SourceIp,
+  port:     (move ocsf.unmapped.EventData.SourcePort).int(),
   hostname: move ocsf.unmapped.EventData.SourceHostname,
   svc_name: move ocsf.unmapped.EventData.SourcePortName,
 }
-if ocsf.src_endpoint.hostname == "-" { drop ocsf.src_endpoint.hostname }
-if ocsf.src_endpoint.svc_name == "-" { drop ocsf.src_endpoint.svc_name }
 
 ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.EventData.DestinationIp,
-  port: (move ocsf.unmapped.EventData.DestinationPort).int(),
+  ip:       move ocsf.unmapped.EventData.DestinationIp,
+  port:     (move ocsf.unmapped.EventData.DestinationPort).int(),
   hostname: move ocsf.unmapped.EventData.DestinationHostname,
   svc_name: move ocsf.unmapped.EventData.DestinationPortName,
 }
-if ocsf.dst_endpoint.hostname == "-" { drop ocsf.dst_endpoint.hostname }
-if ocsf.dst_endpoint.svc_name == "-" { drop ocsf.dst_endpoint.svc_name }
 
 // ProcessGuid/ProcessId/Image/User identify the process that opened the connection.
 // Network Activity (4001) has no `actor` attribute in OCSF 1.7.0, so these stay
