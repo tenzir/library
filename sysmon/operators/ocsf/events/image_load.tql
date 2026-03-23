@@ -15,29 +15,29 @@ let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 _user = (move ocsf.unmapped.EventData.User).split("\\")
 
 // Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
-replace ocsf.unmapped.EventData.FileVersion,      what="-", with=null
-replace ocsf.unmapped.EventData.Description,      what="-", with=null
-replace ocsf.unmapped.EventData.Product,          what="-", with=null
-replace ocsf.unmapped.EventData.Company,          what="-", with=null
+replace ocsf.unmapped.EventData.FileVersion, what="-", with=null
+replace ocsf.unmapped.EventData.Description, what="-", with=null
+replace ocsf.unmapped.EventData.Product, what="-", with=null
+replace ocsf.unmapped.EventData.Company, what="-", with=null
 replace ocsf.unmapped.EventData.OriginalFileName, what="-", with=null
-replace ocsf.unmapped.EventData.Signature,        what="-", with=null
-replace ocsf.unmapped.EventData.SignatureStatus,  what="-", with=null
+replace ocsf.unmapped.EventData.Signature, what="-", with=null
+replace ocsf.unmapped.EventData.SignatureStatus, what="-", with=null
 
 ocsf.module = {
   file: {
-    path:          move ocsf.unmapped.EventData.ImageLoaded,
-    type_id:       8,  // Executable File (DLLs are PE images)
-    version:       move ocsf.unmapped.EventData.FileVersion,
-    desc:          move ocsf.unmapped.EventData.Description,
-    company_name:  move ocsf.unmapped.EventData.Company,
+    path: move ocsf.unmapped.EventData.ImageLoaded,
+    type_id: 8,  // Executable File (DLLs are PE images)
+    version: move ocsf.unmapped.EventData.FileVersion,
+    desc: move ocsf.unmapped.EventData.Description,
+    company_name: move ocsf.unmapped.EventData.Company,
     internal_name: move ocsf.unmapped.EventData.OriginalFileName,
-    hashes:        (move ocsf.unmapped.EventData.Hashes) \
-                     .split(",") \
-                     .map(h => h.split("=", max=1)) \
-                     .map(kv => {
-                       algorithm_id: $algorithms[kv[0]?]? else 99,
-                       value: kv[1],
-                     }),
+    hashes: ((move ocsf.unmapped.EventData.Hashes)
+               .split(",")
+               .map(h => h.split("=", max=1))
+               .map(kv => {
+                 algorithm_id: $algorithms[kv[0]?]? else 99,
+                 value: kv[1],
+               })),
   },
 }
 ocsf.module.file.name = ocsf.module.file.path.split("\\")[-1]
@@ -46,13 +46,13 @@ ocsf.module.file.name = ocsf.module.file.path.split("\\")[-1]
 if ocsf.unmapped.EventData.Product != null {
   ocsf.module.file.product = { name: move ocsf.unmapped.EventData.Product }
 }
-drop ocsf.unmapped.EventData.Product?
+drop ocsf.unmapped.EventData.Product
 
 // Attach digital-signature details when the module is signed.
-if (move ocsf.unmapped.EventData.Signed) {
+if ocsf.unmapped.EventData.Signed {
   ocsf.module.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
-    state_id:     $sig_states[ocsf.unmapped.EventData.SignatureStatus]?,
+    state_id: $sig_states[ocsf.unmapped.EventData.SignatureStatus]?,
   }
   if ocsf.unmapped.EventData.Signature != null {
     ocsf.module.file.signature.certificate = {
@@ -60,19 +60,20 @@ if (move ocsf.unmapped.EventData.Signed) {
     }
   }
 }
-drop ocsf.unmapped.EventData.Signature?
-drop ocsf.unmapped.EventData.SignatureStatus?
+drop ocsf.unmapped.EventData.Signed
+drop ocsf.unmapped.EventData.Signature
+drop ocsf.unmapped.EventData.SignatureStatus
 
 // The process that loaded the module.
 ocsf.actor = {
   process: {
-    uid:  move ocsf.unmapped.EventData.ProcessGuid,
-    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
     path: move ocsf.unmapped.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name:   _user[-1],
+    name: _user[-1],
     domain: _user[0],
   },
 }

@@ -17,29 +17,29 @@ let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 ocsf.actor = {}
 
 // Replace "-" sentinels before building the file object.
-replace ocsf.unmapped.EventData.Signature,      what="-", with=null
+replace ocsf.unmapped.EventData.Signature, what="-", with=null
 replace ocsf.unmapped.EventData.SignatureStatus, what="-", with=null
 
 ocsf.driver = {
   file: {
-    path:    move ocsf.unmapped.EventData.ImageLoaded,
+    path: move ocsf.unmapped.EventData.ImageLoaded,
     type_id: 8,  // Executable File (kernel drivers are PE images)
-    hashes:  (move ocsf.unmapped.EventData.Hashes) \
-               .split(",") \
-               .map(h => h.split("=", max=1)) \
+    hashes: ((move ocsf.unmapped.EventData.Hashes)
+               .split(",")
+               .map(h => h.split("=", max=1))
                .map(kv => {
                  algorithm_id: $algorithms[kv[0]?]? else 99,
                  value: kv[1],
-               }),
+               })),
   },
 }
 ocsf.driver.file.name = ocsf.driver.file.path.split("\\")[-1]
 
 // Attach digital-signature details when the driver is signed.
-if (move ocsf.unmapped.EventData.Signed) {
+if ocsf.unmapped.EventData.Signed {
   ocsf.driver.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
-    state_id:     $sig_states[ocsf.unmapped.EventData.SignatureStatus]?,
+    state_id: $sig_states[ocsf.unmapped.EventData.SignatureStatus]?,
   }
   if ocsf.unmapped.EventData.Signature != null {
     ocsf.driver.file.signature.certificate = {
@@ -47,5 +47,6 @@ if (move ocsf.unmapped.EventData.Signed) {
     }
   }
 }
-drop ocsf.unmapped.EventData.Signature?
-drop ocsf.unmapped.EventData.SignatureStatus?
+drop ocsf.unmapped.EventData.Signed
+drop ocsf.unmapped.EventData.Signature
+drop ocsf.unmapped.EventData.SignatureStatus
