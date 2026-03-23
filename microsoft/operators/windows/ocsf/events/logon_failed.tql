@@ -1,0 +1,42 @@
+---
+description: Failed Logon (EID 4625) → OCSF Authentication (3002, Logon/Failure)
+---
+
+@name = "ocsf.authentication"
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = 1  // Logon
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.status_id = 2  // Failure
+ocsf.severity_id = 2  // Low — single failed logon; brute-force detection is a higher layer
+ocsf.status_code = move ocsf.unmapped.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
+
+// Windows LogonType integers map directly to OCSF logon_type_id values.
+ocsf.logon_type_id = (move ocsf.unmapped.EventData.LogonType).int()
+
+ocsf.user = {
+  uid: move ocsf.unmapped.EventData.TargetUserSid,
+  name: move ocsf.unmapped.EventData.TargetUserName,
+  domain: move ocsf.unmapped.EventData.TargetDomainName,
+}
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.EventData.IpAddress,
+  port: (move ocsf.unmapped.EventData.IpPort).int(),
+  hostname: move ocsf.unmapped.EventData.WorkstationName,
+}
+
+ocsf.auth_protocol = move ocsf.unmapped.EventData.AuthenticationPackageName

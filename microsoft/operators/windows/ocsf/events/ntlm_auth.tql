@@ -1,0 +1,31 @@
+---
+description: NTLM Authentication (EID 4776) → OCSF Authentication (3002, Logon)
+---
+
+@name = "ocsf.authentication"
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = 1  // Logon
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Status 0x0 = success; non-zero = failure (e.g. 0xC000006A = wrong password).
+ocsf.status_id = 1 if ocsf.unmapped.EventData.Status == "0x0" else 2
+ocsf.status_code = move ocsf.unmapped.EventData.Status
+
+ocsf.user = {
+  name: move ocsf.unmapped.EventData.TargetUserName,
+}
+
+// PackageName identifies the NTLM variant; map to auth_protocol_id so that
+// ocsf::derive can populate the sibling auth_protocol string.
+let $protocols = {
+  "MICROSOFT_AUTHENTICATION_PACKAGE_V1_0": 1,  // NTLM v1
+  "NTLM": 1,
+}
+ocsf.auth_protocol_id = $protocols[ocsf.unmapped.EventData.PackageName]? else 99
+drop ocsf.unmapped.EventData.PackageName
+
+ocsf.src_endpoint = {
+  hostname: move ocsf.unmapped.EventData.Workstation,
+}

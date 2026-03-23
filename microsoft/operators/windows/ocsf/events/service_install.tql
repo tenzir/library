@@ -1,0 +1,35 @@
+---
+description: Service Installed via Security Audit (EID 4697) → OCSF Windows Service Activity (201004, Create)
+---
+
+@name = "ocsf.windows_service_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 201004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+}
+
+// ServiceFileName is the binary path and may include arguments.
+ocsf.win_service = {
+  name: move ocsf.unmapped.EventData.ServiceName,
+  service_file: {
+    path: move ocsf.unmapped.EventData.ServiceFileName,
+    type_id: 8,
+  },
+}
+ocsf.win_service.service_file.name = ocsf.win_service.service_file.path.split("\\")[-1].split(" ")[0]
+
+// ServiceType (hex, e.g. "0x10") and ServiceStartType (integer, e.g. "2") are
+// left in unmapped — OCSF win_service enums exist but differ in encoding from
+// both the hex and integer Windows representations used here.

@@ -1,0 +1,47 @@
+---
+description: Process Creation (EID 4688) → OCSF Process Activity (1007, Launch)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 1  // Launch
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.launch_type_id = 1  // Spawn
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+}
+
+ocsf.process = {
+  pid: int(move ocsf.unmapped.EventData.NewProcessId, base=16),
+  path: move ocsf.unmapped.EventData.NewProcessName,
+  cmd_line: move ocsf.unmapped.EventData.CommandLine,
+  file: { type_id: 8 },
+  parent_process: {
+    pid: int(move ocsf.unmapped.EventData.ProcessId, base=16),
+    path: move ocsf.unmapped.EventData.ParentProcessName,
+    file: { type_id: 8 },
+  },
+}
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+ocsf.process.parent_process.name = ocsf.process.parent_process.path.split("\\")[-1]
+ocsf.process.parent_process.file.name = ocsf.process.parent_process.name
+ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
+
+// EID 4688 only fires on success.
+ocsf.status_id = 1
+
+// TargetUserSid/Name/Domain are the impersonation target (usually null after
+// sentinel replacement). TokenElevationType and MandatoryLabel have no OCSF home.
