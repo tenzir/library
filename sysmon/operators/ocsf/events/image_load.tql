@@ -10,72 +10,69 @@ ocsf.activity_id = 1  // Load
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
+let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 
-_user     = (move ocsf.unmapped.EventData.User).split("\\")
-_signed   = (move ocsf.unmapped.EventData.Signed).string()
-_sig_name = move ocsf.unmapped.EventData.Signature
-_sig_stat = move ocsf.unmapped.EventData.SignatureStatus
+_user = (move ocsf.unmapped.EventData.User).split("\\")
 
-// Null-out Sysmon's dash-sentinel for empty string fields.
-_file_ver  = move ocsf.unmapped.EventData.FileVersion
-_file_desc = move ocsf.unmapped.EventData.Description
-_file_prod = move ocsf.unmapped.EventData.Product
-_file_co   = move ocsf.unmapped.EventData.Company
-_orig_name = move ocsf.unmapped.EventData.OriginalFileName
+// Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
+replace ocsf.unmapped.EventData.FileVersion,      what="-", with=null
+replace ocsf.unmapped.EventData.Description,      what="-", with=null
+replace ocsf.unmapped.EventData.Product,          what="-", with=null
+replace ocsf.unmapped.EventData.Company,          what="-", with=null
+replace ocsf.unmapped.EventData.OriginalFileName, what="-", with=null
+replace ocsf.unmapped.EventData.Signature,        what="-", with=null
+replace ocsf.unmapped.EventData.SignatureStatus,  what="-", with=null
 
 ocsf.module = {
   file: {
-    path: move ocsf.unmapped.EventData.ImageLoaded,
-    type_id: 8,  // Executable File (DLLs are PE images)
-    hashes: (move ocsf.unmapped.EventData.Hashes)
-      .split(",")
-      .map(h => h.split("=", max=1))
-      .map(kv => {
-        algorithm_id: $algorithms[kv[0]?]? else 99,
-        value: kv[1],
-      }),
+    path:          move ocsf.unmapped.EventData.ImageLoaded,
+    type_id:       8,  // Executable File (DLLs are PE images)
+    version:       move ocsf.unmapped.EventData.FileVersion,
+    desc:          move ocsf.unmapped.EventData.Description,
+    company_name:  move ocsf.unmapped.EventData.Company,
+    internal_name: move ocsf.unmapped.EventData.OriginalFileName,
+    hashes:        (move ocsf.unmapped.EventData.Hashes) \
+                     .split(",") \
+                     .map(h => h.split("=", max=1)) \
+                     .map(kv => {
+                       algorithm_id: $algorithms[kv[0]?]? else 99,
+                       value: kv[1],
+                     }),
   },
 }
-
 ocsf.module.file.name = ocsf.module.file.path.split("\\")[-1]
 
-if _file_ver  != "-" { ocsf.module.file.version       = _file_ver  }
-if _file_desc != "-" { ocsf.module.file.desc          = _file_desc }
-if _file_co   != "-" { ocsf.module.file.company_name  = _file_co   }
-if _orig_name != "-" { ocsf.module.file.internal_name = _orig_name }
-if _file_prod != "-" { ocsf.module.file.product = { name: _file_prod } }
-
-drop _file_ver, _file_desc, _file_prod, _file_co, _orig_name
+// product.name is a required field — only add the object when the source has a value.
+if ocsf.unmapped.EventData.Product != null {
+  ocsf.module.file.product = { name: move ocsf.unmapped.EventData.Product }
+}
+drop ocsf.unmapped.EventData.Product?
 
 // Attach digital-signature details when the module is signed.
-if _signed == "true" {
+if (move ocsf.unmapped.EventData.Signed) {
   ocsf.module.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
+    state_id:     $sig_states[ocsf.unmapped.EventData.SignatureStatus]?,
   }
-  if _sig_name != "-" { ocsf.module.file.signature.certificate = { issuer: _sig_name } }
-  _state_id = 0
-  if _sig_stat == "Valid"     { _state_id = 1 }
-  if _sig_stat == "Expired"   { _state_id = 2 }
-  if _sig_stat == "Revoked"   { _state_id = 3 }
-  if _sig_stat == "Untrusted" { _state_id = 6 }
-  if _state_id != 0 { ocsf.module.file.signature.state_id = _state_id }
-  drop _state_id
+  if ocsf.unmapped.EventData.Signature != null {
+    ocsf.module.file.signature.certificate = {
+      issuer: move ocsf.unmapped.EventData.Signature,
+    }
+  }
 }
-
-drop _signed, _sig_name, _sig_stat
+drop ocsf.unmapped.EventData.Signature?
+drop ocsf.unmapped.EventData.SignatureStatus?
 
 // The process that loaded the module.
 ocsf.actor = {
   process: {
-    uid: move ocsf.unmapped.EventData.ProcessGuid,
-    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    uid:  move ocsf.unmapped.EventData.ProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
     path: move ocsf.unmapped.EventData.Image,
-    file: {
-      type_id: 8,
-    },
+    file: { type_id: 8 },
   },
   user: {
-    name: _user[-1],
+    name:   _user[-1],
     domain: _user[0],
   },
 }
@@ -85,4 +82,3 @@ ocsf.actor.process.file.name = ocsf.actor.process.name
 ocsf.actor.process.file.path = ocsf.actor.process.path
 
 drop _user
-

@@ -13,25 +13,41 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.is_src_dst_assignment_known = true
 ocsf.connection_info = { direction_id: 2 }  // Outbound
 
-// DNS query details.
 ocsf.query = {
-  hostname: move ocsf.unmapped.EventData.QueryName,
+  hostname:  move ocsf.unmapped.EventData.QueryName,
   opcode_id: 0,  // Standard query
 }
 
 // QueryStatus 0 = success (RCODE NOERROR); anything else is an error.
-_status = (move ocsf.unmapped.EventData.QueryStatus).string()
-ocsf.status_id = 1  // Success
-if _status != "0" { ocsf.status_id = 2 }  // Failure
-ocsf.status_code = _status
-drop _status
+// Read first for status_id, then move for status_code.
+ocsf.status_id = 1 if ocsf.unmapped.EventData.QueryStatus == 0 else 2
+ocsf.status_code = (move ocsf.unmapped.EventData.QueryStatus).string()
 
 // Sysmon bundles CNAME chains + IPs into QueryResults as a semicolon-separated
 // string (e.g. "type:  5 cdn.example.com;::ffff:1.2.3.4;"). There is no clean
 // way to split CNAME targets from A/AAAA records without a regex engine, so the
 // raw field is left in unmapped.EventData for consumers that need it.
 
-// The process and user that issued the query have no home in DNS Activity (4003)
-// — they stay in unmapped automatically (not moved/dropped).
+// The process and user that issued the query — mapped via the Host profile actor.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
 
-drop ocsf.unmapped.EventData.Initiated    // always "true" for Sysmon DNS events
+ocsf.actor = {
+  process: {
+    uid:  move ocsf.unmapped.EventData.ProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+drop ocsf.unmapped.EventData.Initiated  // always "true" for Sysmon DNS events
