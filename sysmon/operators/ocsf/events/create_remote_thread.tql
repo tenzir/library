@@ -1,0 +1,70 @@
+---
+description: Sysmon CreateRemoteThread (EID 8) → OCSF Process Activity (1007, Inject)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 4  // Inject
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.injection_type_id = 1  // Remote Thread
+
+_src_user = (move ocsf.unmapped.EventData.SourceUser).split("\\")
+_tgt_user = (move ocsf.unmapped.EventData.TargetUser).split("\\")
+
+// The process that injected the thread is the actor.
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.SourceProcessGuid,
+    pid: (move ocsf.unmapped.EventData.SourceProcessId).int(),
+    path: move ocsf.unmapped.EventData.SourceImage,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: _src_user[-1],
+    domain: _src_user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+// The target process that received the injected thread.
+_start_addr = move ocsf.unmapped.EventData.StartAddress
+_start_mod  = move ocsf.unmapped.EventData.StartModule
+_start_fn   = move ocsf.unmapped.EventData.StartFunction
+
+ocsf.process = {
+  uid: move ocsf.unmapped.EventData.TargetProcessGuid,
+  pid: (move ocsf.unmapped.EventData.TargetProcessId).int(),
+  path: move ocsf.unmapped.EventData.TargetImage,
+  file: {
+    type_id: 8,
+  },
+  user: {
+    name: _tgt_user[-1],
+    domain: _tgt_user[0],
+  },
+}
+
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+
+// The injected module carries the thread's start address and optional module/function.
+ocsf.module = {
+  base_address: _start_addr,
+}
+if _start_mod != "-" { ocsf.module.file = { name: _start_mod } }
+if _start_fn  != "-" { ocsf.module.function_name = _start_fn  }
+
+drop _src_user, _tgt_user, _start_addr, _start_mod, _start_fn
+
+// NewThreadId has no direct OCSF field — left in unmapped.
+
+drop ocsf.unmapped.EventData.RuleName?
