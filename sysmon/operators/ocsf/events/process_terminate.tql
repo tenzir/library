@@ -1,0 +1,51 @@
+---
+description: Sysmon ProcessTerminate (EID 5) → OCSF Process Activity (1007, Terminate)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 2  // Terminate
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// EID 5 has no parent-process or actor context; for a self-exit the terminating
+// process and the actor are the same process.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.process = {
+  uid: move ocsf.unmapped.EventData.ProcessGuid,
+  pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+  path: move ocsf.unmapped.EventData.Image,
+  file: {
+    type_id: 8,  // Executable File
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+}
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+
+// The actor mirrors the process for a self-termination (the most common case).
+// When a different process causes the exit, Sysmon still reports only the
+// terminating process — actor.process is therefore set to the same values.
+ocsf.actor = {
+  process: {
+    uid: ocsf.process.uid,
+    pid: ocsf.process.pid,
+    path: ocsf.process.path,
+    name: ocsf.process.name,
+    file: {
+      type_id: 8,
+      name: ocsf.process.file.name,
+      path: ocsf.process.file.path,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+}
+drop _user

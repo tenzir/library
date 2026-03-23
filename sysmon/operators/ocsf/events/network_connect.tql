@@ -1,0 +1,63 @@
+---
+description: Sysmon NetworkConnect (EID 3) → OCSF Network Activity (4001, Open)
+---
+
+@name = "ocsf.network_activity"
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+ocsf.activity_id = 1  // Open
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Sysmon always knows which side initiated the connection.
+ocsf.is_src_dst_assignment_known = true
+
+replace ocsf.unmapped.EventData.SourceHostname,      what="-", with=null
+replace ocsf.unmapped.EventData.SourcePortName,      what="-", with=null
+replace ocsf.unmapped.EventData.DestinationHostname, what="-", with=null
+replace ocsf.unmapped.EventData.DestinationPortName, what="-", with=null
+
+ocsf.connection_info = {
+  direction_id:    2 if (move ocsf.unmapped.EventData.Initiated) else 1,
+  protocol_name:   move ocsf.unmapped.EventData.Protocol,
+  protocol_ver_id: 6 if (move ocsf.unmapped.EventData.SourceIsIpv6) else 4,
+}
+drop ocsf.unmapped.EventData.DestinationIsIpv6 // redundant to SourceIsIpv6
+
+let $protos = { tcp: 6, udp: 17 }
+ocsf.connection_info.protocol_num = $protos[ocsf.connection_info.protocol_name]? else 255
+
+ocsf.src_endpoint = {
+  ip:       move ocsf.unmapped.EventData.SourceIp,
+  port:     (move ocsf.unmapped.EventData.SourcePort).int(),
+  hostname: move ocsf.unmapped.EventData.SourceHostname,
+  svc_name: move ocsf.unmapped.EventData.SourcePortName,
+}
+
+ocsf.dst_endpoint = {
+  ip:       move ocsf.unmapped.EventData.DestinationIp,
+  port:     (move ocsf.unmapped.EventData.DestinationPort).int(),
+  hostname: move ocsf.unmapped.EventData.DestinationHostname,
+  svc_name: move ocsf.unmapped.EventData.DestinationPortName,
+}
+
+// The Host profile (applied globally in map.tql) adds actor to Network Activity.
+// Map the process that opened the connection accordingly.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.actor = {
+  process: {
+    uid:  move ocsf.unmapped.EventData.ProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+}
+drop _user
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path

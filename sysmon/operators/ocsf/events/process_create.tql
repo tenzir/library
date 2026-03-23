@@ -1,0 +1,113 @@
+---
+description: Sysmon ProcessCreate (EID 1) → OCSF Process Activity (1007, Launch)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 1  // Launch
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.launch_type_id = 1
+
+// Map IntegrityLevel string to its OCSF enum id.
+let $integrity_ids = {
+  Unknown:   0,
+  Untrusted: 1,
+  Low:       2,
+  Medium:    3,
+  High:      4,
+  System:    5,
+  Protected: 6,
+}
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+_parent_user = (move ocsf.unmapped.EventData.ParentUser).split("\\")
+ocsf.process = {
+  pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+  uid: move ocsf.unmapped.EventData.ProcessGuid,
+  path: move ocsf.unmapped.EventData.Image,
+  cmd_line: move ocsf.unmapped.EventData.CommandLine,
+  created_time: ocsf.time,
+  working_directory: move ocsf.unmapped.EventData.CurrentDirectory,
+  integrity_id: $integrity_ids[move ocsf.unmapped.EventData.IntegrityLevel]? else 0,
+  file: {
+    type_id: 8,  // Executable File
+    version: move ocsf.unmapped.EventData.FileVersion,
+    desc: move ocsf.unmapped.EventData.Description,
+    company_name: move ocsf.unmapped.EventData.Company,
+    internal_name: move ocsf.unmapped.EventData.OriginalFileName,
+    product: {
+      name: move ocsf.unmapped.EventData.Product,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+  parent_process: {
+    pid: (move ocsf.unmapped.EventData.ParentProcessId).int(),
+    uid: move ocsf.unmapped.EventData.ParentProcessGuid,
+    path: move ocsf.unmapped.EventData.ParentImage,
+    cmd_line: move ocsf.unmapped.EventData.ParentCommandLine,
+    file: {
+      type_id: 8,
+    },
+    user: {
+      name: _parent_user[-1],
+      domain: _parent_user[0] if _parent_user.length() > 1 else null,
+    },
+  },
+}
+drop _user, _parent_user
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+ocsf.process.parent_process.file.name = ocsf.process.parent_process.path.split("\\")[-1]
+ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
+
+let $algorithms = {
+  MD5: 1,
+  SHA1: 2,
+  SHA256: 3,
+  SHA512: 4,
+}
+
+// Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
+ocsf.process.file.hashes = ((move ocsf.unmapped.EventData.Hashes)
+  .split(",")
+  .map(h => h.split("=", max=1))
+  .map(kv => {
+    algorithm_id: $algorithms[kv[0]?]? else 99,
+    value: kv[1]?,
+  }))
+
+// The actor.process object duplicates process.parent_process per OCSF guidance:
+// for Launch events both actor.process (creator) and process.parent_process (OS
+// parent) should be populated. Sysmon does not distinguish creator from parent,
+// so the same data fills both fields.
+ocsf.actor = {
+  process: {
+    uid: ocsf.process.parent_process.uid,
+    pid: ocsf.process.parent_process.pid,
+    path: ocsf.process.parent_process.path,
+    name: ocsf.process.parent_process.file.name,
+    cmd_line: ocsf.process.parent_process.cmd_line,
+    file: ocsf.process.parent_process.file,
+    user: ocsf.process.parent_process.user,
+  },
+  user: ocsf.process.parent_process.user,
+  // LogonGuid/LogonId are the logon session of the spawned process, not the
+  // creator. They are placed in actor.session because it is the only session
+  // data available and is useful for cross-event correlation; the two sessions
+  // are identical in the common case where the parent did not change the token.
+  // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
+  session: {
+    uid: move ocsf.unmapped.EventData.LogonGuid,
+    uid_alt: move ocsf.unmapped.EventData.LogonId,
+  },
+}
+
+// EID 1 only fires on successful process creation; there is no failure variant.
+ocsf.status_id = 1

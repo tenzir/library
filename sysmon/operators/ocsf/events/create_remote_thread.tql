@@ -1,0 +1,71 @@
+---
+description: Sysmon CreateRemoteThread (EID 8) → OCSF Process Activity (1007, Inject)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 4  // Inject
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.injection_type_id = 1  // Remote Thread
+
+// The process that injected the thread is the actor.
+_src_user = (move ocsf.unmapped.EventData.SourceUser).split("\\")
+ocsf.actor = {
+  process: {
+    uid:  move ocsf.unmapped.EventData.SourceProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.SourceProcessId).int(),
+    path: move ocsf.unmapped.EventData.SourceImage,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   _src_user[-1],
+    domain: _src_user[0] if _src_user.length() > 1 else null,
+  },
+}
+drop _src_user
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+// The target process that received the injected thread.
+_tgt_user = (move ocsf.unmapped.EventData.TargetUser).split("\\")
+ocsf.process = {
+  uid:  move ocsf.unmapped.EventData.TargetProcessGuid,
+  pid:  (move ocsf.unmapped.EventData.TargetProcessId).int(),
+  path: move ocsf.unmapped.EventData.TargetImage,
+  file: { type_id: 8 },
+  user: {
+    name:   _tgt_user[-1],
+    domain: _tgt_user[0] if _tgt_user.length() > 1 else null,
+  },
+}
+drop _tgt_user
+
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+
+
+// The injected module carries the thread's start address and optional module/function.
+// Replace "-" sentinels so absent fields can be handled without branching on strings.
+replace ocsf.unmapped.EventData.StartModule,   what="-", with=null
+replace ocsf.unmapped.EventData.StartFunction, what="-", with=null
+
+ocsf.module = {
+  base_address: move ocsf.unmapped.EventData.StartAddress,
+}
+if ocsf.unmapped.EventData.StartModule != null {
+  ocsf.module.file = { name: move ocsf.unmapped.EventData.StartModule }
+}
+if ocsf.unmapped.EventData.StartFunction != null {
+  ocsf.module.function_name = move ocsf.unmapped.EventData.StartFunction
+}
+drop ocsf.unmapped.EventData.StartModule
+drop ocsf.unmapped.EventData.StartFunction
+
+// Map the new thread's ID to process.ptid (the canonical OCSF thread identifier).
+ocsf.process.ptid = (move ocsf.unmapped.EventData.NewThreadId).int()

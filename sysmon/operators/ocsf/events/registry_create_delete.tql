@@ -1,0 +1,53 @@
+---
+description: >
+  Sysmon RegistryEvent Object Created/Deleted (EID 12) →
+  OCSF Registry Key Activity (201001) for CreateKey/DeleteKey, or
+  OCSF Registry Value Activity (201002) for DeleteValue
+---
+
+_event_type = move ocsf.unmapped.EventData.EventType
+_target_obj = move ocsf.unmapped.EventData.TargetObject
+
+ocsf.category_uid = 1
+
+if _event_type == "DeleteValue" {
+  // Registry Value Activity — the value itself was deleted.
+  @name = "ocsf.registry_value_activity"
+  ocsf.class_uid = 201002
+  ocsf.activity_id = 4  // Delete
+  ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+  _parts = _target_obj.split("\\")
+  ocsf.reg_value = {
+    path: _parts.slice(end=-1).join("\\"),
+    name: _parts[-1],
+  }
+  drop _parts
+} else {
+  // Registry Key Activity — key created or deleted.
+  @name = "ocsf.registry_key_activity"
+  ocsf.class_uid = 201001
+  ocsf.activity_id = 4 if _event_type == "DeleteKey" else 1  // Delete / Create
+  ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+  ocsf.reg_key = { path: _target_obj }
+}
+drop _event_type, _target_obj
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+}
+drop _user
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path

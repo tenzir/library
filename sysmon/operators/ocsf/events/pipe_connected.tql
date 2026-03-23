@@ -1,0 +1,42 @@
+---
+description: Sysmon PipeConnected (EID 18) → OCSF Windows Resource Activity (201003, Access)
+---
+
+@name = "ocsf.windows_resource_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 201003
+ocsf.activity_id = 1  // Access
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+
+// Named pipes have no dedicated type_id in OCSF; Other (99) is the correct
+// choice. type must be the enum caption "Other". The operation and resource kind
+// go into details so the create/connect distinction and "Named Pipe" are not lost.
+ocsf.win_resource = {
+  name:    move ocsf.unmapped.EventData.PipeName,
+  type_id: 99,  // Other — no dedicated enum value for named pipes
+  type:    "Other",
+  details: "Named Pipe; EventType=ConnectPipe",
+}
+drop ocsf.unmapped.EventData.EventType
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.actor = {
+  process: {
+    uid:  move ocsf.unmapped.EventData.ProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   _user[-1],
+    domain: _user[0] if _user.length() > 1 else null,
+  },
+}
+drop _user
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
