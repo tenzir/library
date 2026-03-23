@@ -1,0 +1,63 @@
+---
+description: >
+  Sysmon FileDelete (EID 23, archived) and FileDeleteDetected (EID 26) →
+  OCSF File System Activity (1001, Delete).
+  Both events report a file deletion; EID 23 additionally archives the file
+  to the Sysmon ArchiveDirectory (reflected in is_deleted and unmapped).
+---
+
+@name = "ocsf.file_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1001
+ocsf.activity_id = 4  // Delete
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+ocsf.file = {
+  path: move ocsf.unmapped.EventData.TargetFilename,
+  type_id: 1,  // Regular File
+  is_deleted: true,
+}
+ocsf.file.name = ocsf.file.path.split("\\")[-1]
+
+// Mark executable files — IsExecutable is present on EIDs 23/26.
+_is_exe = move ocsf.unmapped.EventData.IsExecutable
+if _is_exe == true { ocsf.file.type_id = 8 }  // Executable File
+drop _is_exe
+
+ocsf.file.hashes = (move ocsf.unmapped.EventData.Hashes) \
+  .split(",") \
+  .map(h => h.split("=", max=1)) \
+  .map(kv => {
+    algorithm_id: $algorithms[kv[0]?]? else 99,
+    value: kv[1],
+  })
+
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+// Archived (EID 23 only) — no OCSF field; left in unmapped.
+
+drop ocsf.unmapped.EventData.RuleName?

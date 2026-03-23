@@ -1,0 +1,61 @@
+---
+description: Sysmon ProcessTampering (EID 25) → OCSF Process Activity (1007, Inject)
+---
+
+// Process tampering (hollowing, herpaderping) is a form of process injection
+// where the process image is replaced or locked after creation.
+// OCSF Process Activity Inject (4) is the closest semantic match.
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 4  // Inject
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// injection_type_id 99 (Other) because hollowing/herpaderping are not
+// Remote Thread, Load Library, or Queue APC.
+ocsf.injection_type_id = 99
+ocsf.injection_type = move ocsf.unmapped.EventData.Type
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+// The tampered process is both the actor and the target (Sysmon only reports it).
+ocsf.process = {
+  uid: move ocsf.unmapped.EventData.ProcessGuid,
+  pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+  path: move ocsf.unmapped.EventData.Image,
+  file: {
+    type_id: 8,
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+
+ocsf.actor = {
+  process: {
+    uid: ocsf.process.uid,
+    pid: ocsf.process.pid,
+    path: ocsf.process.path,
+    name: ocsf.process.name,
+    file: {
+      type_id: 8,
+      name: ocsf.process.file.name,
+      path: ocsf.process.file.path,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+drop _user
+
+drop ocsf.unmapped.EventData.RuleName?
