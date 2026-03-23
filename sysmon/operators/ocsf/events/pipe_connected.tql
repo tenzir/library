@@ -1,0 +1,46 @@
+---
+description: Sysmon PipeConnected (EID 18) → OCSF Windows Resource Activity (201003, Access)
+---
+
+@name = "ocsf.windows_resource_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 201003
+ocsf.activity_id = 1  // Access
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+// Named pipes are type 6 (Named Pipe) in the win_resource type_id enum.
+ocsf.win_resource = {
+  name: move ocsf.unmapped.EventData.PipeName,
+  type_id: 6,  // Named Pipe
+}
+
+// EventType "ConnectPipe" conveys the operation; store it in win_resource.type.
+_event_type = move ocsf.unmapped.EventData.EventType
+ocsf.win_resource.type = _event_type
+drop _event_type
+
+ocsf.actor = {
+  process: {
+    uid: move ocsf.unmapped.EventData.ProcessGuid,
+    pid: (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
+
+drop ocsf.unmapped.EventData.RuleName?
