@@ -12,29 +12,22 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 // Sysmon always knows which side initiated the connection.
 ocsf.is_src_dst_assignment_known = true
 
-let $protocol_nums = { tcp: 6, udp: 17 }
-
-// Replace Sysmon's "-" sentinel with null so optional fields can be moved
-// unconditionally — null values are treated as absent by downstream consumers.
 replace ocsf.unmapped.EventData.SourceHostname,      what="-", with=null
 replace ocsf.unmapped.EventData.SourcePortName,      what="-", with=null
 replace ocsf.unmapped.EventData.DestinationHostname, what="-", with=null
 replace ocsf.unmapped.EventData.DestinationPortName, what="-", with=null
 
 ocsf.connection_info = {
-  direction_id:    2 if ocsf.unmapped.EventData.Initiated   else 1,  // Outbound / Inbound
+  direction_id:    2 if ocsf.unmapped.EventData.Initiated else 1,
   protocol_name:   move ocsf.unmapped.EventData.Protocol,
-  protocol_num:    255,
-  protocol_ver_id: 6 if ocsf.unmapped.EventData.SourceIsIpv6 else 4,  // IPv6 / IPv4
+  protocol_ver_id: 6 if ocsf.unmapped.EventData.SourceIsIpv6 else 4,
 }
-// Look up protocol_num from the already-written protocol_name.
-ocsf.connection_info.protocol_num = $protocol_nums[ocsf.connection_info.protocol_name]? else 255
-
 drop ocsf.unmapped.EventData.Initiated
 drop ocsf.unmapped.EventData.SourceIsIpv6
+drop ocsf.unmapped.EventData.DestinationIsIpv6 // redundant to SourceIsIpv6
 
-// Drop the redundant DestinationIsIpv6 — it mirrors SourceIsIpv6 for the same flow.
-drop ocsf.unmapped.EventData.DestinationIsIpv6
+let $protos = { tcp: 6, udp: 17 }
+ocsf.connection_info.protocol_num = $protos[ocsf.connection_info.protocol_name]? else 255
 
 ocsf.src_endpoint = {
   ip:       move ocsf.unmapped.EventData.SourceIp,
@@ -50,6 +43,25 @@ ocsf.dst_endpoint = {
   svc_name: move ocsf.unmapped.EventData.DestinationPortName,
 }
 
-// ProcessGuid/ProcessId/Image/User identify the process that opened the connection.
-// Network Activity (4001) has no `actor` attribute in OCSF 1.7.0, so these stay
-// in unmapped — they remain in ocsf.unmapped.EventData automatically.
+// The Host profile (applied globally in map.tql) adds actor to Network Activity.
+// Map the process that opened the connection accordingly.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+
+ocsf.actor = {
+  process: {
+    uid:  move ocsf.unmapped.EventData.ProcessGuid,
+    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
+    path: move ocsf.unmapped.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   _user[-1],
+    domain: _user[0],
+  },
+}
+
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+drop _user
