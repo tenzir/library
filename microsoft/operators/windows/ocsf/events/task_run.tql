@@ -28,12 +28,12 @@ if ocsf.metadata.event_code == "101" {
 }
 
 // EIDs 102 and 201 carry a ResultCode; non-zero means failure.
-_result = move ocsf.unmapped.EventData.ResultCode
-if _result != null {
+if ocsf.unmapped.EventData.has("ResultCode") {
+  _result = move ocsf.unmapped.EventData.ResultCode
   ocsf.status_id = 1 if _result == 0 else 2
   ocsf.status_code = _result.string()
+  drop _result
 }
-drop _result
 
 ocsf.job = {
   name: move ocsf.unmapped.EventData.TaskName,
@@ -41,20 +41,17 @@ ocsf.job = {
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
 // ActionName is the executable path for EIDs 200/201.
-_action = move ocsf.unmapped.EventData.ActionName
-if _action != null {
+if ocsf.unmapped.EventData.has("ActionName") {
   ocsf.job.file = {
-    path: _action,
+    path: move ocsf.unmapped.EventData.ActionName,
     type_id: 1,  // Regular file
   }
   ocsf.job.file.name = ocsf.job.file.path.split("\\")[-1]
 }
-drop _action
 
 // UserContext present on EID 100.
-_user_str = move ocsf.unmapped.EventData.UserContext
-if _user_str != null {
-  _user = _user_str.split("\\")
+if ocsf.unmapped.EventData.has("UserContext") {
+  _user = (move ocsf.unmapped.EventData.UserContext).split("\\")
   ocsf.actor = {
     user: {
       domain: _user[0],
@@ -63,14 +60,10 @@ if _user_str != null {
   }
   drop _user
 }
-drop _user_str
 
 // ProcessId (EID 129) or EnginePID (EIDs 200/201).
-_pid = move ocsf.unmapped.EventData.ProcessId
-if _pid == null {
-  _pid = move ocsf.unmapped.EventData.EnginePID
+if ocsf.unmapped.EventData.has("ProcessId") {
+  ocsf.actor.process = { pid: int(move ocsf.unmapped.EventData.ProcessId) }
+} else if ocsf.unmapped.EventData.has("EnginePID") {
+  ocsf.actor.process = { pid: int(move ocsf.unmapped.EventData.EnginePID) }
 }
-if _pid != null {
-  ocsf.actor.process = { pid: int(_pid) }
-}
-drop _pid
