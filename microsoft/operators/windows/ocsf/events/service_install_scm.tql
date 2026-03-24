@@ -9,16 +9,22 @@ ocsf.class_uid = 201004
 ocsf.activity_id = 1  // Create
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
+// Normalize the service binary path (same logic as service_install.tql).
+_raw = move ocsf.unmapped.EventData.ImagePath
+_parts = _raw.split("\"")
+_exe = _parts[1] if _parts[0] == "" else _raw.split(" ")[0]
+
 ocsf.win_service = {
   name: move ocsf.unmapped.EventData.ServiceName,
   service_file: {
-    path: move ocsf.unmapped.EventData.ImagePath,
-    type_id: 8,  // Executable File
+    path: _exe,
+    type_id: 8,
   },
   // service_start_name is the Windows account the service runs as (e.g. LocalSystem).
   service_start_name: move ocsf.unmapped.EventData.AccountName,
 }
-ocsf.win_service.service_file.name = ocsf.win_service.service_file.path.split("\\")[-1].split(" ")[0]
+ocsf.win_service.service_file.name = ocsf.win_service.service_file.path.split("\\")[-1]
+drop _raw, _parts, _exe
 
 // ServiceType and StartType are descriptive strings on this event (e.g.
 // "Own Process", "Auto Start"); numeric enums are on EID 4697. Leave them in
