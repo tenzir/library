@@ -29,14 +29,12 @@ let $dispositions = {
   "Allow": 1,        // Allowed
   "Block": 2,        // Blocked
 }
-_action = move ocsf.unmapped.EventData.Action
-if _action != null {
-  ocsf.disposition_id = $dispositions[_action]? else 99
+if ocsf.unmapped.EventData.Action? != null {
+  ocsf.disposition_id = $dispositions[move ocsf.unmapped.EventData.Action]? else 99
 }
-drop _action
 
-// Threat name is copied into finding.title then moved into malware.name.
-ocsf.finding = {
+// Threat name is copied into finding_info.title then moved into malware.name.
+ocsf.finding_info = {
   title: ocsf.unmapped.EventData["Threat Name"],
   uid: (move ocsf.unmapped.EventData.ID).string(),
   types: [move ocsf.unmapped.EventData.Category],
@@ -45,23 +43,28 @@ ocsf.malware = [{
   name: move ocsf.unmapped.EventData["Threat Name"],
 }]
 
-// Detected file.
-ocsf.file = {
-  path: move ocsf.unmapped.EventData.Path,
-  type_id: 1,  // Regular file
+// Detected file; wrap in evidences as required by Detection Finding (EID 1006 only).
+if ocsf.unmapped.EventData.Path? != null {
+  ocsf.file = {
+    path: move ocsf.unmapped.EventData.Path,
+    type_id: 1,  // Regular file
+  }
+  ocsf.file.name = ocsf.file.path.split("\\")[-1]
+  ocsf.evidences = [{ file: move ocsf.file }]
 }
-ocsf.file.name = ocsf.file.path.split("\\")[-1]
 
-// Process that triggered the detection.
-ocsf.actor = {
-  process: {
-    path: move ocsf.unmapped.EventData["Process Name"],
-    file: { type_id: 1 },
-  },
+// Process that triggered the detection (EID 1006 only).
+if ocsf.unmapped.EventData["Process Name"]? != null {
+  ocsf.actor = {
+    process: {
+      path: move ocsf.unmapped.EventData["Process Name"],
+      file: { type_id: 1 },
+    },
+  }
+  ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+  ocsf.actor.process.file.name = ocsf.actor.process.name
+  ocsf.actor.process.file.path = ocsf.actor.process.path
 }
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
 
 // User is "DOMAIN\username" format.
 _user = (move ocsf.unmapped.EventData.User).split("\\")
