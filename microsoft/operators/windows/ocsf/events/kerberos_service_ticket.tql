@@ -13,14 +13,14 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.status_id = 1 if ocsf.unmapped.EventData.Status == "0x0" else 2
 ocsf.status_code = move ocsf.unmapped.EventData.Status
 
-// TargetUserName includes @REALM (e.g. "jdoe@CORP.LOCAL") — split off into domain.
+// TargetUserName usually includes @REALM (e.g. "jdoe@CORP.LOCAL"); split off
+// the realm into domain. Fall back to TargetDomainName when no @ is present.
 _parts = (move ocsf.unmapped.EventData.TargetUserName).split("@")
 ocsf.user = {
   name: _parts[0],
-  domain: _parts[1]?,
+  domain: _parts[1]? else move ocsf.unmapped.EventData.TargetDomainName,
 }
 drop _parts
-drop ocsf.unmapped.EventData.TargetDomainName  // redundant with user.domain
 
 ocsf.dst_endpoint = {
   svc_name: move ocsf.unmapped.EventData.ServiceName,

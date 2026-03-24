@@ -26,7 +26,11 @@ ocsf.actor = {
 // Extract just the executable; the raw registered value stays in raw_data.
 _raw = move ocsf.unmapped.EventData.ServiceFileName
 _parts = _raw.split("\"")
-_exe = _parts[1] if _parts[0] == "" else _raw.split(" ")[0]
+// Quoted path "C:\path\svc.exe" [args] → extract between quotes.
+// Unquoted path C:\path\svc.exe [args] → strip args from the last path
+// component only, then rejoin, so directory names with spaces are preserved.
+_path_parts = _raw.split("\\")
+_exe = _parts[1] if _parts[0] == "" else (_path_parts.slice(end=-1).join("\\") + "\\" + _path_parts[-1].split(" ")[0])
 
 ocsf.win_service = {
   name: move ocsf.unmapped.EventData.ServiceName,
@@ -36,7 +40,8 @@ ocsf.win_service = {
   },
 }
 ocsf.win_service.service_file.name = ocsf.win_service.service_file.path.split("\\")[-1]
-drop _raw, _parts, _exe
+ocsf.win_service.service_start_name = move ocsf.unmapped.EventData.ServiceAccount
+drop _raw, _parts, _path_parts, _exe
 
 // ServiceType (hex, e.g. "0x10") and ServiceStartType (integer, e.g. "2") are
 // left in unmapped — OCSF win_service enums exist but differ in encoding from
