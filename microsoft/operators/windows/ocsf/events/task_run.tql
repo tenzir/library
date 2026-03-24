@@ -1,0 +1,80 @@
+---
+description: >
+  Task Scheduler Execution (EID 100 Start, 101 Failure, 102 Complete,
+  129 Process Launch, 200 Action Start, 201 Action Complete)
+  → OCSF Scheduled Job Activity (1006)
+---
+
+@name = "ocsf.scheduled_job_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1006
+
+let $activities = {
+  "100": 6,  // Start
+  "101": 6,  // Start (failed)
+  "102": 7,  // Stop
+  "129": 6,  // Start (process launched)
+  "200": 6,  // Start (action started)
+  "201": 7,  // Stop (action completed)
+}
+ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// EID 101 fires on launch failure (Windows Level 2 = Error).
+if ocsf.metadata.event_code == "101" {
+  ocsf.status_id = 2  // Failure
+  ocsf.severity_id = 3  // Medium
+}
+
+// EIDs 102 and 201 carry a ResultCode; non-zero means failure.
+_result = move ocsf.unmapped.EventData.ResultCode
+if _result != null {
+  ocsf.status_id = 1 if _result == 0 else 2
+  ocsf.status_code = _result.string()
+}
+drop _result
+
+ocsf.job = {
+  name: move ocsf.unmapped.EventData.TaskName,
+}
+// InstanceId (EIDs 100–129) or TaskInstanceId (EIDs 200/201).
+ocsf.job.uid = move ocsf.unmapped.EventData.InstanceId
+if ocsf.job.uid == null {
+  ocsf.job.uid = move ocsf.unmapped.EventData.TaskInstanceId
+}
+
+// ActionName is the executable path for EIDs 200/201.
+_action = move ocsf.unmapped.EventData.ActionName
+if _action != null {
+  ocsf.job.file = {
+    path: _action,
+    type_id: 1,  // Regular file
+  }
+  ocsf.job.file.name = ocsf.job.file.path.split("\\")[-1]
+}
+drop _action
+
+// UserContext present on EID 100.
+_user_str = move ocsf.unmapped.EventData.UserContext
+if _user_str != null {
+  _user = _user_str.split("\\")
+  ocsf.actor = {
+    user: {
+      domain: _user[0],
+      name: _user[1],
+    },
+  }
+  drop _user
+}
+drop _user_str
+
+// ProcessId (EID 129) or EnginePID (EIDs 200/201).
+_pid = move ocsf.unmapped.EventData.ProcessId
+if _pid == null {
+  _pid = move ocsf.unmapped.EventData.EnginePID
+}
+if _pid != null {
+  ocsf.actor.process = { pid: int(_pid) }
+}
+drop _pid

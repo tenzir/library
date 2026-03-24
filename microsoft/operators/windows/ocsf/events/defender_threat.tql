@@ -1,0 +1,72 @@
+---
+description: >
+  Windows Defender Threat Found/Action (EID 1006 Found, 1007 Action)
+  → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.metadata.profiles = ["host", "security_control"]
+
+// Map string severity name to OCSF severity_id.
+let $severities = {
+  "Low": 2,
+  "Moderate": 3,
+  "High": 4,
+  "Severe": 5,
+}
+ocsf.severity_id = $severities[move ocsf.unmapped.EventData.Severity]? else 0
+
+// Action string → OCSF disposition_id (EID 1007 only).
+let $dispositions = {
+  "Clean": 11,       // Corrected
+  "Quarantine": 3,   // Quarantined
+  "Remove": 5,       // Deleted
+  "Allow": 1,        // Allowed
+  "Block": 2,        // Blocked
+}
+_action = move ocsf.unmapped.EventData.Action
+if _action != null {
+  ocsf.disposition_id = $dispositions[_action]? else 99
+}
+drop _action
+
+// Threat name is copied into finding.title then moved into malware.name.
+ocsf.finding = {
+  title: ocsf.unmapped.EventData["Threat Name"],
+  uid: (move ocsf.unmapped.EventData.ID).string(),
+  types: [move ocsf.unmapped.EventData.Category],
+}
+ocsf.malware = [{
+  name: move ocsf.unmapped.EventData["Threat Name"],
+}]
+
+// Detected file.
+ocsf.file = {
+  path: move ocsf.unmapped.EventData.Path,
+  type_id: 1,  // Regular file
+}
+ocsf.file.name = ocsf.file.path.split("\\")[-1]
+
+// Process that triggered the detection.
+ocsf.actor = {
+  process: {
+    path: move ocsf.unmapped.EventData["Process Name"],
+    file: { type_id: 1 },
+  },
+}
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+// User is "DOMAIN\username" format.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.actor.user = {
+  domain: _user[0],
+  name: _user[1],
+}
+drop _user

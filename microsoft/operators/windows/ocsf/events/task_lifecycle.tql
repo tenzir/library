@@ -1,0 +1,32 @@
+---
+description: >
+  Task Scheduler Lifecycle (EID 106 Register, 140 Update, 141 Delete)
+  → OCSF Scheduled Job Activity (1006)
+---
+
+@name = "ocsf.scheduled_job_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1006
+
+let $activities = {
+  "106": 1,  // Create
+  "140": 3,  // Update
+  "141": 2,  // Delete
+}
+ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.job = {
+  name: move ocsf.unmapped.EventData.TaskName,
+}
+
+// UserContext is "DOMAIN\username" format.
+_user = (move ocsf.unmapped.EventData.UserContext).split("\\")
+ocsf.actor = {
+  user: {
+    domain: _user[0],
+    name: _user[1],
+  },
+}
+drop _user

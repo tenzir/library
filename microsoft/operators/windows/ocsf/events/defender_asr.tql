@@ -1,0 +1,66 @@
+---
+description: >
+  Windows Defender Attack Surface Reduction Block (EID 1121)
+  → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.metadata.profiles = ["host", "security_control"]
+
+// ASR blocks are always high-severity actionable events.
+ocsf.severity_id = 4  // High
+ocsf.disposition_id = 2  // Blocked
+
+ocsf.finding = {
+  title: ocsf.unmapped.EventData["Threat Name"],
+  uid: move ocsf.unmapped.EventData["Rule ID"],
+  desc: move ocsf.unmapped.EventData["Rule Name"],
+  types: ["ASR Rule Block"],
+}
+ocsf.malware = [{
+  name: move ocsf.unmapped.EventData["Threat Name"],
+}]
+
+// Process that was blocked.
+ocsf.actor = {
+  process: {
+    path: move ocsf.unmapped.EventData["Process name"],
+    file: { type_id: 1 },
+  },
+}
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+
+// User is "DOMAIN\username" format.
+_user = (move ocsf.unmapped.EventData.User).split("\\")
+ocsf.actor.user = {
+  domain: _user[0],
+  name: _user[1],
+}
+drop _user
+
+// Affected file path.
+ocsf.file = {
+  path: move ocsf.unmapped.EventData.Path,
+  type_id: 1,
+}
+ocsf.file.name = ocsf.file.path.split("\\")[-1]
+
+// Extract SHA256 hash from "SHA256=<hex>" format.
+_hashes = move ocsf.unmapped.EventData.Hashes
+if _hashes != null {
+  _parts = _hashes.split("=")
+  ocsf.file.hashes = [{
+    algorithm: _parts[0],
+    algorithm_id: 3,  // SHA-256
+    value: _parts[1],
+  }]
+  drop _parts
+}
+drop _hashes
