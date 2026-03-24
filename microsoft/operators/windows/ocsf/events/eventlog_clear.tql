@@ -1,0 +1,31 @@
+---
+description: Audit Log Cleared (EID 1102) → OCSF Event Log Activity (1008, Clear)
+---
+
+@name = "ocsf.event_log_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1008
+ocsf.activity_id = 1  // Clear
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Clearing the security audit log is a high-severity indicator of an attacker
+// covering their tracks (MITRE ATT&CK T1070.001).
+ocsf.severity_id = 4  // High
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+  process: {
+    pid: int(move ocsf.unmapped.EventData.ClientProcessId, base=16),
+  },
+}
+
+// metadata.log_name already carries the channel (Security) from map.tql.
+// ClientProcessStartKey has no OCSF home; left in unmapped.

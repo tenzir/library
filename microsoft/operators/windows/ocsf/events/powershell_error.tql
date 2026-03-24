@@ -1,0 +1,48 @@
+---
+description: PowerShell Engine Error (EID 4100) → OCSF Script Activity (1009, Execute/Failure)
+---
+
+@name = "ocsf.script_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1009
+ocsf.activity_id = 1  // Execute
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.status_id = 2  // Failure — this event fires on PS engine errors
+ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
+ocsf.status_code = (move ocsf.unmapped.EventData.ErrorCode).string()
+ocsf.status_detail = move ocsf.unmapped.EventData.Message
+
+// The process hosting the PowerShell engine.
+_host_app = move ocsf.unmapped.EventData.HostApplication
+ocsf.actor = {
+  process: {
+    path: _host_app,
+    file: { type_id: 8 },
+  },
+}
+ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
+ocsf.actor.process.file.name = ocsf.actor.process.name
+ocsf.actor.process.file.path = ocsf.actor.process.path
+drop _host_app
+
+// User is in "DOMAIN\username" format.
+_user = move ocsf.unmapped.EventData.User
+_user_parts = _user.split("\\")
+ocsf.actor.user = {
+  domain: _user_parts[0],
+  name: _user_parts[1],
+}
+drop _user
+drop _user_parts
+
+ocsf.script = {
+  type_id: 2,  // PowerShell
+  name: move ocsf.unmapped.EventData.CommandInvocation,
+}
+
+// CommandLine (the full command attempted), HostVersion, EngineVersion,
+// RunspaceId, PipelineId, ScriptName, ShellId — left in unmapped.
+drop ocsf.unmapped.EventData.HostName
+drop ocsf.unmapped.EventData.ConnectedUser
