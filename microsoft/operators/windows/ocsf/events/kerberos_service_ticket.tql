@@ -1,0 +1,39 @@
+---
+description: Kerberos Service Ticket Requested (EID 4769) → OCSF Authentication (3002, Service Ticket)
+---
+
+@name = "ocsf.authentication"
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = 4  // Service Ticket
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Status 0x0 = success; anything else = failure (e.g. 0x1F = no TGT).
+ocsf.status_id = 1 if ocsf.unmapped.EventData.Status == "0x0" else 2
+ocsf.status_code = move ocsf.unmapped.EventData.Status
+
+// TargetUserName usually includes @REALM (e.g. "jdoe@CORP.LOCAL"); split off
+// the realm into domain. Fall back to TargetDomainName when no @ is present.
+_parts = (move ocsf.unmapped.EventData.TargetUserName).split("@")
+ocsf.user = {
+  name: _parts[0],
+  domain: _parts[1]? else move ocsf.unmapped.EventData.TargetDomainName,
+}
+drop _parts
+
+ocsf.dst_endpoint = {
+  svc_name: move ocsf.unmapped.EventData.ServiceName,
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.EventData.IpAddress,
+  port: move ocsf.unmapped.EventData.IpPort,
+}
+
+// The logon GUID links this TGS request back to the original TGT logon event.
+ocsf.session = {
+  uid: move ocsf.unmapped.EventData.LogonGuid,
+}
+
+// TicketOptions, TicketEncryptionType, ServiceSid, TransmittedServices — unmapped.

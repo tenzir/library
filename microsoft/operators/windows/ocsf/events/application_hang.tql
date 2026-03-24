@@ -1,0 +1,36 @@
+---
+description: Application Hang (EID 1002) → OCSF Process Activity (1007, Terminate)
+---
+
+@name = "ocsf.process_activity"
+
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+ocsf.activity_id = 2  // Terminate
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.status_id = 2  // Failure
+ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
+
+// param4 = faulting process ID (hex string, e.g. "0x1a4c")
+// param9 = full path to the hanging application
+// param2 = hanging application version
+ocsf.process = {
+  pid: int(move ocsf.unmapped.EventData.param4, base=16),
+  path: move ocsf.unmapped.EventData.param9,
+  file: {
+    type_id: 8,  // Executable File
+    version: (move ocsf.unmapped.EventData.param2).string(),
+  },
+}
+ocsf.process.name = ocsf.process.path.split("\\")[-1]
+ocsf.process.file.name = ocsf.process.name
+ocsf.process.file.path = ocsf.process.path
+
+// param1 = application name (redundant with process.name — dropped)
+// param3 = application timestamp              \
+// param5 = process start time                  | left in unmapped; no OCSF target
+// param6 = hang duration (ms)                  |
+// param7 = hang flags                          |
+// param8 = WER report ID                      /
+drop ocsf.unmapped.EventData.param1
