@@ -1,0 +1,54 @@
+---
+description: >
+  Security Group Lifecycle (EID 4727–4730 global, 4731–4734 local,
+  4754–4758 universal) → OCSF Group Management (3006)
+---
+
+@name = "ocsf.group_management"
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3006
+
+let $activities = {
+  // Create group
+  "4727": 6, "4731": 6, "4754": 6,
+  // Delete group
+  "4730": 5, "4734": 5, "4758": 5,
+  // Add member
+  "4728": 3, "4732": 3, "4756": 3,
+  // Remove member
+  "4729": 4, "4733": 4, "4757": 4,
+  // Group changed (universal group modified — no closer activity)
+  "4755": 99,
+}
+ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+}
+
+// TargetUser* fields describe the group being acted on (not a user account).
+ocsf.group = {
+  uid: move ocsf.unmapped.EventData.TargetSid,
+  name: move ocsf.unmapped.EventData.TargetUserName,
+  domain: move ocsf.unmapped.EventData.TargetDomainName,
+}
+
+// Member fields only present on add/remove events (4728/4729/4732/4733/4756/4757).
+if ocsf.unmapped.EventData.MemberSid? != null {
+  ocsf.user = {
+    uid: move ocsf.unmapped.EventData.MemberSid,
+    name: move ocsf.unmapped.EventData.MemberName,
+  }
+}
+
+// PrivilegeList is always "-" on these events; drop to keep unmapped clean.
+drop ocsf.unmapped.EventData.PrivilegeList

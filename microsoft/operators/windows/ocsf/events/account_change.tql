@@ -1,0 +1,44 @@
+---
+description: >
+  Account Change (EID 4720/4722–4726) → OCSF Account Change (3001)
+  4720 Create, 4722 Enable, 4723 Password Change, 4724 Password Reset,
+  4725 Disable, 4726 Delete
+---
+
+@name = "ocsf.account_change"
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3001
+
+let $activities = {
+  "4720": 1,  // Create
+  "4722": 2,  // Enable
+  "4723": 3,  // Password Change
+  "4724": 4,  // Password Reset
+  "4725": 5,  // Disable
+  "4726": 6,  // Delete
+}
+ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.actor = {
+  user: {
+    uid: move ocsf.unmapped.EventData.SubjectUserSid,
+    name: move ocsf.unmapped.EventData.SubjectUserName,
+    domain: move ocsf.unmapped.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move ocsf.unmapped.EventData.SubjectLogonId,
+  },
+}
+
+ocsf.user = {
+  uid: move ocsf.unmapped.EventData.TargetSid,
+  name: move ocsf.unmapped.EventData.TargetUserName,
+  domain: move ocsf.unmapped.EventData.TargetDomainName,
+}
+
+// EID 4720 carries many account-attribute fields (DisplayName, HomeDirectory,
+// UserAccountControl flags, etc.) containing either real values or Windows
+// sentinel strings ("%%1793" = not set, "%%1794" = never).  All stay in
+// unmapped; downstream enrichment can decode %%NNNN message IDs if needed.
