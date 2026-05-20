@@ -1,19 +1,22 @@
 ---
-name: VPC Flow Logs -> OCSF -> Security Lake
+name: Forward VPC Flow Logs to Security Lake
 description: |
-  Ingests VPC Flow Logs from CloudWatch, transforms them to OCSF Network
+  Live tails VPC Flow Logs from CloudWatch, transforms them to OCSF Network
   Activity events, and sends them to Amazon Security Lake.
 ---
 
-let $log_group = "/ecs/aws-demo-flow-logs"
+let $log_group = "arn:aws:logs:eu-west-1:123456789012:log-group:/ecs/aws-demo-flow-logs"
 let $bucket = "aws-security-data-lake-eu-west-1-xxxxx"
 let $account_id = "123456789012"
 let $region = "eu-west-1"
 let $external_id = "tenzir"
 
-from_cloudwatch $log_group
-amazon::vpc_flow::parse_v7_ecs
-amazon::vpc_flow::to_ocsf
+from_amazon_cloudwatch $log_group,
+  mode="live",
+  aws_region=$region
+amazon::vpc_flow::parse_v7_ecs field=message, into=vpc_flow
+amazon::vpc_flow::to_ocsf vpc_flow, raw=message
+ocsf::cast
 amazon::security_lake::cast
 amazon::security_lake::send \
   bucket=$bucket,
