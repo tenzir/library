@@ -4,6 +4,16 @@ description: |
 
   Transforms Route53 Resolver Query Log events into OCSF-compliant DNS Activity
   events with support for DNS Firewall rule dispositions.
+args:
+  positional:
+    - name: event
+      type: field
+      description: Parsed Route53 Resolver Query Log record.
+  named:
+    - name: raw
+      type: field
+      default: null
+      description: Raw Route53 Resolver Query Log record to preserve in OCSF `raw_data`.
 ---
 
 // --- Constants --------------------------------
@@ -41,35 +51,36 @@ let $proto_nums = {
 let $firewall_actions = {
   BLOCK: {
     action_id: 2,
-    action: "Denied",
     disposition_id: 2,
-    disposition: "Blocked",
   },
   ALLOW: {
     action_id: 1,
-    action: "Allowed",
     disposition_id: 1,
-    disposition: "Allowed",
   },
   ALERT: {
     action_id: 1,
-    action: "Allowed",
     disposition_id: 19,
-    disposition: "Alert",
     is_alert: true,
   },
 }
 
 // --- Preamble ---------------------------------
 
-this = {aws: this}
+ocsf = {}
+
+if $raw != null {
+  ocsf.raw_data = $raw
+  ocsf.raw_data_size = $raw.length_bytes()
+}
+
+where $event != null
+ocsf.unmapped = $event
 
 // --- OCSF: classification attributes ----------
 
 ocsf.category_uid = 4
 ocsf.class_uid = 4003
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.activity_id = 6
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
@@ -77,9 +88,9 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 ocsf.cloud = {
   account: {
-    uid: move aws.account_id?,
+    uid: move ocsf.unmapped.account_id?,
   },
-  region: move aws.region?,
+  region: move ocsf.unmapped.region?,
   provider: "AWS",
 }
 
@@ -87,7 +98,7 @@ ocsf.metadata = {
   product: {
     name: "Amazon Route 53",
     vendor_name: "AWS",
-    version: aws.version?.string(),
+    version: ocsf.unmapped.version?.string(),
     feature: {
       name: "Resolver Query Logs",
     },
@@ -95,94 +106,102 @@ ocsf.metadata = {
   version: "1.7.0",
   profiles: ["cloud"],
 }
-drop aws.version?
+drop ocsf.unmapped.version?
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.time = move aws.query_timestamp?
+ocsf.time = move ocsf.unmapped.query_timestamp?
 ocsf.query_time = ocsf.time
 
 // --- OCSF: primary attributes -----------------
 
 ocsf.query = {
-  hostname: move aws.query_name?,
-  type: move aws.query_type?,
-  class: move aws.query_class?,
+  hostname: move ocsf.unmapped.query_name?,
+  type: move ocsf.unmapped.query_type?,
+  class: move ocsf.unmapped.query_class?,
 }
 
-if aws.has("answers") and aws.answers.length() > 0 {
-  ocsf.answers = (move aws.answers).map(a => {
+if ocsf.unmapped.has("answers") and ocsf.unmapped.answers.length() > 0 {
+  ocsf.answers = (move ocsf.unmapped.answers).map(a => {
     rdata: a.Rdata,
     type: a.Type,
     class: a.Class,
   })
   ocsf.response_time = ocsf.time
 } else {
-  drop aws.answers?
+  drop ocsf.unmapped.answers?
 }
 
 // Map DNS response codes to OCSF rcode_id values.
-if aws.has("rcode") {
-  ocsf.rcode_id = $rcode_id[aws.rcode] else 99
+if ocsf.unmapped.has("rcode") {
+  ocsf.rcode_id = $rcode_id[ocsf.unmapped.rcode] else 99
+  if ocsf.rcode_id == 99 {
+    ocsf.rcode = move ocsf.unmapped.rcode
+  } else {
+    drop ocsf.unmapped.rcode
+  }
   ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
-  ocsf.status = "Success" if ocsf.rcode_id == 0 else "Failure"
-  drop aws.rcode
 } else {
   ocsf.status_id = 0
-  ocsf.status = "Unknown"
 }
 
 // --- OCSF: network attributes -----------------
 
-if aws.has("srcaddr") {
-  ocsf.src_endpoint.ip = ip(move aws.srcaddr)
+if ocsf.unmapped.has("srcaddr") {
+  ocsf.src_endpoint.ip = ip(move ocsf.unmapped.srcaddr)
   ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
 }
-if aws.has("srcport") {
-  ocsf.src_endpoint.port = int(move aws.srcport)
+if ocsf.unmapped.has("srcport") {
+  ocsf.src_endpoint.port = int(move ocsf.unmapped.srcport)
 }
-if aws.has("vpc_id") {
-  ocsf.src_endpoint.vpc_uid = move aws.vpc_id
+if ocsf.unmapped.has("vpc_id") {
+  ocsf.src_endpoint.vpc_uid = move ocsf.unmapped.vpc_id
 }
-if aws.srcids?.instance? != null {
-  ocsf.src_endpoint.instance_uid = move aws.srcids.instance
+if ocsf.unmapped.srcids?.instance? != null {
+  ocsf.src_endpoint.instance_uid = move ocsf.unmapped.srcids.instance
 }
 
 // Resolver endpoint info goes to dst_endpoint since it's the DNS server.
-if aws.srcids?.resolver_endpoint? != null {
-  ocsf.dst_endpoint.uid = move aws.srcids.resolver_endpoint
+if ocsf.unmapped.srcids?.resolver_endpoint? != null {
+  ocsf.dst_endpoint.uid = move ocsf.unmapped.srcids.resolver_endpoint
 }
-if aws.srcids?.resolver_network_interface? != null {
-  ocsf.dst_endpoint.interface_uid = move aws.srcids.resolver_network_interface
+if ocsf.unmapped.srcids?.resolver_network_interface? != null {
+  ocsf.dst_endpoint.interface_uid = move ocsf.unmapped.srcids.resolver_network_interface
 }
-drop aws.srcids?
+drop ocsf.unmapped.srcids?
 
-if aws.has("transport") {
-  ocsf.connection_info.protocol_name = aws.transport.to_lower()
-  ocsf.connection_info.protocol_num = $proto_nums[aws.transport] else -1
-  drop aws.transport
+if ocsf.unmapped.has("transport") {
+  ocsf.connection_info.protocol_name = ocsf.unmapped.transport.to_lower()
+  ocsf.connection_info.protocol_num = $proto_nums[ocsf.unmapped.transport] else -1
+  drop ocsf.unmapped.transport
 }
 
 // --- DNS Firewall (security_control profile) --
 
-if aws.has("firewall_rule_action") {
+if ocsf.unmapped.has("firewall_rule_action") {
   ocsf.metadata.profiles = ["cloud", "security_control"]
-  ocsf.action_id = $firewall_actions[aws.firewall_rule_action].action_id
-  ocsf.action = $firewall_actions[aws.firewall_rule_action].action
-  ocsf.disposition_id = $firewall_actions[aws.firewall_rule_action].disposition_id
-  ocsf.disposition = $firewall_actions[aws.firewall_rule_action].disposition
-  if $firewall_actions[aws.firewall_rule_action].is_alert? != null {
-    ocsf.is_alert = $firewall_actions[aws.firewall_rule_action].is_alert
+  if $firewall_actions[ocsf.unmapped.firewall_rule_action]? != null {
+    ocsf.action_id = $firewall_actions[ocsf.unmapped.firewall_rule_action].action_id
+    ocsf.disposition_id = $firewall_actions[ocsf.unmapped.firewall_rule_action].disposition_id
+    if $firewall_actions[ocsf.unmapped.firewall_rule_action].is_alert? != null {
+      ocsf.is_alert = $firewall_actions[ocsf.unmapped.firewall_rule_action].is_alert
+    }
+  } else {
+    ocsf.action_id = 99
+    ocsf.action = ocsf.unmapped.firewall_rule_action
+    ocsf.disposition_id = 99
+    ocsf.disposition = ocsf.unmapped.firewall_rule_action
   }
-  drop aws.firewall_rule_action
+  drop ocsf.unmapped.firewall_rule_action
   ocsf.firewall_rule = {
-    uid: move aws.firewall_rule_group_id?,
-    match_details: move aws.firewall_domain_list_id?,
+    uid: move ocsf.unmapped.firewall_rule_group_id?,
+    match_details: move ocsf.unmapped.firewall_domain_list_id?,
   }
 }
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: aws}
+this = ocsf
+drop_null_fields unmapped
 @name = "ocsf.dns_activity"
 ocsf::derive

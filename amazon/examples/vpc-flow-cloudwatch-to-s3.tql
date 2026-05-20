@@ -1,0 +1,28 @@
+---
+name: VPC Flow Logs from CloudWatch -> OCSF -> S3
+description: |
+  Reads historical VPC Flow Logs from CloudWatch, maps them to OCSF Network
+  Activity, and writes Parquet objects to an S3 bucket with hive partitioning.
+---
+
+let $log_group = "/aws/vpc/flowlogs"
+let $region = "us-east-1"
+let $s3_url = "s3://your-bucket/ocsf/vpc-flow/**/part_{uuid}.parquet?region=us-east-1"
+
+from_amazon_cloudwatch $log_group,
+  mode="search",
+  aws_region=$region,
+  start=now() - 1h,
+  end=now()
+amazon::vpc_flow::parse_v7_ecs field=message, into=vpc_flow
+amazon::vpc_flow::to_ocsf vpc_flow, raw=message
+ocsf::cast
+region = cloud.region if cloud.region != null else $region
+year = time.year()
+month = time.month()
+day = time.day()
+to_s3 $s3_url,
+  partition_by=[region, class_uid, year, month, day] {
+  drop region, year, month, day
+  write_parquet
+}

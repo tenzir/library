@@ -1,16 +1,28 @@
 ---
 description: |
-  Parses AWS VPC Flow Logs from CloudWatch events.
+  Parses AWS VPC Flow Log records.
 
-  The operator expects events with a `message` field containing the VPC Flow Log
-  line. Specify the header matching your flow log's `--log-format` configuration,
+  The operator expects events with a field containing the VPC Flow Log line.
+  Specify the header matching your flow log's `--log-format` configuration,
   using underscores instead of hyphens (e.g., `vpc_id` instead of `vpc-id`).
+  Use `into=this` to replace the current event with the parsed record.
 args:
   positional:
     - name: header
       type: string
       description: Space-separated field names matching the flow log format.
+  named:
+    - name: into
+      type: field
+      description: Output field for the parsed VPC Flow Log record.
+    - name: field
+      type: field
+      description: Field containing the VPC Flow Log line.
 ---
 
-this = message.parse_ssv(header=$header, null_value="-")
-@name = "amazon.vpc_flow"
+_vpc_flow = $field.parse_ssv(
+  header=$header,
+  null_value="-",
+)
+
+$into = move _vpc_flow
