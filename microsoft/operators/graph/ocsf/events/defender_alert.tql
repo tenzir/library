@@ -12,8 +12,8 @@ ocsf.category_uid = 2
 ocsf.class_uid = 2004
 ocsf.activity_id = 1  // Create
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = time(move ocsf.unmapped.createdDateTime)
-ocsf.end_time = time(move ocsf.unmapped.lastUpdateDateTime?)
+ocsf.time = time(move graph.createdDateTime)
+ocsf.end_time = time(move graph.lastUpdateDateTime?)
 
 let $severities = {
   informational: 1,
@@ -21,17 +21,17 @@ let $severities = {
   medium: 3,
   high: 4,
 }
-ocsf.severity_id = $severities[ocsf.unmapped.severity]? else 0
-drop ocsf.unmapped.severity?
+ocsf.severity_id = $severities[graph.severity]? else 0
+drop graph.severity?
 
 let $statuses = {
   new: 1,
   inProgress: 2,
   resolved: 4,
 }
-ocsf.status_id = $statuses[ocsf.unmapped.status]?
+ocsf.status_id = $statuses[graph.status]?
 if ocsf.status_id != null {
-  drop ocsf.unmapped.status?
+  drop graph.status?
 }
 
 let $verdicts = {
@@ -40,60 +40,60 @@ let $verdicts = {
   truePositive: 2,
   informationalExpectedActivity: 5,
 }
-ocsf.verdict_id = $verdicts[ocsf.unmapped.classification?]?
+ocsf.verdict_id = $verdicts[graph.classification?]?
 if ocsf.verdict_id != null {
-  drop ocsf.unmapped.classification?
+  drop graph.classification?
 }
 
-match ocsf.unmapped.determination {
+match graph.determination {
   "unknown" | "unknownFutureValue" => {}
-  _ if ocsf.unmapped.determination? != null => {
-    ocsf.unmapped._finding_types = {
-      types: [move ocsf.unmapped.determination],
+  _ if graph.determination? != null => {
+    graph._finding_types = {
+      types: [move graph.determination],
     }
   }
   _ => {}
 }
 
 ocsf.finding_info = merge({
-  uid: move ocsf.unmapped.id,
-  uid_alt: move ocsf.unmapped.providerAlertId?,
-  title: move ocsf.unmapped.title?,
-  desc: move ocsf.unmapped.description?,
+  uid: move graph.id,
+  uid_alt: move graph.providerAlertId?,
+  title: move graph.title?,
+  desc: move graph.description?,
   modified_time: ocsf.end_time,
   product: {
-    name: move ocsf.unmapped.serviceSource?,
+    name: move graph.serviceSource?,
     vendor_name: "Microsoft",
     feature: {
-      name: move ocsf.unmapped.detectionSource?,
+      name: move graph.detectionSource?,
     },
   },
   related_events: [{
-    uid: move ocsf.unmapped.incidentId?,
+    uid: move graph.incidentId?,
   }],
-}, move ocsf.unmapped._finding_types?)
-if ocsf.unmapped.detectorId? != null {
+}, move graph._finding_types?)
+if graph.detectorId? != null {
   ocsf.finding_info.analytic = {
-    uid: move ocsf.unmapped.detectorId,
+    uid: move graph.detectorId,
     type_id: 0,
   }
 }
 
-if ocsf.unmapped.mitreTechniques? != null {
-  ocsf.attacks = ocsf.unmapped.mitreTechniques.map(t => {
+if graph.mitreTechniques? != null {
+  ocsf.attacks = graph.mitreTechniques.map(t => {
     technique: {
       uid: t,
     },
   })
-  drop ocsf.unmapped.mitreTechniques
+  drop graph.mitreTechniques
 }
 
-if ocsf.unmapped.evidence? != null {
-  ocsf.evidences = ocsf.unmapped.evidence.map(e => {
+if graph.evidence? != null {
+  ocsf.evidences = graph.evidence.map(e => {
     name: e["@odata.type"]?,
     data: e,
   })
-  drop ocsf.unmapped.evidence
+  drop graph.evidence
 }
 
 ocsf.is_alert = true

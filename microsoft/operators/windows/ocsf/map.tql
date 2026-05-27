@@ -12,28 +12,28 @@ ocsf = {}
 ocsf.raw_data = $log
 ocsf.raw_data_size = $log.length_bytes()
 
-ocsf.unmapped = $log.parse_winlog()
+windows = $log.parse_winlog()
 
 ocsf.metadata = {
-  event_code: (move ocsf.unmapped.System.EventID).string(),
+  event_code: (move windows.System.EventID).string(),
   extensions: [{name: "win"}],
   log_format: "xml",
-  log_name: move ocsf.unmapped.System.Channel,
-  log_level: (move ocsf.unmapped.System.Level).string(),
-  log_version: (move ocsf.unmapped.System.Version).string(),
-  logged_time: move ocsf.unmapped.System.TimeCreated.SystemTime,
-  original_event_uid: (move ocsf.unmapped.System.EventRecordID).string(),
+  log_name: move windows.System.Channel,
+  log_level: (move windows.System.Level).string(),
+  log_version: (move windows.System.Version).string(),
+  logged_time: move windows.System.TimeCreated.SystemTime,
+  original_event_uid: (move windows.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move ocsf.unmapped.System.Provider.Name,
-    uid: move ocsf.unmapped.System.Provider.Guid?,
+    name: move windows.System.Provider.Name,
+    uid: move windows.System.Provider.Guid?,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
   version: "1.7.0",
 }
-drop ocsf.unmapped.System.Provider
-drop ocsf.unmapped.System.TimeCreated
+drop windows.System.Provider
+drop windows.System.TimeCreated
 
 
 ocsf.severity_id = 1
@@ -42,7 +42,7 @@ ocsf.severity_id = 1
 ocsf.time = ocsf.metadata.logged_time
 
 ocsf.device = {
-  hostname: move ocsf.unmapped.System.Computer,
+  hostname: move windows.System.Computer,
 }
 
 // "-" is the universal Windows sentinel for "not applicable/empty".
@@ -115,3 +115,5 @@ if ocsf.metadata.event_code in ["100", "101", "102", "129", "200", "201"] {
   ocsf.activity_id = 0
   ocsf.type_uid = 0
 }
+
+this = {...ocsf, unmapped: windows}

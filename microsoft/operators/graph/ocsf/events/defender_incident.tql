@@ -10,11 +10,11 @@ ocsf.metadata.profiles = ["cloud", "incident", "security_control"]
 
 ocsf.category_uid = 2
 ocsf.class_uid = 2005
-ocsf.metadata.original_event_uid = move ocsf.unmapped.id?
-ocsf.time = time(move ocsf.unmapped.createdDateTime)
-ocsf.end_time = time(move ocsf.unmapped.lastUpdateDateTime?)
+ocsf.metadata.original_event_uid = move graph.id?
+ocsf.time = time(move graph.createdDateTime)
+ocsf.end_time = time(move graph.lastUpdateDateTime?)
 
-match ocsf.unmapped.status {
+match graph.status {
   "active" | "new" => {
     ocsf.status_id = 1
   }
@@ -31,7 +31,7 @@ match ocsf.unmapped.status {
     ocsf.status_id = 1
   }
 }
-drop ocsf.unmapped.status?
+drop graph.status?
 
 match ocsf.status_id {
   4 | 5 => {
@@ -52,11 +52,11 @@ let $severities = {
   medium: 3,
   high: 4,
 }
-ocsf.severity_id = $severities[ocsf.unmapped.severity]? else 0
-drop ocsf.unmapped.severity?
+ocsf.severity_id = $severities[graph.severity]? else 0
+drop graph.severity?
 
-if ocsf.unmapped.priorityScore? != null {
-  ocsf.risk_score = move ocsf.unmapped.priorityScore
+if graph.priorityScore? != null {
+  ocsf.risk_score = move graph.priorityScore
   ocsf.priority_id = 1
   if ocsf.risk_score >= 15 {
     ocsf.priority_id = 2
@@ -66,60 +66,60 @@ if ocsf.unmapped.priorityScore? != null {
   }
 }
 
-if ocsf.unmapped.customTags? != null or ocsf.unmapped.systemTags? != null {
+if graph.customTags? != null or graph.systemTags? != null {
   ocsf.metadata.labels = concatenate(
-    (move ocsf.unmapped.customTags?) else [],
-    (move ocsf.unmapped.systemTags?) else [],
+    (move graph.customTags?) else [],
+    (move graph.systemTags?) else [],
   )
   if ocsf.metadata.labels.length() == 0 {
     drop ocsf.metadata.labels
   }
 }
-match ocsf.unmapped.determination {
+match graph.determination {
   "unknown" | "unknownFutureValue" => {}
-  _ if ocsf.unmapped.determination? != null => {
-    ocsf.unmapped._finding_types = {
-      types: [move ocsf.unmapped.determination],
+  _ if graph.determination? != null => {
+    graph._finding_types = {
+      types: [move graph.determination],
     }
   }
   _ => {}
 }
-if ocsf.unmapped.redirectIncidentId? != null {
-  ocsf.unmapped._related_events = {
+if graph.redirectIncidentId? != null {
+  graph._related_events = {
     related_events: [{
-      uid: move ocsf.unmapped.redirectIncidentId,
+      uid: move graph.redirectIncidentId,
     }],
   }
 }
 
-ocsf.message = move ocsf.unmapped.displayName?
-ocsf.desc = move ocsf.unmapped.description?
+ocsf.message = move graph.displayName?
+ocsf.desc = move graph.description?
 ocsf.finding_info_list = [
   merge(
     merge({
       uid: ocsf.metadata.original_event_uid,
       title: ocsf.message,
-      desc: move ocsf.unmapped.summary?,
-    }, move ocsf.unmapped._finding_types?),
-    move ocsf.unmapped._related_events?,
+      desc: move graph.summary?,
+    }, move graph._finding_types?),
+    move graph._related_events?,
   ),
 ]
-if ocsf.unmapped.alerts? != null {
+if graph.alerts? != null {
   ocsf.finding_info_list = concatenate(
     ocsf.finding_info_list,
-    ocsf.unmapped.alerts.map(a => {
+    graph.alerts.map(a => {
       uid: a.id,
       title: a.title,
     }),
   )
-  drop ocsf.unmapped.alerts
+  drop graph.alerts
 }
 
-if ocsf.unmapped.assignedTo? != null {
+if graph.assignedTo? != null {
   ocsf.assignee = {
-    name: ocsf.unmapped.assignedTo.split("@")[0]?,
-    domain: ocsf.unmapped.assignedTo.split("@")[1]?,
-    email_addr: move ocsf.unmapped.assignedTo,
+    name: graph.assignedTo.split("@")[0]?,
+    domain: graph.assignedTo.split("@")[1]?,
+    email_addr: move graph.assignedTo,
     type_id: 1,
   }
 }
@@ -130,7 +130,7 @@ let $verdicts = {
   truePositive: 2,
   informationalExpectedActivity: 5,
 }
-ocsf.verdict_id = $verdicts[ocsf.unmapped.classification?]?
+ocsf.verdict_id = $verdicts[graph.classification?]?
 if ocsf.verdict_id != null {
-  drop ocsf.unmapped.classification?
+  drop graph.classification?
 }
