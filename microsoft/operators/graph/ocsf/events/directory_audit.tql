@@ -1,0 +1,131 @@
+---
+description: Microsoft Entra ID directory audit log → OCSF IAM activity
+---
+
+ocsf.metadata.product.name = "Microsoft Entra ID"
+ocsf.metadata.log_name = "auditLogs/directoryAudits"
+ocsf.metadata.original_event_uid = move ocsf.unmapped.id?
+ocsf.metadata.source = move ocsf.unmapped.loggedByService?
+
+ocsf.category_uid = 3
+ocsf.time = time(move ocsf.unmapped.activityDateTime)
+ocsf.message = move ocsf.unmapped.activityDisplayName?
+ocsf.status_detail = move ocsf.unmapped.resultReason?
+let $status_ids = {
+  success: 1,
+}
+ocsf.status_id = $status_ids[ocsf.unmapped.result]? else 2
+if ocsf.status_id == 2 {
+  ocsf.severity_id = 2
+}
+drop ocsf.unmapped.result?
+
+if ocsf.unmapped.initiatedBy.user? != null {
+  ocsf.actor = {
+    user: {
+      uid: move ocsf.unmapped.initiatedBy.user.id?,
+      name: ocsf.unmapped.initiatedBy.user.userPrincipalName?.split("@")[0]?,
+      domain: ocsf.unmapped.initiatedBy.user.userPrincipalName?.split("@")[1]?,
+      email_addr: move ocsf.unmapped.initiatedBy.user.userPrincipalName?,
+      full_name: move ocsf.unmapped.initiatedBy.user.displayName?,
+      type_id: 1,
+    },
+  }
+  ocsf.src_endpoint = {
+    ip: move ocsf.unmapped.initiatedBy.user.ipAddress?,
+  }
+} else if ocsf.unmapped.initiatedBy.app? != null {
+  ocsf.actor = {
+    app_name: move ocsf.unmapped.initiatedBy.app.displayName?,
+    app_uid: move ocsf.unmapped.initiatedBy.app.appId?,
+    user: {
+      uid: move ocsf.unmapped.initiatedBy.app.servicePrincipalId?,
+      type_id: 4,
+    },
+  }
+}
+drop ocsf.unmapped.initiatedBy?
+
+let $account_activity_ids = {
+  "Add user": 1,
+  "Enable account": 2,
+  "Change user password": 3,
+  "Reset user password": 4,
+  "Disable account": 5,
+  "Delete user": 6,
+}
+let $group_activity_ids = {
+  "Add member to group": 3,
+  "Remove member from group": 4,
+  "Delete group": 5,
+  "Add group": 6,
+}
+
+match ocsf.unmapped.category {
+  "GroupManagement" | "UserManagement" if ocsf.unmapped.category == "GroupManagement" or $group_activity_ids[ocsf.message]? != null => {
+    @name = "ocsf.group_management"
+    ocsf.class_uid = 3006
+    ocsf.activity_id = $group_activity_ids[ocsf.message]? else 99
+    ocsf.unmapped._target_groups = ocsf.unmapped.targetResources.where(r => r.Type? == "Group" or r.type? == "Group")
+    ocsf.unmapped._target_users = ocsf.unmapped.targetResources.where(r => r.Type? == "User" or r.type? == "User")
+    ocsf.group = {
+      uid: ocsf.unmapped._target_groups[0]?.id? else ocsf.unmapped.targetResources[0]?.id?,
+      name: ocsf.unmapped._target_groups[0]?.displayName? else ocsf.unmapped.targetResources[0]?.displayName?,
+    }
+    if ocsf.unmapped._target_users[0]? != null {
+      ocsf.user = {
+        uid: ocsf.unmapped._target_users[0]?.id?,
+        full_name: ocsf.unmapped._target_users[0]?.displayName?,
+        email_addr: ocsf.unmapped._target_users[0]?.userPrincipalName?,
+        type_id: 1,
+      }
+    }
+    drop ocsf.unmapped._target_groups?
+    drop ocsf.unmapped._target_users?
+  }
+  "UserManagement" => {
+    @name = "ocsf.account_change"
+    ocsf.class_uid = 3001
+    ocsf.activity_id = $account_activity_ids[ocsf.message]? else 99
+    ocsf.user = {
+      uid: ocsf.unmapped.targetResources[0]?.id?,
+      full_name: ocsf.unmapped.targetResources[0]?.displayName?,
+      type_id: 1,
+    }
+  }
+  _ => {
+    @name = "ocsf.entity_management"
+    ocsf.class_uid = 3004
+    match ocsf.unmapped.operationType {
+      "Add" => {
+        ocsf.activity_id = 1
+      }
+      "Read" => {
+        ocsf.activity_id = 2
+      }
+      "Update" => {
+        ocsf.activity_id = 3
+      }
+      "Delete" => {
+        ocsf.activity_id = 4
+      }
+      _ => {
+        ocsf.activity_id = 99
+      }
+    }
+    ocsf.entity = {
+      uid: ocsf.unmapped.targetResources[0]?.id?,
+      name: ocsf.unmapped.targetResources[0]?.displayName?,
+    }
+  }
+}
+
+if ocsf.activity_id == 99 {
+  ocsf.activity_name = ocsf.message
+}
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Preserve targetResources in unmapped because modifiedProperties often carry
+// the security-relevant before/after values.
+drop ocsf.unmapped.operationType?
+drop ocsf.unmapped.category?

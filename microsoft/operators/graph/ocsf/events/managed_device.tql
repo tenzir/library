@@ -1,0 +1,70 @@
+---
+description: Microsoft Intune managed device → OCSF Device Inventory Info (5001)
+---
+
+@name = "ocsf.inventory_info"
+
+ocsf.metadata.product.name = "Microsoft Intune"
+ocsf.metadata.log_name = "deviceManagement/managedDevices"
+ocsf.metadata.profiles = ["cloud", "host"]
+
+ocsf.category_uid = 5
+ocsf.class_uid = 5001
+ocsf.activity_id = 2  // Collect
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = time(move ocsf.unmapped.lastSyncDateTime)
+
+match ocsf.unmapped.complianceState {
+  "compliant" => {
+    ocsf.unmapped._is_compliant = true
+    drop ocsf.unmapped.complianceState
+  }
+  "noncompliant" | "nonCompliant" => {
+    ocsf.unmapped._is_compliant = false
+    drop ocsf.unmapped.complianceState
+  }
+  _ => {}
+}
+match ocsf.unmapped.managedDeviceOwnerType {
+  "personal" => {
+    ocsf.unmapped._is_personal = true
+    drop ocsf.unmapped.managedDeviceOwnerType
+  }
+  "company" => {
+    ocsf.unmapped._is_personal = false
+    drop ocsf.unmapped.managedDeviceOwnerType
+  }
+  _ => {}
+}
+
+ocsf.device = {
+  uid: move ocsf.unmapped.id,
+  uid_alt: move ocsf.unmapped.azureADDeviceId?,
+  name: move ocsf.unmapped.deviceName?,
+  type_id: 0,
+  os: {
+    name: move ocsf.unmapped.operatingSystem?,
+    version: move ocsf.unmapped.osVersion?,
+  },
+  model: move ocsf.unmapped.model?,
+  hw_info: {
+    vendor_name: move ocsf.unmapped.manufacturer?,
+    serial_number: move ocsf.unmapped.serialNumber?,
+  },
+  owner: {
+    uid: move ocsf.unmapped.userId?,
+    name: ocsf.unmapped.userPrincipalName?.split("@")[0]?,
+    domain: ocsf.unmapped.userPrincipalName?.split("@")[1]?,
+    email_addr: move ocsf.unmapped.userPrincipalName?,
+    full_name: move ocsf.unmapped.userDisplayName?,
+    type_id: 1,
+  },
+  is_compliant: move ocsf.unmapped._is_compliant?,
+  is_managed: true,
+  is_personal: move ocsf.unmapped._is_personal?,
+  first_seen_time: time(move ocsf.unmapped.enrolledDateTime?),
+}
+ocsf.device.hostname = ocsf.device.name
+
+// Intune-specific health attestation, ownership, and management-agent details
+// stay in unmapped until there is a precise OCSF target.

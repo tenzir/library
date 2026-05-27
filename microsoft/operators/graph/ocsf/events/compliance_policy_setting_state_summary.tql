@@ -1,0 +1,44 @@
+---
+description: Microsoft Intune compliance summary → OCSF Compliance Finding (2003)
+---
+
+@name = "ocsf.compliance_finding"
+
+ocsf.metadata.product.name = "Microsoft Intune"
+ocsf.metadata.log_name = "deviceManagement/deviceCompliancePolicySettingStateSummaries"
+ocsf.metadata.profiles = ["cloud", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2003
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = now()
+
+ocsf.severity_id = 1
+ocsf.status_id = 4
+if ocsf.unmapped.nonCompliantDeviceCount > 0 or ocsf.unmapped.errorDeviceCount > 0 {
+  ocsf.severity_id = 3
+  ocsf.status_id = 1
+}
+
+ocsf.finding_info = {
+  uid: move ocsf.unmapped.id,
+  title: move ocsf.unmapped.settingName?,
+  desc: move ocsf.unmapped.setting?,
+}
+
+ocsf.compliance = {
+  control: ocsf.finding_info.title,
+  status_id: 1,
+}
+if ocsf.severity_id == 3 {
+  ocsf.compliance.status_id = 3
+}
+
+ocsf.resources = [{
+  name: "Microsoft Intune managed devices",
+  type: move ocsf.unmapped.platformType?,
+  role_id: 1,
+}]
+
+// Device-count breakdowns remain in unmapped as source-specific evidence.

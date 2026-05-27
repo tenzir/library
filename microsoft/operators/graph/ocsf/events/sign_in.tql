@@ -1,0 +1,129 @@
+---
+description: Microsoft Entra ID sign-in log → OCSF Authentication (3002)
+---
+
+@name = "ocsf.authentication"
+
+ocsf.metadata.product.name = "Microsoft Entra ID"
+ocsf.metadata.log_name = "auditLogs/signIns"
+ocsf.metadata.original_event_uid = move ocsf.unmapped.id
+ocsf.metadata.profiles = ["cloud", "security_control"]
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = 1  // Logon
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.time = time(move ocsf.unmapped.createdDateTime)
+
+ocsf.user = {
+  uid: move ocsf.unmapped.userId?,
+  name: ocsf.unmapped.userPrincipalName?.split("@")[0]?,
+  domain: ocsf.unmapped.userPrincipalName?.split("@")[1]?,
+  email_addr: move ocsf.unmapped.userPrincipalName?,
+  full_name: move ocsf.unmapped.userDisplayName?,
+  type_id: 1,
+}
+ocsf.actor = {
+  user: ocsf.user,
+}
+
+ocsf.service = {
+  uid: move ocsf.unmapped.appId?,
+  name: move ocsf.unmapped.appDisplayName?,
+}
+
+ocsf.dst_endpoint = {
+  uid: move ocsf.unmapped.resourceId?,
+  svc_name: move ocsf.unmapped.resourceDisplayName?,
+}
+
+ocsf.src_endpoint = {
+  ip: move ocsf.unmapped.ipAddress?,
+  location: {
+    city: move ocsf.unmapped.location.city?,
+    country: move ocsf.unmapped.location.countryOrRegion?,
+  },
+  os: {
+    name: move ocsf.unmapped.deviceDetail.operatingSystem?,
+  },
+  uid: move ocsf.unmapped.deviceDetail.deviceId?,
+}
+
+let $status_ids = {
+  "0": 1,
+}
+ocsf.status_id = $status_ids[ocsf.unmapped.status.errorCode.string()]? else 2
+if ocsf.status_id == 2 {
+  ocsf.severity_id = 2
+}
+ocsf.status_code = (move ocsf.unmapped.status.errorCode).string()
+ocsf.status_detail = move ocsf.unmapped.status.failureReason?
+drop ocsf.unmapped.status?
+drop ocsf.unmapped.location?
+drop ocsf.unmapped.deviceDetail?
+
+ocsf.is_mfa = ocsf.unmapped.mfaDetail? != null
+if ocsf.unmapped.mfaDetail.authMethod? != null {
+  ocsf.unmapped._auth_factor_type = ocsf.unmapped.mfaDetail.authMethod
+  match ocsf.unmapped._auth_factor_type.to_lower() {
+    "sms" => {
+      ocsf.unmapped._auth_factor_type_id = 1
+      ocsf.unmapped._auth_factor_type = "SMS"
+    }
+    "phone" | "phone call" | "voice" | "voicemail" => {
+      ocsf.unmapped._auth_factor_type_id = 3
+      ocsf.unmapped._auth_factor_type = "Phone Call"
+    }
+    "push" | "push notification" | "authenticator app" => {
+      ocsf.unmapped._auth_factor_type_id = 5
+      ocsf.unmapped._auth_factor_type = "Push Notification"
+    }
+    "oath" | "software oath token" | "otp" => {
+      ocsf.unmapped._auth_factor_type_id = 7
+      ocsf.unmapped._auth_factor_type = "OTP"
+    }
+    "email" => {
+      ocsf.unmapped._auth_factor_type_id = 8
+      ocsf.unmapped._auth_factor_type = "Email"
+    }
+    _ => {
+      ocsf.unmapped._auth_factor_type_id = 99
+    }
+  }
+  ocsf.auth_factors = [{
+    factor_type: move ocsf.unmapped._auth_factor_type,
+    factor_type_id: move ocsf.unmapped._auth_factor_type_id,
+  }]
+  drop ocsf.unmapped.mfaDetail.authMethod?
+}
+if ocsf.unmapped.mfaDetail.authDetail? == null {
+  drop ocsf.unmapped.mfaDetail?
+}
+
+match ocsf.unmapped.conditionalAccessStatus {
+  "success" => {
+    ocsf.action_id = 1
+    ocsf.disposition_id = 1
+    drop ocsf.unmapped.conditionalAccessStatus
+  }
+  "failure" => {
+    ocsf.action_id = 2
+    ocsf.disposition_id = 26
+    drop ocsf.unmapped.conditionalAccessStatus
+  }
+  "notApplied" => {
+    ocsf.action_id = 3
+    ocsf.disposition_id = 16
+    drop ocsf.unmapped.conditionalAccessStatus
+  }
+  _ => {}
+}
+
+ocsf.is_remote = true
+
+if ocsf.unmapped.isInteractive? != null {
+  ocsf.logon_type_id = 99
+  ocsf.logon_type = "interactiveUser" if ocsf.unmapped.isInteractive else "nonInteractiveUser"
+  drop ocsf.unmapped.isInteractive
+}
