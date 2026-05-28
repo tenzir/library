@@ -21,13 +21,12 @@ description: |
    - Decryption
    - Authentication
 
-   All other log types get forwarded including their raw Syslog framing as
-   `paloalto.unknown` events.
+   All other log types get forwarded as parsed Syslog records with
+   `paloalto.unknown` as schema name.
 ---
 
-from "{{ inputs.url }}" {
-  read_syslog
-}
+accept_udp "{{ inputs.url }}"
+this = data.parse_syslog()
 if ",TRAFFIC," in content {
   content = content.parse_csv(header="{{ inputs.traffic }}")
   this = content.drop_matching("^future_use")
