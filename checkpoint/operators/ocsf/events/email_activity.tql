@@ -11,38 +11,15 @@ ocsf.class_uid = 4009
 ocsf.activity_id = 3  // Scan
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
-match checkpoint.action? {
-  "Accept" => {
-    ocsf.action_id = 1
-    ocsf.disposition_id = 1
-    ocsf.status_id = 1
-  }
-  "Detect" => {
-    ocsf.action_id = 3
-    ocsf.disposition_id = 15
-    ocsf.status_id = 1
-  }
-  "Drop" | "Prevent" | "Reject" => {
-    ocsf.action_id = 2
-    ocsf.disposition_id = 2
-    ocsf.status_id = 2
-  }
-  _ => {
-    ocsf.action_id = 0
-    ocsf.disposition_id = 0
-    ocsf.status_id = 0
-  }
-}
-if checkpoint.action? != null {
-  drop checkpoint.action
-}
+checkpoint::ocsf::security_control_outcome
 
-ocsf.direction_id = 0
-if checkpoint.direction? == "Inbound" or checkpoint.conn_direction? == "Incoming" {
-  ocsf.direction_id = 1
-} else if checkpoint.direction? == "Outbound" or checkpoint.conn_direction? == "Outgoing" {
-  ocsf.direction_id = 2
+let $direction_ids = {
+  Inbound: 1,
+  Outbound: 2,
+  Incoming: 1,
+  Outgoing: 2,
 }
+ocsf.direction_id = $direction_ids[checkpoint.direction?]? else $direction_ids[checkpoint.conn_direction?]? else 0
 drop checkpoint.direction?
 drop checkpoint.conn_direction?
 
