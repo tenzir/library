@@ -1,0 +1,58 @@
+---
+description: Fetch items from the Sophos SIEM Integration API
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+    - name: endpoint
+      description: SIEM endpoint to fetch, either `events` or `alerts`.
+      type: string
+      default: events
+    - name: limit
+      description: Maximum number of items to request per page.
+      type: int
+      default: 1000
+---
+
+from_http "https://id.sophos.com/api/v2/oauth2/token",
+  body={
+    grant_type: "client_credentials",
+    client_id: $client_id,
+    client_secret: $client_secret,
+    scope: "token",
+  },
+  encode="form" {
+  read_json
+}
+
+token = access_token
+each {
+  from_http "https://api.central.sophos.com/whoami/v1",
+    headers={Authorization: f"Bearer {$this.token}"} {
+    read_json
+  }
+  token = $this.token
+}
+
+each {
+  from_http f"{$this.apiHosts.dataRegion}/siem/v1/{$endpoint}?limit={$limit}",
+    headers={
+      "X-Tenant-ID": $this.id,
+      Authorization: f"Bearer {$this.token}",
+    },
+    paginate=(x => f"{$this.apiHosts.dataRegion}/siem/v1/{$endpoint}?limit={$limit}&cursor={x.next_cursor}" if x.has_more) {
+    read_json
+  }
+  unroll items
+  this = items
+}
+
+if $endpoint == "alerts" {
+  @name = "sophos.alert"
+} else {
+  @name = "sophos.event"
+}
