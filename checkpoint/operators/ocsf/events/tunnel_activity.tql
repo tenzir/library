@@ -1,0 +1,53 @@
+---
+description: "Check Point VPN/Mobile Access → OCSF Tunnel Activity (4014)"
+---
+
+@name = "ocsf.tunnel_activity"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4014
+let $activities = {
+  Connect: 1,
+  Login: 1,
+  "Log In": 1,
+  Disconnect: 2,
+  Logout: 2,
+  "Log Out": 2,
+  Renew: 3,
+}
+ocsf.activity_id = $activities[checkpoint.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+drop checkpoint.action?
+
+checkpoint::ocsf::status
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.user? != null {
+  ocsf.user.name = move checkpoint.user
+}
+if checkpoint.session? != null {
+  ocsf.session.uid = move checkpoint.session
+}
+if checkpoint.vpn_feature? != null {
+  ocsf.tunnel_type_id = 99
+  ocsf.tunnel_type = move checkpoint.vpn_feature
+}
+if checkpoint.proto? != null {
+  ocsf.connection_info.protocol_num = move checkpoint.proto
+}
+ocsf.protocol_name = "VPN"
+
+checkpoint::ocsf::traffic

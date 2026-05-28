@@ -1,0 +1,115 @@
+---
+description: Apply shared Check Point security-control context
+---
+
+if checkpoint.hll_key? != null {
+  ocsf.connection_info.uid = (move checkpoint.hll_key).string()
+}
+if checkpoint.proto? != null {
+  match checkpoint.proto {
+    1 => {
+      ocsf.connection_info.protocol_name = "icmp"
+    }
+    6 => {
+      ocsf.connection_info.protocol_name = "tcp"
+    }
+    17 => {
+      ocsf.connection_info.protocol_name = "udp"
+    }
+    _ => {}
+  }
+  ocsf.connection_info.protocol_num = move checkpoint.proto
+}
+if checkpoint.protocol_name? != null {
+  ocsf.connection_info.protocol_name = move checkpoint.protocol_name
+}
+
+let $connection_direction_ids = {
+  Incoming: 1,
+  Outgoing: 2,
+}
+if $connection_direction_ids[checkpoint.conn_direction?]? != null {
+  ocsf.connection_info.direction_id = $connection_direction_ids[checkpoint.conn_direction?]
+}
+drop checkpoint.conn_direction?
+if checkpoint.inzone? != null and checkpoint.outzone? != null {
+  if checkpoint.inzone == "Internal" and checkpoint.outzone == "Internal" {
+    ocsf.connection_info.direction_id = 3
+  } else if checkpoint.inzone == "External" and checkpoint.outzone != "External" {
+    ocsf.connection_info.direction_id = 1
+  } else if checkpoint.inzone != "External" and checkpoint.outzone == "External" {
+    ocsf.connection_info.direction_id = 2
+  }
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.sname? != null {
+  ocsf.src_endpoint.hostname = move checkpoint.sname
+}
+if checkpoint.inzone? != null {
+  ocsf.src_endpoint.zone = move checkpoint.inzone
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.service_id? != null {
+  ocsf.dst_endpoint.svc_name = move checkpoint.service_id
+}
+if checkpoint.dname? != null {
+  ocsf.dst_endpoint.hostname = move checkpoint.dname
+}
+if checkpoint.dst_domain_name? != null {
+  ocsf.dst_endpoint.domain = move checkpoint.dst_domain_name
+}
+if checkpoint.outzone? != null {
+  ocsf.dst_endpoint.zone = move checkpoint.outzone
+}
+
+if checkpoint.snatip? != null {
+  ocsf.src_endpoint.proxy_endpoint.ip = move checkpoint.snatip
+}
+if checkpoint.snatport? != null {
+  ocsf.src_endpoint.proxy_endpoint.port = move checkpoint.snatport
+}
+if checkpoint.dnatip? != null {
+  ocsf.dst_endpoint.proxy_endpoint.ip = move checkpoint.dnatip
+}
+if checkpoint.dnatport? != null {
+  ocsf.dst_endpoint.proxy_endpoint.port = move checkpoint.dnatport
+}
+
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.app_name? != null {
+  ocsf.app_name = move checkpoint.app_name
+}
+
+if checkpoint.rule_name? != null or checkpoint.rule_uid? != null {
+  ocsf.firewall_rule = {
+    name: checkpoint.rule_name[0]?
+      if type_of(checkpoint.rule_name?).kind == "list"
+      else checkpoint.rule_name?,
+    uid: checkpoint.rule_uid[0]?
+      if type_of(checkpoint.rule_uid?).kind == "list"
+      else checkpoint.rule_uid?,
+  }
+  drop checkpoint.rule_name?
+  drop checkpoint.rule_uid?
+}
+
+if ocsf.src_endpoint?.ip? != null or ocsf.dst_endpoint?.ip? != null {
+  ocsf.connection_info.protocol_ver_id = 4
+}
+if (ocsf.src_endpoint?.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
+   (ocsf.dst_endpoint?.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
+  ocsf.connection_info.protocol_ver_id = 6
+}

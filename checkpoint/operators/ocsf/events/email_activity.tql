@@ -1,0 +1,52 @@
+---
+description: "Check Point MTA/Anti-Spam/Email Security → OCSF Email Activity (4009)"
+---
+
+@name = "ocsf.email_activity"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
+ocsf.activity_id = 3  // Scan
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+checkpoint::ocsf::security_control_outcome
+
+let $direction_ids = {
+  Inbound: 1,
+  Outbound: 2,
+  Incoming: 1,
+  Outgoing: 2,
+}
+ocsf.direction_id = $direction_ids[checkpoint.direction?]? else $direction_ids[checkpoint.conn_direction?]? else 0
+drop checkpoint.direction?
+drop checkpoint.conn_direction?
+
+ocsf.email = {
+  from: move checkpoint.sender?,
+  to: [move checkpoint.recipient?],
+  subject: move checkpoint.subject?,
+  size: move checkpoint.size?,
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service_id? != null {
+  ocsf.protocol_name = move checkpoint.service_id
+} else if checkpoint.service? == 25 {
+  ocsf.protocol_name = "SMTP"
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.status? != null {
+  ocsf.status_detail = move checkpoint.status
+}

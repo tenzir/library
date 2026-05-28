@@ -1,0 +1,125 @@
+---
+description: Check Point → OCSF
+---
+
+this = {checkpoint: this}
+ocsf = {}
+
+let $severities = {
+  Accept: 1,
+  Detect: 3,
+  Drop: 2,
+  Prevent: 2,
+  Reject: 2,
+}
+ocsf.severity_id = $severities[checkpoint.action?]? else 0
+if checkpoint.severity? != null {
+  let $severity_names = {
+    informational: 1,
+    info: 1,
+    low: 2,
+    medium: 3,
+    high: 4,
+    critical: 5,
+    fatal: 6,
+  }
+  ocsf.severity_id = $severity_names[checkpoint.severity.string().to_lower()]? else ocsf.severity_id
+  drop checkpoint.severity
+}
+
+ocsf.metadata = {
+  product: {
+    vendor_name: "Check Point",
+    name: "Check Point Firewall",
+  },
+  profiles: ["host"],
+  version: "1.8.0",
+}
+if checkpoint.product? != null {
+  ocsf.metadata.product.name = move checkpoint.product
+}
+if checkpoint.loguid? != null {
+  ocsf.metadata.uid = move checkpoint.loguid
+}
+if checkpoint.logid? != null {
+  ocsf.metadata.event_code = (move checkpoint.logid).string()
+}
+if checkpoint.h_version? != null {
+  ocsf.metadata.log_version = (move checkpoint.h_version).string()
+}
+if checkpoint.sequencenum? != null {
+  ocsf.metadata.original_event_uid = (move checkpoint.sequencenum).string()
+}
+if checkpoint.syslog? != null {
+  ocsf.metadata.log_format = "syslog"
+}
+if checkpoint.action? != null {
+  ocsf.metadata.log_name = checkpoint.action
+}
+
+if checkpoint.time? == null and checkpoint.syslog?.timestamp? != null {
+  ocsf.time = move checkpoint.syslog.timestamp
+}
+if checkpoint.time? != null {
+  ocsf.time = move checkpoint.time
+}
+if checkpoint.action? != null {
+  ocsf.message = checkpoint.action
+}
+if checkpoint.message_info? != null {
+  ocsf.message = move checkpoint.message_info
+}
+
+// Prefer the Check Point payload hostname over the syslog header hostname,
+// because forwarded syslog headers often identify a relay.
+if checkpoint.hostname? == null and checkpoint.syslog?.hostname? != null {
+  ocsf.device.hostname = (move checkpoint.syslog.hostname).string()
+}
+if checkpoint.hostname? != null {
+  ocsf.device.hostname = (move checkpoint.hostname).string()
+}
+if checkpoint.origin? != null {
+  ocsf.device.ip = move checkpoint.origin
+}
+
+match @name {
+  "checkpoint.firewall.threat" | "checkpoint.firewall.detection" => {
+    checkpoint::ocsf::security_context
+    checkpoint::ocsf::events::detection_finding
+  }
+  "checkpoint.firewall.network" => {
+    checkpoint::ocsf::security_context
+    checkpoint::ocsf::events::network_activity
+  }
+  "checkpoint.firewall.web_resource" => {
+    checkpoint::ocsf::events::web_resource_access_activity
+  }
+  "checkpoint.firewall.dlp" => {
+    checkpoint::ocsf::events::data_security_finding
+  }
+  "checkpoint.firewall.email" => {
+    checkpoint::ocsf::events::email_activity
+  }
+  "checkpoint.firewall.vpn" => {
+    checkpoint::ocsf::events::tunnel_activity
+  }
+  "checkpoint.management.api" => {
+    checkpoint::ocsf::events::api_activity
+  }
+  "checkpoint.management.audit" => {
+    checkpoint::ocsf::events::entity_management
+  }
+  _ if checkpoint.action? == "Detect" or checkpoint.message_info? != null => {
+    checkpoint::ocsf::security_context
+    checkpoint::ocsf::events::detection_finding
+  }
+  _ if checkpoint.action? != null => {
+    checkpoint::ocsf::security_context
+    checkpoint::ocsf::events::network_activity
+  }
+  _ => {
+    checkpoint::ocsf::base
+  }
+}
+
+this = {...ocsf, unmapped: checkpoint}

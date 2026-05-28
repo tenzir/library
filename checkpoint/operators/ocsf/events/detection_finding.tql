@@ -1,0 +1,64 @@
+---
+description: "Check Point detections → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.is_alert = true
+ocsf.action_id = 3
+ocsf.disposition_id = 15
+
+ocsf.finding_info = {
+  title: "Check Point detection",
+  desc: ocsf.message?,
+  uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  analytic: {
+    name: "Check Point detection",
+    type_id: 1,
+    uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  },
+}
+
+if ocsf.message? != null {
+  ocsf.finding_info.title = ocsf.message
+  ocsf.finding_info.analytic.name = ocsf.message
+}
+if checkpoint.threat_name? != null {
+  ocsf.finding_info.title = checkpoint.threat_name
+  ocsf.finding_info.analytic.name = move checkpoint.threat_name
+}
+if checkpoint.protection_name? != null {
+  ocsf.finding_info.desc = checkpoint.protection_name
+  ocsf.finding_info.analytic.name = move checkpoint.protection_name
+}
+if checkpoint.confidence_level? != null {
+  let $confidence = {
+    Low: 1,
+    Medium: 2,
+    High: 3,
+  }
+  ocsf.confidence_id = $confidence[checkpoint.confidence_level]? else 99
+  if ocsf.confidence_id == 99 {
+    ocsf.confidence = checkpoint.confidence_level
+  }
+  drop checkpoint.confidence_level
+}
+if checkpoint.policy? != null {
+  ocsf.finding_info.analytic.category = move checkpoint.policy
+}
+
+ocsf.evidences = [{
+  src_endpoint: move ocsf.src_endpoint?,
+  dst_endpoint: move ocsf.dst_endpoint?,
+  connection_info: move ocsf.connection_info?,
+}]
+
+if checkpoint.action? == "Detect" {
+  drop checkpoint.action
+}

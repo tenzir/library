@@ -1,0 +1,255 @@
+---
+description: Normalize Check Point firewall fields
+---
+
+// Check Point uses these as sentinels for missing values.
+replace what="N/A", with=null
+replace what="", with=null
+
+if action? == null and Action? != null {
+  action = move Action
+}
+if loguid? == null and UUid? != null {
+  loguid = move UUid
+}
+if loguid? == null and uuid? != null {
+  loguid = move uuid
+}
+if product? == null and ProductName? != null {
+  product = move ProductName
+}
+if product? == null and Product? != null {
+  product = move Product
+}
+if product_family? == null and ProductFamily? != null {
+  product_family = move ProductFamily
+}
+
+// Some Log Exporter formats call the Check Point log version `version`.
+// Move it to `h_version` so it does not conflict with `syslog.version`.
+if h_version? == null and version? != null {
+  h_version = move version
+}
+
+if src? == null and sip? != null {
+  src = move sip
+}
+if dst? == null and dip? != null {
+  dst = move dip
+}
+if s_port? == null and sport? != null {
+  s_port = move sport
+}
+if service? == null and dport? != null {
+  service = move dport
+}
+if proto? == null and protnum? != null {
+  proto = move protnum
+}
+if service_id? == null and svc? != null {
+  service_id = move svc
+}
+if service_id? == null and sport_svc? != null {
+  service_id = move sport_svc
+}
+if app_name? == null and application? != null {
+  app_name = move application
+}
+if app_name? == null and appi_name? != null {
+  app_name = move appi_name
+}
+if user? == null and login? != null {
+  user = move login
+}
+if user? == null and account? != null {
+  user = move account
+}
+if bytes_in? == null and bytesin? != null {
+  bytes_in = move bytesin
+}
+if bytes_out? == null and bytesout? != null {
+  bytes_out = move bytesout
+}
+if packets_in? == null and packetsin? != null {
+  packets_in = move packetsin
+}
+if packets_out? == null and packetsout? != null {
+  packets_out = move packetsout
+}
+if duration? == null and seconds? != null {
+  duration = move seconds
+}
+if threat_name? == null and threatname? != null {
+  threat_name = move threatname
+}
+if threat_name? == null and attack_name? != null {
+  threat_name = move attack_name
+}
+if protection_name? == null and protection? != null {
+  protection_name = move protection
+}
+if data_type? == null and dlp_data_type? != null {
+  data_type = move dlp_data_type
+}
+
+// Check Point encodes match-table fields with dotted separators in the key
+// name. Rename them so downstream mappings can consume canonical fields.
+if this.has("parent_rule_._._match_table") and parent_rule? == null {
+  parent_rule = move this["parent_rule_._._match_table"]
+}
+if this.has("match_id_._._match_table") and match_id? == null {
+  match_id = move this["match_id_._._match_table"]
+}
+if this.has("rule_name_._._match_table") and rule_name? == null {
+  rule_name = move this["rule_name_._._match_table"]
+}
+if this.has("rule_uid_._._match_table") and rule_uid? == null {
+  rule_uid = move this["rule_uid_._._match_table"]
+}
+if this.has("rule_action_._._match_table") and rule_action? == null {
+  rule_action = move this["rule_action_._._match_table"]
+}
+if this.has("layer_name_._._match_table") and layer_name? == null {
+  layer_name = move this["layer_name_._._match_table"]
+}
+if this.has("layer_uuid_._._match_table") and layer_uuid? == null {
+  layer_uuid = move this["layer_uuid_._._match_table"]
+}
+
+if time? != null and type_of(time).kind != "time" {
+  time = int(time).seconds().from_epoch()
+}
+
+if log_delay? != null {
+  log_delay = int(log_delay).seconds()
+}
+
+if duration? != null and type_of(duration).kind != "duration" {
+  duration = int(duration).seconds()
+}
+
+if src? != null {
+  src = ip(src)
+}
+if dst? != null {
+  dst = ip(dst)
+}
+if origin? != null {
+  origin = ip(origin)
+}
+if s_port? != null {
+  s_port = int(s_port)
+}
+if service? != null {
+  service = int(service)
+}
+if proto? != null {
+  proto = int(proto)
+}
+if snatport? != null {
+  snatport = int(snatport)
+}
+if dnatport? != null {
+  dnatport = int(dnatport)
+}
+if snatip? != null {
+  snatip = ip(snatip)
+}
+if dnatip? != null {
+  dnatip = ip(dnatip)
+}
+if bytes? != null {
+  bytes = int(bytes)
+}
+if bytes_in? != null {
+  bytes_in = int(bytes_in)
+}
+if bytes_out? != null {
+  bytes_out = int(bytes_out)
+}
+if packets? != null {
+  packets = int(packets)
+}
+if packets_in? != null {
+  packets_in = int(packets_in)
+}
+if packets_out? != null {
+  packets_out = int(packets_out)
+}
+if size? != null {
+  size = int(size)
+}
+
+_event_hint = (
+  product? else product_family? else blade? else event_type? else type? else ""
+).string().to_lower()
+
+match _event_hint {
+  "web_api" | "web api" => {
+    @name = "checkpoint.management.api"
+  }
+  "smartconsole" | "smartdashboard" | "smartview" | "web-ui" | "web ui" => {
+    @name = "checkpoint.management.audit"
+  }
+  "dlp" | "content awareness" => {
+    @name = "checkpoint.firewall.dlp"
+  }
+  "mta" | "anti-spam" | "email" => {
+    @name = "checkpoint.firewall.email"
+  }
+  "mobile access" | "connectra" => {
+    @name = "checkpoint.firewall.vpn"
+  }
+  _ if _event_hint.contains("web_api") or _event_hint.contains("web api") => {
+    @name = "checkpoint.management.api"
+  }
+  _ if _event_hint.contains("smartconsole") or
+       _event_hint.contains("smartdashboard") or
+       _event_hint.contains("smartview") or
+       _event_hint.contains("web-ui") or
+       _event_hint.contains("web ui") => {
+    @name = "checkpoint.management.audit"
+  }
+  _ if _event_hint.contains("dlp") or
+       _event_hint.contains("content awareness") or
+       data_type? != null => {
+    @name = "checkpoint.firewall.dlp"
+  }
+  _ if _event_hint.contains("mta") or
+       _event_hint.contains("anti-spam") or
+       _event_hint.contains("email") or
+       sender? != null or
+       recipient? != null => {
+    @name = "checkpoint.firewall.email"
+  }
+  _ if _event_hint.contains("mobile access") or
+       _event_hint.contains("connectra") or
+       vpn_feature? != null => {
+    @name = "checkpoint.firewall.vpn"
+  }
+  _ if threat_name? != null or
+       protection_name? != null or
+       action? == "Detect" or
+       message_info? != null => {
+    @name = "checkpoint.firewall.threat"
+  }
+  "url filtering" | "application control" | "https inspection" => {
+    @name = "checkpoint.firewall.web_resource"
+  }
+  _ if _event_hint.contains("url filtering") or
+       _event_hint.contains("application control") or
+       _event_hint.contains("https inspection") or
+       url? != null => {
+    @name = "checkpoint.firewall.web_resource"
+  }
+  _ if action? != null and (src? != null or dst? != null or proto? != null) => {
+    @name = "checkpoint.firewall.network"
+  }
+  _ if action? != null => {
+    @name = "checkpoint.firewall.network"
+  }
+  _ => {
+    @name = "checkpoint.firewall"
+  }
+}
+drop _event_hint
