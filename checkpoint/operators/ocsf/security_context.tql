@@ -1,0 +1,53 @@
+---
+description: Apply shared Check Point security-control context
+---
+
+if checkpoint.hll_key? != null {
+  ocsf.connection_info.uid = (move checkpoint.hll_key).string()
+}
+if checkpoint.proto? != null {
+  ocsf.connection_info.protocol_num = move checkpoint.proto
+}
+if checkpoint.protocol_name? != null {
+  ocsf.connection_info.protocol_name = move checkpoint.protocol_name
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.service_id? != null {
+  ocsf.dst_endpoint.svc_name = move checkpoint.service_id
+}
+if checkpoint.dst_domain_name? != null {
+  ocsf.dst_endpoint.domain = move checkpoint.dst_domain_name
+}
+
+if checkpoint.rule_name? != null or checkpoint.rule_uid? != null {
+  ocsf.firewall_rule = {
+    name: checkpoint.rule_name[0]?
+      if type_of(checkpoint.rule_name?).kind == "list"
+      else checkpoint.rule_name?,
+    uid: checkpoint.rule_uid[0]?
+      if type_of(checkpoint.rule_uid?).kind == "list"
+      else checkpoint.rule_uid?,
+  }
+  drop checkpoint.rule_name?
+  drop checkpoint.rule_uid?
+}
+
+if ocsf.src_endpoint?.ip? != null or ocsf.dst_endpoint?.ip? != null {
+  ocsf.connection_info.protocol_ver_id = 4
+}
+if (ocsf.src_endpoint?.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
+   (ocsf.dst_endpoint?.ip? != null and ocsf.dst_endpoint.ip.is_v6()) {
+  ocsf.connection_info.protocol_ver_id = 6
+}
