@@ -1,0 +1,85 @@
+---
+description: "Check Point URL/Application Control → OCSF Web Resource Access Activity (6004)"
+---
+
+@name = "ocsf.web_resource_access_activity"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 6
+ocsf.class_uid = 6004
+
+let $outcomes = {
+  Accept: {
+    activity_id: 1,
+    action_id: 1,
+    disposition_id: 1,
+    status_id: 1,
+  },
+  Allow: {
+    activity_id: 1,
+    action_id: 1,
+    disposition_id: 1,
+    status_id: 1,
+  },
+  Drop: {
+    activity_id: 2,
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Prevent: {
+    activity_id: 2,
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Reject: {
+    activity_id: 2,
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+}
+ocsf = {
+  ...ocsf,
+  ...($outcomes[checkpoint.action?]? else {
+    activity_id: 0,
+    action_id: 0,
+    disposition_id: 0,
+    status_id: 0,
+  }),
+}
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+if checkpoint.url? != null {
+  ocsf.http_request.url.path = checkpoint.url
+  ocsf.web_resources = [{
+    url_string: move checkpoint.url,
+  }]
+} else {
+  ocsf.http_request = {}
+  ocsf.web_resources = [{
+    name: ocsf.message? else "web resource",
+  }]
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.sname? != null {
+  ocsf.src_endpoint.hostname = move checkpoint.sname
+}
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.reason? != null {
+  ocsf.status_detail = move checkpoint.reason
+}

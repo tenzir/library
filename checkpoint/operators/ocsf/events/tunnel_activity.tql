@@ -1,0 +1,94 @@
+---
+description: "Check Point VPN/Mobile Access → OCSF Tunnel Activity (4014)"
+---
+
+@name = "ocsf.tunnel_activity"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4014
+let $activities = {
+  Connect: 1,
+  Login: 1,
+  "Log In": 1,
+  Disconnect: 2,
+  Logout: 2,
+  "Log Out": 2,
+  Renew: 3,
+}
+ocsf.activity_id = $activities[checkpoint.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+if checkpoint.status? == "Success" {
+  ocsf.status_id = 1
+} else if checkpoint.status? == "Failure" {
+  ocsf.status_id = 2
+}
+drop checkpoint.status?
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.user? != null {
+  ocsf.user.name = move checkpoint.user
+}
+if checkpoint.session? != null {
+  ocsf.session.uid = move checkpoint.session
+}
+if checkpoint.vpn_feature? != null {
+  ocsf.tunnel_type_id = 99
+  ocsf.tunnel_type = move checkpoint.vpn_feature
+}
+if checkpoint.proto? != null {
+  ocsf.connection_info.protocol_num = move checkpoint.proto
+}
+ocsf.protocol_name = "VPN"
+
+if checkpoint.bytes? != null or
+   checkpoint.bytes_in? != null or
+   checkpoint.bytes_out? != null or
+   checkpoint.packets? != null or
+   checkpoint.packets_in? != null or
+   checkpoint.packets_out? != null {
+  ocsf.traffic = {}
+  if checkpoint.bytes? != null {
+    ocsf.traffic.bytes = move checkpoint.bytes
+  }
+  if checkpoint.bytes_in? != null {
+    ocsf.traffic.bytes_in = move checkpoint.bytes_in
+  }
+  if checkpoint.bytes_out? != null {
+    ocsf.traffic.bytes_out = move checkpoint.bytes_out
+  }
+  if checkpoint.packets? != null {
+    ocsf.traffic.packets = move checkpoint.packets
+  }
+  if checkpoint.packets_in? != null {
+    ocsf.traffic.packets_in = move checkpoint.packets_in
+  }
+  if checkpoint.packets_out? != null {
+    ocsf.traffic.packets_out = move checkpoint.packets_out
+  }
+  if ocsf.traffic.bytes? == null and
+     ocsf.traffic.bytes_in? != null and
+     ocsf.traffic.bytes_out? != null {
+    ocsf.traffic.bytes = ocsf.traffic.bytes_in + ocsf.traffic.bytes_out
+  }
+}
+if checkpoint.duration? != null and ocsf.time? != null {
+  ocsf.traffic.end_time = ocsf.time
+  ocsf.traffic.start_time = ocsf.time - (move checkpoint.duration)
+}

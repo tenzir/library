@@ -24,11 +24,39 @@ if checkpoint.protocol_name? != null {
   ocsf.connection_info.protocol_name = move checkpoint.protocol_name
 }
 
+if checkpoint.conn_direction? != null {
+  match checkpoint.conn_direction {
+    "Incoming" => {
+      ocsf.connection_info.direction_id = 1
+    }
+    "Outgoing" => {
+      ocsf.connection_info.direction_id = 2
+    }
+    _ => {}
+  }
+  drop checkpoint.conn_direction
+}
+if checkpoint.inzone? != null and checkpoint.outzone? != null {
+  if checkpoint.inzone == "Internal" and checkpoint.outzone == "Internal" {
+    ocsf.connection_info.direction_id = 3
+  } else if checkpoint.inzone == "External" and checkpoint.outzone != "External" {
+    ocsf.connection_info.direction_id = 1
+  } else if checkpoint.inzone != "External" and checkpoint.outzone == "External" {
+    ocsf.connection_info.direction_id = 2
+  }
+}
+
 if checkpoint.src? != null {
   ocsf.src_endpoint.ip = move checkpoint.src
 }
 if checkpoint.s_port? != null {
   ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.sname? != null {
+  ocsf.src_endpoint.hostname = move checkpoint.sname
+}
+if checkpoint.inzone? != null {
+  ocsf.src_endpoint.zone = move checkpoint.inzone
 }
 if checkpoint.dst? != null {
   ocsf.dst_endpoint.ip = move checkpoint.dst
@@ -39,8 +67,34 @@ if checkpoint.service? != null {
 if checkpoint.service_id? != null {
   ocsf.dst_endpoint.svc_name = move checkpoint.service_id
 }
+if checkpoint.dname? != null {
+  ocsf.dst_endpoint.hostname = move checkpoint.dname
+}
 if checkpoint.dst_domain_name? != null {
   ocsf.dst_endpoint.domain = move checkpoint.dst_domain_name
+}
+if checkpoint.outzone? != null {
+  ocsf.dst_endpoint.zone = move checkpoint.outzone
+}
+
+if checkpoint.snatip? != null {
+  ocsf.src_endpoint.proxy_endpoint.ip = move checkpoint.snatip
+}
+if checkpoint.snatport? != null {
+  ocsf.src_endpoint.proxy_endpoint.port = move checkpoint.snatport
+}
+if checkpoint.dnatip? != null {
+  ocsf.dst_endpoint.proxy_endpoint.ip = move checkpoint.dnatip
+}
+if checkpoint.dnatport? != null {
+  ocsf.dst_endpoint.proxy_endpoint.port = move checkpoint.dnatport
+}
+
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.app_name? != null {
+  ocsf.app_name = move checkpoint.app_name
 }
 
 if checkpoint.rule_name? != null or checkpoint.rule_uid? != null {

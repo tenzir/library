@@ -1,0 +1,88 @@
+---
+description: "Check Point MTA/Anti-Spam/Email Security → OCSF Email Activity (4009)"
+---
+
+@name = "ocsf.email_activity"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
+ocsf.activity_id = 3  // Scan
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+let $outcomes = {
+  Accept: {
+    action_id: 1,
+    disposition_id: 1,
+    status_id: 1,
+  },
+  Detect: {
+    action_id: 3,
+    disposition_id: 15,
+    status_id: 1,
+  },
+  Drop: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Prevent: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Reject: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+}
+ocsf = {
+  ...ocsf,
+  ...($outcomes[checkpoint.action?]? else {
+    action_id: 0,
+    disposition_id: 0,
+    status_id: 0,
+  }),
+}
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+ocsf.direction_id = 0
+if checkpoint.direction? == "Inbound" or checkpoint.conn_direction? == "Incoming" {
+  ocsf.direction_id = 1
+} else if checkpoint.direction? == "Outbound" or checkpoint.conn_direction? == "Outgoing" {
+  ocsf.direction_id = 2
+}
+drop checkpoint.direction?
+drop checkpoint.conn_direction?
+
+ocsf.email = {
+  from: move checkpoint.sender?,
+  to: [move checkpoint.recipient?],
+  subject: move checkpoint.subject?,
+  size: move checkpoint.size?,
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.s_port? != null {
+  ocsf.src_endpoint.port = move checkpoint.s_port
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service_id? != null {
+  ocsf.protocol_name = move checkpoint.service_id
+} else if checkpoint.service? == 25 {
+  ocsf.protocol_name = "SMTP"
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.status? != null {
+  ocsf.status_detail = move checkpoint.status
+}

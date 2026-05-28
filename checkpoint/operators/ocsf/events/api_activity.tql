@@ -1,0 +1,48 @@
+---
+description: "Check Point WEB_API → OCSF API Activity (6003)"
+---
+
+@name = "ocsf.api_activity"
+
+ocsf.metadata.profiles = ["host"]
+
+ocsf.category_uid = 6
+ocsf.class_uid = 6003
+let $activities = {
+  Create: 1,
+  Read: 2,
+  Update: 3,
+  Delete: 4,
+}
+ocsf.activity_id = $activities[checkpoint.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.api = {
+  operation: checkpoint.action? else checkpoint.subject? else "unknown",
+}
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+if checkpoint.status? == "Success" {
+  ocsf.status_id = 1
+} else if checkpoint.status? == "Failure" {
+  ocsf.status_id = 2
+}
+drop checkpoint.status?
+
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.object? != null or checkpoint.objecttype? != null {
+  ocsf.resources = [{
+    name: move checkpoint.object?,
+    type: move checkpoint.objecttype?,
+  }]
+}
+if checkpoint.subject? != null {
+  ocsf.api.request.uid = move checkpoint.subject
+}

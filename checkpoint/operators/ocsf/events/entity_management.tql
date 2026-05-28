@@ -1,0 +1,55 @@
+---
+description: "Check Point management audit → OCSF Entity Management (3004)"
+---
+
+@name = "ocsf.entity_management"
+
+ocsf.metadata.profiles = ["host"]
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3004
+let $activities = {
+  Create: 1,
+  Read: 2,
+  Update: 3,
+  Delete: 4,
+  Move: 5,
+  Enable: 8,
+  Disable: 9,
+}
+ocsf.activity_id = $activities[checkpoint.action?]? else 0
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+if checkpoint.status? == "Success" {
+  ocsf.status_id = 1
+} else if checkpoint.status? == "Failure" {
+  ocsf.status_id = 2
+}
+drop checkpoint.status?
+
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+
+ocsf.entity = {
+  name: move checkpoint.object?,
+}
+if checkpoint.objecttype?.to_lower().contains("rule") or
+   checkpoint.objecttype?.to_lower().contains("policy") {
+  ocsf.entity.type_id = 5
+  ocsf.entity.policy.name = ocsf.entity.name
+  ocsf.entity.policy.desc = move checkpoint.objecttype
+} else {
+  ocsf.entity.type_id = 1
+  ocsf.entity.device.name = ocsf.entity.name
+  ocsf.entity.device.desc = move checkpoint.objecttype?
+}
+if checkpoint.subject? != null {
+  ocsf.comment = move checkpoint.subject
+}

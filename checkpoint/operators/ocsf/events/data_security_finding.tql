@@ -1,0 +1,103 @@
+---
+description: "Check Point DLP/Content Awareness → OCSF Data Security Finding (2006)"
+---
+
+@name = "ocsf.data_security_finding"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2006
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.is_alert = true
+
+let $outcomes = {
+  Accept: {
+    action_id: 1,
+    disposition_id: 1,
+    status_id: 1,
+  },
+  Detect: {
+    action_id: 3,
+    disposition_id: 15,
+    status_id: 1,
+  },
+  Drop: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Prevent: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+  Reject: {
+    action_id: 2,
+    disposition_id: 2,
+    status_id: 2,
+  },
+}
+ocsf = {
+  ...ocsf,
+  ...($outcomes[checkpoint.action?]? else {
+    action_id: 0,
+    disposition_id: 0,
+    status_id: 0,
+  }),
+}
+if checkpoint.action? != null {
+  drop checkpoint.action
+}
+
+ocsf.finding_info = {
+  title: checkpoint.data_type? else checkpoint.reason? else ocsf.message? else "Check Point DLP finding",
+  desc: checkpoint.reason?,
+  uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  analytic: {
+    name: checkpoint.policy? else "Check Point DLP",
+    type_id: 1,
+    uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  },
+}
+
+ocsf.data_security = {
+  data_lifecycle_state_id: 2,
+  detection_system_id: 2,
+  detection_pattern: move checkpoint.data_type?,
+}
+if checkpoint.policy? != null {
+  ocsf.data_security.policy.name = move checkpoint.policy
+}
+
+if checkpoint.object? != null {
+  ocsf.file.name = move checkpoint.object
+  ocsf.file.type_id = 1
+}
+if checkpoint.objecttype? != null {
+  ocsf.file.type_id = 99
+  ocsf.file.type = move checkpoint.objecttype
+}
+if checkpoint.size? != null {
+  ocsf.file.size = move checkpoint.size
+}
+
+if checkpoint.src? != null {
+  ocsf.src_endpoint.ip = move checkpoint.src
+}
+if checkpoint.dst? != null {
+  ocsf.dst_endpoint.ip = move checkpoint.dst
+}
+if checkpoint.service? != null {
+  ocsf.dst_endpoint.port = move checkpoint.service
+}
+if checkpoint.user? != null {
+  ocsf.actor.user.name = move checkpoint.user
+}
+if checkpoint.sender? != null {
+  ocsf.actor.user.email_addr = move checkpoint.sender
+}
+if checkpoint.reason? != null {
+  ocsf.status_detail = move checkpoint.reason
+}

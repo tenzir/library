@@ -4,14 +4,14 @@ type: feature
 authors:
   - mavam
   - codex
-created: 2026-05-28T09:02:43Z
+created: 2026-05-28T10:01:09Z
 ---
 
-The library now includes a `checkpoint` package for parsing Check Point firewall
-logs and mapping firewall traffic and detection events to OCSF.
+The library now includes a `checkpoint` package for parsing Check Point Log
+Exporter records and mapping fixture-backed event families to OCSF.
 
 The package exposes reusable operators for extracting configured Check Point
-syslog formats, normalizing firewall records into a canonical shape, and
+syslog formats, normalizing Check Point records into a canonical shape, and
 mapping them to OCSF, with disabled pipeline templates for onboarding syslog
 and publishing mapped OCSF events.
 
@@ -29,7 +29,20 @@ ocsf::cast
 ```
 
 The syslog parser entry points are explicit for each configured feed format.
-After extraction, `checkpoint::parse` normalizes timestamps, protocol names, and
-Check Point match-table fields before the OCSF mapper performs shared setup,
-dispatch, and source-residue handling. Event-specific mapping lives under
-`checkpoint::ocsf::events::*`.
+After extraction, `checkpoint::parse` normalizes aliases, timestamps, IPs,
+ports, counters, durations, NAT fields, user fields, and Check Point
+match-table fields before the OCSF mapper performs shared setup, dispatch, and
+source-residue handling.
+
+The mapper now covers these fixture-backed OCSF classes:
+
+| Check Point family | OCSF class |
+|---|---|
+| Firewall/Core/VPN-1 traffic | Network Activity (4001) |
+| Application Control and URL Filtering | Web Resource Access Activity (6004) |
+| IPS and threat-prevention findings | Detection Finding (2004) |
+| DLP and Content Awareness | Data Security Finding (2006) |
+| VPN and Mobile Access | Tunnel Activity (4014) |
+| MTA, Anti-Spam, and Email Security | Email Activity (4009) |
+| WEB_API management events | API Activity (6003) |
+| SmartConsole/Web UI management changes | Entity Management (3004) |
