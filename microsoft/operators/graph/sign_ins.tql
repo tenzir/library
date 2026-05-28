@@ -1,0 +1,36 @@
+---
+description: Fetches Microsoft Entra ID sign-in logs from Microsoft Graph.
+args:
+  named:
+    - name: tenant_id
+      type: string
+      description: Microsoft Entra tenant ID or domain.
+    - name: client_id
+      type: string
+      description: Microsoft Entra application client ID.
+    - name: client_secret
+      type: secret
+      description: Microsoft Entra application client secret.
+    - name: lookback
+      type: duration
+      default: 5min
+      description: Time range ending at collection time to request.
+    - name: top
+      type: uint
+      default: 999
+      description: OData page size for the initial request.
+---
+
+let $auth = {
+  tenant_id: $tenant_id,
+  client_id: $client_id,
+  client_secret: $client_secret,
+}
+
+let $since = now() - $lookback
+
+from_microsoft_graph "auditLogs/signIns",
+  auth=$auth,
+  odata={filter: f"createdDateTime ge {$since}", top: $top}
+
+@name = "microsoft.graph.sign_in"

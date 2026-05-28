@@ -1,0 +1,70 @@
+---
+description: Microsoft Intune managed device → OCSF Device Inventory Info (5001)
+---
+
+@name = "ocsf.inventory_info"
+
+ocsf.metadata.product.name = "Microsoft Intune"
+ocsf.metadata.log_name = "deviceManagement/managedDevices"
+ocsf.metadata.profiles = ["cloud", "host"]
+
+ocsf.category_uid = 5
+ocsf.class_uid = 5001
+ocsf.activity_id = 2  // Collect
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = time(move graph.lastSyncDateTime)
+
+match graph.complianceState {
+  "compliant" => {
+    graph._is_compliant = true
+    drop graph.complianceState
+  }
+  "noncompliant" | "nonCompliant" => {
+    graph._is_compliant = false
+    drop graph.complianceState
+  }
+  _ => {}
+}
+match graph.managedDeviceOwnerType {
+  "personal" => {
+    graph._is_personal = true
+    drop graph.managedDeviceOwnerType
+  }
+  "company" => {
+    graph._is_personal = false
+    drop graph.managedDeviceOwnerType
+  }
+  _ => {}
+}
+
+ocsf.device = {
+  uid: ocsf.metadata.original_event_uid,
+  uid_alt: move graph.azureADDeviceId?,
+  name: move graph.deviceName?,
+  type_id: 0,
+  os: {
+    name: move graph.operatingSystem?,
+    version: move graph.osVersion?,
+  },
+  model: move graph.model?,
+  hw_info: {
+    vendor_name: move graph.manufacturer?,
+    serial_number: move graph.serialNumber?,
+  },
+  owner: {
+    uid: move graph.userId?,
+    name: graph.userPrincipalName?.split("@")[0]?,
+    domain: graph.userPrincipalName?.split("@")[1]?,
+    email_addr: move graph.userPrincipalName?,
+    full_name: move graph.userDisplayName?,
+    type_id: 1,
+  },
+  is_compliant: move graph._is_compliant?,
+  is_managed: true,
+  is_personal: move graph._is_personal?,
+  first_seen_time: time(move graph.enrolledDateTime?),
+}
+ocsf.device.hostname = ocsf.device.name
+
+// Intune-specific health attestation, ownership, and management-agent details
+// stay in unmapped until there is a precise OCSF target.

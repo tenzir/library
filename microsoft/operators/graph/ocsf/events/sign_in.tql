@@ -1,0 +1,128 @@
+---
+description: Microsoft Entra ID sign-in log → OCSF Authentication (3002)
+---
+
+@name = "ocsf.authentication"
+
+ocsf.metadata.product.name = "Microsoft Entra ID"
+ocsf.metadata.log_name = "auditLogs/signIns"
+ocsf.metadata.profiles = ["cloud", "security_control"]
+
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+ocsf.activity_id = 1  // Logon
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+ocsf.time = time(move graph.createdDateTime)
+
+ocsf.user = {
+  uid: move graph.userId?,
+  name: graph.userPrincipalName?.split("@")[0]?,
+  domain: graph.userPrincipalName?.split("@")[1]?,
+  email_addr: move graph.userPrincipalName?,
+  full_name: move graph.userDisplayName?,
+  type_id: 1,
+}
+ocsf.actor = {
+  user: ocsf.user,
+}
+
+ocsf.service = {
+  uid: move graph.appId?,
+  name: move graph.appDisplayName?,
+}
+
+ocsf.dst_endpoint = {
+  uid: move graph.resourceId?,
+  svc_name: move graph.resourceDisplayName?,
+}
+
+ocsf.src_endpoint = {
+  ip: move graph.ipAddress?,
+  location: {
+    city: move graph.location.city?,
+    country: move graph.location.countryOrRegion?,
+  },
+  os: {
+    name: move graph.deviceDetail.operatingSystem?,
+  },
+  uid: move graph.deviceDetail.deviceId?,
+}
+
+let $status_ids = {
+  "0": 1,
+}
+ocsf.status_id = $status_ids[graph.status.errorCode.string()]? else 2
+if ocsf.status_id == 2 {
+  ocsf.severity_id = 2
+}
+ocsf.status_code = (move graph.status.errorCode).string()
+ocsf.status_detail = move graph.status.failureReason?
+drop graph.status?
+drop graph.location?
+drop graph.deviceDetail?
+
+ocsf.is_mfa = graph.mfaDetail? != null
+if graph.mfaDetail.authMethod? != null {
+  graph._auth_factor_type = graph.mfaDetail.authMethod
+  match graph._auth_factor_type.to_lower() {
+    "sms" => {
+      graph._auth_factor_type_id = 1
+      graph._auth_factor_type = "SMS"
+    }
+    "phone" | "phone call" | "voice" | "voicemail" => {
+      graph._auth_factor_type_id = 3
+      graph._auth_factor_type = "Phone Call"
+    }
+    "push" | "push notification" | "authenticator app" => {
+      graph._auth_factor_type_id = 5
+      graph._auth_factor_type = "Push Notification"
+    }
+    "oath" | "software oath token" | "otp" => {
+      graph._auth_factor_type_id = 7
+      graph._auth_factor_type = "OTP"
+    }
+    "email" => {
+      graph._auth_factor_type_id = 8
+      graph._auth_factor_type = "Email"
+    }
+    _ => {
+      graph._auth_factor_type_id = 99
+    }
+  }
+  ocsf.auth_factors = [{
+    factor_type: move graph._auth_factor_type,
+    factor_type_id: move graph._auth_factor_type_id,
+  }]
+  drop graph.mfaDetail.authMethod?
+}
+if graph.mfaDetail.authDetail? == null {
+  drop graph.mfaDetail?
+}
+
+match graph.conditionalAccessStatus {
+  "success" => {
+    ocsf.action_id = 1
+    ocsf.disposition_id = 1
+    drop graph.conditionalAccessStatus
+  }
+  "failure" => {
+    ocsf.action_id = 2
+    ocsf.disposition_id = 26
+    drop graph.conditionalAccessStatus
+  }
+  "notApplied" => {
+    ocsf.action_id = 3
+    ocsf.disposition_id = 16
+    drop graph.conditionalAccessStatus
+  }
+  _ => {}
+}
+
+ocsf.is_remote = true
+
+if graph.isInteractive? != null {
+  ocsf.logon_type_id = 99
+  ocsf.logon_type = "interactiveUser" if graph.isInteractive else "nonInteractiveUser"
+  drop graph.isInteractive
+}

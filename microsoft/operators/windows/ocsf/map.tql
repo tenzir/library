@@ -12,28 +12,28 @@ ocsf = {}
 ocsf.raw_data = $log
 ocsf.raw_data_size = $log.length_bytes()
 
-ocsf.unmapped = $log.parse_winlog()
+windows = $log.parse_winlog()
 
 ocsf.metadata = {
-  event_code: (move ocsf.unmapped.System.EventID).string(),
+  event_code: (move windows.System.EventID).string(),
   extensions: [{name: "win"}],
   log_format: "xml",
-  log_name: move ocsf.unmapped.System.Channel,
-  log_level: (move ocsf.unmapped.System.Level).string(),
-  log_version: (move ocsf.unmapped.System.Version).string(),
-  logged_time: move ocsf.unmapped.System.TimeCreated.SystemTime,
-  original_event_uid: (move ocsf.unmapped.System.EventRecordID).string(),
+  log_name: move windows.System.Channel,
+  log_level: (move windows.System.Level).string(),
+  log_version: (move windows.System.Version).string(),
+  logged_time: move windows.System.TimeCreated.SystemTime,
+  original_event_uid: (move windows.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move ocsf.unmapped.System.Provider.Name,
-    uid: move ocsf.unmapped.System.Provider.Guid?,
+    name: move windows.System.Provider.Name,
+    uid: move windows.System.Provider.Guid?,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
-  version: "1.7.0",
+  version: "1.8.0",
 }
-drop ocsf.unmapped.System.Provider
-drop ocsf.unmapped.System.TimeCreated
+drop windows.System.Provider
+drop windows.System.TimeCreated
 
 
 ocsf.severity_id = 1
@@ -42,76 +42,107 @@ ocsf.severity_id = 1
 ocsf.time = ocsf.metadata.logged_time
 
 ocsf.device = {
-  hostname: move ocsf.unmapped.System.Computer,
+  hostname: move windows.System.Computer,
 }
 
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace what="-", with=null
 
-if ocsf.metadata.event_code in ["100", "101", "102", "129", "200", "201"] {
-  microsoft::windows::ocsf::events::task_run
-} else if ocsf.metadata.event_code in ["106", "140", "141"] {
-  microsoft::windows::ocsf::events::task_lifecycle
-} else if ocsf.metadata.event_code == "1000" {
-  microsoft::windows::ocsf::events::application_error
-} else if ocsf.metadata.event_code == "1001" {
-  microsoft::windows::ocsf::events::application_crash_report
-} else if ocsf.metadata.event_code == "1002" {
-  microsoft::windows::ocsf::events::application_hang
-} else if ocsf.metadata.event_code in ["1006", "1007"] {
-  microsoft::windows::ocsf::events::defender_threat
-} else if ocsf.metadata.event_code == "1102" {
-  microsoft::windows::ocsf::events::eventlog_clear
-} else if ocsf.metadata.event_code in ["1116", "1117"] {
-  microsoft::windows::ocsf::events::defender_detection
-} else if ocsf.metadata.event_code == "1121" {
-  microsoft::windows::ocsf::events::defender_asr
-} else if ocsf.metadata.event_code == "2000" {
-  microsoft::windows::ocsf::events::defender_signature_update
-} else if ocsf.metadata.event_code == "4100" {
-  microsoft::windows::ocsf::events::powershell_error
-} else if ocsf.metadata.event_code == "4103" {
-  microsoft::windows::ocsf::events::powershell_module_logging
-} else if ocsf.metadata.event_code == "4104" {
-  microsoft::windows::ocsf::events::powershell_script_block
-} else if ocsf.metadata.event_code in ["4105", "4106"] {
-  microsoft::windows::ocsf::events::powershell_script_block_invocation
-} else if ocsf.metadata.event_code == "4624" {
-  microsoft::windows::ocsf::events::logon
-} else if ocsf.metadata.event_code == "4625" {
-  microsoft::windows::ocsf::events::logon_failed
-} else if ocsf.metadata.event_code == "4648" {
-  microsoft::windows::ocsf::events::explicit_credential_logon
-} else if ocsf.metadata.event_code == "4688" {
-  microsoft::windows::ocsf::events::process_create
-} else if ocsf.metadata.event_code == "4697" {
-  microsoft::windows::ocsf::events::service_install
-} else if ocsf.metadata.event_code == "4698" {
-  microsoft::windows::ocsf::events::scheduled_task_create
-} else if ocsf.metadata.event_code in ["4720", "4722", "4723", "4724", "4725", "4726"] {
-  microsoft::windows::ocsf::events::account_change
-} else if ocsf.metadata.event_code in ["4727", "4728", "4729", "4730", "4731", "4732", "4733", "4734", "4754", "4755", "4756", "4757", "4758"] {
-  microsoft::windows::ocsf::events::group_management
-} else if ocsf.metadata.event_code == "4769" {
-  microsoft::windows::ocsf::events::kerberos_service_ticket
-} else if ocsf.metadata.event_code == "4771" {
-  microsoft::windows::ocsf::events::kerberos_preauth_failed
-} else if ocsf.metadata.event_code == "4776" {
-  microsoft::windows::ocsf::events::ntlm_auth
-} else if ocsf.metadata.event_code in ["5001", "5007"] {
-  microsoft::windows::ocsf::events::defender_tamper
-} else if ocsf.metadata.event_code == "6005" {
-  microsoft::windows::ocsf::events::eventlog_start
-} else if ocsf.metadata.event_code == "6006" {
-  microsoft::windows::ocsf::events::eventlog_stop
-} else if ocsf.metadata.event_code == "7034" {
-  microsoft::windows::ocsf::events::service_crashed
-} else if ocsf.metadata.event_code == "7045" {
-  microsoft::windows::ocsf::events::service_install_scm
-} else {
-  // Base Event — unknown/unsupported Windows EID
-  ocsf.category_uid = 0
-  ocsf.class_uid = 0
-  ocsf.activity_id = 0
-  ocsf.type_uid = 0
+match ocsf.metadata.event_code {
+  "100" | "101" | "102" | "129" | "200" | "201" => {
+    microsoft::windows::ocsf::events::task_run
+  }
+  "106" | "140" | "141" => {
+    microsoft::windows::ocsf::events::task_lifecycle
+  }
+  "1000" => {
+    microsoft::windows::ocsf::events::application_error
+  }
+  "1001" => {
+    microsoft::windows::ocsf::events::application_crash_report
+  }
+  "1002" => {
+    microsoft::windows::ocsf::events::application_hang
+  }
+  "1006" | "1007" => {
+    microsoft::windows::ocsf::events::defender_threat
+  }
+  "1102" => {
+    microsoft::windows::ocsf::events::eventlog_clear
+  }
+  "1116" | "1117" => {
+    microsoft::windows::ocsf::events::defender_detection
+  }
+  "1121" => {
+    microsoft::windows::ocsf::events::defender_asr
+  }
+  "2000" => {
+    microsoft::windows::ocsf::events::defender_signature_update
+  }
+  "4100" => {
+    microsoft::windows::ocsf::events::powershell_error
+  }
+  "4103" => {
+    microsoft::windows::ocsf::events::powershell_module_logging
+  }
+  "4104" => {
+    microsoft::windows::ocsf::events::powershell_script_block
+  }
+  "4105" | "4106" => {
+    microsoft::windows::ocsf::events::powershell_script_block_invocation
+  }
+  "4624" => {
+    microsoft::windows::ocsf::events::logon
+  }
+  "4625" => {
+    microsoft::windows::ocsf::events::logon_failed
+  }
+  "4648" => {
+    microsoft::windows::ocsf::events::explicit_credential_logon
+  }
+  "4688" => {
+    microsoft::windows::ocsf::events::process_create
+  }
+  "4697" => {
+    microsoft::windows::ocsf::events::service_install
+  }
+  "4698" => {
+    microsoft::windows::ocsf::events::scheduled_task_create
+  }
+  "4720" | "4722" | "4723" | "4724" | "4725" | "4726" => {
+    microsoft::windows::ocsf::events::account_change
+  }
+  "4727" | "4728" | "4729" | "4730" | "4731" | "4732" | "4733" | "4734" |
+  "4754" | "4755" | "4756" | "4757" | "4758" => {
+    microsoft::windows::ocsf::events::group_management
+  }
+  "4769" => {
+    microsoft::windows::ocsf::events::kerberos_service_ticket
+  }
+  "4771" => {
+    microsoft::windows::ocsf::events::kerberos_preauth_failed
+  }
+  "4776" => {
+    microsoft::windows::ocsf::events::ntlm_auth
+  }
+  "5001" | "5007" => {
+    microsoft::windows::ocsf::events::defender_tamper
+  }
+  "6005" => {
+    microsoft::windows::ocsf::events::eventlog_start
+  }
+  "6006" => {
+    microsoft::windows::ocsf::events::eventlog_stop
+  }
+  "7034" => {
+    microsoft::windows::ocsf::events::service_crashed
+  }
+  "7045" => {
+    microsoft::windows::ocsf::events::service_install_scm
+  }
+  _ => {
+    microsoft::windows::ocsf::base
+  }
 }
+
+this = {...ocsf, unmapped: windows}

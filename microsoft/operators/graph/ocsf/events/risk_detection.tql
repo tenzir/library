@@ -1,0 +1,88 @@
+---
+description: Microsoft Entra ID risk detection → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.product.name = "Microsoft Entra ID Protection"
+ocsf.metadata.log_name = "identityProtection/riskDetections"
+ocsf.metadata.profiles = ["cloud", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = time(move graph.detectedDateTime)
+ocsf.end_time = time(move graph.lastUpdatedDateTime?)
+
+let $risk_levels = {
+  none: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+}
+let $risk_level_ids = {
+  none: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+}
+ocsf.severity_id = $risk_levels[graph.riskLevel]? else 0
+ocsf.risk_level_id = $risk_level_ids[graph.riskLevel]?
+if ocsf.risk_level_id != null {
+  drop graph.riskLevel?
+}
+
+let $statuses = {
+  atRisk: 1,
+  confirmedCompromised: 1,
+  none: 4,
+  confirmedSafe: 3,
+  remediated: 4,
+  dismissed: 3,
+}
+ocsf.status_id = $statuses[graph.riskState]?
+if ocsf.status_id != null {
+  drop graph.riskState?
+}
+
+ocsf.finding_info = {
+  uid: ocsf.metadata.original_event_uid,
+  title: move graph.riskEventType?,
+  desc: move graph.riskDetail?,
+  product: {
+    name: move graph.source?,
+    vendor_name: "Microsoft",
+  },
+}
+
+ocsf.evidences = [{
+  actor: {
+    user: {
+      uid: move graph.userId?,
+      name: graph.userPrincipalName?.split("@")[0]?,
+      domain: graph.userPrincipalName?.split("@")[1]?,
+      email_addr: move graph.userPrincipalName?,
+      full_name: move graph.userDisplayName?,
+      type_id: 1,
+    },
+  },
+  src_endpoint: {
+    ip: move graph.ipAddress?,
+    location: {
+      city: move graph.location.city?,
+      country: move graph.location.countryOrRegion?,
+    },
+  },
+}]
+
+drop graph.location?
+
+ocsf.resources = [{
+  name: ocsf.evidences[0].actor.user.email_addr,
+  uid: ocsf.evidences[0].actor.user.uid,
+  type: "User",
+  role_id: 3,
+}]
+
+ocsf.is_alert = true

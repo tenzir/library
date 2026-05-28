@@ -1,0 +1,146 @@
+---
+description: Microsoft Entra ID directory audit log → OCSF IAM activity
+---
+
+ocsf.metadata.product.name = "Microsoft Entra ID"
+ocsf.metadata.log_name = "auditLogs/directoryAudits"
+ocsf.metadata.source = move graph.loggedByService?
+
+ocsf.category_uid = 3
+ocsf.time = time(move graph.activityDateTime)
+ocsf.message = move graph.activityDisplayName?
+ocsf.status_detail = move graph.resultReason?
+let $status_ids = {
+  success: 1,
+}
+ocsf.status_id = $status_ids[graph.result]? else 2
+if ocsf.status_id == 2 {
+  ocsf.severity_id = 2
+}
+drop graph.result?
+
+if graph.initiatedBy.user? != null {
+  ocsf.actor = {
+    user: {
+      uid: move graph.initiatedBy.user.id?,
+      name: graph.initiatedBy.user.userPrincipalName?.split("@")[0]?,
+      domain: graph.initiatedBy.user.userPrincipalName?.split("@")[1]?,
+      email_addr: move graph.initiatedBy.user.userPrincipalName?,
+      full_name: move graph.initiatedBy.user.displayName?,
+      type_id: 1,
+    },
+  }
+  ocsf.src_endpoint = {
+    ip: move graph.initiatedBy.user.ipAddress?,
+  }
+} else if graph.initiatedBy.app? != null {
+  ocsf.actor = {
+    app_name: move graph.initiatedBy.app.displayName?,
+    app_uid: move graph.initiatedBy.app.appId?,
+    user: {
+      uid: move graph.initiatedBy.app.servicePrincipalId?,
+      type_id: 4,
+    },
+  }
+}
+drop graph.initiatedBy?
+
+let $account_activity_ids = {
+  "Add user": 1,
+  "Enable account": 2,
+  "Change user password": 3,
+  "Reset user password": 4,
+  "Disable account": 5,
+  "Delete user": 6,
+}
+let $group_activity_ids = {
+  "Add member to group": 3,
+  "Remove member from group": 4,
+  "Delete group": 5,
+  "Add group": 6,
+}
+
+match graph.category {
+  "GroupManagement" => {
+    graph._ocsf_class = "group_management"
+  }
+  "UserManagement" if $group_activity_ids[ocsf.message]? != null => {
+    graph._ocsf_class = "group_management"
+  }
+  "UserManagement" => {
+    graph._ocsf_class = "account_change"
+  }
+  _ => {
+    graph._ocsf_class = "entity_management"
+  }
+}
+
+match graph._ocsf_class {
+  "group_management" => {
+    @name = "ocsf.group_management"
+    ocsf.class_uid = 3006
+    ocsf.activity_id = $group_activity_ids[ocsf.message]? else 99
+    graph._target_groups = graph.targetResources.where(r => r.Type? == "Group" or r.type? == "Group")
+    graph._target_users = graph.targetResources.where(r => r.Type? == "User" or r.type? == "User")
+    ocsf.group = {
+      uid: graph._target_groups[0]?.id? else graph.targetResources[0]?.id?,
+      name: graph._target_groups[0]?.displayName? else graph.targetResources[0]?.displayName?,
+    }
+    if graph._target_users[0]? != null {
+      ocsf.user = {
+        uid: graph._target_users[0]?.id?,
+        full_name: graph._target_users[0]?.displayName?,
+        email_addr: graph._target_users[0]?.userPrincipalName?,
+        type_id: 1,
+      }
+    }
+    drop graph._target_groups?
+    drop graph._target_users?
+  }
+  "account_change" => {
+    @name = "ocsf.account_change"
+    ocsf.class_uid = 3001
+    ocsf.activity_id = $account_activity_ids[ocsf.message]? else 99
+    ocsf.user = {
+      uid: graph.targetResources[0]?.id?,
+      full_name: graph.targetResources[0]?.displayName?,
+      type_id: 1,
+    }
+  }
+  _ => {
+    @name = "ocsf.entity_management"
+    ocsf.class_uid = 3004
+    match graph.operationType {
+      "Add" => {
+        ocsf.activity_id = 1
+      }
+      "Read" => {
+        ocsf.activity_id = 2
+      }
+      "Update" => {
+        ocsf.activity_id = 3
+      }
+      "Delete" => {
+        ocsf.activity_id = 4
+      }
+      _ => {
+        ocsf.activity_id = 99
+      }
+    }
+    ocsf.entity = {
+      uid: graph.targetResources[0]?.id?,
+      name: graph.targetResources[0]?.displayName?,
+    }
+  }
+}
+drop graph._ocsf_class
+
+if ocsf.activity_id == 99 {
+  ocsf.activity_name = ocsf.message
+}
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// Preserve targetResources in unmapped because modifiedProperties often carry
+// the security-relevant before/after values.
+drop graph.operationType?
+drop graph.category?
