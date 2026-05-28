@@ -1,6 +1,69 @@
 ---
-description: Parse and normalize Check Point firewall logs
+description: Normalize Check Point firewall fields
 ---
 
-checkpoint::syslog::parse
-checkpoint::clean
+// Check Point uses "N/A" as a sentinel for missing values.
+replace what="N/A", with=null
+
+if h_version? == null and version? != null {
+  h_version = move version
+}
+
+// Check Point encodes match-table fields with dotted separators in the key
+// name. Rename them so downstream mappings can consume canonical fields.
+if this.has("parent_rule_._._match_table") and parent_rule? == null {
+  parent_rule = move this["parent_rule_._._match_table"]
+}
+if this.has("match_id_._._match_table") and match_id? == null {
+  match_id = move this["match_id_._._match_table"]
+}
+if this.has("rule_name_._._match_table") and rule_name? == null {
+  rule_name = move this["rule_name_._._match_table"]
+}
+if this.has("rule_uid_._._match_table") and rule_uid? == null {
+  rule_uid = move this["rule_uid_._._match_table"]
+}
+if this.has("rule_action_._._match_table") and rule_action? == null {
+  rule_action = move this["rule_action_._._match_table"]
+}
+if this.has("layer_name_._._match_table") and layer_name? == null {
+  layer_name = move this["layer_name_._._match_table"]
+}
+if this.has("layer_uuid_._._match_table") and layer_uuid? == null {
+  layer_uuid = move this["layer_uuid_._._match_table"]
+}
+
+if time? != null {
+  time = time.seconds().from_epoch()
+}
+if time? == null and syslog?.timestamp? != null {
+  time = move syslog.timestamp
+}
+
+if log_delay? != null {
+  log_delay = log_delay.seconds()
+}
+
+let $protocol_names = {
+  "1": "icmp",
+  "6": "tcp",
+  "17": "udp",
+}
+if proto? != null and protocol_name? == null {
+  protocol_name = $protocol_names[proto.string()]?
+}
+
+match action? {
+  "Detect" => {
+    @name = "checkpoint.firewall.detection"
+  }
+  _ if message_info? != null => {
+    @name = "checkpoint.firewall.detection"
+  }
+  _ if action? != null => {
+    @name = "checkpoint.firewall.network"
+  }
+  _ => {
+    @name = "checkpoint.firewall"
+  }
+}

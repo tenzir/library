@@ -1,0 +1,45 @@
+---
+description: "Check Point detections → OCSF Detection Finding (2004)"
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.is_alert = true
+ocsf.action_id = 3
+ocsf.disposition_id = 15
+
+ocsf.finding_info = {
+  title: "Check Point detection",
+  desc: ocsf.message?,
+  uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  analytic: {
+    name: "Check Point detection",
+    type_id: 1,
+    uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  },
+}
+
+if checkpoint.action? != null {
+  ocsf.finding_info.title = checkpoint.action
+  ocsf.finding_info.analytic.name = checkpoint.action
+}
+if ocsf.message? != null {
+  ocsf.finding_info.title = ocsf.message
+  ocsf.finding_info.analytic.name = ocsf.message
+}
+
+ocsf.evidences = [{
+  src_endpoint: move ocsf.src_endpoint?,
+  dst_endpoint: move ocsf.dst_endpoint?,
+  connection_info: move ocsf.connection_info?,
+}]
+
+if checkpoint.action? == "Detect" {
+  drop checkpoint.action
+}
