@@ -1,0 +1,61 @@
+---
+description: Maps URLhaus rows to OCSF OSINT Inventory Info events.
+---
+
+this = {urlhaus: this}
+
+osint = {}
+osint.category = move urlhaus.threat?
+osint.confidence_id = 3
+osint.created_time = time(urlhaus.dateadded)
+drop urlhaus.dateadded
+osint.external_uid = string(move urlhaus.id)
+if urlhaus.last_online? != null {
+  osint.modified_time = time(urlhaus.last_online)
+  drop urlhaus.last_online
+}
+if urlhaus.reporter? != null {
+  osint.creator = {
+    name: move urlhaus.reporter,
+  }
+}
+if urlhaus.tags? != null {
+  osint.labels = (move urlhaus.tags).split(",")
+}
+if urlhaus.urlhaus_link? != null {
+  osint.references = [urlhaus.urlhaus_link]
+  osint.src_url = move urlhaus.urlhaus_link
+} else {
+  osint.src_url = "https://urlhaus.abuse.ch/"
+}
+osint.severity_id = 4
+osint.type_id = 5
+osint.value = move urlhaus.url
+osint.vendor_name = "abuse.ch"
+
+ocsf = {}
+ocsf.activity_id = 2
+ocsf.activity_name = "Collect"
+ocsf.actor = {
+  app_name: "Tenzir",
+}
+ocsf.category_uid = 5
+ocsf.category_name = "Discovery"
+ocsf.class_uid = 5021
+ocsf.class_name = "OSINT Inventory Info"
+ocsf.metadata = {
+  product: {
+    name: "URLhaus",
+    vendor_name: "abuse.ch",
+  },
+  version: "1.8.0",
+}
+ocsf.osint = [move osint]
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.time = ocsf.osint[0].created_time
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+this = {...ocsf, unmapped: urlhaus}
+@name = "ocsf.osint_inventory_info"
+ocsf::derive

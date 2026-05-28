@@ -1,0 +1,87 @@
+---
+description: Maps ThreatFox indicators to OCSF OSINT Inventory Info events.
+---
+
+this = {threatfox: this}
+
+let $type_ids = {
+  domain: 2,
+  hostname: 3,
+  ip: 1,
+  "ip:port": 99,
+  md5_hash: 4,
+  sha1_hash: 4,
+  sha256_hash: 4,
+  url: 5,
+}
+
+osint = {}
+if threatfox.confidence_level? != null {
+  match threatfox.confidence_level {
+    -1..30 => {
+      osint.confidence_id = 1
+    }
+    29..70 => {
+      osint.confidence_id = 2
+    }
+    _ => {
+      osint.confidence_id = 3
+    }
+  }
+  osint.risk_score = move threatfox.confidence_level
+}
+if threatfox.first_seen? != null {
+  osint.created_time = parse_time(threatfox.first_seen, "%Y-%m-%d %H:%M:%S UTC")
+  drop threatfox.first_seen
+}
+if threatfox.last_seen? != null {
+  osint.modified_time = parse_time(threatfox.last_seen, "%Y-%m-%d %H:%M:%S UTC")
+  drop threatfox.last_seen
+}
+if threatfox.malware_printable? != null or threatfox.malware? != null {
+  osint.malware = [{
+    classification_ids: [0],
+    name: move threatfox.malware_printable? else move threatfox.malware?,
+    provider: "ThreatFox",
+  }]
+}
+osint.category = move threatfox.threat_type?
+osint.desc = move threatfox.threat_type_desc?
+osint.labels = move threatfox.tags?
+osint.references = [move threatfox.reference] if threatfox.reference? != null else null
+osint.src_url = "https://threatfox.abuse.ch/ioc/" + encode_url(threatfox.ioc)
+osint.type_id = $type_ids[threatfox.ioc_type]? else 99
+if osint.type_id == 99 {
+  osint.type = move threatfox.ioc_type
+} else {
+  drop threatfox.ioc_type
+}
+osint.value = move threatfox.ioc
+osint.vendor_name = "abuse.ch"
+
+ocsf = {}
+ocsf.activity_id = 2
+ocsf.activity_name = "Collect"
+ocsf.actor = {
+  app_name: "Tenzir",
+}
+ocsf.category_uid = 5
+ocsf.category_name = "Discovery"
+ocsf.class_uid = 5021
+ocsf.class_name = "OSINT Inventory Info"
+ocsf.metadata = {
+  product: {
+    name: "ThreatFox",
+    vendor_name: "abuse.ch",
+  },
+  version: "1.8.0",
+}
+ocsf.osint = [move osint]
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.time = ocsf.osint[0].created_time? else now()
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+this = {...ocsf, unmapped: threatfox}
+@name = "ocsf.osint_inventory_info"
+ocsf::derive

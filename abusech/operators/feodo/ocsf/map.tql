@@ -1,0 +1,48 @@
+---
+description: Maps Feodo Tracker rows to OCSF OSINT Inventory Info events.
+---
+
+this = {feodo: this}
+
+osint = {}
+osint.category = "botnet c2"
+osint.confidence_id = 3
+osint.created_time = time(feodo.first_seen_utc)
+drop feodo.first_seen_utc
+osint.malware = [{
+  classification_ids: [0],
+  name: move feodo.malware,
+  provider: "Feodo Tracker",
+}]
+osint.severity_id = 4
+osint.src_url = "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv"
+osint.type_id = 1
+osint.value = string(move feodo.dst_ip)
+osint.vendor_name = "abuse.ch"
+
+ocsf = {}
+ocsf.activity_id = 2
+ocsf.activity_name = "Collect"
+ocsf.actor = {
+  app_name: "Tenzir",
+}
+ocsf.category_uid = 5
+ocsf.category_name = "Discovery"
+ocsf.class_uid = 5021
+ocsf.class_name = "OSINT Inventory Info"
+ocsf.metadata = {
+  product: {
+    name: "Feodo Tracker",
+    vendor_name: "abuse.ch",
+  },
+  version: "1.8.0",
+}
+ocsf.osint = [move osint]
+ocsf.severity_id = 1
+ocsf.severity = "Informational"
+ocsf.time = ocsf.osint[0].created_time
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+this = {...ocsf, unmapped: feodo}
+@name = "ocsf.osint_inventory_info"
+ocsf::derive
