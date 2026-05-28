@@ -61,7 +61,22 @@ let $group_activity_ids = {
 }
 
 match graph.category {
-  "GroupManagement" | "UserManagement" if graph.category == "GroupManagement" or $group_activity_ids[ocsf.message]? != null => {
+  "GroupManagement" => {
+    graph._ocsf_class = "group_management"
+  }
+  "UserManagement" if $group_activity_ids[ocsf.message]? != null => {
+    graph._ocsf_class = "group_management"
+  }
+  "UserManagement" => {
+    graph._ocsf_class = "account_change"
+  }
+  _ => {
+    graph._ocsf_class = "entity_management"
+  }
+}
+
+match graph._ocsf_class {
+  "group_management" => {
     @name = "ocsf.group_management"
     ocsf.class_uid = 3006
     ocsf.activity_id = $group_activity_ids[ocsf.message]? else 99
@@ -82,7 +97,7 @@ match graph.category {
     drop graph._target_groups?
     drop graph._target_users?
   }
-  "UserManagement" => {
+  "account_change" => {
     @name = "ocsf.account_change"
     ocsf.class_uid = 3001
     ocsf.activity_id = $account_activity_ids[ocsf.message]? else 99
@@ -118,6 +133,7 @@ match graph.category {
     }
   }
 }
+drop graph._ocsf_class
 
 if ocsf.activity_id == 99 {
   ocsf.activity_name = ocsf.message
