@@ -14,7 +14,7 @@ Use the `into` argument when you need to keep source metadata or the raw log lin
 ```tql
 from_amazon_cloudwatch "/aws/vpc/flowlogs", mode="search"
 amazon::vpc_flow::parse_v7_ecs field=message, into=vpc_flow
-amazon::vpc_flow::to_ocsf vpc_flow, raw=message
+amazon::vpc_flow::ocsf::map vpc_flow, raw=message
 ocsf::cast
 ```
 
