@@ -5,10 +5,10 @@ This repository contains a collection of open-source
 
 ## ✨ Why packages matter
 
-- Package once, deploy anywhere: ship pipelines, contexts, and operators as a
+- Package once, deploy anywhere: ship contexts, operators, and runnable examples as a
   single unit.
-- Built-in templating keeps packages environment-agnostic while still
-  customizable on install.
+- Examples keep packages environment-agnostic and show how to pass local
+  configuration directly to UDOs and source/sink operators.
 - Tests and examples travel with the package so behaviour stays predictable.
 
 Learn more about the concept in the [packages
@@ -18,13 +18,12 @@ explanation](https://docs.tenzir.com/explanations/packages/).
 
 A package lives in a directory with these building blocks:
 
-- `examples/`: runnable snippets that highlight the package’s capabilities.
-- `operators/`: user-defined operators (UDOs) you can reuse across pipelines.
-- `pipelines/`: end-to-end TQL pipelines that start with an input and finish
-  with an output operator.
-- `tests/`: deterministic integration tests that verify UDOs and pipelines via
+- `operators/`: user-defined operators (UDOs) you can reuse across examples and custom pipelines.
+- `examples/`: runnable TQL snippets that demonstrate package UDOs and complete
+  workflows.
+- `tests/`: deterministic integration tests that verify UDOs and examples via
   the [test framework](https://docs.tenzir.com/reference/test-framework).
-- `package.yaml`: the manifest with metadata, configurable inputs, and optional
+- `package.yaml`: the manifest with metadata and optional
   enrichment contexts.
 
 ## 🚀 Install packages
