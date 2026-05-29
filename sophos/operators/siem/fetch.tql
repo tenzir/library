@@ -18,14 +18,15 @@ args:
       default: 1000
 ---
 
-from_http "https://id.sophos.com/api/v2/oauth2/token",
-  body={
-    grant_type: "client_credentials",
-    client_id: $client_id,
-    client_secret: $client_secret,
-    scope: "token",
-  },
-  encode="form" {
+let $token_url = "https://id.sophos.com/api/v2/oauth2/token"
+let $token_body = {
+  grant_type: "client_credentials",
+  client_id: $client_id,
+  client_secret: $client_secret,
+  scope: "token",
+}
+
+from_http $token_url, body=$token_body, encode="form" {
   read_json
 }
 
@@ -44,7 +45,10 @@ each {
       "X-Tenant-ID": $this.id,
       Authorization: f"Bearer {$this.token}",
     },
-    paginate=(x => f"{$this.apiHosts.dataRegion}/siem/v1/{$endpoint}?limit={$limit}&cursor={x.next_cursor}" if x.has_more) {
+    paginate=(
+      x => f"{$this.apiHosts.dataRegion}/siem/v1/{$endpoint}?limit={$limit}&cursor={x.next_cursor}"
+        if x.has_more
+    ) {
     read_json
   }
   unroll items
