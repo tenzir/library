@@ -1,21 +1,32 @@
 ---
-description: Send events to a Slack incoming webhook
+description: Send events to a Slack incoming webhook.
 args:
   positional:
     - name: webhook_url
       description: The Slack incoming webhook URL.
       type: secret
   named:
+    - name: message
+      description: The Slack message text. Omit to serialize the current event.
+      type: string
+      default: null
+    - name: thread_ts
+      description: Optional Slack thread timestamp to reply to.
+      type: string
+      default: null
     - name: parallel
       description: The maximum number of concurrent webhook requests.
       type: int
-      default: 4
+      default: null
 ---
 
-each parallel=$parallel {
+each parallel=($parallel else int(4)) {
   from $this
-  slack::format
-  to_http $webhook_url {
-    write_json
+  this = {
+    text: $message if $message != null else this.print_ndjson(strip_null_fields=true),
+    thread_ts: $thread_ts,
+  }
+  to_http $webhook_url, buffer_all=true {
+    write_json strip_null_fields=true
   }
 }

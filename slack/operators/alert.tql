@@ -1,0 +1,65 @@
+---
+description: Send events to Slack as structured alert messages.
+args:
+  positional:
+    - name: webhook_url
+      description: The Slack incoming webhook URL.
+      type: secret
+  named:
+    - name: title
+      description: Alert title.
+      type: string
+      default: Tenzir Alert
+    - name: message
+      description: Alert message. Omit to serialize the current event.
+      type: string
+      default: null
+    - name: severity
+      description: Optional severity label to show in context.
+      type: string
+      default: null
+    - name: thread_ts
+      description: Optional Slack thread timestamp to reply to.
+      type: string
+      default: null
+    - name: parallel
+      description: The maximum number of concurrent webhook requests.
+      type: int
+      default: null
+---
+
+each parallel=($parallel else int(4)) {
+  from $this
+  this = {
+    text: f"{$title}: {$message}" if $message != null else
+          f"{$title}: {this.print_ndjson(strip_null_fields=true)}",
+    thread_ts: $thread_ts,
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: $title,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: $message if $message != null else
+                f"```{this.print_ndjson(strip_null_fields=true)}```",
+        },
+      },
+      ...([{
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: f"*Severity:* {$severity}",
+        }],
+      }] if $severity != null else []),
+    ],
+  }
+  to_http $webhook_url, buffer_all=true {
+    write_json strip_null_fields=true
+  }
+}
