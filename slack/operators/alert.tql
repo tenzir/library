@@ -22,19 +22,14 @@ args:
       description: Optional Slack thread timestamp to reply to.
       type: string
       default: null
-    - name: parallel
-      description: The maximum number of concurrent webhook requests.
-      type: int
-      default: null
 ---
 
-each parallel=($parallel else int(4)) {
+each {
   from $this
-  this = {
-    text: f"{$title}: {$message}" if $message != null else
-          f"{$title}: {this.print_ndjson(strip_null_fields=true)}",
-    thread_ts: $thread_ts,
-    blocks: [
+  select text=(f"{$title}: {$message}" if $message != null else
+         f"{$title}: {this.print_ndjson(strip_null_fields=true)}"),
+    thread_ts=$thread_ts,
+    blocks=[
       {
         type: "header",
         text: {
@@ -57,8 +52,7 @@ each parallel=($parallel else int(4)) {
           text: f"*Severity:* {$severity}",
         }],
       }] if $severity != null else []),
-    ],
-  }
+    ]
   to_http $webhook_url, buffer_all=true {
     write_json strip_null_fields=true
   }
