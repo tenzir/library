@@ -26,33 +26,33 @@ args:
 
 each {
   from $this
-  select text=(f"{$title}: {$message}" if $message != null else
-         f"{$title}: {this.print_ndjson(strip_null_fields=true)}"),
-    thread_ts=$thread_ts,
-    blocks=[
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: $title,
-        },
+  _slack_event = this.print_ndjson(strip_null_fields=true)
+  _slack_text = $message else _slack_event
+  _slack_mrkdwn = $message else f"```{_slack_event}```"
+  _slack_blocks = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: $title,
       },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: $message if $message != null else
-                f"```{this.print_ndjson(strip_null_fields=true)}```",
-        },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: _slack_mrkdwn,
       },
-      ...([{
-        type: "context",
-        elements: [{
-          type: "mrkdwn",
-          text: f"*Severity:* {$severity}",
-        }],
-      }] if $severity != null else []),
-    ]
+    },
+    ...([{
+      type: "context",
+      elements: [{
+        type: "mrkdwn",
+        text: f"*Severity:* {$severity}",
+      }],
+    }] if $severity != null else []),
+  ]
+  select text=f"{$title}: {_slack_text}", thread_ts=$thread_ts, blocks=_slack_blocks
   to_http $webhook_url, buffer_all=true {
     write_json strip_null_fields=true
   }
