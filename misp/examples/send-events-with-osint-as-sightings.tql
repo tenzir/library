@@ -12,13 +12,11 @@ let $headers = {
 subscribe "ocsf-osint"
 select metadata, time, osint
 unroll osint
+select source=metadata.uid,
+  timestamp=time.since_epoch().count_seconds(),
+  value=osint.value
 each parallel=4 {
-  from {
-    source: $this.metadata.uid,
-    timestamp: $this.time.since_epoch().count_seconds(),
-    value: $this.osint.value,
-  }
-  from_http $url, headers=$headers, body=this {
+  from_http $url, headers=$headers, body=$this {
     read_json
   }
 }
