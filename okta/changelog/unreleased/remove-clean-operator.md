@@ -1,1 +1,2 @@
-Fold Okta System Log normalization into ingestion and OCSF mapping.
+Replace the removed Okta clean operator with an `okta::read` parser that
+normalizes System Log input from any byte source.
