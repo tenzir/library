@@ -1,19 +1,17 @@
 ---
 name: Update Geo Open context
 description: |
-  Fetches the latest country+ASN MMDB file daily. This example documents the
-  intended context update shape until `from_http` supports bytes-to-void parser
-  subpipelines.
+  Fetches the latest country+ASN MMDB file daily and loads it into the Geo Open
+  context.
 ---
 
 every 24h {
   from_http "https://cra.circl.lu/opendata/geo-open/mmdb-country-asn/latest.mmdb" {
-    // FIXME: Replace the temporary `read_all` sink below with this once
-    // `from_http` accepts parser subpipelines that consume bytes without
-    // returning events:
-    //
-    // context::load "geo-open"
+    // Hack: `from_http` needs a bytes-to-events parser pipeline, but
+    // `context::load` is bytes-to-void. This awkward round-trip reads the MMDB
+    // into one blob event and writes it back as bytes for the context loader.
     read_all binary=true
   }
+  write_all data
+  context::load "geo-open"
 }
-where false
