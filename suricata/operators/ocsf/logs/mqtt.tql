@@ -1,8 +1,3 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
 /*
@@ -37,22 +32,16 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 // Protocol details for MQTT
 if suricata.mqtt.has("connect") {
   ocsf.app_protocol_name = "mqtt"
-  ocsf.app_protocol_ver = string(move suricata.mqtt.connect.protocol_version)
+  ocsf.connection_info.session.uid = move suricata.mqtt.connect.client_id?
 }
 
 // --- OCSF: primary attributes -----------------
 
-// Map MQTT-specific message details
-if suricata.mqtt.has("connect") {
-  ocsf.connection_info.details = {
-    client_id: move suricata.mqtt.connect.client_id,
-    protocol_string: move suricata.mqtt.connect.protocol_string,
-    username: move suricata.mqtt.connect.username?,
-  }
-}
-
 if suricata.mqtt.has("connack") {
+  suricata.mqtt.connack._return_code = suricata.mqtt.connack.return_code
   ocsf.status_code = string(move suricata.mqtt.connack.return_code)
+  ocsf.status_id = 1 if suricata.mqtt.connack._return_code == 0 else 2
+  drop suricata.mqtt.connack._return_code
 }
 
 if suricata.mqtt.has("disconnect") {
@@ -62,33 +51,26 @@ if suricata.mqtt.has("disconnect") {
 }
 
 if suricata.mqtt.has("publish") {
-  ocsf.app_protocol_data = {
-    message_id: move suricata.mqtt.publish.message_id?,
-    qos: move suricata.mqtt.publish.qos,
-    topic: move suricata.mqtt.publish.topic,
-  }
+  ocsf.message = move suricata.mqtt.publish.topic
+  drop suricata.mqtt.publish.message_id?
+  drop suricata.mqtt.publish.qos?
   drop suricata.mqtt.publish.message // binary
 }
 
 if suricata.mqtt.has("subscribe") {
-  ocsf.app_protocol_data = {
-    message_id: move suricata.mqtt.subscribe.message_id,
-    qos: move suricata.mqtt.subscribe.qos,
-    topics: move suricata.mqtt.subscribe.topics,
-  }
+  drop suricata.mqtt.subscribe.message_id?
+  drop suricata.mqtt.subscribe.qos?
 }
 
 if suricata.mqtt.has("suback") {
-  ocsf.app_protocol_data = {
-    message_id: move suricata.mqtt.suback.message_id,
-    qos_granted: move suricata.mqtt.suback.qos_granted,
-  }
+  drop suricata.mqtt.suback.message_id?
+  drop suricata.mqtt.suback.qos_granted?
 }
 
-ocsf.status_id = 1
+if ocsf.status_id? == null {
+  ocsf.status_id = 1
+}
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.network_activity"
-ocsf::derive

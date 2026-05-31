@@ -1,12 +1,6 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
-// TODO: go deeper and map
-ocsf.activity_id = 0
+ocsf.activity_id = 5
 
 ocsf.category_uid = 4
 ocsf.class_uid = 4009
@@ -22,20 +16,19 @@ ocsf.direction_id = 0
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.command = move suricata.smtp.helo?
+ocsf.protocol_name = "SMTP"
+ocsf.smtp_hello = move suricata.smtp.helo?
 ocsf.email = {
-  from: move suricata.smtp?.mail_from?,
+  smtp_from: move suricata.smtp?.mail_from?,
+  smtp_to: move suricata.smtp?.rcpt_to?,
   from_mailbox: move suricata.email?.from?,
-  to: move suricata.email?.to?,
-  to_mailboxes: move suricata.smtp?.rcpt_to?,
+  to_mailboxes: move suricata.email?.to?,
 }
-ocsf.status_id = 0
+ocsf.status_id = 1 if suricata.email?.status? == "PARSE_DONE" else 0
 ocsf.status_detail = move suricata.email?.status?
 
 drop_null_fields
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.email_activity"
-ocsf::derive

@@ -1,36 +1,162 @@
-if @name == "suricata.alert" {
-  suricata::ocsf::logs::alert
-} else if @name == "suricata.anomaly" {
-  suricata::ocsf::logs::anomaly
-} else if @name == "suricata.dhcp" {
-  suricata::ocsf::logs::dhcp
-} else if @name == "suricata.dns" {
-  suricata::ocsf::logs::dns
-} else if @name == "suricata.fileinfo" {
-  suricata::ocsf::logs::fileinfo
-} else if @name == "suricata.flow" {
-  suricata::ocsf::logs::flow
-} else if @name == "suricata.ftp" {
-  suricata::ocsf::logs::ftp
-} else if @name == "suricata.http" {
-  suricata::ocsf::logs::http
-} else if @name == "suricata.krb5" {
-  suricata::ocsf::logs::krb5
-} else if @name == "suricata.mqtt" {
-  suricata::ocsf::logs::mqtt
-} else if @name == "suricata.sip" {
-  suricata::ocsf::logs::sip
-} else if @name == "suricata.smb" {
-  suricata::ocsf::logs::smb
-} else if @name == "suricata.smtp" {
-  suricata::ocsf::logs::smtp
-} else if @name == "suricata.snmp" {
-  suricata::ocsf::logs::snmp
-} else if @name == "suricata.ssh" {
-  suricata::ocsf::logs::ssh
-} else if @name == "suricata.tls" {
-  suricata::ocsf::logs::tls
-} else {
-  // 4001 Network Activity is never wrong.
-  suricata::ocsf::map_common
+---
+description: Suricata EVE JSON -> OCSF
+---
+
+// Helpful information for mappers:
+// - https://github.com/OISF/suricata/blob/main/etc/schema.json
+
+this = {suricata: this}
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+ocsf.category_uid = 4
+ocsf.severity_id = 1
+
+// --- OCSF: occurrence attributes --------------
+
+ocsf.time = move suricata.timestamp
+if suricata.event_type in ["flow", "netflow"] and suricata.flow? != null {
+  ocsf.start_time = move suricata.flow.start
+  ocsf.end_time = move suricata.flow.end
+  ocsf.duration = count_milliseconds(ocsf.end_time - ocsf.start_time).round()
 }
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  log_format: "json",
+  log_name: suricata.event_type,
+  product: {
+    name: "Suricata",
+    vendor_name: "Open Information Security Foundation",
+    cpe_name: "cpe:2.3:a:oisf:suricata",
+  },
+  version: "1.8.0",
+}
+if suricata.pcap_cnt? != null {
+  ocsf.metadata.sequence = move suricata.pcap_cnt
+}
+if suricata.flow_id? != null {
+  ocsf.metadata.original_event_uid = suricata.flow_id.string()
+  ocsf.metadata.correlation_uid = suricata.flow_id.string()
+}
+
+// Prefer flow initiator/responder fields when Suricata provides them. Alert
+// packets can point in the opposite direction of the flow that triggered them.
+if suricata.flow?.src_ip? != null {
+  ocsf.src_endpoint.ip = move suricata.flow.src_ip
+} else if suricata.src_ip? != null {
+  ocsf.src_endpoint.ip = move suricata.src_ip
+}
+if suricata.flow?.dest_ip? != null {
+  ocsf.dst_endpoint.ip = move suricata.flow.dest_ip
+} else if suricata.dest_ip? != null {
+  ocsf.dst_endpoint.ip = move suricata.dest_ip
+}
+if suricata.flow?.src_port? != null {
+  ocsf.src_endpoint.port = move suricata.flow.src_port
+} else if suricata.src_port? != null {
+  ocsf.src_endpoint.port = move suricata.src_port
+}
+if suricata.flow?.dest_port? != null {
+  ocsf.dst_endpoint.port = move suricata.flow.dest_port
+} else if suricata.dest_port? != null {
+  ocsf.dst_endpoint.port = move suricata.dest_port
+}
+
+if suricata.event_type != "krb5" and suricata.event_type != "smtp" {
+  if suricata.ip_v? != null {
+    ocsf.connection_info.protocol_ver_id = move suricata.ip_v
+  } else if ocsf.src_endpoint?.ip? != null {
+    ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
+  } else if ocsf.dst_endpoint?.ip? != null {
+    ocsf.connection_info.protocol_ver_id = 6 if ocsf.dst_endpoint.ip.is_v6() else 4
+  }
+
+  if suricata.flow_id? != null {
+    ocsf.connection_info.uid = suricata.flow_id.string()
+  }
+
+  if suricata.proto? != null {
+    let $proto_nums = {
+      TCP: 6,
+      UDP: 17,
+      ICMP: 1,
+      ICMPV6: 58,
+    }
+    ocsf.connection_info.protocol_name = suricata.proto.to_lower()
+    ocsf.connection_info.protocol_num = $proto_nums[suricata.proto] else -1
+    drop suricata.proto
+  }
+
+  if suricata.community_id? != null {
+    ocsf.connection_info.community_uid = move suricata.community_id
+  }
+}
+
+if suricata.app_proto? != null and suricata.app_proto != "failed" and suricata.event_type != "alert" and suricata.event_type != "krb5" and suricata.event_type != "smtp" {
+  ocsf.app_protocol_name = move suricata.app_proto
+}
+drop suricata.flow_id?
+
+// --- Event-specific mapping -------------------
+
+match suricata.event_type {
+  "alert" => {
+    suricata::ocsf::logs::alert
+  }
+  "anomaly" => {
+    suricata::ocsf::logs::anomaly
+  }
+  "dhcp" => {
+    suricata::ocsf::logs::dhcp
+  }
+  "dns" => {
+    suricata::ocsf::logs::dns
+  }
+  "fileinfo" => {
+    suricata::ocsf::logs::fileinfo
+  }
+  "flow" | "netflow" => {
+    suricata::ocsf::logs::flow
+  }
+  "ftp" => {
+    suricata::ocsf::logs::ftp
+  }
+  "http" => {
+    suricata::ocsf::logs::http
+  }
+  "krb5" => {
+    suricata::ocsf::logs::krb5
+  }
+  "mqtt" => {
+    suricata::ocsf::logs::mqtt
+  }
+  "sip" => {
+    suricata::ocsf::logs::sip
+  }
+  "smb" => {
+    suricata::ocsf::logs::smb
+  }
+  "smtp" => {
+    suricata::ocsf::logs::smtp
+  }
+  "snmp" => {
+    suricata::ocsf::logs::snmp
+  }
+  "ssh" => {
+    suricata::ocsf::logs::ssh
+  }
+  "tls" => {
+    suricata::ocsf::logs::tls
+  }
+  _ => {
+    suricata::ocsf::base
+  }
+}
+
+// --- Epilogue ---------------------------------
+
+drop suricata.event_type
+this = {...ocsf, unmapped: suricata}
