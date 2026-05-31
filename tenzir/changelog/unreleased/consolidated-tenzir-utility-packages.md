@@ -15,7 +15,7 @@ Use the new namespaced utility operators in your pipelines:
 
 ```tql
 tenzir::osint::enrich
-tenzir::trim
+tenzir::ocsf::trim
 ```
 
 Installations that used the previous utility packages should switch to the
