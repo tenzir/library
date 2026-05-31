@@ -16,19 +16,25 @@ drop suricata.alert.severity
 
 ocsf.is_alert = true
 
-if suricata.alert.action? == "allowed" {
-  ocsf.action_id = 1
-  ocsf.disposition_id = 1
-  drop suricata.alert.action
-} else if suricata.alert.action? == "blocked" {
-  ocsf.action_id = 2
-  ocsf.disposition_id = 2
-  drop suricata.alert.action
-} else if suricata.alert.action? != null {
-  ocsf.action = move suricata.alert.action
-  ocsf.action_id = 99
-  ocsf.disposition = ocsf.action
-  ocsf.disposition_id = 99
+if suricata.alert.action? != null {
+  match suricata.alert.action {
+    "allowed" => {
+      ocsf.action_id = 1
+      ocsf.disposition_id = 1
+      drop suricata.alert.action
+    }
+    "blocked" => {
+      ocsf.action_id = 2
+      ocsf.disposition_id = 2
+      drop suricata.alert.action
+    }
+    _ => {
+      ocsf.action = move suricata.alert.action
+      ocsf.action_id = 99
+      ocsf.disposition = ocsf.action
+      ocsf.disposition_id = 99
+    }
+  }
 }
 
 if suricata.alert.metadata?.confidence? != null {
