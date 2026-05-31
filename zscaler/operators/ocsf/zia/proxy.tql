@@ -2,30 +2,18 @@
 description: "ZIA NSS: Proxy → OCSF HTTP Activity"
 ---
 
-// --- Preamble ---------------------------------
-
-// Clean up the original data.
-// Consider moving this into a separate UDO.
-replace bwthrottle, what="NO", with=false
-replace bwthrottle, what="YES", with=true
-replace what="None", with=null
-replace what="N/A", with=null
-replace what="NA", with=null
-refererURL = refererURL.trim("\"")
-filetype = filetype.trim("\"")
-
-this = { zia: this }
+@name = "ocsf.http_activity"
 
 // --- OCSF: classification attributes ----------
 
 let $activity_map = {
-  GET: 1,
-  POST: 2,
-  CONNECT: 3,
-  PUT: 4,
-  DELETE: 5,
-  HEAD: 6,
-  OPTIONS: 7,
+  CONNECT: 1,
+  DELETE: 2,
+  GET: 3,
+  HEAD: 4,
+  OPTIONS: 5,
+  POST: 6,
+  PUT: 7,
   TRACE: 8,
   PATCH: 9,
 }
@@ -48,16 +36,7 @@ ocsf.severity_id = $severities[move zia.threatseverity]? else 0
 
 ocsf.app_name = move zia.appname
 
-ocsf.metadata = {
-  log_name: "NSS",
-  product: {
-    name: move zia.product,
-    vendor_name: move zia.vendor,
-  },
-  uid: string(move zia.event_id),
-  version: "1.8.0",
-  profiles: ["host", "network_proxy", "security_control"],
-}
+ocsf.metadata.profiles = ["host", "network_proxy", "security_control"]
 
 ocsf.time = parse_time(move zia.datetime, "%a %b %d %H:%M:%S %Y")
 
@@ -164,7 +143,3 @@ if zia.threatname != null {
 ocsf.risk_score = int(move zia.pagerisk)
 
 // --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zia}
-@name = "ocsf.http_activity"
-ocsf::derive
