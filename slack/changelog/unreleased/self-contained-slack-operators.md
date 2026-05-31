@@ -9,5 +9,8 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-Make `slack::send` self-contained and add `slack::alert` for structured Slack
-alert messages. Both operators support replying to existing Slack threads.
+Slack delivery no longer requires a packaged pipeline around the webhook call.
+
+Use `slack::send` directly for message delivery, or `slack::alert` for
+structured alert messages. Both operators can post replies into an existing
+Slack thread when you provide the thread timestamp.

@@ -9,4 +9,10 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-Replace embedded Python collectors with `from_http` pagination and expose Sophos OCSF mappings as reusable operators.
+Sophos collection now uses native v6 HTTP pipelines instead of embedded Python
+collectors.
+
+Use the Sophos fetch operators with `from_http` pagination, then map alerts,
+detections, endpoint records, and SIEM events with the package OCSF operators.
+This makes Sophos onboarding easier to inspect, customize, and run in the v6
+executor.

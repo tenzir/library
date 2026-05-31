@@ -9,4 +9,9 @@ prs:
 created: 2026-05-31T19:17:14.994286Z
 ---
 
-The demo package no longer exposes package inputs for configuring demo source speed. The Suricata and Zeek demo source workflows now live as examples using reusable source operators.
+The demo package now provides Suricata and Zeek demo sources as reusable
+operators and examples instead of installing configured pipelines.
+
+Use the examples as starting points and pass source speed directly where you run
+the demo workflow. Installing the package no longer starts demo data generation
+through package inputs.

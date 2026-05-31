@@ -9,5 +9,14 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-Consolidated the OSINT enrichment and OCSF trimming utility packages into the
-new `tenzir` package with reusable utility operators.
+OSINT enrichment and OCSF trimming utilities now live in the `tenzir` package.
+
+Use the new namespaced utility operators in your pipelines:
+
+```tql
+tenzir::osint::enrich
+tenzir::trim
+```
+
+Installations that used the previous utility packages should switch to the
+corresponding `tenzir::*` operator names.

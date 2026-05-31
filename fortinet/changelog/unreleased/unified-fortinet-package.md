@@ -1,5 +1,5 @@
 ---
-title: Unify Fortinet package around FortiGate operators
+title: Unified Fortinet package
 type: breaking
 authors:
   - mavam

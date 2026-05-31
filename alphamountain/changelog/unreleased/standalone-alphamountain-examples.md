@@ -9,4 +9,9 @@ prs:
 created: 2026-05-31T19:17:14.980497Z
 ---
 
-The alphaMountain package no longer installs configured pipelines or package inputs. The context update and publishing workflows are now examples that you can adapt with explicit parameters for your deployment.
+The alphaMountain package now ships context update and publishing workflows as
+examples instead of installing configured pipelines with package inputs.
+
+Copy the examples into your own deployment and provide the API key, refresh
+interval, expiry, and risk threshold directly in the pipeline. This makes the
+package safe to install without starting background feed updates automatically.

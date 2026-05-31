@@ -9,4 +9,16 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-Receive FortiGate syslog datagrams with `accept_udp`.
+FortiGate syslog examples now use the v6 network source syntax.
+
+Replace UDP syslog receivers that used the old source form with `accept_udp`
+before parsing and mapping FortiGate logs:
+
+```tql
+from "udp://0.0.0.0:514" {
+  read_syslog
+}
+fortinet::fortigate::ocsf::map
+```
+
+This keeps FortiGate onboarding pipelines compatible with the v6 executor.

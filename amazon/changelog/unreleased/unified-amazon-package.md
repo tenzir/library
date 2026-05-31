@@ -1,5 +1,5 @@
 ---
-title: Consolidate Amazon packages into unified `amazon` package
+title: Unified Amazon package
 type: breaking
 authors:
   - mavam
