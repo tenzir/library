@@ -1,0 +1,33 @@
+---
+description: Authenticate with Sophos Central and emit tenant API context.
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+---
+
+let $token_url = "https://id.sophos.com/api/v2/oauth2/token"
+let $token_body = {
+  grant_type: "client_credentials",
+  client_id: $client_id,
+  client_secret: $client_secret,
+  scope: "token",
+}
+
+from_http $token_url, body=$token_body, encode="form"
+
+each {
+  from_http "https://api.central.sophos.com/whoami/v1",
+    headers={Authorization: f"Bearer {$this.access_token}"}
+  this = {
+    tenant_id: id,
+    api_host: apiHosts.dataRegion,
+    access_token: $this.access_token,
+    refresh_token: $this.refresh_token,
+  }
+}
+@name = "sophos.auth.tenant"

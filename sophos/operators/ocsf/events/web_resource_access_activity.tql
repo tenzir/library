@@ -1,17 +1,18 @@
 ---
-description: Sophos Cleanup Event → OCSF File Remediation Activity (7002)
+description: Sophos Web Filtering Event → OCSF Web Resource Access Activity (6004)
 ---
 
-@name = "ocsf.file_remediation_activity"
+@name = "ocsf.web_resource_access_activity"
 
 ocsf.metadata.product.name = "Sophos Endpoint"
 ocsf.metadata.log_name = "siem/events"
 ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 7
-ocsf.class_uid = 7002
-ocsf.activity_id = 2  // Evict
+ocsf.category_uid = 6
+ocsf.class_uid = 6004
+ocsf.activity_id = 2  // Access Deny
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.status_id = 2
 ocsf.time = now()
 if sophos.when? != null {
   ocsf.time = time(move sophos.when)
@@ -19,15 +20,13 @@ if sophos.when? != null {
   ocsf.time = time(move sophos.created_at)
 }
 
-ocsf.command_uid = ocsf.metadata.original_event_uid
-ocsf.status_detail = sophos.core_remedy_items.items[0].result?
+ocsf.message = move sophos.name?
+ocsf.status_detail = move sophos.threat?
 
-ocsf.device = {
-  uid: sophos.endpoint_id?,
-  name: sophos.location?,
-  hostname: sophos.location?,
-  type_id: 2,
+ocsf.src_endpoint = {
   ip: sophos.source_info?.ip?,
+  name: move sophos.location?,
+  hostname: sophos.location?,
 }
 
 ocsf.actor = {
@@ -40,8 +39,12 @@ ocsf.actor = {
   },
 }
 
-ocsf.file = {
-  path: sophos.core_remedy_items.items[0].descriptor?,
-  name: sophos.core_remedy_items.items[0].descriptor?.split("\\")[-1]?,
-  is_deleted: ocsf.status_detail == "DELETED",
+ocsf.http_request = {
+  uid: ocsf.metadata.original_event_uid,
 }
+
+ocsf.web_resources = [{
+  uid: ocsf.metadata.original_event_uid,
+  name: ocsf.status_detail,
+  type: "category",
+}]

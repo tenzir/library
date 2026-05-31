@@ -1,0 +1,63 @@
+---
+description: Sophos Endpoint → OCSF Device Inventory Info (5001)
+---
+
+@name = "ocsf.inventory_info"
+
+ocsf.metadata.product.name = "Sophos Endpoint"
+ocsf.metadata.log_name = "endpoints"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 5
+ocsf.class_uid = 5001
+ocsf.activity_id = 2  // Collect
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = now()
+if sophos.lastSeenAt? != null {
+  ocsf.time = time(move sophos.lastSeenAt)
+} else if sophos.registeredAt? != null {
+  ocsf.time = time(move sophos.registeredAt)
+}
+
+let $os_type_ids = {
+  windows: 100,
+  linux: 200,
+  macos: 300,
+}
+let $device_type_ids = {
+  computer: 2,
+  server: 1,
+}
+
+ocsf.device = {
+  uid: ocsf.metadata.original_event_uid,
+  name: sophos.hostname?,
+  hostname: sophos.hostname?,
+  type_id: $device_type_ids[sophos.type]? else 0,
+  ip: sophos.ipv4Addresses[0]?,
+  os: {
+    name: move sophos.os.name?,
+    type_id: $os_type_ids[sophos.os.platform]? else 0,
+    build: string(move sophos.os.build?),
+  },
+  hw_info: {
+    serial_number: move sophos.serialNumber?,
+  },
+  owner: {
+    uid: move sophos.associatedPerson.id?,
+    name: sophos.associatedPerson.name?.split("\\")[-1]?,
+    domain: sophos.associatedPerson.name?.split("\\")[0]?,
+    full_name: move sophos.associatedPerson.name?,
+    type_id: 1,
+  },
+  groups: [{
+    uid: move sophos.group.id?,
+    name: move sophos.group.name?,
+  }],
+  first_seen_time: time(move sophos.registeredAt?),
+  last_seen_time: ocsf.time,
+  is_managed: true,
+  is_trusted: move sophos.tamperProtectionEnabled?,
+}
+
+ocsf.status_detail = move sophos.health.overall?

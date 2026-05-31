@@ -1,0 +1,82 @@
+---
+description: Sophos → OCSF
+---
+
+this = {sophos: this}
+ocsf = {}
+
+ocsf.metadata = {
+  product: {
+    vendor_name: "Sophos",
+    feature: {
+      name: "Sophos Central",
+    },
+  },
+  version: "1.8.0",
+}
+
+if sophos.customer_id? != null {
+  ocsf.metadata.tenant_uid = move sophos.customer_id
+}
+if sophos.tenant?.id? != null {
+  ocsf.metadata.tenant_uid = move sophos.tenant.id
+}
+if sophos.id? != null {
+  ocsf.metadata.original_event_uid = move sophos.id
+}
+if sophos.data? != null and sophos.data.correlation_id? != null {
+  ocsf.metadata.correlation_uid = move sophos.data.correlation_id
+}
+
+let $severities = {
+  informational: 1,
+  info: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  critical: 5,
+}
+ocsf.severity_id = 1
+if sophos.severity? != null {
+  ocsf.severity_id = $severities[sophos.severity]? else 1
+}
+
+match @name {
+  "sophos.endpoint" => {
+    sophos::ocsf::events::endpoint
+  }
+  "sophos.detection" => {
+    sophos::ocsf::events::detection
+  }
+  "sophos.common.alert" => {
+    sophos::ocsf::events::common_alert
+  }
+  "sophos.alert" => {
+    sophos::ocsf::events::alert
+  }
+  "sophos.event" => {
+    match sophos.type {
+      "Event::Endpoint::CoreDetection" |
+      "Event::Endpoint::CorePuaDetection" |
+      "Event::Endpoint::CorePuaRemoteDetection" |
+      "Event::Endpoint::HmpaExploitPrevented" => {
+        sophos::ocsf::events::siem_detection
+      }
+      "Event::Endpoint::CoreClean" |
+      "Event::Endpoint::CorePuaClean" => {
+        sophos::ocsf::events::file_remediation_activity
+      }
+      "Event::Endpoint::WebFilteringBlocked" => {
+        sophos::ocsf::events::web_resource_access_activity
+      }
+      _ => {
+        sophos::ocsf::base
+      }
+    }
+  }
+  _ => {
+    sophos::ocsf::base
+  }
+}
+
+this = {...ocsf, unmapped: sophos}

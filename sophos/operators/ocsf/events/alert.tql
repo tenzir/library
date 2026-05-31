@@ -1,0 +1,91 @@
+---
+description: Sophos Alert → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.product.name = "Sophos Endpoint"
+ocsf.metadata.log_name = "alerts"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = now()
+if sophos.raisedAt? != null {
+  ocsf.time = time(move sophos.raisedAt)
+} else if sophos.when? != null {
+  ocsf.time = time(move sophos.when)
+} else if sophos.created_at? != null {
+  ocsf.time = time(move sophos.created_at)
+}
+
+let $statuses = {
+  open: 1,
+  inProgress: 2,
+  suppressed: 3,
+  resolved: 4,
+  closed: 4,
+}
+ocsf.status_id = 1
+if sophos.status? != null {
+  ocsf.status_id = $statuses[move sophos.status]? else 1
+}
+
+ocsf.finding_info = {
+  uid: ocsf.metadata.original_event_uid,
+  uid_alt: move sophos.event_service_event_id?,
+  title: sophos.threat? else sophos.type?,
+  desc: move sophos.description?,
+  created_time: time(move sophos.created_at?),
+  first_seen_time: ocsf.time,
+  modified_time: time(move sophos.updatedAt?),
+  product: {
+    name: move sophos.product?,
+    vendor_name: "Sophos",
+  },
+  types: [move sophos.category?],
+}
+
+ocsf.device = {
+  uid: sophos.data?.endpoint_id? else sophos.managedAgent?.id?,
+  name: sophos.location? else sophos.managedAgent?.name?,
+  hostname: sophos.location? else sophos.managedAgent?.name?,
+  type_id: 2,
+  ip: sophos.data?.source_info?.ip?,
+}
+
+ocsf.evidences = [{
+  uid: ocsf.finding_info.uid_alt,
+  device: ocsf.device?,
+  actor: {
+    user: {
+      uid: move sophos.person?.id?,
+      name: sophos.source?.split("\\")[-1]? else sophos.person?.name?.split("\\")[-1]?,
+      domain: sophos.source?.split("\\")[0]? else sophos.person?.name?.split("\\")[0]?,
+      full_name: sophos.source? else sophos.person?.name?,
+      type_id: 1,
+    },
+  },
+  file: {
+    path: move sophos.data?.app_path?,
+    name: sophos.data?.app_path?.split("\\")[-1]?,
+    hashes: [{
+      algorithm_id: 3,
+      value: move sophos.data?.app_sha256?,
+    }],
+  },
+  src_endpoint: {
+    ip: sophos.data?.source_info?.ip?,
+  },
+}]
+
+ocsf.resources = [{
+  uid: ocsf.device.uid,
+  name: ocsf.device.hostname,
+  type: "Device",
+  role_id: 3,
+}]
+
+ocsf.is_alert = true
