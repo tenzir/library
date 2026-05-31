@@ -6,6 +6,8 @@ authors:
   - claude
 components:
   - amazon
+prs:
+  - 147
 created: 2025-12-18T00:00:00Z
 ---
 

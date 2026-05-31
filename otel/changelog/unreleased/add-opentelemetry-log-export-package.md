@@ -5,6 +5,8 @@ authors:
   - mavam
 components:
   - otel
+prs:
+  - 147
 created: 2026-03-13T08:25:41Z
 ---
 
