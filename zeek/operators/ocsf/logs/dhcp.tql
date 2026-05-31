@@ -9,9 +9,7 @@ description: |
 // DORA "session". See https://docs.zeek.org/en/master/logs/dhcp.html for
 // details. In OCSF, an event represents a single DORA message, which is
 // why we simply unroll the array.
-unroll msg_types
-
-this = { zeek: this }
+unroll zeek.msg_types
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -45,7 +43,9 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.metadata.log_name = "dhcp.log"
 // The `uids` field in the DHCP log is an array of all conn UIDs. To keep at
 // least the uniqueness constraint intact, we sort and join them.
-ocsf.metadata.uid = sort(move zeek.uids).join(",")
+zeek._uids = sort(move zeek.uids).join(",")
+ocsf.metadata.original_event_uid = zeek._uids
+ocsf.metadata.correlation_uid = move zeek._uids
 
 // --- OCSF: primary attributes -----------------
 
@@ -57,9 +57,6 @@ ocsf.src_endpoint.domain = move zeek.client_fqdn?
 ocsf.src_endpoint.mac = move zeek.mac?
 ocsf.dst_endpoint.ip = move zeek.server_addr?
 ocsf.dst_endpoint.domain = move zeek.domain?
-ocsf.lease_dur = (move zeek.lease_time?).seconds()
+ocsf.lease_dur = int(move zeek.lease_time?)
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.dhcp_activity"

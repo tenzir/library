@@ -11,9 +11,11 @@ if type_of(zeek.ts).kind == "time" {
   ocsf.time = (move zeek.ts).seconds().from_epoch()
 }
 if zeek.has("duration") {
-  ocsf.duration = (move zeek.duration).seconds()
+  zeek._duration = (move zeek.duration).seconds()
+  ocsf.duration = count_milliseconds(zeek._duration).round()
   ocsf.start_time = ocsf.time
-  ocsf.end_time = ocsf.time + ocsf.duration
+  ocsf.end_time = ocsf.time + zeek._duration
+  drop zeek._duration
 }
 
 // --- OCSF: context attributes -----------------
@@ -25,6 +27,9 @@ ocsf.metadata = {
     vendor_name: "Zeek",
     cpe_name: "cpe:2.3:a:zeek:zeek",
   },
-  uid: move zeek.uid?, // DHCP logs don't have a uid field
   version: "1.8.0",
+}
+if zeek.uid? != null {
+  ocsf.metadata.original_event_uid = zeek.uid
+  ocsf.metadata.correlation_uid = move zeek.uid
 }

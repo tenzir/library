@@ -3,9 +3,6 @@ description: |
   Zeek ssh.log → OCSF SSH Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -83,34 +80,37 @@ drop zeek.direction
 ocsf.src_endpoint.agent_list = [{
   name: move zeek.client,
   type: "Remote Access",
-  type_uid: 9,
+  type_id: 9,
 }]
 ocsf.dst_endpoint.agent_list = [{
   name: move zeek.server,
   type: "Remote Access",
-  type_uid: 9,
+  type_id: 9,
 }]
 
 ocsf.server_hassh = {
   algorithm: move zeek.hasshServerAlgorithms,
-  fingerprint: move zeek.hasshServer,
+  fingerprint: {
+    algorithm_id: 20,
+    value: move zeek.hasshServer,
+  },
 }
 ocsf.client_hassh = {
   algorithm: move zeek.hasshAlgorithms,
-  fingerprint: move zeek.hassh,
+  fingerprint: {
+    algorithm_id: 20,
+    value: move zeek.hassh,
+  },
 }
 
 // The Authentication Type can be deduced if we have the `inferences`
 // package.
 if "KS" in zeek.inferences {
-  ocsf.auth_type_uid = 4
+  ocsf.auth_type_id = 4
   ocsf.auth_type = "Keyboard Interactive"
 } else {
-  ocsf.auth_type_uid = 0
+  ocsf.auth_type_id = 0
   ocsf.auth_type = "Unknown"
 }
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.ssh_activity"

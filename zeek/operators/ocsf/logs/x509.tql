@@ -3,9 +3,6 @@ description: |
   Zeek x509.log → OCSF Network Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -29,8 +26,6 @@ ocsf.tls = {
     expiration_time: move zeek.certificate.not_valid_after,
     issuer: move zeek.certificate.issuer,
     subject: move zeek.certificate.subject,
-    // NB: [null].collect() yields the empty array.
-    fingerprints: [move zeek.fingerprint?].collect(),
     version: (move zeek.certificate.version).string(),
   },
   sans: (move zeek.san.dns).map(name => {
@@ -39,8 +34,11 @@ ocsf.tls = {
   }),
   version: null,
 }
+if zeek.fingerprint? != null {
+  ocsf.tls.certificate.fingerprints = [{
+    algorithm_id: 3,
+    value: move zeek.fingerprint,
+  }]
+}
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.network_activity"
