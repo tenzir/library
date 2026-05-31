@@ -1,14 +1,19 @@
 ---
 name: Onboard Sophos SIEM Integration API (Alerts)
 description: |
-  Periodically fetches alerts from the Sophos SIEM Integration API.
+  Fetches recent alerts from the Sophos SIEM Integration API.
 ---
 
-every 60s {
+let $interval = 60s
+let $safety_margin = 5min
+let $dedup_slack = 1min
+
+every $interval {
   sophos::siem::fetch \
     client_id="CLIENT_ID",
     client_secret=secret("CLIENT_SECRET"),
-    endpoint="alerts"
+    endpoint="alerts",
+    from_date=(now() - $interval - $safety_margin).since_epoch().count_seconds().round()
 }
-deduplicate id, create_timeout=25h
+deduplicate id, create_timeout=$interval + $safety_margin + $dedup_slack
 publish "sophos"
