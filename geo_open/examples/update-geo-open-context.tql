@@ -1,0 +1,17 @@
+---
+name: Update Geo Open context
+description: |
+  Fetches the latest country+ASN MMDB file daily and loads it into the Geo Open
+  context.
+---
+
+every 24h {
+  from_http "https://cra.circl.lu/opendata/geo-open/mmdb-country-asn/latest.mmdb" {
+    // Hack: `from_http` needs a bytes-to-events parser pipeline, but
+    // `context::load` is bytes-to-void. This awkward round-trip reads the MMDB
+    // into one blob event and writes it back as bytes for the context loader.
+    read_all binary=true
+  }
+  write_all data
+  context::load "geo-open"
+}

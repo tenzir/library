@@ -1,8 +1,3 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
 /*
@@ -19,14 +14,17 @@ let $krb5_activity_map = {
   KRB_TGS_REP: 4,
 }
 
-// Determine activity_id based on message type and error details
-if suricata.krb5.msg_type == "KRB_ERROR" and suricata.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" {
-  ocsf.activity_id = 6
-} else if suricata.krb5.msg_type == "KRB_ERROR" {
-  // For other errors, map based on the failed_request field
-  ocsf.activity_id = $krb5_activity_map[suricata.krb5.failed_request?]? else 99
-} else {
-  ocsf.activity_id = $krb5_activity_map[suricata.krb5.msg_type]? else 99
+match suricata.krb5.msg_type {
+  "KRB_ERROR" if suricata.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
+    ocsf.activity_id = 6
+  }
+  "KRB_ERROR" => {
+    // For other errors, map based on the failed_request field.
+    ocsf.activity_id = $krb5_activity_map[suricata.krb5.failed_request?]? else 99
+  }
+  _ => {
+    ocsf.activity_id = $krb5_activity_map[suricata.krb5.msg_type]? else 99
+  }
 }
 
 ocsf.category_uid = 3
@@ -129,6 +127,4 @@ drop suricata.krb5.msg_type
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.authentication"
-ocsf::derive

@@ -1,11 +1,8 @@
 ---
 description: |
-  Maps Zeek's ssh.log to OCSF SSH Activity events.
+  Zeek ssh.log → OCSF SSH Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -15,24 +12,19 @@ zeek::ocsf::map_network
 // connection and must assume data is being exchanged, even if it's just
 // the SSH handshake.
 ocsf.activity_id = 6
-ocsf.activity_name = "Traffic"
 ocsf.class_uid = 4007
-ocsf.class_name = "SSH Activity"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 if "ABP" in zeek.inferences or "BFS" in zeek.inferences {
   // Client authentication bypass (ABP) or brute force success (BFS) are
   // worthwhile escalating.
   ocsf.severity_id = 4
-  ocsf.severity = "High"
 } else if "BF" in zeek.inferences or "SV" in zeek.inferences or "SC" in zeek.inferences or "SP" in zeek.inferences {
   // Noteworthy are brute force attempts (BF), version scanning (SV),
   // capability scanning (SC), or other scanning (SP).
   ocsf.severity_id = 3
-  ocsf.severity = "Medium"
 } else {
   // Everything else is standard.
   ocsf.severity_id = 1
-  ocsf.severity = "Informational"
 }
 
 // --- OCSF: occurence attributes ---------------
@@ -83,34 +75,37 @@ drop zeek.direction
 ocsf.src_endpoint.agent_list = [{
   name: move zeek.client,
   type: "Remote Access",
-  type_uid: 9,
+  type_id: 9,
 }]
 ocsf.dst_endpoint.agent_list = [{
   name: move zeek.server,
   type: "Remote Access",
-  type_uid: 9,
+  type_id: 9,
 }]
 
 ocsf.server_hassh = {
   algorithm: move zeek.hasshServerAlgorithms,
-  fingerprint: move zeek.hasshServer,
+  fingerprint: {
+    algorithm_id: 20,
+    value: move zeek.hasshServer,
+  },
 }
 ocsf.client_hassh = {
   algorithm: move zeek.hasshAlgorithms,
-  fingerprint: move zeek.hassh,
+  fingerprint: {
+    algorithm_id: 20,
+    value: move zeek.hassh,
+  },
 }
 
 // The Authentication Type can be deduced if we have the `inferences`
 // package.
 if "KS" in zeek.inferences {
-  ocsf.auth_type_uid = 4
+  ocsf.auth_type_id = 4
   ocsf.auth_type = "Keyboard Interactive"
 } else {
-  ocsf.auth_type_uid = 0
+  ocsf.auth_type_id = 0
   ocsf.auth_type = "Unknown"
 }
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.ssh_activity"

@@ -1,21 +1,15 @@
 ---
 description: |
-  Maps Zeek's x509.log to OCSF Network Activity events.
+  Zeek x509.log → OCSF Network Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
 
 ocsf.activity_id = 6
-ocsf.activity_name = "Traffic"
 ocsf.class_uid = 4001
-ocsf.class_name = "Network Activity"
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
@@ -29,8 +23,6 @@ ocsf.tls = {
     expiration_time: move zeek.certificate.not_valid_after,
     issuer: move zeek.certificate.issuer,
     subject: move zeek.certificate.subject,
-    // NB: [null].collect() yields the empty array.
-    fingerprints: [move zeek.fingerprint?].collect(),
     version: (move zeek.certificate.version).string(),
   },
   sans: (move zeek.san.dns).map(name => {
@@ -39,8 +31,11 @@ ocsf.tls = {
   }),
   version: null,
 }
+if zeek.fingerprint? != null {
+  ocsf.tls.certificate.fingerprints = [{
+    algorithm_id: 3,
+    value: move zeek.fingerprint,
+  }]
+}
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.network_activity"

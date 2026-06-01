@@ -1,24 +1,56 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
-// Overwrite map_common
 ocsf.category_uid = 2
-ocsf.category_name = "Findings"
 
 ocsf.activity_id = 1 // Create
 ocsf.class_uid = 2004
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
-let $severities = [0, 4, 3, 2]
-ocsf.severity_id = $severities[move suricata.alert.severity]
+ocsf.metadata.profiles = ["security_control"]
+
+let $severities = [0, 4, 3, 2, 1]
+ocsf.severity_id = $severities[suricata.alert.severity]? else 0
+drop suricata.alert.severity
 
 // --- OCSF: primary attributes -----------------
 
 ocsf.is_alert = true
+
+if suricata.alert.action? != null {
+  match suricata.alert.action {
+    "allowed" => {
+      ocsf.action_id = 1
+      ocsf.disposition_id = 1
+      drop suricata.alert.action
+    }
+    "blocked" => {
+      ocsf.action_id = 2
+      ocsf.disposition_id = 2
+      drop suricata.alert.action
+    }
+    _ => {
+      ocsf.action = move suricata.alert.action
+      ocsf.action_id = 99
+      ocsf.disposition = ocsf.action
+      ocsf.disposition_id = 99
+    }
+  }
+}
+
+if suricata.alert.metadata?.confidence? != null {
+  let $confidence_ids = {
+    low: 1,
+    medium: 2,
+    high: 3,
+  }
+  suricata.alert._confidence = suricata.alert.metadata.confidence[0]
+  ocsf.confidence_id = $confidence_ids[suricata.alert._confidence.to_lower()]? else 99
+  if ocsf.confidence_id == 99 {
+    ocsf.confidence = suricata.alert._confidence
+  }
+  drop suricata.alert._confidence
+  drop suricata.alert.metadata.confidence
+}
 
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
@@ -49,27 +81,28 @@ if suricata.smb?.filename? != null {
   _evidence.file = move ocsf.file
 }
 if this.has("_evidence") {
-  ocsf.evidences = [move _evidence]
+  ocsf.evidences = [_evidence]
+  drop _evidence
 }
 
 ocsf.finding_info = {
   analytic: {
-    // The generator ID is a reasonable field for algorithm.
-    algorithm: (move suricata.alert.gid).string(),
-    category: move suricata.alert.category,
-    name: move suricata.alert.signature,
     type: "Rule",
     type_id: 1,
-    uid: (move suricata.alert.signature_id).string(),
-    version: (move suricata.alert.rev).string(),
   },
-  // TODO: make deterministic in testing
-  //uid: uuid(version="v7"), // required attribute
 }
+// The generator ID is a reasonable field for algorithm.
+ocsf.finding_info.analytic.algorithm = suricata.alert.gid.string()
+ocsf.finding_info.analytic.category = move suricata.alert.category
+ocsf.finding_info.analytic.name = move suricata.alert.signature
+ocsf.finding_info.analytic.uid = suricata.alert.signature_id.string()
+ocsf.finding_info.analytic.version = suricata.alert.rev.string()
+drop suricata.alert.gid
+drop suricata.alert.signature_id
+drop suricata.alert.rev
+ocsf.finding_info.uid = ocsf.finding_info.analytic.uid
 ocsf.finding_info.title = ocsf.finding_info.analytic.name
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.detection_finding"
-ocsf::derive

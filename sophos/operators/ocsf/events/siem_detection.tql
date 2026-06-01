@@ -1,0 +1,69 @@
+---
+description: Sophos SIEM Event → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.product.name = "Sophos Endpoint"
+ocsf.metadata.log_name = "siem/events"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = now()
+if sophos.when? != null {
+  ocsf.time = time(move sophos.when)
+} else if sophos.created_at? != null {
+  ocsf.time = time(move sophos.created_at)
+}
+ocsf.status_id = 1
+
+ocsf.finding_info = {
+  uid: ocsf.metadata.original_event_uid,
+  title: sophos.threat? else sophos.name? else sophos.type?,
+  desc: move sophos.name?,
+  created_time: time(move sophos.created_at?),
+  product: {
+    name: move sophos.origin?,
+    vendor_name: "Sophos",
+  },
+  types: [move sophos.group?],
+}
+
+ocsf.device = {
+  uid: sophos.endpoint_id?,
+  name: sophos.location?,
+  hostname: sophos.location?,
+  type_id: 2,
+  ip: sophos.source_info?.ip?,
+}
+
+ocsf.evidences = [{
+  device: ocsf.device?,
+  actor: {
+    user: {
+      uid: move sophos.user_id?,
+      name: sophos.source?.split("\\")[-1]?,
+      domain: sophos.source?.split("\\")[0]?,
+      full_name: move sophos.source?,
+      type_id: 1,
+    },
+  },
+  src_endpoint: {
+    ip: sophos.source_info?.ip?,
+  },
+  data: {
+    file_sha256: move sophos.appSha256?,
+  },
+}]
+
+ocsf.resources = [{
+  uid: ocsf.device.uid,
+  name: ocsf.device.hostname,
+  type: "Device",
+  role_id: 3,
+}]
+
+ocsf.is_alert = true

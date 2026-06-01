@@ -1,25 +1,78 @@
-if @name == "zeek.conn" {
-  zeek::ocsf::logs::conn
-} else if @name == "zeek.dhcp" {
-  zeek::ocsf::logs::dhcp
-} else if @name == "zeek.dns" {
-  zeek::ocsf::logs::dns
-} else if @name == "zeek.ftp" {
-  zeek::ocsf::logs::ftp
-} else if @name == "zeek.http" {
-  zeek::ocsf::logs::http
-} else if @name == "zeek.rdp" {
-  zeek::ocsf::logs::rdp
-} else if @name == "zeek.smb_files" {
-  zeek::ocsf::logs::smb_files
-} else if @name == "zeek.smtp" {
-  zeek::ocsf::logs::smtp
-} else if @name == "zeek.ssh" {
-  zeek::ocsf::logs::ssh
-} else if @name == "zeek.ssl" {
-  zeek::ocsf::logs::ssl
-} else if @name == "zeek.x509" {
-  zeek::ocsf::logs::x509
-} else {
-  zeek::ocsf::base
+---
+description: Zeek log -> OCSF
+---
+
+this = {zeek: this}
+ocsf = {}
+
+// --- OCSF: occurrence attributes --------------
+
+if type_of(zeek.ts).kind == "time" {
+  ocsf.time = move zeek.ts
+} else if type_of(zeek.ts).kind == "double" {
+  ocsf.time = (move zeek.ts).seconds().from_epoch()
 }
+if zeek.has("duration") {
+  zeek._duration = (move zeek.duration).seconds()
+  ocsf.duration = count_milliseconds(zeek._duration).round()
+  ocsf.start_time = ocsf.time
+  ocsf.end_time = ocsf.time + zeek._duration
+  drop zeek._duration
+}
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  logged_time: move zeek._write_ts?,
+  product: {
+    name: "Zeek",
+    vendor_name: "Zeek",
+    cpe_name: "cpe:2.3:a:zeek:zeek",
+  },
+  version: "1.8.0",
+}
+if zeek.uid? != null {
+  ocsf.metadata.original_event_uid = zeek.uid
+  ocsf.metadata.correlation_uid = move zeek.uid
+}
+
+match zeek._path? else @name {
+  "conn" | "zeek.conn" => {
+    zeek::ocsf::logs::conn
+  }
+  "dhcp" | "zeek.dhcp" => {
+    zeek::ocsf::logs::dhcp
+  }
+  "dns" | "zeek.dns" => {
+    zeek::ocsf::logs::dns
+  }
+  "ftp" | "zeek.ftp" => {
+    zeek::ocsf::logs::ftp
+  }
+  "http" | "zeek.http" => {
+    zeek::ocsf::logs::http
+  }
+  "rdp" | "zeek.rdp" => {
+    zeek::ocsf::logs::rdp
+  }
+  "smb_files" | "zeek.smb_files" => {
+    zeek::ocsf::logs::smb_files
+  }
+  "smtp" | "zeek.smtp" => {
+    zeek::ocsf::logs::smtp
+  }
+  "ssh" | "zeek.ssh" => {
+    zeek::ocsf::logs::ssh
+  }
+  "ssl" | "zeek.ssl" => {
+    zeek::ocsf::logs::ssl
+  }
+  "x509" | "zeek.x509" => {
+    zeek::ocsf::logs::x509
+  }
+  _ => {
+    zeek::ocsf::base
+  }
+}
+
+this = {...ocsf, unmapped: zeek}

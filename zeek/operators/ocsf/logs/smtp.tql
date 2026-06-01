@@ -1,6 +1,6 @@
 ---
 description: |
-  Maps Zeek's smtp.log to OCSF Email Activity events.
+  Zeek smtp.log → OCSF Email Activity.
 ---
 
 // TODO:
@@ -9,19 +9,14 @@ description: |
 // - Surface Zeek file UIDs (`fuids`) for corresponding Network File Activity
 //   events when possible.
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
+drop ocsf.connection_info?
 
 // --- OCSF: classification attributes ----------
 
 ocsf.activity_id = 1
-ocsf.activity_name = "Send"
 ocsf.class_uid = 4009
-ocsf.class_name = "Email Activity"
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
@@ -43,9 +38,7 @@ ocsf.email = {
   subject: move zeek.subject,
 }
 ocsf.command = move zeek.helo
+ocsf.protocol_name = "SMTP"
 ocsf.status_detail = move zeek.last_reply
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.email_activity"

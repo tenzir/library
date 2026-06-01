@@ -1,0 +1,48 @@
+---
+description: Fetch items from the Sophos SIEM Integration API
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+    - name: endpoint
+      description: SIEM endpoint to fetch, either `events` or `alerts`.
+      type: string
+    - name: limit
+      description: >-
+        The maximum number of items to return per page.
+        (API default and min is 200; max is 1,000)
+      type: int
+      default: 1000
+    - name: from_date
+      description: >-
+        Starting date from which data will be retrieved.
+        (Unix timestamp; must be within last 24 hours)
+      type: int
+      default: null
+---
+
+sophos::auth::tenant client_id=$client_id, client_secret=$client_secret
+
+each {
+  let $from = $from_date if $from_date != null else (now() - 24h).since_epoch().count_seconds().round()
+  let $url = f"{$this.api_host}/siem/v1/{$endpoint}?limit={$limit}&from={$from}"
+  let $headers = {
+    "X-Tenant-ID": $this.tenant_id,
+    Authorization: f"Bearer {$this.access_token}",
+  }
+  from_http $url,
+    headers= $headers,
+    paginate=(x => f"{$url}&cursor={x.next_cursor}" if x.has_more)
+  unroll items
+  this = items
+}
+
+if $endpoint == "alerts" {
+  @name = "sophos.alert"
+} else {
+  @name = "sophos.event"
+}

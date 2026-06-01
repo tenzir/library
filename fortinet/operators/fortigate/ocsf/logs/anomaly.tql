@@ -11,20 +11,20 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 ocsf.is_alert = true
 
-drop ocsf.unmapped.eventtype
+drop fortinet.eventtype
 
 // `attack` is the anomaly/DoS signature name; `attackid` is its numeric ID.
 // Cache attackid as a temp field so both uid slots can reference it without
 // consuming it on first use (let doesn't support move).
-ocsf._attackid = (move ocsf.unmapped.attackid).string()
+ocsf._attackid = (move fortinet.attackid).string()
 ocsf.finding_info = {
   uid: ocsf._attackid,
-  title: ocsf.unmapped.attack,
-  src_url: move ocsf.unmapped.ref,
+  title: fortinet.attack,
+  src_url: move fortinet.ref,
   analytic: {
     type_id: 1,  // Rule
     uid: ocsf._attackid,
-    name: move ocsf.unmapped.attack,
+    name: move fortinet.attack,
   },
 }
 drop ocsf._attackid
@@ -48,17 +48,17 @@ if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
 // Security-control profile: `policytype` identifies the policy table (e.g.
 // "DoS-policy"); extend firewall_rule after the common UDO sets uid.
 fortinet::fortigate::ocsf::security_control
-if ocsf.unmapped.policytype? != null {
-  ocsf.firewall_rule.type = move ocsf.unmapped.policytype
+if fortinet.policytype? != null {
+  ocsf.firewall_rule.type = move fortinet.policytype
 }
 
-if ocsf.unmapped.action? != null {
+if fortinet.action? != null {
   let $dispositions = {
     "clear_session": 6,   // Dropped
     pass: 1,
     block: 2,
   }
-  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
 }
 
 fortinet::fortigate::ocsf::risk

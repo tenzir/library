@@ -17,83 +17,83 @@ let $actions = {
 
 ocsf.category_uid = 4
 ocsf.class_uid = 4001
-ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.activity_id = $actions[move fortinet.action]? else 0
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
-  port: move ocsf.unmapped.srcport,
-  interface_name: move ocsf.unmapped.srcintf,
-  mac: move ocsf.unmapped.srcmac?,
+  ip: move fortinet.srcip,
+  port: move fortinet.srcport,
+  interface_name: move fortinet.srcintf,
+  mac: move fortinet.srcmac?,
 }
 
 ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
-  port: move ocsf.unmapped.dstport,
-  interface_name: move ocsf.unmapped.dstintf,
+  ip: move fortinet.dstip,
+  port: move fortinet.dstport,
+  interface_name: move fortinet.dstintf,
   // `service` is the application-layer protocol name for the destination port.
-  svc_name: move ocsf.unmapped.service,
+  svc_name: move fortinet.service,
 }
 
 // `srcintfrole`/`dstintfrole` are the network zones of the ingress/egress
 // interfaces (e.g. "lan", "wan", "dmz"). Map to endpoint.zone and derive
 // connection direction from the pairing when possible.
-if ocsf.unmapped.srcintfrole? != null {
-  ocsf.src_endpoint.zone = ocsf.unmapped.srcintfrole
+if fortinet.srcintfrole? != null {
+  ocsf.src_endpoint.zone = fortinet.srcintfrole
 }
-if ocsf.unmapped.dstintfrole? != null {
-  ocsf.dst_endpoint.zone = ocsf.unmapped.dstintfrole
+if fortinet.dstintfrole? != null {
+  ocsf.dst_endpoint.zone = fortinet.dstintfrole
 }
 ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.proto,
-  uid: (move ocsf.unmapped.sessionid).string(),
+  protocol_num: move fortinet.proto,
+  uid: (move fortinet.sessionid).string(),
   direction_id: 0,
 }
-if ocsf.unmapped.srcintfrole? == "lan" and ocsf.unmapped.dstintfrole? == "wan" {
+if fortinet.srcintfrole? == "lan" and fortinet.dstintfrole? == "wan" {
   ocsf.connection_info.direction_id = 2  // Outbound
-} else if ocsf.unmapped.srcintfrole? == "wan" and ocsf.unmapped.dstintfrole? == "lan" {
+} else if fortinet.srcintfrole? == "wan" and fortinet.dstintfrole? == "lan" {
   ocsf.connection_info.direction_id = 1  // Inbound
 }
-drop ocsf.unmapped.srcintfrole?
-drop ocsf.unmapped.dstintfrole?
+drop fortinet.srcintfrole?
+drop fortinet.dstintfrole?
 
 // `duration` is the session lifetime in seconds; `ocsf.time` is the end.
 ocsf.traffic = {
-  bytes_in: move ocsf.unmapped.rcvdbyte,
-  bytes_out: move ocsf.unmapped.sentbyte,
-  packets_in: move ocsf.unmapped.rcvdpkt?,
-  packets_out: move ocsf.unmapped.sentpkt,
+  bytes_in: move fortinet.rcvdbyte,
+  bytes_out: move fortinet.sentbyte,
+  packets_in: move fortinet.rcvdpkt?,
+  packets_out: move fortinet.sentpkt,
   end_time: ocsf.time,
-  start_time: ocsf.time - (move ocsf.unmapped.duration?).seconds(),
+  start_time: ocsf.time - (move fortinet.duration?).seconds(),
 }
 
 // `trandisp` is the NAT type applied; `transip`/`transport` are the translated
 // address/port. SNAT rewrites the source, DNAT rewrites the destination.
 // transip=0.0.0.0 means no effective translation (e.g. sniffer mode).
-if ocsf.unmapped.trandisp? == "snat" and ocsf.unmapped.transip? != 0.0.0.0 {
+if fortinet.trandisp? == "snat" and fortinet.transip? != 0.0.0.0 {
   ocsf.src_endpoint.proxy_endpoint = {
-    ip: move ocsf.unmapped.transip,
-    port: move ocsf.unmapped.transport,
+    ip: move fortinet.transip,
+    port: move fortinet.transport,
   }
-} else if ocsf.unmapped.trandisp? == "dnat" and ocsf.unmapped.transip? != 0.0.0.0 {
+} else if fortinet.trandisp? == "dnat" and fortinet.transip? != 0.0.0.0 {
   ocsf.dst_endpoint.proxy_endpoint = {
-    ip: move ocsf.unmapped.transip,
-    port: move ocsf.unmapped.transport,
+    ip: move fortinet.transip,
+    port: move fortinet.transport,
   }
 }
-drop ocsf.unmapped.trandisp?
-drop ocsf.unmapped.transip?
-drop ocsf.unmapped.transport?
+drop fortinet.trandisp?
+drop fortinet.transip?
+drop fortinet.transport?
 
 // `app` is the application identified by deep packet inspection.
-if ocsf.unmapped.app? != null {
-  ocsf.app_name = move ocsf.unmapped.app
+if fortinet.app? != null {
+  ocsf.app_name = move fortinet.app
 }
 
 // `osname` is the source device OS as fingerprinted by FortiGate.
-if ocsf.unmapped.osname? != null {
+if fortinet.osname? != null {
   ocsf.src_endpoint.os = {
-    name: move ocsf.unmapped.osname,
+    name: move fortinet.osname,
   }
 }
 
@@ -105,19 +105,19 @@ ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
 // `policyid` is its numeric ID; `policytype` is the policy table
 // (e.g., "policy", "local-in-policy", "multicast-policy", "sniffer").
 ocsf.firewall_rule = {
-  uid: move ocsf.unmapped.poluuid?,
-  name: (move ocsf.unmapped.policyid).string(),
-  type: move ocsf.unmapped.policytype,
+  uid: move fortinet.poluuid?,
+  name: (move fortinet.policyid).string(),
+  type: move fortinet.policytype,
 }
 
 // `utmaction` is the outcome of the UTM/IPS engine, distinct from `action`
 // which reflects how the TCP/UDP session itself ended.
-if ocsf.unmapped.utmaction? != null {
+if fortinet.utmaction? != null {
   let $dispositions = {
     allow: 1,
     block: 2,
   }
-  ocsf.disposition_id = $dispositions[move ocsf.unmapped.utmaction]? else 0
+  ocsf.disposition_id = $dispositions[move fortinet.utmaction]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.

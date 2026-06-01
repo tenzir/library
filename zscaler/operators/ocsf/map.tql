@@ -2,9 +2,48 @@
 description: Zscaler → OCSF
 ---
 
-// Poor man's proxy log detection
-if this.has("requestmethod") {
+this = {zia: this}
+ocsf = {}
+
+// Clean up the original data.
+replace zia.bwthrottle, what="NO", with=false
+replace zia.bwthrottle, what="YES", with=true
+replace what="None", with=null
+replace what="N/A", with=null
+replace what="NA", with=null
+if zia.refererURL? != null {
+  zia.refererURL = zia.refererURL.trim("\"")
+}
+if zia.filetype? != null {
+  zia.filetype = zia.filetype.trim("\"")
+}
+
+ocsf.metadata = {
+  log_name: "NSS",
+  product: {
+    name: "Unknown",
+    vendor_name: "Zscaler",
+  },
+  version: "1.8.0",
+}
+if zia.product? != null {
+  ocsf.metadata.product.name = move zia.product
+}
+if zia.vendor? != null {
+  ocsf.metadata.product.vendor_name = move zia.vendor
+}
+if zia.event_id? != null {
+  ocsf.metadata.original_event_uid = string(move zia.event_id)
+}
+
+ocsf.severity_id = 0
+ocsf.time = now()
+
+// Poor man's proxy log detection.
+if zia.has("requestmethod") {
   zscaler::ocsf::zia::proxy
 } else {
   zscaler::ocsf::base
 }
+
+this = {...ocsf, unmapped: zia}

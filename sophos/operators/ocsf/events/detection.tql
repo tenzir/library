@@ -1,0 +1,71 @@
+---
+description: Sophos Detection → OCSF Detection Finding (2004)
+---
+
+@name = "ocsf.detection_finding"
+
+ocsf.metadata.product.name = "Sophos XDR"
+ocsf.metadata.log_name = "detections"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 2
+ocsf.class_uid = 2004
+ocsf.activity_id = 1  // Create
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = time(move sophos.time)
+ocsf.severity_id = int(sophos.severity)
+ocsf.risk_level_id = int(sophos.severity) - 1
+ocsf.confidence_score = int(sophos.intelixFileReputation[0].reputationScore?)
+ocsf.status_id = 3 if sophos.suppressed else 1
+
+ocsf.finding_info = {
+  uid: ocsf.metadata.original_event_uid,
+  title: sophos.rawData?.detection_name? else sophos.detectionRule? else sophos.type?,
+  desc: move sophos.ruleDescription?,
+  created_time: time(move sophos.sensorGeneratedAt?),
+  product: {
+    name: move sophos.sensor.source?,
+    version: move sophos.sensor.version?,
+    uid: move sophos.sensor.id?,
+    vendor_name: "Sophos",
+  },
+  types: [move sophos.attackType?, move sophos.detectionAttack?],
+}
+
+ocsf.device = {
+  uid: sophos.device?.id? else sophos.rawData?.customer_id?,
+  name: sophos.device?.entity? else sophos.rawData?.meta_hostname?,
+  hostname: sophos.device?.entity? else sophos.rawData?.meta_hostname?,
+  type_id: 2,
+}
+
+ocsf.evidences = [{
+  device: ocsf.device?,
+  actor: {
+    user: {
+      name: move sophos.rawData?.meta_username?,
+      type_id: 1,
+    },
+  },
+  process: {
+    name: move sophos.rawData?.process_name?,
+    cmd_line: move sophos.rawData?.process_cmd_line?,
+    file: {
+      path: move sophos.rawData?.process_path?,
+      name: sophos.rawData?.process_path?.split("\\")[-1]?,
+      hashes: [{
+        algorithm_id: 3,
+        value: move sophos.rawData?.process_sha256?,
+      }],
+    },
+  },
+}]
+
+ocsf.resources = [{
+  uid: ocsf.device.uid,
+  name: ocsf.device.hostname,
+  type: "Device",
+  role_id: 3,
+}]
+
+ocsf.is_alert = true

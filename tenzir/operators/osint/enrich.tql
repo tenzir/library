@@ -1,0 +1,34 @@
+---
+description: Enriches OCSF network events with OSINT objects from a context.
+args:
+  named:
+    - name: context_name
+      type: string
+      default: ocsf-osint
+      description: Lookup-table context to query.
+---
+
+if category_uid == 4 {
+  if src_endpoint?.ip? != null {
+    context::enrich $context_name,
+      key=src_endpoint.ip,
+      into=osint,
+      mode="append"
+  }
+  if dst_endpoint?.ip? != null {
+    context::enrich $context_name,
+      key=dst_endpoint.ip,
+      into=osint,
+      mode="append"
+  }
+  if class_uid == 4003 and query?.hostname? != null {
+    context::enrich $context_name,
+      key=query.hostname,
+      into=osint,
+      mode="append"
+  }
+}
+
+if this.has("osint") {
+  metadata.profiles = metadata?.profiles?.add("osint")
+}

@@ -1,0 +1,85 @@
+---
+description: Continuously fetch Sophos detections as a stream.
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+    - name: interval
+      description: How often to start a detections query.
+      type: duration
+      default: 60s
+    - name: safety_margin
+      description: Additional lookback to avoid missing delayed detections.
+      type: duration
+      default: 5min
+    - name: dedup_slack
+      description: Additional deduplication time beyond the intentional overlap.
+      type: duration
+      default: 5min
+    - name: page_size
+      description: Number of detections to request per results page.
+      type: int
+      default: 500
+---
+
+let $poll_schedule = [5s, 15s, 30s, 60s]
+
+every $interval {
+  let $to = now()
+  let $from = $to - $interval - $safety_margin
+
+  sophos::auth::tenant client_id=$client_id, client_secret=$client_secret
+
+  each {
+    let $auth = $this
+    let $headers = {
+      "X-Tenant-ID": $auth.tenant_id,
+      Authorization: f"Bearer {$auth.access_token}",
+    }
+    from_http f"{$auth.api_host}/detections/v1/queries/detections",
+      headers=$headers,
+      body={from: f"{$from}", to: f"{$to}"}
+    auth = $auth
+  }
+
+  poll_after = $poll_schedule
+  unroll poll_after
+  poll_at = createdAt + poll_after
+  delay poll_at
+
+  each {
+    let $auth = $this.auth
+    let $run_id = $this.id
+    let $headers = {
+      "X-Tenant-ID": $auth.tenant_id,
+      Authorization: f"Bearer {$auth.access_token}",
+    }
+    from_http f"{$auth.api_host}/detections/v1/queries/detections/{$run_id}",
+      headers=$headers
+    auth = $auth
+  }
+  where status == "finished" and result == "succeeded"
+  deduplicate id, create_timeout=$interval + $safety_margin + $dedup_slack
+
+  each {
+    let $auth = $this.auth
+    let $run_id = $this.id
+    let $url = f"{$auth.api_host}/detections/v1/queries/detections/{$run_id}/results?pageSize={$page_size}"
+    let $headers = {
+      "X-Tenant-ID": $auth.tenant_id,
+      Authorization: f"Bearer {$auth.access_token}",
+    }
+    from_http $url,
+      headers=$headers,
+      paginate=(x => f"{$url}&page={x.pages.current + 1}" if x.pages.current < x.pages.total)
+    unroll items
+    this = items
+  }
+}
+
+deduplicate id, create_timeout=$interval + $safety_margin + $dedup_slack
+@name = "sophos.detection"

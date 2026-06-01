@@ -1,0 +1,47 @@
+---
+description: Sophos Cleanup Event → OCSF File Remediation Activity (7002)
+---
+
+@name = "ocsf.file_remediation_activity"
+
+ocsf.metadata.product.name = "Sophos Endpoint"
+ocsf.metadata.log_name = "siem/events"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 7
+ocsf.class_uid = 7002
+ocsf.activity_id = 2  // Evict
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.time = now()
+if sophos.when? != null {
+  ocsf.time = time(move sophos.when)
+} else if sophos.created_at? != null {
+  ocsf.time = time(move sophos.created_at)
+}
+
+ocsf.command_uid = ocsf.metadata.original_event_uid
+ocsf.status_detail = sophos.core_remedy_items.items[0].result?
+
+ocsf.device = {
+  uid: sophos.endpoint_id?,
+  name: sophos.location?,
+  hostname: sophos.location?,
+  type_id: 2,
+  ip: sophos.source_info?.ip?,
+}
+
+ocsf.actor = {
+  user: {
+    uid: move sophos.user_id?,
+    name: sophos.source?.split("\\")[-1]?,
+    domain: sophos.source?.split("\\")[0]?,
+    full_name: move sophos.source?,
+    type_id: 1,
+  },
+}
+
+ocsf.file = {
+  path: sophos.core_remedy_items.items[0].descriptor?,
+  name: sophos.core_remedy_items.items[0].descriptor?.split("\\")[-1]?,
+  is_deleted: ocsf.status_detail == "DELETED",
+}

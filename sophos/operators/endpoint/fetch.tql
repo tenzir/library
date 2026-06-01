@@ -1,0 +1,35 @@
+---
+description: Fetch endpoint inventory from the Sophos Endpoint API.
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+    - name: page_size
+      description: Number of endpoints to request per page.
+      type: int
+      default: 500
+    - name: view
+      description: Endpoint view to request.
+      type: string
+      default: full
+---
+
+sophos::auth::tenant client_id=$client_id, client_secret=$client_secret
+
+each {
+  let $url = f"{$this.api_host}/endpoint/v1/endpoints?pageSize={$page_size}&view={$view}"
+  let $headers = {
+    "X-Tenant-ID": $this.tenant_id,
+    Authorization: f"Bearer {$this.access_token}",
+  }
+  from_http $url,
+    headers=$headers,
+    paginate=(x => f"{$url}&pageFromKey={x.pages.nextKey}" if x.pages.nextKey != null)
+  unroll items
+  this = items
+}
+@name = "sophos.endpoint"

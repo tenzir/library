@@ -1,0 +1,86 @@
+---
+description: FoxIO JA4+ fingerprints -> OCSF OSINT Inventory Info
+---
+
+this = {foxio: this}
+
+fingerprint = [
+  {
+    field: "ja4_fingerprint",
+    type: "JA4",
+    value: foxio.ja4_fingerprint?,
+  },
+  {
+    field: "ja4h_fingerprint",
+    type: "JA4HTTP",
+    value: foxio.ja4h_fingerprint?,
+  },
+  {
+    field: "ja4s_fingerprint",
+    type: "JA4Server",
+    value: foxio.ja4s_fingerprint?,
+  },
+  {
+    field: "ja4t_fingerprint",
+    type: "JA4TCP",
+    value: foxio.ja4t_fingerprint?,
+  },
+  {
+    field: "ja4ts_fingerprint",
+    type: "JA4TCPServer",
+    value: foxio.ja4ts_fingerprint?,
+  },
+  {
+    field: "ja4tscan_fingerprint",
+    type: "JA4TCPScan",
+    value: foxio.ja4tscan_fingerprint?,
+  },
+  {
+    field: "ja4x_fingerprint",
+    type: "JA4X509",
+    value: foxio.ja4x_fingerprint?,
+  },
+]
+unroll fingerprint
+where fingerprint.value != null
+
+labels = [
+  foxio.application?,
+  foxio.os?,
+  foxio.device?,
+  foxio.library?,
+  foxio.user_agent?,
+].where(x => x != null)
+
+osint = {}
+osint.category = move fingerprint.type
+osint.confidence_id = 0
+osint.labels = labels if labels.length() > 0 else null
+osint.name = move fingerprint.field
+osint.src_url = "https://ja4db.com/"
+osint.type_id = 4
+osint.value = move fingerprint.value
+osint.vendor_name = "FoxIO"
+
+ocsf = {}
+ocsf.activity_id = 2
+ocsf.actor = {
+  app_name: "Tenzir",
+}
+ocsf.category_uid = 5
+ocsf.class_uid = 5021
+ocsf.metadata = {
+  product: {
+    name: "JA4+ Database",
+    vendor_name: "FoxIO",
+  },
+  version: "1.8.0",
+}
+ocsf.osint = [move osint]
+ocsf.severity_id = 1
+ocsf.time = now()
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+drop labels
+this = {...ocsf, unmapped: foxio}
+@name = "ocsf.osint_inventory_info"

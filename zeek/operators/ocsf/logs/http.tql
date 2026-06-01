@@ -1,11 +1,8 @@
 ---
 description: |
-  Maps Zeek's http.log to OCSF HTTP Activity events.
+  Zeek http.log → OCSF HTTP Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -20,12 +17,10 @@ let $methods = {
   PUT: 7,
   TRACE: 8,
 }
-ocsf.activity_id = $methods[zeek.method]? else 0
-ocsf.activity_name = (move zeek.method?).to_title()
+zeek._method = move zeek.method?
+ocsf.activity_id = $methods[zeek._method]? else 0
 ocsf.class_uid = 4002
-ocsf.class_name = "HTTP Activity"
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
@@ -41,7 +36,7 @@ if zeek.has("dest_host") {
 }
 
 ocsf.http_request = {
-  http_method: ocsf.activity_name,
+  http_method: zeek._method.to_title() if zeek._method? != null else null,
   referrer: move zeek.referrer,
   url: {
     hostname: move host,
@@ -52,6 +47,7 @@ ocsf.http_request = {
   user_agent: move zeek.user_agent,
   version: move zeek.version,
 }
+drop zeek._method?
 if zeek.has("client_headers") {
   ocsf.http_request.http_headers = \
     zeek.client_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
@@ -76,7 +72,4 @@ ocsf.connection_info.protocol_num = 6
 ocsf.status = "Unknown"
 ocsf.status_id = 0
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.http_activity"

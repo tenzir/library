@@ -1,11 +1,8 @@
 ---
 description: |
-  Maps Zeek's conn.log to OCSF Network Activity events.
+  Zeek conn.log → OCSF Network Activity.
 ---
 
-// --- Preamble ---------------------------------
-
-this = { zeek: this }
 zeek::ocsf::map_network
 
 // --- OCSF: classification attributes ----------
@@ -35,29 +32,15 @@ let $conn_states = {
   // Connections Zeek couldn't classify.
   OTH: 6,
 }
-let $activity_names = [
-  "Unknown",
-  "Open",
-  "Close",
-  "Reset",
-  "Fail",
-  "Refuse",
-  "Traffic",
-  "Listen",
-  "Other",
-]
 ocsf.activity_id = $conn_states[zeek.conn_state]? else 6
-ocsf.activity_name = $activity_names[ocsf.activity_id]? else "Other"
 ocsf.class_uid = 4001
-ocsf.class_name = "Network Activity"
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
 ocsf.metadata.log_name = "conn.log"
-ocsf.app_name = move zeek.service
+ocsf.app_protocol_name = move zeek.service
 
 // --- OCSF: primary attributes -----------------
 
@@ -91,7 +74,4 @@ ocsf.traffic = {
 ocsf.traffic.bytes = ocsf.traffic.bytes_in + ocsf.traffic.bytes_out
 ocsf.traffic.packets = ocsf.traffic.packets_in + ocsf.traffic.packets_out
 
-// --- Finalize ---------------------------------
-
-this = {...ocsf, unmapped: zeek}
 @name = "ocsf.network_activity"

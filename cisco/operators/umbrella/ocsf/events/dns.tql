@@ -1,0 +1,78 @@
+---
+description: Cisco Umbrella DNS logs → OCSF DNS Activity
+---
+
+@name = "ocsf.dns_activity"
+ocsf.category_uid = 4
+ocsf.class_uid = 4003
+ocsf.activity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+if umbrella.timestamp? != null {
+  ocsf.time = move umbrella.timestamp
+  ocsf.query_time = ocsf.time
+}
+
+if umbrella.external_ip? != null {
+  ocsf.src_endpoint.ip = move umbrella.external_ip
+}
+if umbrella.internal_ip? != null {
+  ocsf.device.ip = move umbrella.internal_ip
+}
+ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
+
+if umbrella.domain? != null {
+  ocsf.query.hostname = move umbrella.domain
+}
+if umbrella.query_type? != null {
+  query_type = umbrella.query_type.parse_grok(r"%{NUMBER:value} \(%{WORD:name}\)")
+  ocsf.query.type = query_type.name
+  drop query_type
+  drop umbrella.query_type
+}
+
+let $rcode_mapping = {
+  NOERROR: {rcode_id: 0, rcode: "NoError"},
+  FORMERROR: {rcode_id: 1, rcode: "FormError"},
+  SERVERROR: {rcode_id: 2, rcode: "ServError"},
+  SERVFAIL: {rcode_id: 2, rcode: "ServError"},
+  NXDOMAIN: {rcode_id: 3, rcode: "NXDomain"},
+  NOTIMP: {rcode_id: 4, rcode: "NotImp"},
+  REFUSED: {rcode_id: 5, rcode: "Refused"},
+  YXDOMAIN: {rcode_id: 6, rcode: "YXDomain"},
+  YXRRSET: {rcode_id: 7, rcode: "YXRRSet"},
+  NXRRSET: {rcode_id: 8, rcode: "NXRRSet"},
+  NOTAUTH: {rcode_id: 9, rcode: "NotAuth"},
+  NOTZONE: {rcode_id: 10, rcode: "NotZone"},
+  DSOTYPENI: {rcode_id: 11, rcode: "DSOTYPENI"},
+  BADSIG_VERS: {rcode_id: 16, rcode: "BADSIG_VERS"},
+  BADKEY: {rcode_id: 17, rcode: "BADKEY"},
+  BADTIME: {rcode_id: 18, rcode: "BADTIME"},
+  BADMODE: {rcode_id: 19, rcode: "BADMODE"},
+  BADNAME: {rcode_id: 20, rcode: "BADNAME"},
+  BADALG: {rcode_id: 21, rcode: "BADALG"},
+  BADTRUNC: {rcode_id: 22, rcode: "BADTRUNC"},
+  BADCOOKIE: {rcode_id: 23, rcode: "BADCOOKIE"},
+}
+if umbrella.response_code? != null {
+  ocsf.rcode_id = $rcode_mapping[umbrella.response_code]?.rcode_id else 99
+  ocsf.rcode = $rcode_mapping[umbrella.response_code]?.rcode else umbrella.response_code
+  drop umbrella.response_code
+}
+
+match umbrella.action? {
+  "Allowed" => {
+    ocsf.action_id = 1
+  }
+  "Denied" => {
+    ocsf.action_id = 2
+  }
+  _ => {
+    ocsf.action_id = 0
+  }
+}
+if umbrella.action? != null {
+  ocsf.action = move umbrella.action
+}
+
+ocsf.status_id = 1

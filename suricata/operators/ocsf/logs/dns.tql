@@ -1,8 +1,3 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
 if (suricata.dns.has("queries") and suricata.dns.has("answers")) {
@@ -59,13 +54,15 @@ if suricata.dns.has("rcode") {
     BADCOOKIE: 23,
   }
   ocsf.rcode_id = $rcode_id[suricata.dns.rcode] else 99
+  if ocsf.rcode_id == 99 {
+    ocsf.rcode = suricata.dns.rcode
+  }
   ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
+  drop suricata.dns.rcode
 } else {
   ocsf.status_id = 0
 }
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.dns_activity"
-ocsf::derive

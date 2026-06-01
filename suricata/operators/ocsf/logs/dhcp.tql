@@ -1,8 +1,3 @@
-// --- Preamble ---------------------------------
-
-this = { suricata: this }
-suricata::ocsf::map_common
-
 // --- OCSF: classification attributes ----------
 
 let $activity_id = {
@@ -23,25 +18,43 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
-if suricata.dhcp.has("hostname") {
-  ocsf.dst_endpoint.hostname = move suricata.dhcp.hostname
+if suricata.dhcp.type? == "reply" {
+  _server_endpoint = ocsf.src_endpoint
+  ocsf.src_endpoint = ocsf.dst_endpoint
+  ocsf.dst_endpoint = _server_endpoint
+  drop _server_endpoint
 }
 
-if suricata.dhcp.has("mac") {
-  ocsf.dst_endpoint.mac = move suricata.dhcp.client_mac
+if suricata.dhcp.has("hostname") {
+  ocsf.src_endpoint.hostname = move suricata.dhcp.hostname
+}
+
+if suricata.dhcp.has("client_mac") {
+  ocsf.src_endpoint.mac = move suricata.dhcp.client_mac
+}
+
+if suricata.dhcp.has("assigned_ip") {
+  ocsf.src_endpoint.ip = move suricata.dhcp.assigned_ip
 }
 
 if suricata.dhcp.has("lease_time") {
   ocsf.lease_dur = move suricata.dhcp.lease_time
 }
 
-ocsf.status = "Other"
-ocsf.status_id = 99
+match suricata.dhcp.dhcp_type {
+  "offer" | "ack" => {
+    ocsf.status_id = 1
+  }
+  "decline" | "nak" => {
+    ocsf.status_id = 2
+  }
+  _ => {
+    ocsf.status_id = 0
+  }
+}
 
 ocsf.transaction_uid = (move suricata.dhcp.id).string()
 
 // --- Finalize ---------------------------------
 
-this = {...ocsf, unmapped: suricata}
 @name = "ocsf.dhcp_activity"
-ocsf::derive

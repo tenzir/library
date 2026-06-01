@@ -22,24 +22,24 @@ let $integrity_ids = {
   Protected: 6,
 }
 
-_user = (move ocsf.unmapped.EventData.User).split("\\")
-_parent_user = (move ocsf.unmapped.EventData.ParentUser).split("\\")
+_user = (move sysmon.EventData.User).split("\\")
+_parent_user = (move sysmon.EventData.ParentUser).split("\\")
 ocsf.process = {
-  pid: (move ocsf.unmapped.EventData.ProcessId).int(),
-  uid: move ocsf.unmapped.EventData.ProcessGuid,
-  path: move ocsf.unmapped.EventData.Image,
-  cmd_line: move ocsf.unmapped.EventData.CommandLine,
+  pid: (move sysmon.EventData.ProcessId).int(),
+  uid: move sysmon.EventData.ProcessGuid,
+  path: move sysmon.EventData.Image,
+  cmd_line: move sysmon.EventData.CommandLine,
   created_time: ocsf.time,
-  working_directory: move ocsf.unmapped.EventData.CurrentDirectory,
-  integrity_id: $integrity_ids[move ocsf.unmapped.EventData.IntegrityLevel]? else 0,
+  working_directory: move sysmon.EventData.CurrentDirectory,
+  integrity_id: $integrity_ids[move sysmon.EventData.IntegrityLevel]? else 0,
   file: {
     type_id: 8,  // Executable File
-    version: move ocsf.unmapped.EventData.FileVersion,
-    desc: move ocsf.unmapped.EventData.Description,
-    company_name: move ocsf.unmapped.EventData.Company,
-    internal_name: move ocsf.unmapped.EventData.OriginalFileName,
+    version: move sysmon.EventData.FileVersion,
+    desc: move sysmon.EventData.Description,
+    company_name: move sysmon.EventData.Company,
+    internal_name: move sysmon.EventData.OriginalFileName,
     product: {
-      name: move ocsf.unmapped.EventData.Product,
+      name: move sysmon.EventData.Product,
     },
   },
   user: {
@@ -47,10 +47,10 @@ ocsf.process = {
     domain: _user[0] if _user.length() > 1 else null,
   },
   parent_process: {
-    pid: (move ocsf.unmapped.EventData.ParentProcessId).int(),
-    uid: move ocsf.unmapped.EventData.ParentProcessGuid,
-    path: move ocsf.unmapped.EventData.ParentImage,
-    cmd_line: move ocsf.unmapped.EventData.ParentCommandLine,
+    pid: (move sysmon.EventData.ParentProcessId).int(),
+    uid: move sysmon.EventData.ParentProcessGuid,
+    path: move sysmon.EventData.ParentImage,
+    cmd_line: move sysmon.EventData.ParentCommandLine,
     file: {
       type_id: 8,
     },
@@ -75,7 +75,7 @@ let $algorithms = {
 }
 
 // Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
-ocsf.process.file.hashes = ((move ocsf.unmapped.EventData.Hashes)
+ocsf.process.file.hashes = ((move sysmon.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
@@ -104,8 +104,8 @@ ocsf.actor = {
   // are identical in the common case where the parent did not change the token.
   // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
   session: {
-    uid: move ocsf.unmapped.EventData.LogonGuid,
-    uid_alt: move ocsf.unmapped.EventData.LogonId,
+    uid: move sysmon.EventData.LogonGuid,
+    uid_alt: move sysmon.EventData.LogonId,
   },
 }
 

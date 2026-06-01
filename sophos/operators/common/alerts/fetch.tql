@@ -1,0 +1,44 @@
+---
+description: Fetch alerts via the Sophos Common Alerts API.
+args:
+  named:
+    - name: client_id
+      description: Sophos API client ID.
+      type: string
+    - name: client_secret
+      description: Sophos API client secret.
+      type: secret
+    - name: from_time
+      description: Start time for returned alerts.
+      type: time
+      default: null
+    - name: to_time
+      description: End time for returned alerts.
+      type: time
+      default: null
+    - name: page_size
+      description: Number of alerts to request per page.
+      type: int
+      default: 1000
+---
+
+let $to = $to_time if $to_time != null else now()
+let $from = $from_time if $from_time != null else $to - 24h
+let $to_s = f"{$to}".trim_end("Z").split(".")[0] + ".000Z"
+let $from_s = f"{$from}".trim_end("Z").split(".")[0] + ".000Z"
+
+sophos::auth::tenant client_id=$client_id, client_secret=$client_secret
+
+each {
+  let $url = f"{$this.api_host}/common/v1/alerts?from={$from_s}&to={$to_s}&pageSize={$page_size}"
+  let $headers = {
+    "X-Tenant-ID": $this.tenant_id,
+    Authorization: f"Bearer {$this.access_token}",
+  }
+  from_http $url,
+    headers=$headers,
+    paginate=(x => f"{$url}&pageFromKey={x.pages.nextKey}" if x.pages.nextKey? != null)
+  unroll items
+  this = items
+}
+@name = "sophos.common.alert"

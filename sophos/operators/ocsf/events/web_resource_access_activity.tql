@@ -1,0 +1,50 @@
+---
+description: Sophos Web Filtering Event → OCSF Web Resource Access Activity (6004)
+---
+
+@name = "ocsf.web_resource_access_activity"
+
+ocsf.metadata.product.name = "Sophos Endpoint"
+ocsf.metadata.log_name = "siem/events"
+ocsf.metadata.profiles = ["host", "security_control"]
+
+ocsf.category_uid = 6
+ocsf.class_uid = 6004
+ocsf.activity_id = 2  // Access Deny
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+ocsf.status_id = 2
+ocsf.time = now()
+if sophos.when? != null {
+  ocsf.time = time(move sophos.when)
+} else if sophos.created_at? != null {
+  ocsf.time = time(move sophos.created_at)
+}
+
+ocsf.message = move sophos.name?
+ocsf.status_detail = move sophos.threat?
+
+ocsf.src_endpoint = {
+  ip: sophos.source_info?.ip?,
+  name: move sophos.location?,
+  hostname: sophos.location?,
+}
+
+ocsf.actor = {
+  user: {
+    uid: move sophos.user_id?,
+    name: sophos.source?.split("\\")[-1]?,
+    domain: sophos.source?.split("\\")[0]?,
+    full_name: move sophos.source?,
+    type_id: 1,
+  },
+}
+
+ocsf.http_request = {
+  uid: ocsf.metadata.original_event_uid,
+}
+
+ocsf.web_resources = [{
+  uid: ocsf.metadata.original_event_uid,
+  name: ocsf.status_detail,
+  type: "category",
+}]
