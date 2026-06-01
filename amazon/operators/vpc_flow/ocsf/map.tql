@@ -25,7 +25,7 @@ if $raw != null {
 }
 
 where $event != null
-ocsf.unmapped = $event
+vpc_flow = $event
 
 // --- OCSF: classification attributes ----------
 
@@ -37,10 +37,10 @@ ocsf.severity_id = 1
 
 ocsf.cloud = {
   account: {
-    uid: (move ocsf.unmapped.account_id?).string(),
+    uid: (move vpc_flow.account_id?).string(),
   },
-  region: move ocsf.unmapped.region?,
-  zone: move ocsf.unmapped.az_id?,
+  region: move vpc_flow.region?,
+  zone: move vpc_flow.az_id?,
   provider: "AWS",
 }
 
@@ -49,49 +49,49 @@ ocsf.metadata = {
   product: {
     name: "Amazon VPC",
     vendor_name: "AWS",
-    version: ocsf.unmapped.version?.string(),
+    version: vpc_flow.version?.string(),
     feature: {
       name: "Flow Logs",
     },
   },
   profiles: ["cloud", "security_control"],
 }
-drop ocsf.unmapped.version?
+drop vpc_flow.version?
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.start_time = move ocsf.unmapped.start?
-ocsf.end_time = move ocsf.unmapped.end?
+ocsf.start_time = move vpc_flow.start?
+ocsf.end_time = move vpc_flow.end?
 ocsf.time = ocsf.start_time
 ocsf.duration = count_milliseconds(ocsf.end_time - ocsf.start_time).round()
 
 // --- OCSF: primary attributes -----------------
 
 ocsf.traffic = {
-  bytes: move ocsf.unmapped.bytes?,
-  packets: move ocsf.unmapped.packets?,
+  bytes: move vpc_flow.bytes?,
+  packets: move vpc_flow.packets?,
 }
 
 ocsf.connection_info = {
-  protocol_num: move ocsf.unmapped.protocol?,
-  tcp_flags: move ocsf.unmapped.tcp_flags?,
+  protocol_num: move vpc_flow.protocol?,
+  tcp_flags: move vpc_flow.tcp_flags?,
 }
 
-ocsf.status_code = move ocsf.unmapped.log_status?
+ocsf.status_code = move vpc_flow.log_status?
 
 ocsf.src_endpoint = {
-  port: move ocsf.unmapped.srcport?,
-  svc_name: move ocsf.unmapped.pkt_src_aws_service?,
+  port: move vpc_flow.srcport?,
+  svc_name: move vpc_flow.pkt_src_aws_service?,
 }
 
 ocsf.dst_endpoint = {
-  port: move ocsf.unmapped.dstport?,
-  svc_name: move ocsf.unmapped.pkt_dst_aws_service?,
+  port: move vpc_flow.dstport?,
+  svc_name: move vpc_flow.pkt_dst_aws_service?,
 }
 
 // --- Security control: action/disposition -----
 
-if ocsf.unmapped.action? == "REJECT" {
+if vpc_flow.action? == "REJECT" {
   ocsf.activity_id = 2
   ocsf.action_id = 2
   ocsf.disposition_id = 2
@@ -101,16 +101,16 @@ if ocsf.unmapped.action? == "REJECT" {
   ocsf.disposition_id = 1
 }
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-drop ocsf.unmapped.action?
+drop vpc_flow.action?
 
-if ocsf.unmapped.reject_reason? != null {
-  ocsf.status_detail = move ocsf.unmapped.reject_reason
+if vpc_flow.reject_reason? != null {
+  ocsf.status_detail = move vpc_flow.reject_reason
 }
 
 // --- Traffic path (v5+) -----------------------
 
-if ocsf.unmapped.traffic_path? != null {
-  ocsf.connection_info.boundary_id = move ocsf.unmapped.traffic_path
+if vpc_flow.traffic_path? != null {
+  ocsf.connection_info.boundary_id = move vpc_flow.traffic_path
   // AWS traffic path values 1 and 2 are not the same as OCSF boundary IDs.
   if ocsf.connection_info.boundary_id >= 1 and ocsf.connection_info.boundary_id <= 8 {
     ocsf.connection_info.boundary_id = ocsf.connection_info.boundary_id + 3
@@ -119,39 +119,39 @@ if ocsf.unmapped.traffic_path? != null {
 
 // --- Flow direction and endpoint assignment ---
 
-if ocsf.unmapped.flow_direction? == "ingress" {
+if vpc_flow.flow_direction? == "ingress" {
   ocsf.connection_info.direction_id = 1
-  ocsf.dst_endpoint.interface_uid = move ocsf.unmapped.interface_id?
-  ocsf.dst_endpoint.vpc_uid = move ocsf.unmapped.vpc_id?
-  ocsf.dst_endpoint.instance_uid = move ocsf.unmapped.instance_id?
-  ocsf.dst_endpoint.subnet_uid = move ocsf.unmapped.subnet_id?
-} else if ocsf.unmapped.flow_direction? == "egress" {
+  ocsf.dst_endpoint.interface_uid = move vpc_flow.interface_id?
+  ocsf.dst_endpoint.vpc_uid = move vpc_flow.vpc_id?
+  ocsf.dst_endpoint.instance_uid = move vpc_flow.instance_id?
+  ocsf.dst_endpoint.subnet_uid = move vpc_flow.subnet_id?
+} else if vpc_flow.flow_direction? == "egress" {
   ocsf.connection_info.direction_id = 2
-  ocsf.src_endpoint.interface_uid = move ocsf.unmapped.interface_id?
-  ocsf.src_endpoint.vpc_uid = move ocsf.unmapped.vpc_id?
-  ocsf.src_endpoint.instance_uid = move ocsf.unmapped.instance_id?
-  ocsf.src_endpoint.subnet_uid = move ocsf.unmapped.subnet_id?
+  ocsf.src_endpoint.interface_uid = move vpc_flow.interface_id?
+  ocsf.src_endpoint.vpc_uid = move vpc_flow.vpc_id?
+  ocsf.src_endpoint.instance_uid = move vpc_flow.instance_id?
+  ocsf.src_endpoint.subnet_uid = move vpc_flow.subnet_id?
 }
-drop ocsf.unmapped.flow_direction?
+drop vpc_flow.flow_direction?
 
 // --- IP address handling ----------------------
 // pkt_srcaddr/pkt_dstaddr are the original addresses; srcaddr/dstaddr may
 // differ when NAT or intermediate devices are involved.
 
-if ocsf.unmapped.pkt_srcaddr? != ocsf.unmapped.srcaddr? and ocsf.unmapped.pkt_srcaddr? != null {
-  ocsf.src_endpoint.ip = move ocsf.unmapped.pkt_srcaddr
-  ocsf.src_endpoint.intermediate_ips = [move ocsf.unmapped.srcaddr?]
+if vpc_flow.pkt_srcaddr? != vpc_flow.srcaddr? and vpc_flow.pkt_srcaddr? != null {
+  ocsf.src_endpoint.ip = move vpc_flow.pkt_srcaddr
+  ocsf.src_endpoint.intermediate_ips = [move vpc_flow.srcaddr?]
 } else {
-  ocsf.src_endpoint.ip = move ocsf.unmapped.srcaddr?
-  drop ocsf.unmapped.pkt_srcaddr?
+  ocsf.src_endpoint.ip = move vpc_flow.srcaddr?
+  drop vpc_flow.pkt_srcaddr?
 }
 
-if ocsf.unmapped.pkt_dstaddr? != ocsf.unmapped.dstaddr? and ocsf.unmapped.pkt_dstaddr? != null {
-  ocsf.dst_endpoint.ip = move ocsf.unmapped.pkt_dstaddr
-  ocsf.dst_endpoint.intermediate_ips = [move ocsf.unmapped.dstaddr?]
+if vpc_flow.pkt_dstaddr? != vpc_flow.dstaddr? and vpc_flow.pkt_dstaddr? != null {
+  ocsf.dst_endpoint.ip = move vpc_flow.pkt_dstaddr
+  ocsf.dst_endpoint.intermediate_ips = [move vpc_flow.dstaddr?]
 } else {
-  ocsf.dst_endpoint.ip = move ocsf.unmapped.dstaddr?
-  drop ocsf.unmapped.pkt_dstaddr?
+  ocsf.dst_endpoint.ip = move vpc_flow.dstaddr?
+  drop vpc_flow.pkt_dstaddr?
 }
 
 if (ocsf.src_endpoint.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
@@ -161,45 +161,35 @@ if (ocsf.src_endpoint.ip? != null and ocsf.src_endpoint.ip.is_v6()) or
   ocsf.connection_info.protocol_ver_id = 4
 }
 
-drop ocsf.unmapped.type?
+drop vpc_flow.type?
 
 // --- ECS metadata (v7+) -----------------------
 
-if ocsf.unmapped.ecs_cluster_arn? != null {
-  ocsf.unmapped.ecs = {
-    cluster_arn: move ocsf.unmapped.ecs_cluster_arn?,
-    cluster_name: move ocsf.unmapped.ecs_cluster_name?,
-    container_instance_arn: move ocsf.unmapped.ecs_container_instance_arn?,
-    container_instance_id: move ocsf.unmapped.ecs_container_instance_id?,
-    container_id: move ocsf.unmapped.ecs_container_id?,
-    second_container_id: move ocsf.unmapped.ecs_second_container_id?,
-    service_name: move ocsf.unmapped.ecs_service_name?,
-    task_definition_arn: move ocsf.unmapped.ecs_task_definition_arn?,
-    task_arn: move ocsf.unmapped.ecs_task_arn?,
-    task_id: move ocsf.unmapped.ecs_task_id?,
+if vpc_flow.ecs_cluster_arn? != null {
+  vpc_flow.ecs = {
+    cluster_arn: move vpc_flow.ecs_cluster_arn?,
+    cluster_name: move vpc_flow.ecs_cluster_name?,
+    container_instance_arn: move vpc_flow.ecs_container_instance_arn?,
+    container_instance_id: move vpc_flow.ecs_container_instance_id?,
+    container_id: move vpc_flow.ecs_container_id?,
+    second_container_id: move vpc_flow.ecs_second_container_id?,
+    service_name: move vpc_flow.ecs_service_name?,
+    task_definition_arn: move vpc_flow.ecs_task_definition_arn?,
+    task_arn: move vpc_flow.ecs_task_arn?,
+    task_id: move vpc_flow.ecs_task_id?,
   }
 }
 
 // --- Additional fields ------------------------
 
-if ocsf.unmapped.sublocation_type? != null {
+if vpc_flow.sublocation_type? != null {
   ocsf.cloud.sublocation = {
-    type: move ocsf.unmapped.sublocation_type,
-    uid: move ocsf.unmapped.sublocation_id?,
+    type: move vpc_flow.sublocation_type,
+    uid: move vpc_flow.sublocation_id?,
   }
-}
-
-if ocsf.unmapped.resource_id? != null {
-  ocsf.unmapped.resource_id = move ocsf.unmapped.resource_id
-}
-
-if ocsf.unmapped.encryption_status? != null {
-  ocsf.unmapped.encryption_status = move ocsf.unmapped.encryption_status
 }
 
 // --- Finalize ---------------------------------
 
-this = ocsf
-drop_null_fields unmapped
 @name = "ocsf.network_activity"
-ocsf::derive
+this = {...ocsf, unmapped: vpc_flow}

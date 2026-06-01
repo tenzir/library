@@ -12,21 +12,21 @@ ocsf = {}
 ocsf.raw_data = $log
 ocsf.raw_data_size = $log.length_bytes()
 
-ocsf.unmapped = $log.parse_winlog()
+sysmon = $log.parse_winlog()
 
 ocsf.metadata = {
-  event_code: (move ocsf.unmapped.System.EventID).string(),
+  event_code: (move sysmon.System.EventID).string(),
   extensions: [{name: "win"}],
   log_format: "xml",
-  log_name: move ocsf.unmapped.System.Channel,
-  log_level: (move ocsf.unmapped.System.Level).string(),
-  log_version: (move ocsf.unmapped.System.Version).string(),
-  logged_time: move ocsf.unmapped.System.TimeCreated.SystemTime,
-  original_event_uid: (move ocsf.unmapped.System.EventRecordID).string(),
+  log_name: move sysmon.System.Channel,
+  log_level: (move sysmon.System.Level).string(),
+  log_version: (move sysmon.System.Version).string(),
+  logged_time: move sysmon.System.TimeCreated.SystemTime,
+  original_event_uid: (move sysmon.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move ocsf.unmapped.System.Provider.Name,
-    uid: move ocsf.unmapped.System.Provider.Guid,
+    name: move sysmon.System.Provider.Name,
+    uid: move sysmon.System.Provider.Guid,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
@@ -35,30 +35,30 @@ ocsf.metadata = {
 
 ocsf.severity_id = 1
 
-ocsf.time = move ocsf.unmapped.EventData.UtcTime
+ocsf.time = move sysmon.EventData.UtcTime
 
 ocsf.device = {
-  hostname: move ocsf.unmapped.System.Computer,
+  hostname: move sysmon.System.Computer,
 }
 
 // ProcessID and ThreadID identify the Sysmon service itself, not the target event.
-drop ocsf.unmapped.System.Execution
-drop ocsf.unmapped.System.Provider
-drop ocsf.unmapped.System.TimeCreated
+drop sysmon.System.Execution
+drop sysmon.System.Provider
+drop sysmon.System.TimeCreated
 
 // Security.UserID is the Sysmon service account SID (typically S-1-5-18 / SYSTEM),
 // not the device owner — leave it in unmapped.
-drop ocsf.unmapped.System.Security
+drop sysmon.System.Security
 
 // Correlation is always empty for Sysmon (it does not use ETW ActivityIDs),
 // and OCSF's metadata.correlation_uid is for linking OCSF events — a different
 // concept — so there is no valid mapping target.
-drop ocsf.unmapped.System.Correlation
+drop sysmon.System.Correlation
 
 // RuleName is a Sysmon filter-rule tag present on most EIDs. It is not a
 // property of any observed object, so it is dropped centrally here rather
 // than in every individual mapping operator.
-drop ocsf.unmapped.EventData.RuleName?
+drop sysmon.EventData.RuleName?
 
 if ocsf.metadata.event_code == "1" {
   sysmon::ocsf::events::process_create
@@ -121,3 +121,5 @@ if ocsf.metadata.event_code == "1" {
   ocsf.activity_id = 0
   ocsf.type_uid = 0
 }
+
+this = {...ocsf, unmapped: sysmon}

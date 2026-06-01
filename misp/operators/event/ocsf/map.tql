@@ -39,17 +39,14 @@ let $type_ids = {
   vulnerability: 10,
   link: 5,
 }
-this = {ocsf: {}, misp: this}
+this = {misp: this}
+ocsf = {}
 // ------ OCSF Inventory Info --------
 // Classification
 ocsf.activity_id = 2
-ocsf.activity_name = "Collect"
 ocsf.category_uid = 5
-ocsf.category_name = "Discovery"
 ocsf.class_uid = 5021
-ocsf.class_name = "OSINT Inventory Info"
 ocsf.severity_id = 1
-ocsf.severity = "Informational"
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.severity_id = $threat_level[move misp.threat_level_id]? else 1
 // Context
@@ -57,20 +54,22 @@ ocsf.actor = {
   app_name: "Tenzir",
   process: {
     name: "MISP",
-    user: {
-      // Org currently owning the MISP event.
-      org: {
-        name: move misp.Org.name,
-        uid: move misp.Org.uuid,
-      }
-    }
   },
   user: {
     // Creator org of the MISP event.
     org: {
-      name: move misp.Orgc.name,
-      uid: move misp.Orgc.uuid,
+      name: move misp.Orgc.name?,
+      uid: move misp.Orgc.uuid?,
     }
+  }
+}
+if misp.Org? != null {
+  // Org currently owning the MISP event.
+  ocsf.actor.process.user = {
+    org: {
+      name: move misp.Org.name?,
+      uid: move misp.Org.uuid?,
+    },
   }
 }
 ocsf.metadata = {
@@ -81,7 +80,7 @@ ocsf.metadata = {
   uid: move misp.uuid,
   version: "1.8.0",
 }
-ocsf.time = move misp.timestamp
+ocsf.time = from_epoch(int(move misp.timestamp) * 1s)
 drop misp.date // implied in the timestamp
 // Primary
 ocsf.message = move misp.info
@@ -97,6 +96,7 @@ ocsf.osint = misp.Attribute.map(x => {
   // TODO: Figure out how to assign `null` if no tlp tag in the source.
   tlp: misp.Tag?.where(x => x.name.starts_with("tlp:"))[0]?.name?.slice(begin=4).to_upper(),
   type_id: $type_ids[x.type]? else 99,
+  type: x.type if $type_ids[x.type]? == null else null,
   value: x.value,
 })
 ocsf.status_id = $analysis_status[move misp.analysis]? else 0
@@ -107,4 +107,3 @@ drop misp.Galaxy?
 // ------ Finalize --------
 this = {...ocsf, unmapped: misp}
 @name = "ocsf.osint_inventory_info"
-ocsf::derive

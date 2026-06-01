@@ -10,11 +10,11 @@ ocsf.class_uid = 4002
 ocsf.activity_id = 0  // Unknown: FortiGate doesn't log the HTTP verb here
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
-drop ocsf.unmapped.eventtype
+drop fortinet.eventtype
 
 fortinet::fortigate::ocsf::network_endpoints
 // `hostname` is the virtual host name of the requested site.
-ocsf.dst_endpoint.hostname = move ocsf.unmapped.hostname
+ocsf.dst_endpoint.hostname = move fortinet.hostname
 
 fortinet::fortigate::ocsf::connection_info
 
@@ -22,25 +22,25 @@ fortinet::fortigate::ocsf::connection_info
 ocsf.http_request = {
   url: {
     hostname: ocsf.dst_endpoint.hostname,
-    path: move ocsf.unmapped.url,
+    path: move fortinet.url,
   },
 }
 
 ocsf.traffic = {
-  bytes_in: move ocsf.unmapped.rcvdbyte,
-  bytes_out: move ocsf.unmapped.sentbyte,
+  bytes_in: move fortinet.rcvdbyte,
+  bytes_out: move fortinet.sentbyte,
 }
 
 // Web filter is a security control: it evaluated and acted on the request.
 fortinet::fortigate::ocsf::security_control
 
-if ocsf.unmapped.action? != null {
+if fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
     monitored: 17,
   }
-  ocsf.disposition_id = $dispositions[move ocsf.unmapped.action]? else 0
+  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.

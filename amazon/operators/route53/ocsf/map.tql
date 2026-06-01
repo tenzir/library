@@ -74,7 +74,7 @@ if $raw != null {
 }
 
 where $event != null
-ocsf.unmapped = $event
+route53 = $event
 
 // --- OCSF: classification attributes ----------
 
@@ -88,9 +88,9 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 ocsf.cloud = {
   account: {
-    uid: move ocsf.unmapped.account_id?,
+    uid: move route53.account_id?,
   },
-  region: move ocsf.unmapped.region?,
+  region: move route53.region?,
   provider: "AWS",
 }
 
@@ -98,7 +98,7 @@ ocsf.metadata = {
   product: {
     name: "Amazon Route 53",
     vendor_name: "AWS",
-    version: ocsf.unmapped.version?.string(),
+    version: route53.version?.string(),
     feature: {
       name: "Resolver Query Logs",
     },
@@ -106,39 +106,39 @@ ocsf.metadata = {
   version: "1.8.0",
   profiles: ["cloud"],
 }
-drop ocsf.unmapped.version?
+drop route53.version?
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.time = move ocsf.unmapped.query_timestamp?
+ocsf.time = move route53.query_timestamp?
 ocsf.query_time = ocsf.time
 
 // --- OCSF: primary attributes -----------------
 
 ocsf.query = {
-  hostname: move ocsf.unmapped.query_name?,
-  type: move ocsf.unmapped.query_type?,
-  class: move ocsf.unmapped.query_class?,
+  hostname: move route53.query_name?,
+  type: move route53.query_type?,
+  class: move route53.query_class?,
 }
 
-if ocsf.unmapped.has("answers") and ocsf.unmapped.answers.length() > 0 {
-  ocsf.answers = (move ocsf.unmapped.answers).map(a => {
-    rdata: a.Rdata,
+if route53.has("answers") and route53.answers.length() > 0 {
+  ocsf.answers = (move route53.answers).map(a => {
+    rdata: string(a.Rdata),
     type: a.Type,
     class: a.Class,
   })
   ocsf.response_time = ocsf.time
 } else {
-  drop ocsf.unmapped.answers?
+  drop route53.answers?
 }
 
 // Map DNS response codes to OCSF rcode_id values.
-if ocsf.unmapped.has("rcode") {
-  ocsf.rcode_id = $rcode_id[ocsf.unmapped.rcode] else 99
+if route53.has("rcode") {
+  ocsf.rcode_id = $rcode_id[route53.rcode] else 99
   if ocsf.rcode_id == 99 {
-    ocsf.rcode = move ocsf.unmapped.rcode
+    ocsf.rcode = move route53.rcode
   } else {
-    drop ocsf.unmapped.rcode
+    drop route53.rcode
   }
   ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
 } else {
@@ -147,61 +147,59 @@ if ocsf.unmapped.has("rcode") {
 
 // --- OCSF: network attributes -----------------
 
-if ocsf.unmapped.has("srcaddr") {
-  ocsf.src_endpoint.ip = ip(move ocsf.unmapped.srcaddr)
+if route53.has("srcaddr") {
+  ocsf.src_endpoint.ip = ip(move route53.srcaddr)
   ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
 }
-if ocsf.unmapped.has("srcport") {
-  ocsf.src_endpoint.port = int(move ocsf.unmapped.srcport)
+if route53.has("srcport") {
+  ocsf.src_endpoint.port = int(move route53.srcport)
 }
-if ocsf.unmapped.has("vpc_id") {
-  ocsf.src_endpoint.vpc_uid = move ocsf.unmapped.vpc_id
+if route53.has("vpc_id") {
+  ocsf.src_endpoint.vpc_uid = move route53.vpc_id
 }
-if ocsf.unmapped.srcids?.instance? != null {
-  ocsf.src_endpoint.instance_uid = move ocsf.unmapped.srcids.instance
+if route53.srcids?.instance? != null {
+  ocsf.src_endpoint.instance_uid = move route53.srcids.instance
 }
 
 // Resolver endpoint info goes to dst_endpoint since it's the DNS server.
-if ocsf.unmapped.srcids?.resolver_endpoint? != null {
-  ocsf.dst_endpoint.uid = move ocsf.unmapped.srcids.resolver_endpoint
+if route53.srcids?.resolver_endpoint? != null {
+  ocsf.dst_endpoint.uid = move route53.srcids.resolver_endpoint
 }
-if ocsf.unmapped.srcids?.resolver_network_interface? != null {
-  ocsf.dst_endpoint.interface_uid = move ocsf.unmapped.srcids.resolver_network_interface
+if route53.srcids?.resolver_network_interface? != null {
+  ocsf.dst_endpoint.interface_uid = move route53.srcids.resolver_network_interface
 }
-drop ocsf.unmapped.srcids?
+drop route53.srcids?
 
-if ocsf.unmapped.has("transport") {
-  ocsf.connection_info.protocol_name = ocsf.unmapped.transport.to_lower()
-  ocsf.connection_info.protocol_num = $proto_nums[ocsf.unmapped.transport] else -1
-  drop ocsf.unmapped.transport
+if route53.has("transport") {
+  ocsf.connection_info.protocol_name = route53.transport.to_lower()
+  ocsf.connection_info.protocol_num = $proto_nums[route53.transport] else -1
+  drop route53.transport
 }
 
 // --- DNS Firewall (security_control profile) --
 
-if ocsf.unmapped.has("firewall_rule_action") {
+if route53.has("firewall_rule_action") {
   ocsf.metadata.profiles = ["cloud", "security_control"]
-  if $firewall_actions[ocsf.unmapped.firewall_rule_action]? != null {
-    ocsf.action_id = $firewall_actions[ocsf.unmapped.firewall_rule_action].action_id
-    ocsf.disposition_id = $firewall_actions[ocsf.unmapped.firewall_rule_action].disposition_id
-    if $firewall_actions[ocsf.unmapped.firewall_rule_action].is_alert? != null {
-      ocsf.is_alert = $firewall_actions[ocsf.unmapped.firewall_rule_action].is_alert
+  if $firewall_actions[route53.firewall_rule_action]? != null {
+    ocsf.action_id = $firewall_actions[route53.firewall_rule_action].action_id
+    ocsf.disposition_id = $firewall_actions[route53.firewall_rule_action].disposition_id
+    if $firewall_actions[route53.firewall_rule_action].is_alert? != null {
+      ocsf.is_alert = $firewall_actions[route53.firewall_rule_action].is_alert
     }
   } else {
     ocsf.action_id = 99
-    ocsf.action = ocsf.unmapped.firewall_rule_action
+    ocsf.action = route53.firewall_rule_action
     ocsf.disposition_id = 99
-    ocsf.disposition = ocsf.unmapped.firewall_rule_action
+    ocsf.disposition = route53.firewall_rule_action
   }
-  drop ocsf.unmapped.firewall_rule_action
+  drop route53.firewall_rule_action
   ocsf.firewall_rule = {
-    uid: move ocsf.unmapped.firewall_rule_group_id?,
-    match_details: move ocsf.unmapped.firewall_domain_list_id?,
+    uid: move route53.firewall_rule_group_id?,
+    match_details: [move route53.firewall_domain_list_id] if route53.firewall_domain_list_id? != null else null,
   }
 }
 
 // --- Finalize ---------------------------------
 
-this = ocsf
-drop_null_fields unmapped
 @name = "ocsf.dns_activity"
-ocsf::derive
+this = {...ocsf, unmapped: route53}

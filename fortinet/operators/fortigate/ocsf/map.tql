@@ -12,7 +12,7 @@ ocsf = {}
 ocsf.raw_data = $log
 ocsf.raw_data_size = $log.length_bytes()
 
-ocsf.unmapped = $log.parse_kv()
+fortinet = $log.parse_kv()
 
 // Normalize FortiGate sentinel strings to null.
 replace what="N/A", with=null
@@ -21,26 +21,26 @@ replace what="undefined", with=null
 
 ocsf.metadata = {
   log_format: "kv",
-  log_level: move ocsf.unmapped.level,
-  log_name: move ocsf.unmapped.subtype,
-  original_time: f"{(move ocsf.unmapped.date).format_time("%Y-%m-%d")} {move ocsf.unmapped.time}",
-  original_event_uid: (move ocsf.unmapped.logid).string(),
+  log_level: move fortinet.level,
+  log_name: move fortinet.subtype,
+  original_time: f"{(move fortinet.date).format_time("%Y-%m-%d")} {move fortinet.time}",
+  original_event_uid: (move fortinet.logid).string(),
   processed_time: now(),
   product: {
     name: "FortiGate",
     vendor_name: "Fortinet",
   },
   profiles: ["host"],
-  type: move ocsf.unmapped.type?,
+  type: move fortinet.type?,
   version: "1.8.0",
 }
 
-if ocsf.unmapped.msg? != null {
-  ocsf.message = move ocsf.unmapped.msg
+if fortinet.msg? != null {
+  ocsf.message = move fortinet.msg
 }
 
-if ocsf.unmapped.eventtime? != null {
-  ocsf.time = move ocsf.unmapped.eventtime
+if fortinet.eventtime? != null {
+  ocsf.time = move fortinet.eventtime
   // FortiGate eventtime is seconds (10-digit) or nanoseconds (19-digit).
   // Values below 1e13 are seconds; above are nanoseconds.
   ocsf.time = ocsf.time.seconds() if ocsf.time < 10T else ocsf.time.nanoseconds()
@@ -49,22 +49,22 @@ if ocsf.unmapped.eventtime? != null {
   ocsf.time = ocsf.metadata.original_time.parse_time("%Y-%m-%d %H:%M:%S")
 }
 
-if ocsf.unmapped.logdesc? != null  {
-  ocsf.status_detail = move ocsf.unmapped.logdesc
+if fortinet.logdesc? != null  {
+  ocsf.status_detail = move fortinet.logdesc
 }
 
 // `severity` is present on some UTM logs; `level` appears on all logs and is
 // already captured in metadata.log_level. Use severity first, fall back to
 // level so events without an explicit severity are not silently downgraded to
 // Informational.
-if ocsf.unmapped.severity? != null {
+if fortinet.severity? != null {
   let $severities = {
     low: 2,
     medium: 3,
     high: 4,
     critical: 5,
   }
-  ocsf.severity_id = $severities[move ocsf.unmapped.severity]
+  ocsf.severity_id = $severities[move fortinet.severity]
 } else if ocsf.metadata.log_level? != null {
   let $levels = {
     debug: 1,
@@ -82,8 +82,8 @@ if ocsf.unmapped.severity? != null {
 }
 
 // Host profile
-if ocsf.unmapped.vd? != null {
-  ocsf.device.zone = move ocsf.unmapped.vd
+if fortinet.vd? != null {
+  ocsf.device.zone = move fortinet.vd
 }
 
 // Specific event type mappings
@@ -124,7 +124,7 @@ if ocsf.metadata.type == "utm" {
     // Only admin login/logout events map to Authentication; subtype="system"
     // also covers startup, config changes, and performance stats which should
     // fall through to Base Event.
-    if ocsf.unmapped.action? == "login" or ocsf.unmapped.action? == "logout" {
+    if fortinet.action? == "login" or fortinet.action? == "logout" {
       fortinet::fortigate::ocsf::logs::authentication
     } else {
       fortinet::fortigate::ocsf::base
@@ -143,3 +143,5 @@ if ocsf.metadata.type == "utm" {
 } else {
   fortinet::fortigate::ocsf::base
 }
+
+this = {...ocsf, unmapped: fortinet}

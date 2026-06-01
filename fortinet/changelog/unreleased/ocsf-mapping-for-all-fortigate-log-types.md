@@ -17,7 +17,6 @@ from_file "fortigate.log" {
   read_lines
 }
 fortinet::fortigate::ocsf::map line
-this = ocsf
 ocsf::derive
 ocsf::cast
 ```

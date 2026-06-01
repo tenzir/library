@@ -15,14 +15,14 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 ocsf.connection_info = { direction_id: 2 }  // Outbound
 
 ocsf.query = {
-  hostname:  move ocsf.unmapped.EventData.QueryName,
+  hostname:  move sysmon.EventData.QueryName,
   opcode_id: 0,  // Standard query
 }
 
 // QueryStatus 0 = success (RCODE NOERROR); anything else is an error.
 // Read first for status_id, then move for status_code.
-ocsf.status_id = 1 if ocsf.unmapped.EventData.QueryStatus == 0 else 2
-ocsf.status_code = (move ocsf.unmapped.EventData.QueryStatus).string()
+ocsf.status_id = 1 if sysmon.EventData.QueryStatus == 0 else 2
+ocsf.status_code = (move sysmon.EventData.QueryStatus).string()
 
 // Sysmon bundles CNAME chains + IPs into QueryResults as a semicolon-separated
 // string (e.g. "type:  5 cdn.example.com;::ffff:1.2.3.4;"). There is no clean
@@ -30,12 +30,12 @@ ocsf.status_code = (move ocsf.unmapped.EventData.QueryStatus).string()
 // raw field is left in unmapped.EventData for consumers that need it.
 
 // The process and user that issued the query — mapped via the Host profile actor.
-_user = (move ocsf.unmapped.EventData.User).split("\\")
+_user = (move sysmon.EventData.User).split("\\")
 ocsf.actor = {
   process: {
-    uid:  move ocsf.unmapped.EventData.ProcessGuid,
-    pid:  (move ocsf.unmapped.EventData.ProcessId).int(),
-    path: move ocsf.unmapped.EventData.Image,
+    uid:  move sysmon.EventData.ProcessGuid,
+    pid:  (move sysmon.EventData.ProcessId).int(),
+    path: move sysmon.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
@@ -49,4 +49,4 @@ ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
 ocsf.actor.process.file.name = ocsf.actor.process.name
 ocsf.actor.process.file.path = ocsf.actor.process.path
 
-drop ocsf.unmapped.EventData.Initiated  // always "true" for Sysmon DNS events
+drop sysmon.EventData.Initiated  // always "true" for Sysmon DNS events

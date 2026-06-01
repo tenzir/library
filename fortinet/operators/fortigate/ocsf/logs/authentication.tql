@@ -13,72 +13,72 @@ let $actions = {
 
 ocsf.category_uid = 3
 ocsf.class_uid = 3002
-ocsf.activity_id = $actions[move ocsf.unmapped.action]? else 0
+ocsf.activity_id = $actions[move fortinet.action]? else 0
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // The authenticating user.
 ocsf.user = {
-  name: move ocsf.unmapped.user,
+  name: move fortinet.user,
 }
 
 // event/user: `group` is the local user group.
-if ocsf.unmapped.group? != null {
-  ocsf.user.groups = [{ name: move ocsf.unmapped.group }]
+if fortinet.group? != null {
+  ocsf.user.groups = [{ name: move fortinet.group }]
 }
 
 // event/system: `profile` is the admin privilege profile; presence implies
 // an administrative account.
-if ocsf.unmapped.profile? != null {
+if fortinet.profile? != null {
   ocsf.user.type_id = 2  // Admin
-  ocsf.user.groups = [{ name: move ocsf.unmapped.profile }]
+  ocsf.user.groups = [{ name: move fortinet.profile }]
 }
 
 ocsf.src_endpoint = {
-  ip: move ocsf.unmapped.srcip,
+  ip: move fortinet.srcip,
   // event/user: `interface` is the ingress network interface.
-  interface_name: move ocsf.unmapped.interface?,
+  interface_name: move fortinet.interface?,
 }
 
 ocsf.dst_endpoint = {
-  ip: move ocsf.unmapped.dstip,
+  ip: move fortinet.dstip,
 }
 
 // Both events involve a remote authentication attempt.
 ocsf.is_remote = true
 
 // `status` is the authentication outcome.
-if ocsf.unmapped.status? != null {
+if fortinet.status? != null {
   let $statuses = {
     success: 1,
     failed: 2,
   }
-  ocsf.status_id = $statuses[move ocsf.unmapped.status]? else 0
+  ocsf.status_id = $statuses[move fortinet.status]? else 0
 }
 
 // event/system: `method` is the access method (e.g. "ssh", "https").
 // event/user: `authproto` carries the protocol and source, e.g. "TELNET(ip)".
-if ocsf.unmapped.method? != null {
+if fortinet.method? != null {
   // auth_protocol_id = 99 (Other): SSH, HTTPS etc. are not in the OCSF enum.
   // The string sibling is intentionally omitted; ocsf::derive rejects
   // non-enum values for auth_protocol even when the id is Other.
   ocsf.auth_protocol_id = 99
-  drop ocsf.unmapped.method?
+  drop fortinet.method?
   ocsf.logon_type_id = 10  // Remote Interactive
 }
-if ocsf.unmapped.authproto? != null {
+if fortinet.authproto? != null {
   ocsf.auth_protocol_id = 99
-  drop ocsf.unmapped.authproto?
+  drop fortinet.authproto?
   ocsf.logon_type_id = 8  // Network Cleartext
   ocsf.is_cleartext = true
 }
 
 // event/system: `ui` duplicates method + srcip (e.g. "ssh(ip)"), drop it.
-drop ocsf.unmapped.ui?
+drop fortinet.ui?
 
 // Security-control profile: event/user carries policyid.
-if ocsf.unmapped.policyid? != null {
+if fortinet.policyid? != null {
   ocsf.metadata.profiles = ocsf.metadata.profiles.add("security_control")
   ocsf.firewall_rule = {
-    uid: (move ocsf.unmapped.policyid).string(),
+    uid: (move fortinet.policyid).string(),
   }
 }

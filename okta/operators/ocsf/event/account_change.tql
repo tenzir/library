@@ -2,10 +2,6 @@
 description: "Okta → OCSF Account Change (3001)"
 ---
 
-// --- Preamble ---------------------------------
-
-this = {okta: this}
-
 // --- OCSF: classification attributes ----------
 
 let $activity_map = {
@@ -37,7 +33,7 @@ let $activity_map = {
   "user.mfa.factor.update": 99,
   "user.mfa.factor.reset_all": 99,
 }
-ocsf.activity_id = $activity_map[okta.eventType]? else 99
+ocsf.activity_id = $activity_map[ocsf.metadata.event_code]? else 99
 ocsf.category_uid = 3
 ocsf.class_uid = 3001
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
@@ -50,17 +46,13 @@ ocsf.status_id = $status_map[okta.outcome.result?]? else 0
 ocsf.status_detail = move okta.outcome.reason?
 drop okta.outcome?
 
-// --- OCSF: common attributes -----------------
-
-okta::ocsf::map_common
-
 // --- OCSF: target user from target[] ----------
 
 if okta.target? != null {
   ocsf.user = okta.target.where(t => t.type == "User").map(t => {
     uid: t.id,
     name: t.alternateId?.split("@")[0]?,
-    full_name: t.displayName,
+    full_name: string(t.displayName?),
     email_addr: t.alternateId,
     type_id: 1,
   })[0]?
@@ -70,7 +62,4 @@ if okta.target? != null {
   })
 }
 
-// --- Epilogue ---------------------------------
-
-okta::ocsf::epilogue
 @name = "ocsf.account_change"
