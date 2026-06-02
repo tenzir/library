@@ -15,7 +15,7 @@ ocsf.raw_data_size = $log.length_bytes()
 windows = $log.parse_winlog()
 
 ocsf.metadata = {
-  event_code: (move windows.System.EventID).string(),
+  event_code: windows.System.EventID.string(),
   extensions: [{name: "win"}],
   log_format: "xml",
   log_name: move windows.System.Channel,
@@ -32,6 +32,7 @@ ocsf.metadata = {
   profiles: ["host"],
   version: "1.8.0",
 }
+windows.System.EventID = windows.System.EventID.int()
 drop windows.System.Provider
 drop windows.System.TimeCreated
 
@@ -48,101 +49,104 @@ ocsf.device = {
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace what="-", with=null
 
-match ocsf.metadata.event_code {
-  "100" | "101" | "102" | "129" | "200" | "201" => {
+match windows.System.EventID {
+  99..103 | 129 | 199..202 => {
     microsoft::windows::ocsf::events::task_run
   }
-  "106" | "140" | "141" => {
+  106 | 139..142 => {
     microsoft::windows::ocsf::events::task_lifecycle
   }
-  "1000" => {
+  1000 => {
     microsoft::windows::ocsf::events::application_error
   }
-  "1001" => {
+  1001 => {
     microsoft::windows::ocsf::events::application_crash_report
   }
-  "1002" => {
+  1002 => {
     microsoft::windows::ocsf::events::application_hang
   }
-  "1006" | "1007" => {
+  1005..1008 => {
     microsoft::windows::ocsf::events::defender_threat
   }
-  "1102" => {
+  1102 => {
     microsoft::windows::ocsf::events::eventlog_clear
   }
-  "1116" | "1117" => {
+  1115..1118 => {
     microsoft::windows::ocsf::events::defender_detection
   }
-  "1121" => {
+  1121 => {
     microsoft::windows::ocsf::events::defender_asr
   }
-  "2000" => {
+  2000 => {
     microsoft::windows::ocsf::events::defender_signature_update
   }
-  "4100" => {
+  4100 => {
     microsoft::windows::ocsf::events::powershell_error
   }
-  "4103" => {
+  4103 => {
     microsoft::windows::ocsf::events::powershell_module_logging
   }
-  "4104" => {
+  4104 => {
     microsoft::windows::ocsf::events::powershell_script_block
   }
-  "4105" | "4106" => {
+  4104..4107 => {
     microsoft::windows::ocsf::events::powershell_script_block_invocation
   }
-  "4624" => {
+  4624 => {
     microsoft::windows::ocsf::events::logon
   }
-  "4625" => {
+  4625 => {
     microsoft::windows::ocsf::events::logon_failed
   }
-  "4648" => {
+  4648 => {
     microsoft::windows::ocsf::events::explicit_credential_logon
   }
-  "4688" => {
+  4672 => {
+    microsoft::windows::ocsf::events::authorize_session
+  }
+  4688 => {
     microsoft::windows::ocsf::events::process_create
   }
-  "4697" => {
+  4697 => {
     microsoft::windows::ocsf::events::service_install
   }
-  "4698" => {
+  4698 => {
     microsoft::windows::ocsf::events::scheduled_task_create
   }
-  "4720" | "4722" | "4723" | "4724" | "4725" | "4726" => {
+  4720 | 4721..4727 => {
     microsoft::windows::ocsf::events::account_change
   }
-  "4727" | "4728" | "4729" | "4730" | "4731" | "4732" | "4733" | "4734" |
-  "4754" | "4755" | "4756" | "4757" | "4758" => {
+  4726..4735 | 4753..4759 => {
     microsoft::windows::ocsf::events::group_management
   }
-  "4769" => {
+  4769 => {
     microsoft::windows::ocsf::events::kerberos_service_ticket
   }
-  "4771" => {
+  4771 => {
     microsoft::windows::ocsf::events::kerberos_preauth_failed
   }
-  "4776" => {
+  4776 => {
     microsoft::windows::ocsf::events::ntlm_auth
   }
-  "5001" | "5007" => {
+  5001 | 5007 => {
     microsoft::windows::ocsf::events::defender_tamper
   }
-  "6005" => {
+  6005 => {
     microsoft::windows::ocsf::events::eventlog_start
   }
-  "6006" => {
+  6006 => {
     microsoft::windows::ocsf::events::eventlog_stop
   }
-  "7034" => {
+  7034 => {
     microsoft::windows::ocsf::events::service_crashed
   }
-  "7045" => {
+  7045 => {
     microsoft::windows::ocsf::events::service_install_scm
   }
   _ => {
     microsoft::windows::ocsf::base
   }
 }
+drop windows.System.EventID
 
 this = {...ocsf, unmapped: windows}
