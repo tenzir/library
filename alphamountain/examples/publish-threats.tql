@@ -1,21 +1,16 @@
 ---
-name: Publish alphaMountain Threats Feed
+name: Publish alphaMountain Threats as OCSF
 description: |
-  An example that periodically fetches the alphaMountain Threats Feed and
-  publishes it to the `alphamountain` topic.
+  Periodically fetches high-scoring alphaMountain threats, maps them to OCSF
+  OSINT Inventory Info, and publishes them to the `ocsf` topic.
 ---
 
-let $url = "https://batch.alphamountain.ai/threat/feed/csv"
-let $body = {
-  version: 1,
-  license: "ALPHAMOUNTAIN_LICENSE",
-  risk_min: 8.5,
-  risk_max: 10.0,
-}
 every 1h {
-  from_http $url, body=$body {
-    read_csv
-  }
+  alphamountain::threat::feed license="ALPHAMOUNTAIN_LICENSE",
+    risk_min=8.5,
+    risk_max=10.0
+  alphamountain::ocsf::map
+  ocsf::derive
+  ocsf::cast
 }
-@name = "alphamountain.threat"
-publish "alphamountain"
+publish "ocsf"

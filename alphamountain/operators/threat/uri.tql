@@ -1,0 +1,49 @@
+---
+description: Gets a threat score for one URI.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: uri
+      type: string
+      description: URI or URL to assess.
+    - name: request_type
+      type: string
+      default: "partner.info"
+      description: API request type.
+    - name: scan_depth
+      type: string
+      default: "low"
+      description: "Real-time lookup depth: none, low, medium, or high."
+    - name: resolved_ips
+      default: null
+      description: Optional resolved IP address list.
+    - name: referrer
+      type: string
+      default: null
+      description: Optional HTTP referrer.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  type: $request_type,
+  uri: $uri,
+  scan_depth: $scan_depth,
+  resolved_ips: $resolved_ips,
+  referrer: $referrer,
+}
+
+alphamountain::api::post url="https://api.alphamountain.ai/threat/uri", body=$body
+uri = $uri
+if threat? != null {
+  this = {
+    ...move threat,
+    uri: move uri,
+    status: move status,
+    ttl: move ttl,
+    version: move version,
+  }
+}
+@name = "alphamountain.threat"

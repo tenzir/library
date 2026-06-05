@@ -1,0 +1,46 @@
+---
+description: Fetches the JSON threat feed and emits one event per feed row.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit.
+    - name: risk_min
+      type: float
+      default: null
+      description: Optional minimum risk score.
+    - name: risk_max
+      type: float
+      default: null
+      description: Optional maximum risk score.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+    - name: flags
+      default: null
+      description: Optional API flags.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  limit: $limit,
+  risk_min: $risk_min,
+  risk_max: $risk_max,
+  start: $start,
+  flags: $flags,
+}
+
+alphamountain::api::post url="https://batch.alphamountain.ai/threat/feed/json", body=$body
+unroll feed
+this = {
+  ...move feed,
+  status: move status,
+  version: move version,
+}
+@name = "alphamountain.threat"

@@ -1,0 +1,56 @@
+---
+description: POSTs a JSON request body and parses the response.
+args:
+  named:
+    - name: url
+      type: string
+      description: Endpoint URL.
+    - name: body
+      description: JSON request body.
+    - name: format
+      type: string
+      default: "json"
+      description: "Response format: json, json-array, or ndjson."
+    - name: max_retry_count
+      type: int
+      default: 5
+      description: Maximum HTTP retry attempts.
+---
+
+from $body
+drop_null_fields
+match $format {
+  "json-array" => {
+    each {
+      from_http $url,
+        body=$this,
+        headers={"Content-Type": "application/json"},
+        max_retry_count=$max_retry_count {
+        read_json arrays_of_objects=true, raw=true
+      }
+    }
+  }
+  "ndjson" => {
+    each {
+      from_http $url,
+        body=$this,
+        headers={"Content-Type": "application/json"},
+        max_retry_count=$max_retry_count {
+        read_ndjson raw=true
+      }
+    }
+  }
+  "json" => {
+    each {
+      from_http $url,
+        body=$this,
+        headers={"Content-Type": "application/json"},
+        max_retry_count=$max_retry_count {
+        read_json raw=true
+      }
+    }
+  }
+  _ => {
+    assert false, message=f"unsupported alphaMountain response format: {$format}"
+  }
+}

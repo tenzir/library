@@ -1,0 +1,45 @@
+---
+description: Fetches the JSON category feed and emits one event per feed row.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit.
+    - name: categories
+      default: null
+      description: Optional category ID filter.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+    - name: flags
+      default: null
+      description: Optional API flags.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  limit: $limit,
+  categories: $categories,
+  start: $start,
+  flags: $flags,
+  mapping: $mapping,
+}
+
+alphamountain::api::post url="https://batch.alphamountain.ai/category/feed/json", body=$body
+unroll feed
+this = {
+  ...move feed,
+  status: move status,
+  version: move version,
+}
+@name = "alphamountain.category"
