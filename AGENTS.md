@@ -6,6 +6,9 @@ contain user-defined operators, pipelines, examples, and context definitions.
 
 Every top-level directory that does not start with `.` is a package.
 
+Integration packages typically have the name of the primary vendor, like
+`amazon`, `google`, or `microsoft`.
+
 ## Workflows
 
 All key workflows are well-supported by agents. See
