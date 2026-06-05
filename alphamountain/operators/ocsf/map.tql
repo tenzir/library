@@ -4,11 +4,6 @@ description: alphaMountain rows to OCSF OSINT Inventory Info.
 
 this = {am: this}
 
-where not (
-  (am.has("score") and am.score == null)
-  or (am.has("categories") and am.categories == null)
-)
-
 osint = {
   src_url: "https://www.alphamountain.ai/api/",
   vendor_name: "alphaMountain",
@@ -32,6 +27,14 @@ if am.uri? != null {
 } else {
   osint.type_id = 0
 }
+if osint.value? != null {
+  _ip = ip(osint.value)
+  if _ip? != null {
+    osint.value = _ip.string()
+    osint.type_id = 1
+  }
+  drop _ip
+}
 
 if am.score? != null {
   _score = move am.score
@@ -47,32 +50,33 @@ if _score? != null {
     provider: "alphaMountain",
   }
 
-  match _score {
-    _ if _score >= 9 => {
+  _score_floor = _score.int()
+  match _score_floor {
+    9 | 10 => {
       osint.reputation.score_id = 10
     }
-    _ if _score >= 8 => {
+    8 => {
       osint.reputation.score_id = 9
     }
-    _ if _score >= 7 => {
+    7 => {
       osint.reputation.score_id = 8
     }
-    _ if _score >= 6 => {
+    6 => {
       osint.reputation.score_id = 7
     }
-    _ if _score >= 5 => {
+    5 => {
       osint.reputation.score_id = 6
     }
-    _ if _score >= 4 => {
+    4 => {
       osint.reputation.score_id = 5
     }
-    _ if _score >= 3 => {
+    3 => {
       osint.reputation.score_id = 4
     }
-    _ if _score >= 2 => {
+    2 => {
       osint.reputation.score_id = 3
     }
-    _ if _score > 0 => {
+    0 | 1 if _score > 0 => {
       osint.reputation.score_id = 2
     }
     _ => {
@@ -81,20 +85,21 @@ if _score? != null {
   }
 
   osint.risk_score = _score.round().int()
-  match _score {
-    _ if _score >= 8 => {
+  match _score_floor {
+    8 | 9 | 10 => {
       osint.severity_id = 4
     }
-    _ if _score >= 6 => {
+    6 | 7 => {
       osint.severity_id = 3
     }
-    _ if _score >= 3 => {
+    3 | 4 | 5 => {
       osint.severity_id = 2
     }
     _ => {
       osint.severity_id = 1
     }
   }
+  drop _score_floor
   drop _score
 }
 
@@ -107,17 +112,19 @@ if am.confidence? != null {
 }
 
 if _confidence? != null {
-  match _confidence {
-    _ if _confidence >= 0.8 => {
+  _confidence_decile = (_confidence * 10).int()
+  match _confidence_decile {
+    8 | 9 | 10 => {
       osint.confidence_id = 3
     }
-    _ if _confidence >= 0.5 => {
+    5 | 6 | 7 => {
       osint.confidence_id = 2
     }
     _ => {
       osint.confidence_id = 1
     }
   }
+  drop _confidence_decile
   drop _confidence
 }
 
@@ -134,47 +141,29 @@ if am.category_ids? != null {
 
 if _category_ids? != null {
   osint.category = _category_ids.map(id => id.string()).join(",")
-  if osint.labels? == null {
-    osint.labels = _category_ids.map(id => f"alphaMountain category {id}")
-  }
+  osint.labels = osint.labels? else _category_ids.map(id => f"alphaMountain category {id}")
   drop _category_ids
 }
 
-_answers = []
-if am.sections?.dns?.ipv4? != null {
-  _answers = [
-    ..._answers,
-    ...(move am.sections.dns.ipv4).map(ip => {
-      class: "IN",
-      type: "A",
-      rdata: ip.string(),
-    }),
-  ]
-}
-if am.sections?.dns?.ipv6? != null {
-  _answers = [
-    ..._answers,
-    ...(move am.sections.dns.ipv6).map(ip => {
-      class: "IN",
-      type: "AAAA",
-      rdata: ip.string(),
-    }),
-  ]
-}
-if am.sections?.pdns? != null {
-  _answers = [
-    ..._answers,
-    ...am.sections.pdns.where(x => x.ip? != null).map(x => {
-      class: "IN",
-      type: "A",
-      rdata: x.ip.string(),
-    }),
-  ]
-}
-if _answers.length() > 0 {
-  osint.answers = move _answers
-} else {
-  drop _answers
+osint.answers = [
+  ...(am.sections?.dns?.ipv4? else []).map(ip => {
+    class: "IN",
+    type: "A",
+    rdata: ip.string(),
+  }),
+  ...(am.sections?.dns?.ipv6? else []).map(ip => {
+    class: "IN",
+    type: "AAAA",
+    rdata: ip.string(),
+  }),
+  ...(am.sections?.pdns? else []).where(x => x.ip? != null).map(x => {
+    class: "IN",
+    type: "A",
+    rdata: x.ip.string(),
+  }),
+]
+if osint.answers.length() == 0 {
+  drop osint.answers
 }
 
 if am.sections?.geo?.ipv4? != null and am.sections.geo.ipv4.length() > 0 {
