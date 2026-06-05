@@ -20,4 +20,6 @@ ocsf::derive
 ocsf::cast
 ```
 
-The package covers real-time URI lookups, bulk URI lookups, hostname intelligence, threat and category feeds, ranked feeds, batch diffs, license information, support APIs, category metadata, and context update helpers. It also ships anonymized fixture coverage for API response shapes, cleanup behavior, OCSF mapping paths, and lookup-table contexts.
+The package covers real-time URI lookups, bulk URI lookups, hostname intelligence, threat and category feeds, ranked feeds, batch diffs, license information, support APIs, category metadata, and context update helpers. It also ships anonymized fixture coverage for API response shapes, CSV parsing behavior, OCSF mapping paths, and lookup-table contexts.
+
+CSV response parsing is centralized in `alphamountain::read`, while OCSF-specific category label derivation lives in `alphamountain::ocsf::map`.
