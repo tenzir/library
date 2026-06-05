@@ -10,7 +10,7 @@ args:
     - name: format
       type: string
       default: "json"
-      description: "Response format: json, json-array, ndjson, or csv."
+      description: "Response format: json, json-array, or ndjson."
     - name: max_retry_count
       type: int
       default: 5
@@ -19,19 +19,9 @@ args:
 
 from $body
 drop_null_fields
-assert $format in ["csv", "json-array", "ndjson", "json"],
+assert $format in ["json-array", "ndjson", "json"],
   message=f"unsupported alphaMountain response format: {$format}"
 match $format {
-  "csv" => {
-    each {
-      from_http $url,
-        body=$this,
-        headers={"Content-Type": "application/json"},
-        max_retry_count=$max_retry_count {
-        alphamountain::read
-      }
-    }
-  }
   "json-array" => {
     each {
       from_http $url,
