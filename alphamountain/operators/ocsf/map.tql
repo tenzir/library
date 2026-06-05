@@ -4,120 +4,178 @@ description: alphaMountain rows to OCSF OSINT Inventory Info.
 
 this = {am: this}
 
-osint = {}
-osint.vendor_name = "alphaMountain"
-osint.src_url = "https://www.alphamountain.ai/api/"
-osint.value = am.uri if am.uri? != null else
-              am.url if am.url? != null else
-              am.hostname if am.hostname? != null else
-              am.domain if am.domain? != null else
-              am.sections?.whois?.domain if am.sections?.whois?.domain? != null else
-              null
-osint.type_id = 5 if am.uri? != null or am.url? != null else 2 if osint.value != null else 0
+osint = {
+  src_url: "https://www.alphamountain.ai/api/",
+  vendor_name: "alphaMountain",
+}
+
+if am.uri? != null {
+  osint.value = move am.uri
+  osint.type_id = 5
+} else if am.url? != null {
+  osint.value = move am.url
+  osint.type_id = 5
+} else if am.hostname? != null {
+  osint.value = move am.hostname
+  osint.type_id = 2
+} else if am.domain? != null {
+  osint.value = move am.domain
+  osint.type_id = 2
+} else if am.sections?.whois?.domain? != null {
+  osint.value = am.sections.whois.domain
+  osint.type_id = 2
+} else {
+  osint.type_id = 0
+}
 
 if am.score? != null {
-  osint.reputation = {
-    provider: "alphaMountain",
-    base_score: am.score,
-    score_id: (10 if am.score >= 9 else 9 if am.score >= 8 else 8 if am.score >= 7 else 7 if am.score >= 6 else 6 if am.score >= 5 else 5 if am.score >= 4 else 4 if am.score >= 3 else 3 if am.score >= 2 else 2 if am.score > 0 else 1),
-  }
-  osint.risk_score = am.score.round().int()
-  osint.severity_id = 4 if am.score >= 8 else 3 if am.score >= 6 else 2 if am.score >= 3 else 1
+  _score = move am.score
+} else if am.threat?.score? != null {
+  _score = move am.threat.score
+} else if am.sections?.threat?.score? != null {
+  _score = move am.sections.threat.score
 }
 
-if am.threat?.score? != null {
+if _score? != null {
   osint.reputation = {
+    base_score: _score,
     provider: "alphaMountain",
-    base_score: am.threat.score,
-    score_id: (10 if am.threat.score >= 9 else 9 if am.threat.score >= 8 else 8 if am.threat.score >= 7 else 7 if am.threat.score >= 6 else 6 if am.threat.score >= 5 else 5 if am.threat.score >= 4 else 4 if am.threat.score >= 3 else 3 if am.threat.score >= 2 else 2 if am.threat.score > 0 else 1),
   }
-  osint.risk_score = am.threat.score.round().int()
-  osint.severity_id = 4 if am.threat.score >= 8 else 3 if am.threat.score >= 6 else 2 if am.threat.score >= 3 else 1
-}
+  if _score >= 9 {
+    osint.reputation.score_id = 10
+  } else if _score >= 8 {
+    osint.reputation.score_id = 9
+  } else if _score >= 7 {
+    osint.reputation.score_id = 8
+  } else if _score >= 6 {
+    osint.reputation.score_id = 7
+  } else if _score >= 5 {
+    osint.reputation.score_id = 6
+  } else if _score >= 4 {
+    osint.reputation.score_id = 5
+  } else if _score >= 3 {
+    osint.reputation.score_id = 4
+  } else if _score >= 2 {
+    osint.reputation.score_id = 3
+  } else if _score > 0 {
+    osint.reputation.score_id = 2
+  } else {
+    osint.reputation.score_id = 1
+  }
 
-if am.sections?.threat?.score? != null {
-  osint.reputation = {
-    provider: "alphaMountain",
-    base_score: am.sections.threat.score,
-    score_id: (10 if am.sections.threat.score >= 9 else 9 if am.sections.threat.score >= 8 else 8 if am.sections.threat.score >= 7 else 7 if am.sections.threat.score >= 6 else 6 if am.sections.threat.score >= 5 else 5 if am.sections.threat.score >= 4 else 4 if am.sections.threat.score >= 3 else 3 if am.sections.threat.score >= 2 else 2 if am.sections.threat.score > 0 else 1),
+  osint.risk_score = _score.round().int()
+  if _score >= 8 {
+    osint.severity_id = 4
+  } else if _score >= 6 {
+    osint.severity_id = 3
+  } else if _score >= 3 {
+    osint.severity_id = 2
+  } else {
+    osint.severity_id = 1
   }
-  osint.risk_score = am.sections.threat.score.round().int()
-  osint.severity_id = 4 if am.sections.threat.score >= 8 else 3 if am.sections.threat.score >= 6 else 2 if am.sections.threat.score >= 3 else 1
+  drop _score
 }
 
 if am.confidence? != null {
-  osint.confidence_id = 3 if am.confidence >= 0.8 else 2 if am.confidence >= 0.5 else 1
+  _confidence = move am.confidence
+} else if am.category?.confidence? != null {
+  _confidence = move am.category.confidence
+} else if am.sections?.category?.confidence? != null {
+  _confidence = move am.sections.category.confidence
 }
 
-if am.categories? != null {
-  osint.category = am.categories.map(id => id.string()).join(",")
-  osint.labels = am.categories.map(id => f"alphaMountain category {id}")
-}
-if am.category?.categories? != null {
-  osint.category = am.category.categories.map(id => id.string()).join(",")
-  osint.labels = am.category.categories.map(id => f"alphaMountain category {id}")
-}
-if am.sections?.category?.categories? != null {
-  osint.category = am.sections.category.categories.map(id => id.string()).join(",")
-  osint.labels = am.sections.category.categories.map(id => f"alphaMountain category {id}")
+if _confidence? != null {
+  if _confidence >= 0.8 {
+    osint.confidence_id = 3
+  } else if _confidence >= 0.5 {
+    osint.confidence_id = 2
+  } else {
+    osint.confidence_id = 1
+  }
+  drop _confidence
 }
 
+if am.category_ids? != null {
+  _category_ids = move am.category_ids
+  osint.labels = move am.category_labels?
+} else if am.categories? != null {
+  _category_ids = move am.categories
+} else if am.category?.categories? != null {
+  _category_ids = move am.category.categories
+} else if am.sections?.category?.categories? != null {
+  _category_ids = move am.sections.category.categories
+}
+
+if _category_ids? != null {
+  osint.category = _category_ids.map(id => id.string()).join(",")
+  if osint.labels? == null {
+    osint.labels = _category_ids.map(id => f"alphaMountain category {id}")
+  }
+  drop _category_ids
+}
+
+_answers = []
 if am.sections?.dns?.ipv4? != null {
-  osint.answers = am.sections.dns.ipv4.map(ip => {
-    class: "IN",
-    type: "A",
-    rdata: ip.string(),
-  })
+  _answers = [
+    ..._answers,
+    ...(move am.sections.dns.ipv4).map(ip => {
+      class: "IN",
+      type: "A",
+      rdata: ip.string(),
+    }),
+  ]
 }
 if am.sections?.dns?.ipv6? != null {
-  osint.answers = [
-    ...osint.answers,
-    ...am.sections.dns.ipv6.map(ip => {
+  _answers = [
+    ..._answers,
+    ...(move am.sections.dns.ipv6).map(ip => {
       class: "IN",
       type: "AAAA",
       rdata: ip.string(),
     }),
-  ] if osint.answers? != null else am.sections.dns.ipv6.map(ip => {
-    class: "IN",
-    type: "AAAA",
-    rdata: ip.string(),
-  })
+  ]
 }
 if am.sections?.pdns? != null {
-  osint.answers = [
-    ...osint.answers,
-    ...am.sections.pdns.map(x => {
+  _answers = [
+    ..._answers,
+    ...am.sections.pdns.where(x => x.ip? != null).map(x => {
       class: "IN",
       type: "A",
       rdata: x.ip.string(),
     }),
-  ] if osint.answers? != null else am.sections.pdns.map(x => {
-    class: "IN",
-    type: "A",
-    rdata: x.ip.string(),
-  })
+  ]
+}
+if _answers.length() > 0 {
+  osint.answers = move _answers
+} else {
+  drop _answers
 }
 
-if am.sections?.geo?.ipv4? != null {
+if am.sections?.geo?.ipv4? != null and am.sections.geo.ipv4.length() > 0 {
+  _geo = am.sections.geo.ipv4[0]
   osint.location = {
-    country: am.sections.geo.ipv4[0].isoCode,
-    lat: am.sections.geo.ipv4[0].latLng[0],
-    long: am.sections.geo.ipv4[0].latLng[1],
+    country: _geo.isoCode,
+    lat: _geo.latLng[0],
+    long: _geo.latLng[1],
     provider: "alphaMountain",
   }
-  osint.autonomous_system = {
-    number: am.sections.geo.ipv4[0].asn.number,
-    name: am.sections.geo.ipv4[0].asn.organization,
+  if _geo.asn? != null {
+    osint.autonomous_system = {
+      number: _geo.asn.number,
+      name: _geo.asn.organization,
+    }
   }
+  drop _geo
 }
 
 if am.sections?.whois? != null {
   osint.whois = {
-    domain: am.sections.whois.domain,
-    registrar: am.sections.whois.registrar,
-    created_time: am.sections.whois.created?.time(),
-    last_seen_time: am.sections.whois.updated?.time(),
+    domain: move am.sections.whois.domain?,
+    registrar: move am.sections.whois.registrar?,
+    created_time: time(move am.sections.whois.created?),
+    last_seen_time: time(move am.sections.whois.updated?),
   }
+  osint.expiration_time = time(move am.sections.whois.expires?)
 }
 
 if osint.severity_id? == null {
