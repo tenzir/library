@@ -1,0 +1,150 @@
+---
+description: alphaMountain rows to OCSF OSINT Inventory Info.
+---
+
+this = {am: this}
+
+osint = {}
+osint.vendor_name = "alphaMountain"
+osint.src_url = "https://www.alphamountain.ai/api/"
+osint.value = am.uri if am.uri? != null else
+              am.url if am.url? != null else
+              am.hostname if am.hostname? != null else
+              am.domain if am.domain? != null else
+              am.sections?.whois?.domain if am.sections?.whois?.domain? != null else
+              null
+osint.type_id = 5 if am.uri? != null or am.url? != null else 2 if osint.value != null else 0
+
+if am.score? != null {
+  osint.reputation = {
+    provider: "alphaMountain",
+    base_score: am.score,
+    score_id: (10 if am.score >= 9 else 9 if am.score >= 8 else 8 if am.score >= 7 else 7 if am.score >= 6 else 6 if am.score >= 5 else 5 if am.score >= 4 else 4 if am.score >= 3 else 3 if am.score >= 2 else 2 if am.score > 0 else 1),
+  }
+  osint.risk_score = am.score.round().int()
+  osint.severity_id = 4 if am.score >= 8 else 3 if am.score >= 6 else 2 if am.score >= 3 else 1
+}
+
+if am.threat?.score? != null {
+  osint.reputation = {
+    provider: "alphaMountain",
+    base_score: am.threat.score,
+    score_id: (10 if am.threat.score >= 9 else 9 if am.threat.score >= 8 else 8 if am.threat.score >= 7 else 7 if am.threat.score >= 6 else 6 if am.threat.score >= 5 else 5 if am.threat.score >= 4 else 4 if am.threat.score >= 3 else 3 if am.threat.score >= 2 else 2 if am.threat.score > 0 else 1),
+  }
+  osint.risk_score = am.threat.score.round().int()
+  osint.severity_id = 4 if am.threat.score >= 8 else 3 if am.threat.score >= 6 else 2 if am.threat.score >= 3 else 1
+}
+
+if am.sections?.threat?.score? != null {
+  osint.reputation = {
+    provider: "alphaMountain",
+    base_score: am.sections.threat.score,
+    score_id: (10 if am.sections.threat.score >= 9 else 9 if am.sections.threat.score >= 8 else 8 if am.sections.threat.score >= 7 else 7 if am.sections.threat.score >= 6 else 6 if am.sections.threat.score >= 5 else 5 if am.sections.threat.score >= 4 else 4 if am.sections.threat.score >= 3 else 3 if am.sections.threat.score >= 2 else 2 if am.sections.threat.score > 0 else 1),
+  }
+  osint.risk_score = am.sections.threat.score.round().int()
+  osint.severity_id = 4 if am.sections.threat.score >= 8 else 3 if am.sections.threat.score >= 6 else 2 if am.sections.threat.score >= 3 else 1
+}
+
+if am.confidence? != null {
+  osint.confidence_id = 3 if am.confidence >= 0.8 else 2 if am.confidence >= 0.5 else 1
+}
+
+if am.categories? != null {
+  osint.category = am.categories.map(id => id.string()).join(",")
+  osint.labels = am.categories.map(id => f"alphaMountain category {id}")
+}
+if am.category?.categories? != null {
+  osint.category = am.category.categories.map(id => id.string()).join(",")
+  osint.labels = am.category.categories.map(id => f"alphaMountain category {id}")
+}
+if am.sections?.category?.categories? != null {
+  osint.category = am.sections.category.categories.map(id => id.string()).join(",")
+  osint.labels = am.sections.category.categories.map(id => f"alphaMountain category {id}")
+}
+
+if am.sections?.dns?.ipv4? != null {
+  osint.answers = am.sections.dns.ipv4.map(ip => {
+    class: "IN",
+    type: "A",
+    rdata: ip.string(),
+  })
+}
+if am.sections?.dns?.ipv6? != null {
+  osint.answers = [
+    ...osint.answers,
+    ...am.sections.dns.ipv6.map(ip => {
+      class: "IN",
+      type: "AAAA",
+      rdata: ip.string(),
+    }),
+  ] if osint.answers? != null else am.sections.dns.ipv6.map(ip => {
+    class: "IN",
+    type: "AAAA",
+    rdata: ip.string(),
+  })
+}
+if am.sections?.pdns? != null {
+  osint.answers = [
+    ...osint.answers,
+    ...am.sections.pdns.map(x => {
+      class: "IN",
+      type: "A",
+      rdata: x.ip.string(),
+    }),
+  ] if osint.answers? != null else am.sections.pdns.map(x => {
+    class: "IN",
+    type: "A",
+    rdata: x.ip.string(),
+  })
+}
+
+if am.sections?.geo?.ipv4? != null {
+  osint.location = {
+    country: am.sections.geo.ipv4[0].isoCode,
+    lat: am.sections.geo.ipv4[0].latLng[0],
+    long: am.sections.geo.ipv4[0].latLng[1],
+    provider: "alphaMountain",
+  }
+  osint.autonomous_system = {
+    number: am.sections.geo.ipv4[0].asn.number,
+    name: am.sections.geo.ipv4[0].asn.organization,
+  }
+}
+
+if am.sections?.whois? != null {
+  osint.whois = {
+    domain: am.sections.whois.domain,
+    registrar: am.sections.whois.registrar,
+    created_time: am.sections.whois.created?.time(),
+    last_seen_time: am.sections.whois.updated?.time(),
+  }
+}
+
+if osint.severity_id? == null {
+  osint.severity_id = 1
+}
+if osint.confidence_id? == null {
+  osint.confidence_id = 0
+}
+
+ocsf = {}
+ocsf.activity_id = 2
+ocsf.actor = {
+  app_name: "Tenzir",
+}
+ocsf.category_uid = 5
+ocsf.class_uid = 5021
+ocsf.metadata = {
+  product: {
+    name: "alphaMountain API",
+    vendor_name: "alphaMountain",
+  },
+  version: "1.8.0",
+}
+ocsf.osint = [move osint]
+ocsf.severity_id = 1
+ocsf.time = now()
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+this = {...ocsf, unmapped: am}
+@name = "ocsf.osint_inventory_info"

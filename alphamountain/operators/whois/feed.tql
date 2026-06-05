@@ -1,0 +1,30 @@
+---
+description: Fetches the JSON newly registered domains feed.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+}
+let $body = $body.merge({limit: $limit}) if $limit != null else $body
+let $body = $body.merge({start: $start}) if $start != null else $body
+
+alphamountain::api::post_json url="https://batch.alphamountain.ai/whois/feed/json", body=$body
+if feed? != null {
+  unroll feed
+  this = {...feed, status: status, version: version}
+  @name = "alphamountain.whois.registration"
+}

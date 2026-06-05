@@ -1,0 +1,41 @@
+---
+description: Fetches the CSV threat feed and emits one event per feed row.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit.
+    - name: risk_min
+      type: float
+      default: null
+      description: Optional minimum risk score.
+    - name: risk_max
+      type: float
+      default: null
+      description: Optional maximum risk score.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+    - name: flags
+      default: null
+      description: Optional API flags.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+}
+let $body = $body.merge({limit: $limit}) if $limit != null else $body
+let $body = $body.merge({risk_min: $risk_min}) if $risk_min != null else $body
+let $body = $body.merge({risk_max: $risk_max}) if $risk_max != null else $body
+let $body = $body.merge({start: $start}) if $start != null else $body
+let $body = $body.merge({flags: $flags}) if $flags != null else $body
+
+alphamountain::api::post_csv url="https://batch.alphamountain.ai/threat/feed/csv", body=$body
+alphamountain::threat::clean_csv
+@name = "alphamountain.threat"

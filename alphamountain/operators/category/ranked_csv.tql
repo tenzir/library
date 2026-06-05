@@ -1,0 +1,32 @@
+---
+description: Fetches ranked CSV category ratings.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit ordered by popularity rank.
+    - name: categories
+      default: null
+      description: Optional category ID filter.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+}
+let $body = $body.merge({limit: $limit}) if $limit != null else $body
+let $body = $body.merge({categories: $categories}) if $categories != null else $body
+let $body = $body.merge({mapping: $mapping}) if $mapping != null else $body
+
+alphamountain::api::post_csv url="https://batch.alphamountain.ai/category/ranked/csv", body=$body
+alphamountain::category::clean_csv
+alphamountain::category::normalize
+@name = "alphamountain.category"

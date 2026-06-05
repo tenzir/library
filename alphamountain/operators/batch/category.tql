@@ -1,0 +1,41 @@
+---
+description: Fetches streaming batch category diffs as NDJSON records.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: 0
+      description: Record limit, or 0 for unlimited.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+    - name: end
+      type: string
+      default: null
+      description: Optional ISO8601 end time.
+    - name: flags
+      default: null
+      description: Optional API flags.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  limit: $limit,
+}
+let $body = $body.merge({start: $start}) if $start != null else $body
+let $body = $body.merge({end: $end}) if $end != null else $body
+let $body = $body.merge({flags: $flags}) if $flags != null else $body
+let $body = $body.merge({mapping: $mapping}) if $mapping != null else $body
+
+alphamountain::api::post_ndjson url="https://batch.alphamountain.ai/category", body=$body
+alphamountain::category::normalize
+@name = "alphamountain.category.batch"

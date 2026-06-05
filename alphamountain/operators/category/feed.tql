@@ -1,0 +1,44 @@
+---
+description: Fetches the JSON category feed and emits one event per feed row.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit.
+    - name: categories
+      default: null
+      description: Optional category ID filter.
+    - name: start
+      type: string
+      default: null
+      description: Optional ISO8601 start time.
+    - name: flags
+      default: null
+      description: Optional API flags.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+}
+let $body = $body.merge({limit: $limit}) if $limit != null else $body
+let $body = $body.merge({categories: $categories}) if $categories != null else $body
+let $body = $body.merge({start: $start}) if $start != null else $body
+let $body = $body.merge({flags: $flags}) if $flags != null else $body
+let $body = $body.merge({mapping: $mapping}) if $mapping != null else $body
+
+alphamountain::api::post_json url="https://batch.alphamountain.ai/category/feed/json", body=$body
+if feed? != null {
+  unroll feed
+  this = {...feed, status: status, version: version}
+  alphamountain::category::normalize
+  @name = "alphamountain.category"
+}

@@ -1,0 +1,44 @@
+---
+description: Gets categories for one URI.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: uri
+      type: string
+      description: URI or URL to categorize.
+    - name: request_type
+      type: string
+      default: "partner.info"
+      description: API request type.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+    - name: resolved_ips
+      default: null
+      description: Optional resolved IP address list.
+    - name: referrer
+      type: string
+      default: null
+      description: Optional HTTP referrer.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  type: $request_type,
+  uri: $uri,
+}
+let $body = $body.merge({mapping: $mapping}) if $mapping != null else $body
+let $body = $body.merge({resolved_ips: $resolved_ips}) if $resolved_ips != null else $body
+let $body = $body.merge({referrer: $referrer}) if $referrer != null else $body
+
+alphamountain::api::post_json url="https://api.alphamountain.ai/category/uri", body=$body
+uri = $uri
+if category? != null {
+  this = {...category, uri: uri, status: status, ttl: ttl, version: version}
+}
+alphamountain::category::normalize
+@name = "alphamountain.category"

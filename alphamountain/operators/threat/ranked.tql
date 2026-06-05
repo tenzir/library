@@ -1,0 +1,25 @@
+---
+description: Fetches ranked JSON threat ratings.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: limit
+      type: int
+      default: null
+      description: Optional record limit ordered by popularity rank.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+}
+let $body = $body.merge({limit: $limit}) if $limit != null else $body
+
+alphamountain::api::post_json url="https://batch.alphamountain.ai/threat/ranked/json", body=$body
+if feed? != null {
+  unroll feed
+  this = {...feed, status: status, version: version}
+  @name = "alphamountain.threat"
+}

@@ -1,0 +1,29 @@
+---
+description: Gets threat scores for multiple URIs.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: uris
+      description: URI strings or objects with URI metadata.
+    - name: request_type
+      type: string
+      default: "partner.info"
+      description: API request type.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  type: $request_type,
+  uris: $uris,
+}
+
+alphamountain::api::post_json url="https://api.alphamountain.ai/threat/uris", body=$body
+if scores? != null {
+  uri = scores.keys()
+  unroll uri
+  this = {...scores[uri], uri: uri, status: status, errors: errors, version: version}
+  @name = "alphamountain.threat"
+}
