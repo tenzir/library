@@ -26,16 +26,19 @@ let $body = {
 }
 
 alphamountain::api::post_json url="https://api.alphamountain.ai/category/uris", body=$body
-if categories? != null {
-  uri = categories.keys()
-  unroll uri
-  this = {
-    ...move categories[uri],
-    uri: move uri,
-    status: move status,
-    errors: move errors,
-    version: move version,
-  }
-  alphamountain::category::normalize
-  @name = "alphamountain.category"
+_category_uris = (categories? else {}).keys()
+uri = [
+  ..._category_uris,
+  ...(errors? else {}).keys().where(x => not (x in _category_uris)),
+]
+unroll uri
+_error = (errors? else {}).get(uri, null)
+this = {
+  ...(categories? else {}).get(uri, {}),
+  ...({error: move _error} if _error? != null else {}),
+  uri: move uri,
+  status: move status,
+  version: move version,
 }
+alphamountain::category::normalize
+@name = "alphamountain.category"

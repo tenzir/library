@@ -21,15 +21,18 @@ let $body = {
 }
 
 alphamountain::api::post_json url="https://api.alphamountain.ai/threat/uris", body=$body
-if scores? != null {
-  uri = scores.keys()
-  unroll uri
-  this = {
-    ...move scores[uri],
-    uri: move uri,
-    status: move status,
-    errors: move errors,
-    version: move version,
-  }
-  @name = "alphamountain.threat"
+_score_uris = (scores? else {}).keys()
+uri = [
+  ..._score_uris,
+  ...(errors? else {}).keys().where(x => not (x in _score_uris)),
+]
+unroll uri
+_error = (errors? else {}).get(uri, null)
+this = {
+  ...(scores? else {}).get(uri, {}),
+  ...({error: move _error} if _error? != null else {}),
+  uri: move uri,
+  status: move status,
+  version: move version,
 }
+@name = "alphamountain.threat"
