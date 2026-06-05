@@ -4,7 +4,7 @@ This repository hosts the Tenzir Library, a collection of
 [packages](https://docs.tenzir.com/explanations/packages.md) that
 contain user-defined operators, pipelines, examples, and context definitions.
 
-Each directory is one package, except for directories that begin with `.github`.
+Every top-level directory that does not start with `.` is a package.
 
 ## Workflows
 
