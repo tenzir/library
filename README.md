@@ -1,6 +1,6 @@
 # 📚 Tenzir Library
 
-This repository contains a collection of open-source
+This repository hosts the official collection of content
 [packages](https://docs.tenzir.com/explanations/packages/) for Tenzir.
 
 ## 🚀 Install packages
