@@ -32,6 +32,8 @@ list_changed_files() {
     list_all_files
     return
   }
+  # Check only local commits being pushed. On main, this means commits ahead of
+  # origin/main; remote-only changes are not part of the pre-push check.
   git diff --name-only -z --diff-filter=ACMRT "$base" HEAD -- \
     "${pipeline_files[@]}"
 }
