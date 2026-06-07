@@ -5,7 +5,7 @@ description: Initializes shared ASIM fields from a validated OCSF event.
 asim = {}
 
 asim.EventCount = 1
-asim.EventStartTime = time
+asim.EventStartTime = start_time? else time
 asim.EventEndTime = end_time? else time
 asim.EventProduct = metadata?.product?.name? else metadata?.product?.feature?.name? else "Unknown"
 asim.EventVendor = metadata?.product?.vendor_name? else "Microsoft"
@@ -40,12 +40,19 @@ match severity_id? {
     asim.EventSeverity = "High"
     asim.EventOriginalSeverity = severity? else "Critical"
   }
-  _ if severity? == "Critical" => {
+  6 => {
+    asim.EventSeverity = "High"
+    asim.EventOriginalSeverity = severity? else "Fatal"
+  }
+  _ if severity? == "Critical" or severity? == "Fatal" => {
     asim.EventSeverity = "High"
     asim.EventOriginalSeverity = severity
   }
-  _ if severity? != null => {
+  _ if severity? in ["Informational", "Low", "Medium", "High"] => {
     asim.EventSeverity = severity
+  }
+  _ if severity? != null => {
+    asim.EventOriginalSeverity = severity
   }
   _ => {}
 }
@@ -104,20 +111,4 @@ if disposition? != null {
 }
 if action? != null {
   asim.DvcAction = action
-}
-
-asim.AdditionalFields = {
-  category_uid: category_uid?,
-  category_name: category_name?,
-  class_uid: class_uid?,
-  class_name: class_name?,
-  activity_id: activity_id?,
-  activity_name: activity_name?,
-  type_uid: type_uid?,
-  type_name: type_name?,
-  metadata: metadata?,
-  cloud: cloud?,
-  unmapped: unmapped?,
-  raw_data: raw_data?,
-  raw_data_size: raw_data_size?,
 }
