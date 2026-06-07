@@ -1,0 +1,123 @@
+---
+description: Initializes shared ASIM fields from a validated OCSF event.
+---
+
+asim = {}
+
+asim.EventCount = 1
+asim.EventStartTime = time
+asim.EventEndTime = end_time? else time
+asim.EventProduct = metadata?.product?.name? else metadata?.product?.feature?.name? else "Unknown"
+asim.EventVendor = metadata?.product?.vendor_name? else "Microsoft"
+
+if metadata?.original_event_uid? != null {
+  asim.EventOriginalUid = metadata.original_event_uid
+  asim.EventUid = metadata.original_event_uid
+}
+if metadata?.event_code? != null {
+  asim.EventOriginalType = metadata.event_code
+} else {
+  asim.EventOriginalType = type_uid.string()
+}
+if message? != null {
+  asim.EventMessage = message
+}
+
+match severity_id? {
+  1 => {
+    asim.EventSeverity = "Informational"
+  }
+  2 => {
+    asim.EventSeverity = "Low"
+  }
+  3 => {
+    asim.EventSeverity = "Medium"
+  }
+  4 => {
+    asim.EventSeverity = "High"
+  }
+  5 => {
+    asim.EventSeverity = "High"
+    asim.EventOriginalSeverity = severity? else "Critical"
+  }
+  _ if severity? == "Critical" => {
+    asim.EventSeverity = "High"
+    asim.EventOriginalSeverity = severity
+  }
+  _ if severity? != null => {
+    asim.EventSeverity = severity
+  }
+  _ => {}
+}
+
+match status? {
+  "Success" => {
+    asim.EventResult = "Success"
+  }
+  "Failure" => {
+    asim.EventResult = "Failure"
+  }
+  "Partial" => {
+    asim.EventResult = "Partial"
+  }
+  _ => {
+    match status_id? {
+      1 if class_uid != 2003 and class_uid != 2004 and class_uid != 2005 => {
+        asim.EventResult = "Success"
+      }
+      2 => {
+        asim.EventResult = "Failure"
+      }
+      _ => {
+        asim.EventResult = "NA"
+      }
+    }
+  }
+}
+if status_detail? != null {
+  asim.EventOriginalResultDetails = status_detail
+}
+if status_code? != null {
+  asim.EventOriginalResultDetails = status_code.string()
+}
+
+if device?.hostname? != null {
+  asim.Dvc = device.hostname
+  asim.DvcHostname = device.hostname
+  asim.DvcFQDN = device.hostname
+}
+if device?.uid? != null {
+  asim.DvcId = device.uid
+}
+if device?.ip? != null {
+  asim.DvcIpAddr = device.ip
+  if asim.Dvc? == null {
+    asim.Dvc = device.ip.string()
+  }
+}
+if asim.Dvc? == null {
+  asim.Dvc = asim.EventProduct
+}
+
+if disposition? != null {
+  asim.DvcAction = disposition
+}
+if action? != null {
+  asim.DvcAction = action
+}
+
+asim.AdditionalFields = {
+  category_uid: category_uid?,
+  category_name: category_name?,
+  class_uid: class_uid?,
+  class_name: class_name?,
+  activity_id: activity_id?,
+  activity_name: activity_name?,
+  type_uid: type_uid?,
+  type_name: type_name?,
+  metadata: metadata?,
+  cloud: cloud?,
+  unmapped: unmapped?,
+  raw_data: raw_data?,
+  raw_data_size: raw_data_size?,
+}
