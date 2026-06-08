@@ -1,0 +1,78 @@
+---
+description: OCSF Network Activity (4001) → Splunk CIM Network Traffic All Traffic
+---
+
+assert class_uid == 4001
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["network", "communicate"]
+
+// --- CIM: occurrence attributes ---------------
+
+cim._time = time
+cim.duration = duration / 1000 if duration? != null else null
+if cim.duration == null and start_time? != null and end_time? != null {
+  cim.duration = count_seconds(end_time - start_time)
+}
+
+// --- CIM: action and application attributes ---
+
+splunk::cim::from_ocsf::common::action
+cim.app = app_name? else app_protocol_name?
+
+// --- CIM: traffic attributes ------------------
+
+cim.bytes = traffic?.bytes?
+cim.bytes_in = traffic?.bytes_in?
+cim.bytes_out = traffic?.bytes_out?
+cim.packets = traffic?.packets?
+cim.packets_in = traffic?.packets_in?
+cim.packets_out = traffic?.packets_out?
+cim.flow_id = connection_info?.community_uid? else connection_info?.uid?
+cim.session_id = connection_info?.session?.uid?
+cim.direction = connection_info?.direction?.to_lower()
+cim.protocol = app_protocol_name? else connection_info?.protocol_name?
+cim.protocol_version = connection_info?.protocol_ver?
+cim.tcp_flag = connection_info?.tcp_flags?
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.src_ip = src_endpoint?.ip?
+cim.src_port = src_endpoint?.port?
+cim.src_mac = src_endpoint?.mac?
+cim.src_interface = src_endpoint?.interface_name?
+cim.src_zone = src_endpoint?.network_scope?
+cim.src_translated_ip = src_endpoint?.proxy_endpoint?.ip?
+cim.src_translated_port = src_endpoint?.proxy_endpoint?.port?
+
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+cim.dest_ip = dst_endpoint?.ip?
+cim.dest_port = dst_endpoint?.port?
+cim.dest_mac = dst_endpoint?.mac?
+cim.dest_interface = dst_endpoint?.interface_name?
+cim.dest_zone = dst_endpoint?.network_scope?
+cim.dest_translated_ip = dst_endpoint?.proxy_endpoint?.ip?
+cim.dest_translated_port = dst_endpoint?.proxy_endpoint?.port?
+
+cim.dvc = device?.hostname? else device?.ip? else device?.name? else
+          network_observation_point?.hostname? else network_observation_point?.ip? else network_observation_point?.name?
+cim.dvc_ip = device?.ip? else network_observation_point?.ip?
+cim.dvc_mac = device?.mac? else network_observation_point?.mac?
+
+// --- CIM: user and product attributes ---------
+
+cim.user = connection_info?.session?.user?.name? else connection_info?.session?.user?.uid? else
+           src_endpoint?.owner?.name? else src_endpoint?.owner?.uid?
+splunk::cim::from_ocsf::common::product
+
+// --- CIM: network attributes ------------------
+
+splunk::cim::from_ocsf::common::transport
+
+// --- Finalize ---------------------------------
+
+this = cim

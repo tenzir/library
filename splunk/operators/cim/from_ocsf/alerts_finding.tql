@@ -1,0 +1,49 @@
+---
+description: OCSF Finding → Splunk CIM Alerts
+---
+
+assert class_uid in [2001, 2004, 2006]
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["alert"]
+
+// --- CIM: occurrence attributes ---------------
+
+cim._time = time
+cim.type = "alert" if is_alert? == true else "event"
+cim.app = metadata.product.name?
+
+// --- CIM: finding attributes ------------------
+
+cim.id = finding_info?.uid? else finding?.uid? else metadata.original_event_uid?
+cim.description = finding_info?.desc? else finding?.desc? else message?
+cim.signature = finding_info?.title? else finding?.title? else type_name? else class_name?
+cim.signature_id = finding_info?.uid? else finding?.uid? else metadata.event_code? else type_uid?.string()
+cim.subject = cim.signature
+cim.mitre_technique_id = finding_info?.attacks?.map(a => a.technique?.uid?) else
+                         attacks?.map(a => a.technique?.uid?) else []
+splunk::cim::from_ocsf::common::severity
+
+// --- CIM: source and destination attributes ---
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name? else
+          actor?.process?.device?.hostname? else actor?.process?.device?.ip? else actor?.process?.device?.name?
+cim.src_type = src_endpoint?.type? else actor?.process?.device?.type?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name? else
+           device?.hostname? else device?.ip? else device?.name? else
+           resource?.name? else resources?[0]?.name? else resources?[0]?.hostname? else resources?[0]?.ip?
+cim.dest_type = dst_endpoint?.type? else device?.type?
+
+// --- CIM: user and cloud attributes -----------
+
+cim.user = actor?.user?.name? else actor?.user?.uid? else user?.name? else user?.uid?
+cim.user_name = actor?.user?.name? else user?.name?
+cim.vendor_account = cloud?.account?.uid?
+cim.vendor_region = cloud?.region?
+
+// --- Finalize ---------------------------------
+
+this = cim

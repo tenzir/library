@@ -1,0 +1,59 @@
+---
+description: OCSF Account Change (3001) → Splunk CIM Change Account Management
+---
+
+assert class_uid == 3001
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["change", "account"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+cim.change_type = "AAA"
+cim.status = status?.to_lower()
+match status_id? {
+  1 => {
+    cim.status = "success"
+  }
+  2 => {
+    cim.status = "failure"
+  }
+  _ => {}
+}
+cim.result = status_detail? else status?
+cim.result_id = status_code? else status_id?.string()
+
+// --- CIM: object attributes -------------------
+
+cim.object = user_result?.name? else user?.name? else user_result?.uid? else user?.uid?
+cim.object_id = user_result?.uid? else user?.uid?
+cim.object_category = "user"
+cim.object_attrs = user_result?.changes?.map(c => c.name) else []
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = actor?.process?.device?.hostname? else actor?.process?.device?.ip? else actor?.process?.device?.name?
+cim.dest = device?.hostname? else device?.ip? else device?.name?
+cim.dvc = device?.hostname? else device?.ip? else device?.name?
+
+// --- CIM: user and product attributes ---------
+
+cim.user = user_result?.name? else user?.name? else user_result?.uid? else user?.uid?
+cim.user_name = user_result?.name? else user?.name?
+cim.user_type = user_result?.type? else user?.type?
+cim.src_user = actor?.user?.name? else actor?.user?.uid?
+cim.src_user_name = actor?.user?.name?
+cim.src_user_type = actor?.user?.type?
+cim.user_agent = http_request?.user_agent?
+cim.vendor_account = cloud?.account?.uid?
+cim.vendor_region = cloud?.region?
+splunk::cim::from_ocsf::common::product
+
+// --- Finalize ---------------------------------
+
+this = cim

@@ -1,0 +1,51 @@
+---
+description: OCSF Web Resources Activity (6001/6004) → Splunk CIM Web
+---
+
+assert class_uid in [6001, 6004]
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["web"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+splunk::cim::from_ocsf::common::action
+cim.app = actor?.app_name? else metadata.product.name?
+
+// --- CIM: web attributes ----------------------
+
+cim.http_content_type = http_response?.content_type?
+cim.http_method = http_request?.http_method?
+cim.http_referrer = http_request?.referrer?
+cim.http_user_agent = http_request?.user_agent?
+cim.response_time = http_response?.latency?
+cim.status = http_response?.code?.string() else status_code?
+cim.url = http_request?.url?.url_string? else web_resources?[0]?.url_string?
+cim.url_domain = http_request?.url?.domain? else http_request?.url?.hostname? else
+                 web_resources?[0]?.url_string?
+cim.uri_path = http_request?.url?.path?
+cim.uri_query = http_request?.url?.query_string?
+if cim.url != null {
+  cim.url_length = cim.url.length_chars()
+}
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.src_ip = src_endpoint?.ip?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name? else cim.url_domain
+cim.dest_ip = dst_endpoint?.ip?
+cim.dest_port = dst_endpoint?.port? else http_request?.url?.port?
+
+// --- CIM: user and product attributes ---------
+
+cim.user = actor?.user?.name? else actor?.user?.uid?
+splunk::cim::from_ocsf::common::product
+
+// --- Finalize ---------------------------------
+
+this = cim
