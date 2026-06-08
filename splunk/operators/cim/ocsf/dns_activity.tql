@@ -13,7 +13,11 @@ cim.tag = ["network", "resolution", "dns"]
 // --- CIM: occurrence attributes ---------------
 
 cim._time = time
-cim.duration = duration / 1000 if duration? != null else null
+if duration? != null {
+  cim.duration = (move duration).milliseconds().count_seconds()
+} else {
+  cim.duration = null
+}
 cim.name = type_name? else class_name? else "DNS Activity"
 
 if query_time? != null and response_time? != null {
@@ -146,30 +150,11 @@ cim.dest_port = dst_endpoint?.port?
 
 // --- CIM: product attributes ------------------
 
-product = metadata.product.name?
-vendor = metadata.product.vendor_name?
-cim.vendor_product = product
-if vendor != null {
-  cim.vendor_product = (vendor + " " + product) if product != null else vendor
-}
+splunk::cim::ocsf::helpers::product
 
 // --- CIM: network attributes ------------------
 
-cim.transport = connection_info?.protocol_name?
-if cim.transport == null {
-  match connection_info?.protocol_num? {
-    1 => {
-      cim.transport = "icmp"
-    }
-    6 => {
-      cim.transport = "tcp"
-    }
-    17 => {
-      cim.transport = "udp"
-    }
-    _ => {}
-  }
-}
+splunk::cim::ocsf::helpers::transport
 
 // --- Finalize ---------------------------------
 
