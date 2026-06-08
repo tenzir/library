@@ -3,6 +3,8 @@ description: Maps OCSF File System Activity events to Microsoft Sentinel ASIM Fi
 ---
 
 assert class_uid == 1001
+assert (actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?) != null and (file?.path? else file?.name?) != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name?, type_uid: type_uid?, type_name: type_name?, name: "asim.file_event"}
 
 microsoft::asim::ocsf::helpers::common
 
@@ -33,7 +35,5 @@ if ocsf.activity_name == "Rename" and ocsf.file_result? != null {
   asim.TargetFileName = ocsf.file_result.name? else asim.TargetFileName
 }
 asim.TargetFilePathType = "Windows Local" if (asim.TargetFilePath?.contains("\\") else false) else "Unix Local"
-assert asim.ActorUsername != null and asim.TargetFilePath != null,
-  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 
 this = {...asim, AdditionalFields: ocsf}

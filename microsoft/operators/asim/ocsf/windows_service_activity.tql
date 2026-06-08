@@ -3,6 +3,8 @@ description: Maps OCSF Windows Service Activity events to Microsoft Sentinel ASI
 ---
 
 assert class_uid == 201004
+assert (job?.name? else log_name? else metadata?.log_name? else entity?.name? else entity?.uid? else win_service?.name? else win_service?.service_file?.path?) != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name?, type_uid: type_uid?, type_name: type_name?, name: "asim.audit_event"}
 
 microsoft::asim::ocsf::helpers::common
 
@@ -26,7 +28,6 @@ match ocsf.activity_name {
 }
 asim.Operation = ocsf.activity_name? else ocsf.type_name? else asim.EventType
 asim.Object = ocsf.job?.name? else ocsf.log_name? else ocsf.metadata?.log_name? else ocsf.entity?.name? else ocsf.entity?.uid? else ocsf.win_service?.name? else ocsf.win_service?.service_file?.path?
-assert asim.Object != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 asim.ObjectType = "Service"
 asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid? else ocsf.actor?.app_name? else ocsf.actor?.app_uid?
 if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {

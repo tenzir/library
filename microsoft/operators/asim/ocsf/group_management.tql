@@ -3,6 +3,8 @@ description: Maps OCSF Group Management events to Microsoft Sentinel ASIM UserMa
 ---
 
 assert class_uid == 3006
+assert (actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid? else actor?.app_name? else actor?.app_uid?) != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name?, type_uid: type_uid?, type_name: type_name?, name: "asim.user_management"}
 
 microsoft::asim::ocsf::helpers::common
 
@@ -15,7 +17,6 @@ if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
   asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
   asim.ActorUsernameType = "Windows"
 }
-assert asim.ActorUsername != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 asim.ActorUserId = ocsf.actor?.user?.uid?
 asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
 

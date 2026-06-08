@@ -3,6 +3,10 @@ description: Maps OCSF Process Activity events to Microsoft Sentinel ASIM Proces
 ---
 
 assert class_uid == 1007
+assert activity_name? in ["Launch", "Terminate"],
+  message={reason: "unsupported OCSF to ASIM mapping", class_uid: class_uid, class_name: class_name?, type_uid: type_uid?, type_name: type_name?, name: "asim.process_event"}
+assert (actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?) != null and process?.pid? != null and (process?.name? else process?.file?.name? else process?.path?) != null and process?.cmd_line? != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name?, type_uid: type_uid?, type_name: type_name?, name: "asim.process_event"}
 
 microsoft::asim::ocsf::helpers::common
 
@@ -12,16 +16,7 @@ asim.EventSchemaVersion = "0.1.4"
 match ocsf.activity_name {
   "Launch" => { asim.EventType = "ProcessCreated" }
   "Terminate" => { asim.EventType = "ProcessTerminated" }
-  _ => {
-    assert false, message={
-      reason: "unsupported OCSF to ASIM mapping",
-      class_uid: ocsf.class_uid?,
-      class_name: ocsf.class_name?,
-      type_uid: ocsf.type_uid?,
-      type_name: ocsf.type_name?,
-      name: @name,
-    }
-  }
+  _ => {}
 }
 asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid?
 if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
@@ -36,7 +31,5 @@ asim.TargetProcessId = ocsf.process?.pid?.string()
 asim.TargetProcessName = ocsf.process?.name? else ocsf.process?.file?.name? else ocsf.process?.path?.split("\\")[-1]
 asim.TargetProcessCommandLine = ocsf.process?.cmd_line?
 asim.TargetUserId = ocsf.user?.uid?
-assert asim.ActorUsername != null and asim.ActingProcessId != null and asim.TargetProcessId != null and asim.TargetProcessName != null and asim.TargetProcessCommandLine != null,
-  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 
 this = {...asim, AdditionalFields: ocsf}
