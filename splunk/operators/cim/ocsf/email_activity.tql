@@ -1,0 +1,56 @@
+---
+description: OCSF Email Activity (4009) → Splunk CIM Email
+---
+
+assert class_uid == 4009
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["email"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+if duration? != null {
+  cim.duration = duration.milliseconds().count_seconds()
+}
+splunk::cim::ocsf::helpers::action
+
+// --- CIM: email attributes --------------------
+
+cim.delay = email?.delay?
+cim.internal_message_id = message_trace_uid?
+cim.message_id = email?.message_uid? else email?.uid?
+cim.message_info = message?
+cim.protocol = protocol_name?.to_lower()
+cim.recipient = email?.to? else to?
+cim.recipient_count = cim.recipient.length() if cim.recipient != null else 0
+cim.return_addr = email?.return_path?
+cim.size = email?.size?
+cim.status_code = status_code?
+cim.subject = email?.subject?
+cim.url = [...email?.urls?.map(u => u.url_string)]
+cim.xref = email?.uid?
+
+// --- CIM: attachment attributes ---------------
+
+cim.file_hash = [...email?.files?.map(f => f.hashes?.map(h => h.value))]
+cim.file_name = [...email?.files?.map(f => f.name)]
+cim.file_size = [...email?.files?.map(f => f.size)]
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+
+// --- CIM: sender and user attributes ----------
+
+cim.src_user = from? else email?.smtp_from? else email?.from? else email?.sender?
+cim.user = actor?.user?.name? else actor?.user?.uid?
+splunk::cim::ocsf::helpers::product
+
+// --- Finalize ---------------------------------
+
+this = cim

@@ -1,0 +1,98 @@
+---
+description: Splunk CIM Change → OCSF Entity Management (3004)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "create" => {
+    ocsf.activity_id = 1
+  }
+  "read" => {
+    ocsf.activity_id = 2
+  }
+  "update" => {
+    ocsf.activity_id = 3
+  }
+  "delete" => {
+    ocsf.activity_id = 4
+  }
+  "move" | "rename" => {
+    ocsf.activity_id = 5
+  }
+  "enroll" => {
+    ocsf.activity_id = 6
+  }
+  "unenroll" => {
+    ocsf.activity_id = 7
+  }
+  "enable" => {
+    ocsf.activity_id = 8
+  }
+  "disable" => {
+    ocsf.activity_id = 9
+  }
+  "activate" => {
+    ocsf.activity_id = 10
+  }
+  "deactivate" => {
+    ocsf.activity_id = 11
+  }
+  "suspend" => {
+    ocsf.activity_id = 12
+  }
+  "resume" => {
+    ocsf.activity_id = 13
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 3
+ocsf.class_uid = 3004
+splunk::ocsf::cim::helpers::common
+splunk::ocsf::cim::helpers::status
+
+// --- OCSF: entity attributes ------------------
+
+ocsf.entity = {
+  name: move cim.object?,
+  type: move cim.object_category?,
+  uid: move cim.object_id?,
+}
+ocsf.comment = move cim.command?
+ocsf.actor = {
+  user: {
+    name: move cim.user_name? else move cim.user?,
+    type: move cim.user_type?,
+  },
+}
+ocsf.src_endpoint = {
+  hostname: move cim.src?,
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+ocsf.http_request = {
+  user_agent: move cim.user_agent?,
+}
+if cim.vendor_account? != null or cim.vendor_region? != null {
+  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account?,
+    },
+    region: move cim.vendor_region?,
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.entity_management"
+this = {...ocsf, unmapped: cim}

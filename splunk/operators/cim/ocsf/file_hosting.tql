@@ -1,0 +1,52 @@
+---
+description: OCSF File Hosting Activity (6006) → Splunk CIM Data Access
+---
+
+assert class_uid == 6006
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["data", "access"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+cim.app = actor?.app_name? else metadata.product.name?
+
+// --- CIM: object attributes -------------------
+
+cim.object = file?.name?
+cim.object_id = file?.uid?
+cim.object_category = file?.type? else "file"
+cim.object_path = file?.path? else file?.uri?
+cim.object_size = file?.size?
+cim.parent_object = share?
+cim.parent_object_category = share_type?
+cim.signature = type_name? else class_name?
+cim.signature_id = metadata.event_code? else type_uid?.string()
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+cim.dest_url = http_request?.url?.url_string? else file?.url?.url_string?
+cim.dvc = device?.hostname? else device?.ip? else device?.name?
+
+// --- CIM: user and request attributes ---------
+
+cim.user = actor?.user?.name? else actor?.user?.uid?
+cim.user_id = actor?.user?.uid?
+cim.user_name = actor?.user?.name?
+cim.user_role = actor?.user?.type?
+cim.user_type = actor?.user?.type?
+cim.user_agent = http_request?.user_agent?
+cim.vendor_account = cloud?.account?.uid?
+cim.vendor_region = cloud?.region?
+splunk::cim::ocsf::helpers::product
+
+// --- Finalize ---------------------------------
+
+this = cim

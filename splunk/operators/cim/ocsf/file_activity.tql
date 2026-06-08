@@ -1,0 +1,59 @@
+---
+description: OCSF File System Activity (1001) → Splunk CIM Endpoint Filesystem
+---
+
+assert class_uid == 1001
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["endpoint", "filesystem"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+
+// --- CIM: endpoint attributes -----------------
+
+cim.dest = device?.hostname? else device?.ip? else device?.name?
+
+// --- CIM: file attributes ---------------------
+
+cim.file_access_time = file?.accessed_time?
+cim.file_acl = file?.security_descriptor?
+cim.file_create_time = file?.created_time?
+cim.file_hash = [...file?.hashes?.map(h => h.value)]
+cim.file_modify_time = file?.modified_time?
+cim.file_name = file?.name?
+cim.file_path = file?.path?
+if file?.size? != null {
+  cim.file_size = file.size / 1024
+}
+
+// --- CIM: process attributes ------------------
+
+cim.process = actor?.process?.cmd_line? else actor?.process?.path? else actor?.process?.name?
+cim.process_exec = actor?.process?.file?.name? else actor?.process?.name?
+cim.process_guid = actor?.process?.uid?
+cim.process_hash = [...actor?.process?.file?.hashes?.map(h => h.value)]
+cim.process_id = actor?.process?.pid?
+cim.process_name = actor?.process?.name? else actor?.process?.file?.name?
+cim.process_path = actor?.process?.path? else actor?.process?.file?.path?
+cim.parent_process = actor?.process?.parent_process?.cmd_line?
+cim.parent_process_exec = actor?.process?.parent_process?.file?.name? else actor?.process?.parent_process?.name?
+cim.parent_process_guid = actor?.process?.parent_process?.uid?
+cim.parent_process_hash = [...actor?.process?.parent_process?.file?.hashes?.map(h => h.value)]
+cim.parent_process_id = actor?.process?.parent_process?.pid?
+cim.parent_process_name = actor?.process?.parent_process?.name? else actor?.process?.parent_process?.file?.name?
+cim.parent_process_path = actor?.process?.parent_process?.path? else actor?.process?.parent_process?.file?.path?
+
+// --- CIM: user and product attributes ---------
+
+cim.user = actor?.user?.name? else actor?.user?.uid?
+splunk::cim::ocsf::helpers::product
+
+// --- Finalize ---------------------------------
+
+this = cim

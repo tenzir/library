@@ -1,0 +1,238 @@
+---
+description: Splunk CIM Network Resolution DNS → OCSF DNS Activity (4003)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.message_type? {
+  "Traffic" => {
+    ocsf.activity_id = 6
+  }
+  "Response" => {
+    ocsf.activity_id = 2
+  }
+  _ if cim.answer? != null or cim.reply_code? != null or cim.reply_code_id? != null => {
+    ocsf.activity_id = 6
+  }
+  _ => {
+    ocsf.activity_id = 1
+  }
+}
+ocsf.category_uid = 4
+ocsf.class_uid = 4003
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: occurrence attributes --------------
+
+ocsf.time = move cim._time?
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
+
+if cim.response_time? != null {
+  ocsf.response_time = ocsf.time
+  ocsf.query_time = ocsf.time - (move cim.response_time).seconds()
+}
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  product: {
+    name: move cim.product? else move cim.vendor_product? else "Splunk CIM",
+    vendor_name: move cim.vendor?,
+  },
+  version: "1.8.0",
+}
+
+ocsf.connection_info = {
+  protocol_name: move cim.transport?,
+}
+match ocsf.connection_info.protocol_name {
+  "icmp" => {
+    ocsf.connection_info.protocol_num = 1
+  }
+  "tcp" => {
+    ocsf.connection_info.protocol_num = 6
+  }
+  "udp" => {
+    ocsf.connection_info.protocol_num = 17
+  }
+  _ => {}
+}
+
+// --- OCSF: primary DNS attributes -------------
+
+ocsf.query = {
+  hostname: move cim.query?,
+  opcode: move cim.query_type?,
+  packet_uid: move cim.transaction_id?,
+  type: move cim.record_type?,
+}
+match ocsf.query.opcode {
+  "Query" => {
+    ocsf.query.opcode_id = 0
+  }
+  "IQuery" => {
+    ocsf.query.opcode_id = 1
+  }
+  "Status" => {
+    ocsf.query.opcode_id = 2
+  }
+  "Notify" => {
+    ocsf.query.opcode_id = 4
+  }
+  "Update" => {
+    ocsf.query.opcode_id = 5
+  }
+  _ => {
+    ocsf.query.opcode_id = 99 if ocsf.query.opcode? != null
+  }
+}
+
+if cim.answer? != null and cim.ttl? != null {
+  ocsf.answers = zip(move cim.answer, move cim.ttl).map(x => {
+    rdata: x.left,
+    ttl: x.right,
+    type: ocsf.query.type?,
+  })
+} else if cim.answer? != null {
+  ocsf.answers = (move cim.answer).map(x => {
+    rdata: x,
+    type: ocsf.query.type?,
+  })
+}
+
+ocsf.rcode_id = move cim.reply_code_id?
+ocsf.rcode = move cim.reply_code?
+if ocsf.rcode_id == null {
+  match ocsf.rcode {
+    "No Error" => {
+      ocsf.rcode_id = 0
+    }
+    "NoError" => {
+      ocsf.rcode_id = 0
+    }
+    "Format Error" => {
+      ocsf.rcode_id = 1
+    }
+    "Server Failure" => {
+      ocsf.rcode_id = 2
+    }
+    "Non-Existent Domain" => {
+      ocsf.rcode_id = 3
+    }
+    "NXDomain" => {
+      ocsf.rcode_id = 3
+    }
+    "Not Implemented" => {
+      ocsf.rcode_id = 4
+    }
+    "Query Refused" => {
+      ocsf.rcode_id = 5
+    }
+    _ => {}
+  }
+}
+
+match ocsf.rcode_id {
+  0 => {
+    ocsf.rcode = "NoError"
+  }
+  1 => {
+    ocsf.rcode = "FormError"
+  }
+  2 => {
+    ocsf.rcode = "ServError"
+  }
+  3 => {
+    ocsf.rcode = "NXDomain"
+  }
+  4 => {
+    ocsf.rcode = "NotImp"
+  }
+  5 => {
+    ocsf.rcode = "Refused"
+  }
+  6 => {
+    ocsf.rcode = "YXDomain"
+  }
+  7 => {
+    ocsf.rcode = "YXRRSet"
+  }
+  8 => {
+    ocsf.rcode = "NXRRSet"
+  }
+  9 => {
+    ocsf.rcode = "NotAuth"
+  }
+  10 => {
+    ocsf.rcode = "NotZone"
+  }
+  11 => {
+    ocsf.rcode = "DSOTYPENI"
+  }
+  16 => {
+    ocsf.rcode = "BADSIG_VERS"
+  }
+  17 => {
+    ocsf.rcode = "BADKEY"
+  }
+  18 => {
+    ocsf.rcode = "BADTIME"
+  }
+  19 => {
+    ocsf.rcode = "BADMODE"
+  }
+  20 => {
+    ocsf.rcode = "BADNAME"
+  }
+  21 => {
+    ocsf.rcode = "BADALG"
+  }
+  22 => {
+    ocsf.rcode = "BADTRUNC"
+  }
+  23 => {
+    ocsf.rcode = "BADCOOKIE"
+  }
+  24 => {
+    ocsf.rcode = "Unassigned"
+  }
+  25 => {
+    ocsf.rcode = "Reserved"
+  }
+  _ => {}
+}
+
+match ocsf.rcode_id {
+  null => {
+    ocsf.status_id = 0
+  }
+  0 => {
+    ocsf.status_id = 1
+  }
+  _ => {
+    ocsf.status_id = 2
+  }
+}
+
+// --- OCSF: endpoint attributes ----------------
+
+ocsf.src_endpoint = {
+  ip: move cim.src_ip?,
+  port: move cim.src_port?,
+}
+
+ocsf.dst_endpoint = {
+  ip: move cim.dest_ip?,
+  port: move cim.dest_port?,
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.dns_activity"
+this = {...ocsf, unmapped: cim}

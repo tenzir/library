@@ -1,0 +1,74 @@
+---
+description: Splunk CIM Email → OCSF Email Activity (4009)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "send" => {
+    ocsf.activity_id = 1
+  }
+  "receive" => {
+    ocsf.activity_id = 2
+  }
+  "scan" => {
+    ocsf.activity_id = 3
+  }
+  "trace" => {
+    ocsf.activity_id = 4
+  }
+  "mta_relay" => {
+    ocsf.activity_id = 5
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 4
+ocsf.class_uid = 4009
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: occurrence and email attributes ----
+
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
+ocsf.email = {
+  files: [],
+  from: move cim.src_user?,
+  message_uid: move cim.message_id?,
+  return_path: move cim.return_addr?,
+  size: move cim.size?,
+  subject: move cim.subject?,
+  to: move cim.recipient?,
+  uid: move cim.xref?,
+}
+ocsf.message = move cim.message_info?
+ocsf.message_trace_uid = move cim.internal_message_id?
+ocsf.protocol_name = move cim.protocol?
+ocsf.status_code = move cim.status_code?
+if cim.url? != null {
+  ocsf.email.urls = (move cim.url).map(u => {
+    url_string: u,
+  })
+}
+if cim.file_name? != null {
+  ocsf.email.files = zip(move cim.file_name, [...move cim.file_size?]).map(x => {
+    name: x.left,
+    size: x.right,
+  })
+}
+ocsf.src_endpoint = {
+  hostname: move cim.src?,
+}
+ocsf.dst_endpoint = {
+  hostname: move cim.dest?,
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.email_activity"
+this = {...ocsf, unmapped: cim}

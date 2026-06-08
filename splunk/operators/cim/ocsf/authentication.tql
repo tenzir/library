@@ -1,0 +1,72 @@
+---
+description: OCSF Authentication (3002) → Splunk CIM Authentication
+---
+
+assert class_uid == 3002
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["authentication"]
+
+// --- CIM: occurrence attributes ---------------
+
+cim._time = time
+if duration? != null {
+  cim.duration = duration.milliseconds().count_seconds()
+}
+
+// --- CIM: result attributes -------------------
+
+cim.action = status?.to_lower() else "unknown"
+match status_id? {
+  0 => {
+    cim.action = "unknown"
+  }
+  1 => {
+    cim.action = "success"
+  }
+  2 => {
+    cim.action = "failure"
+  }
+  _ => {}
+}
+cim.result = cim.action
+cim.reason = status_detail? else message?
+cim.reason_id = status_code?
+
+// --- CIM: authentication attributes -----------
+
+cim.app = actor?.app_name? else service?.name? else metadata.product.name?
+cim.authentication_method = auth_protocol? else auth_protocol_id?.string()
+cim.authentication_service = service?.name? else service?.uid?
+cim.session_id = session?.uid? else actor?.session?.uid?
+cim.signature = type_name? else class_name?
+cim.signature_id = metadata.event_code? else type_uid?.string()
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+
+// --- CIM: user and process attributes ---------
+
+cim.user = user?.name? else user?.uid?
+cim.user_id = user?.uid?
+cim.user_role = user?.type?
+cim.user_type = user?.type?
+cim.src_user = actor?.user?.name? else actor?.user?.uid?
+cim.src_user_id = actor?.user?.uid?
+cim.src_user_role = actor?.user?.type?
+cim.src_user_type = actor?.user?.type?
+cim.process = actor?.process?.cmd_line? else actor?.process?.path? else actor?.process?.name?
+cim.user_agent = http_request?.user_agent?
+
+// --- CIM: cloud attributes --------------------
+
+cim.vendor_account = cloud?.account?.uid?
+
+// --- Finalize ---------------------------------
+
+this = cim

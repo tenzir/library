@@ -1,0 +1,51 @@
+---
+description: OCSF Event Log Activity (1008) → Splunk CIM Change Auditing Changes
+---
+
+assert class_uid == 1008
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["change", "audit"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+cim.change_type = "audit"
+cim.command = log_provider?
+cim.status = status?.to_lower()
+match status_id? {
+  1 => {
+    cim.status = "success"
+  }
+  2 => {
+    cim.status = "failure"
+  }
+  _ => {}
+}
+cim.result = status_detail? else status?
+cim.result_id = status_code? else status_id?.string()
+
+// --- CIM: object attributes -------------------
+
+cim.object = log_name? else file?.name?
+cim.object_id = file?.uid?
+cim.object_category = log_type? else log_type_id?.string() else "event_log"
+cim.object_path = file?.path?
+
+// --- CIM: endpoint and user attributes --------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+cim.dvc = device?.hostname? else device?.ip? else device?.name?
+cim.user = actor?.user?.name? else actor?.user?.uid?
+cim.user_name = actor?.user?.name?
+cim.user_type = actor?.user?.type?
+splunk::cim::ocsf::helpers::product
+
+// --- Finalize ---------------------------------
+
+this = cim

@@ -1,0 +1,130 @@
+---
+description: Splunk CIM Network Traffic All Traffic → OCSF Network Activity (4001)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "open" | "allowed" => {
+    ocsf.activity_id = 1
+  }
+  "close" | "closed" => {
+    ocsf.activity_id = 2
+  }
+  "reset" => {
+    ocsf.activity_id = 3
+  }
+  "fail" | "failure" => {
+    ocsf.activity_id = 4
+  }
+  "refuse" | "blocked" => {
+    ocsf.activity_id = 5
+  }
+  "traffic" | "observed" => {
+    ocsf.activity_id = 6
+  }
+  "listen" => {
+    ocsf.activity_id = 7
+  }
+  _ => {
+    ocsf.activity_id = 6
+  }
+}
+ocsf.category_uid = 4
+ocsf.class_uid = 4001
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: traffic and connection attributes --
+
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
+ocsf.traffic = {
+  bytes: move cim.bytes?,
+  bytes_in: move cim.bytes_in?,
+  bytes_out: move cim.bytes_out?,
+  packets: move cim.packets?,
+  packets_in: move cim.packets_in?,
+  packets_out: move cim.packets_out?,
+}
+ocsf.connection_info = {
+  community_uid: move cim.flow_id?,
+  protocol_name: move cim.transport? else move cim.protocol?,
+  protocol_ver: move cim.protocol_version?,
+  session: {
+    uid: move cim.session_id?,
+  },
+  tcp_flags: move cim.tcp_flag?,
+}
+match cim.direction?.to_lower() {
+  "inbound" => {
+    ocsf.connection_info.direction_id = 1
+  }
+  "outbound" => {
+    ocsf.connection_info.direction_id = 2
+  }
+  "lateral" => {
+    ocsf.connection_info.direction_id = 3
+  }
+  "local" => {
+    ocsf.connection_info.direction_id = 4
+  }
+  "unknown" => {
+    ocsf.connection_info.direction_id = 0
+  }
+  _ if cim.direction? != null => {
+    ocsf.connection_info.direction_id = 99
+  }
+  _ => {}
+}
+match ocsf.connection_info.protocol_name {
+  "icmp" => {
+    ocsf.connection_info.protocol_num = 1
+  }
+  "tcp" => {
+    ocsf.connection_info.protocol_num = 6
+  }
+  "udp" => {
+    ocsf.connection_info.protocol_num = 17
+  }
+  _ => {}
+}
+
+// --- OCSF: endpoint attributes ----------------
+
+ocsf.src_endpoint = {
+  ip: move cim.src_ip?,
+  mac: move cim.src_mac?,
+  interface_name: move cim.src_interface?,
+  network_scope: move cim.src_zone?,
+  port: move cim.src_port?,
+  proxy_endpoint: {
+    ip: move cim.src_translated_ip?,
+    port: move cim.src_translated_port?,
+  },
+}
+ocsf.dst_endpoint = {
+  ip: move cim.dest_ip?,
+  mac: move cim.dest_mac?,
+  interface_name: move cim.dest_interface?,
+  network_scope: move cim.dest_zone?,
+  port: move cim.dest_port?,
+  proxy_endpoint: {
+    ip: move cim.dest_translated_ip?,
+    port: move cim.dest_translated_port?,
+  },
+}
+ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
+ocsf.device = {
+  hostname: move cim.dvc?,
+  ip: move cim.dvc_ip?,
+  mac: move cim.dvc_mac?,
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.network_activity"
+this = {...ocsf, unmapped: cim}

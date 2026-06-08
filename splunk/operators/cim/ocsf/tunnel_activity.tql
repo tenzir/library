@@ -1,0 +1,59 @@
+---
+description: OCSF Tunnel Activity (4014) → Splunk CIM Network Sessions VPN
+---
+
+assert class_uid == 4014
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["network", "session", "vpn"]
+
+// --- CIM: occurrence and action attributes ----
+
+cim._time = time
+if duration? != null {
+  cim.duration = duration.milliseconds().count_seconds()
+}
+cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+match activity_id {
+  1 => {
+    cim.action = "started"
+  }
+  2 => {
+    cim.action = "ended"
+  }
+  3 => {
+    cim.action = "renewed"
+  }
+  _ => {}
+}
+
+// --- CIM: session attributes ------------------
+
+cim.signature = tunnel_type? else protocol_name? else type_name?
+cim.signature_id = tunnel_type_id?.string() else type_uid?.string()
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src_ip = src_endpoint?.ip?
+cim.src_dns = src_endpoint?.hostname? else src_endpoint?.name?
+cim.src_mac = src_endpoint?.mac?
+cim.src_nt_host = src_endpoint?.hostname? else src_endpoint?.name?
+
+cim.dest_ip = dst_endpoint?.ip? else tunnel_interface?.ip?
+cim.dest_dns = dst_endpoint?.hostname? else dst_endpoint?.name? else tunnel_interface?.name?
+cim.dest_mac = dst_endpoint?.mac? else tunnel_interface?.mac?
+cim.dest_nt_host = dst_endpoint?.hostname? else dst_endpoint?.name?
+
+cim.dvc = device?.hostname? else device?.ip? else device?.name?
+
+// --- CIM: user and product attributes ---------
+
+cim.user = user?.name? else user?.uid? else session?.user?.name? else session?.user?.uid?
+splunk::cim::ocsf::helpers::product
+
+// --- Finalize ---------------------------------
+
+this = cim

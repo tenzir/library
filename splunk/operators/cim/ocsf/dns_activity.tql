@@ -1,0 +1,173 @@
+---
+description: OCSF DNS Activity (4003) → Splunk CIM Network Resolution DNS
+---
+
+assert class_uid == 4003
+
+cim = {}
+
+// --- CIM: data model attributes ---------------
+
+cim.tag = ["network", "resolution", "dns"]
+
+// --- CIM: occurrence attributes ---------------
+
+cim._time = time
+if duration? != null {
+  cim.duration = duration.milliseconds().count_seconds()
+}
+cim.name = type_name? else class_name? else "DNS Activity"
+
+if query_time? != null and response_time? != null {
+  cim.response_time = (response_time - query_time).count_seconds()
+}
+
+// --- CIM: primary DNS attributes --------------
+
+cim.query = query?.hostname?
+cim.query_count = 1 if query? != null else 0
+cim.query_type = query?.opcode?
+match query?.opcode_id? {
+  0 => {
+    cim.query_type = "Query"
+  }
+  1 => {
+    cim.query_type = "IQuery"
+  }
+  2 => {
+    cim.query_type = "Status"
+  }
+  4 => {
+    cim.query_type = "Notify"
+  }
+  5 => {
+    cim.query_type = "Update"
+  }
+  _ => {}
+}
+cim.record_type = query?.type?
+cim.transaction_id = query?.packet_uid? else answers?[0]?.packet_uid?
+
+cim.answer = [...answers?.map(a => a.rdata)]
+cim.answer_count = cim.answer.length()
+cim.ttl = [...answers?.map(a => a.ttl?)]
+
+cim.reply_code_id = rcode_id?
+cim.reply_code = rcode?
+match rcode_id? {
+  0 => {
+    cim.reply_code = "No Error"
+  }
+  1 => {
+    cim.reply_code = "Format Error"
+  }
+  2 => {
+    cim.reply_code = "Server Failure"
+  }
+  3 => {
+    cim.reply_code = "Non-Existent Domain"
+  }
+  4 => {
+    cim.reply_code = "Not Implemented"
+  }
+  5 => {
+    cim.reply_code = "Query Refused"
+  }
+  6 => {
+    cim.reply_code = "Name Exists when it should not"
+  }
+  7 => {
+    cim.reply_code = "RR Set Exists when it should not"
+  }
+  8 => {
+    cim.reply_code = "RR Set that should exist does not"
+  }
+  9 => {
+    cim.reply_code = "Server Not Authoritative for zone"
+  }
+  10 => {
+    cim.reply_code = "Name not contained in zone"
+  }
+  11 => {
+    cim.reply_code = "DSO-TYPE Not Implemented"
+  }
+  16 => {
+    cim.reply_code = rcode? else "TSIG Signature Failure or Bad OPT Version"
+  }
+  17 => {
+    cim.reply_code = "Key not recognized"
+  }
+  18 => {
+    cim.reply_code = "Signature out of time window"
+  }
+  19 => {
+    cim.reply_code = "Bad TKEY Mode"
+  }
+  20 => {
+    cim.reply_code = "Duplicate key name"
+  }
+  21 => {
+    cim.reply_code = "Algorithm not supported"
+  }
+  22 => {
+    cim.reply_code = "Bad Truncation"
+  }
+  23 => {
+    cim.reply_code = "Bad/missing Server Cookie"
+  }
+  24 => {
+    cim.reply_code = "Unassigned"
+  }
+  25 => {
+    cim.reply_code = "Reserved"
+  }
+  _ => {}
+}
+
+match activity_id {
+  1 => {
+    cim.message_type = "Query"
+  }
+  2 => {
+    cim.message_type = "Response"
+  }
+  _ => {
+    cim.message_type = activity_name? else "unknown"
+  }
+}
+
+// --- CIM: endpoint attributes -----------------
+
+cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
+cim.src_ip = src_endpoint?.ip?
+cim.src_port = src_endpoint?.port?
+
+cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+cim.dest_ip = dst_endpoint?.ip?
+cim.dest_port = dst_endpoint?.port?
+
+// --- CIM: product attributes ------------------
+
+splunk::cim::ocsf::helpers::product
+
+// --- CIM: network attributes ------------------
+
+cim.transport = connection_info?.protocol_name?
+if cim.transport == null {
+  match connection_info?.protocol_num? {
+    1 => {
+      cim.transport = "icmp"
+    }
+    6 => {
+      cim.transport = "tcp"
+    }
+    17 => {
+      cim.transport = "udp"
+    }
+    _ => {}
+  }
+}
+
+// --- Finalize ---------------------------------
+
+this = cim

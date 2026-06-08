@@ -1,0 +1,61 @@
+---
+description: Splunk CIM Network Sessions VPN → OCSF Tunnel Activity (4014)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "started" | "open" => {
+    ocsf.activity_id = 1
+  }
+  "ended" | "closed" | "close" => {
+    ocsf.activity_id = 2
+  }
+  "renewed" | "renew" => {
+    ocsf.activity_id = 3
+  }
+  "unknown" => {
+    ocsf.activity_id = 0
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 4
+ocsf.class_uid = 4014
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: tunnel attributes ------------------
+
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
+ocsf.tunnel_type = move cim.signature?
+ocsf.tunnel_type_id = int(move cim.signature_id?)
+ocsf.src_endpoint = {
+  hostname: move cim.src_dns? else move cim.src_nt_host?,
+  ip: move cim.src_ip?,
+  mac: move cim.src_mac?,
+}
+ocsf.dst_endpoint = {
+  hostname: move cim.dest_dns? else move cim.dest_nt_host?,
+  ip: move cim.dest_ip?,
+  mac: move cim.dest_mac?,
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = ["host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+ocsf.user = {
+  name: move cim.user?,
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.tunnel_activity"
+this = {...ocsf, unmapped: cim}

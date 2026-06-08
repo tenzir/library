@@ -1,0 +1,69 @@
+---
+description: Splunk CIM Change Account Management → OCSF User Access Management (3005)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "assign_privileges" => {
+    ocsf.activity_id = 1
+  }
+  "revoke_privileges" => {
+    ocsf.activity_id = 2
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 3
+ocsf.class_uid = 3005
+splunk::ocsf::cim::helpers::common
+splunk::ocsf::cim::helpers::status
+
+// --- OCSF: access attributes ------------------
+
+ocsf.user = {
+  name: move cim.user_name? else move cim.user?,
+  type: move cim.user_type?,
+}
+ocsf.resource = {
+  name: move cim.object?,
+  type: move cim.object_category?,
+  uid: move cim.object_id?,
+}
+ocsf.privileges = move cim.object_attrs?
+ocsf.actor = {
+  user: {
+    name: move cim.src_user_name? else move cim.src_user?,
+    type: move cim.src_user_type?,
+  },
+}
+ocsf.src_endpoint = {
+  hostname: move cim.src?,
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+ocsf.http_request = {
+  user_agent: move cim.user_agent?,
+}
+if cim.vendor_account? != null or cim.vendor_region? != null {
+  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account?,
+    },
+    region: move cim.vendor_region?,
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.user_access"
+this = {...ocsf, unmapped: cim}
