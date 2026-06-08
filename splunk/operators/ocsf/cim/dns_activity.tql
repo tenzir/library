@@ -2,18 +2,19 @@
 description: Splunk CIM Network Resolution DNS → OCSF DNS Activity (4003)
 ---
 
+cim = this
 ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match message_type? {
+match cim.message_type? {
   "Traffic" => {
     ocsf.activity_id = 6
   }
   "Response" => {
     ocsf.activity_id = 2
   }
-  _ if answer? != null or reply_code? != null or reply_code_id? != null => {
+  _ if cim.answer? != null or cim.reply_code? != null or cim.reply_code_id? != null => {
     ocsf.activity_id = 6
   }
   _ => {
@@ -27,28 +28,28 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.time = _time
-ocsf.duration = duration?.seconds().count_milliseconds().round()
+ocsf.time = cim._time
+ocsf.duration = cim.duration?.seconds().count_milliseconds().round()
 
-if response_time? != null {
-  ocsf.response_time = _time
-  ocsf.query_time = _time - response_time.seconds()
+if cim.response_time? != null {
+  ocsf.response_time = cim._time
+  ocsf.query_time = cim._time - cim.response_time.seconds()
 }
 
 // --- OCSF: context attributes -----------------
 
 ocsf.metadata = {
   product: {
-    name: product? else vendor_product? else "Splunk CIM",
-    vendor_name: vendor?,
+    name: cim.product? else cim.vendor_product? else "Splunk CIM",
+    vendor_name: cim.vendor?,
   },
   version: "1.8.0",
 }
 
 ocsf.connection_info = {
-  protocol_name: transport?,
+  protocol_name: cim.transport?,
 }
-match transport? {
+match cim.transport? {
   "icmp" => {
     ocsf.connection_info.protocol_num = 1
   }
@@ -64,11 +65,11 @@ match transport? {
 // --- OCSF: primary DNS attributes -------------
 
 ocsf.query = {
-  hostname: query?,
-  packet_uid: transaction_id?,
-  type: record_type?,
+  hostname: cim.query?,
+  packet_uid: cim.transaction_id?,
+  type: cim.record_type?,
 }
-match query_type? {
+match cim.query_type? {
   "Query" => {
     ocsf.query.opcode_id = 0
   }
@@ -85,27 +86,27 @@ match query_type? {
     ocsf.query.opcode_id = 5
   }
   _ => {
-    ocsf.query.opcode = query_type?
-    ocsf.query.opcode_id = 99 if query_type? != null
+    ocsf.query.opcode = cim.query_type?
+    ocsf.query.opcode_id = 99 if cim.query_type? != null
   }
 }
 
-if answer? != null and ttl? != null {
-  ocsf.answers = zip(answer, ttl).map(x => {
+if cim.answer? != null and cim.ttl? != null {
+  ocsf.answers = zip(cim.answer, cim.ttl).map(x => {
     rdata: x.left,
     ttl: x.right,
-    type: record_type?,
+    type: cim.record_type?,
   })
-} else if answer? != null {
-  ocsf.answers = answer.map(x => {
+} else if cim.answer? != null {
+  ocsf.answers = cim.answer.map(x => {
     rdata: x,
-    type: record_type?,
+    type: cim.record_type?,
   })
 }
 
-ocsf.rcode_id = reply_code_id?
+ocsf.rcode_id = cim.reply_code_id?
 if ocsf.rcode_id == null {
-  match reply_code? {
+  match cim.reply_code? {
     "No Error" => {
       ocsf.rcode_id = 0
     }
@@ -202,7 +203,7 @@ match ocsf.rcode_id {
     ocsf.rcode = "Reserved"
   }
   _ => {
-    ocsf.rcode = reply_code?
+    ocsf.rcode = cim.reply_code?
   }
 }
 
@@ -221,15 +222,36 @@ match ocsf.rcode_id {
 // --- OCSF: endpoint attributes ----------------
 
 ocsf.src_endpoint = {
-  ip: src_ip?,
-  port: src_port?,
+  ip: cim.src_ip?,
+  port: cim.src_port?,
 }
 
 ocsf.dst_endpoint = {
-  ip: dest_ip?,
-  port: dest_port?,
+  ip: cim.dest_ip?,
+  port: cim.dest_port?,
 }
 
 // --- Finalize ---------------------------------
 
-this = ocsf
+drop cim._time?,
+     cim.duration?,
+     cim.message_type?,
+     cim.product?,
+     cim.query?,
+     cim.query_type?,
+     cim.record_type?,
+     cim.reply_code?,
+     cim.reply_code_id?,
+     cim.response_time?,
+     cim.src_ip?,
+     cim.src_port?,
+     cim.dest_ip?,
+     cim.dest_port?,
+     cim.transaction_id?,
+     cim.transport?,
+     cim.ttl?,
+     cim.vendor?,
+     cim.vendor_product?,
+     cim.answer?
+
+this = {...ocsf, unmapped: cim}
