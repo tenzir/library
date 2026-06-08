@@ -1,0 +1,217 @@
+---
+description: Splunk CIM Network Resolution DNS → OCSF DNS Activity (4003)
+---
+
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 6 if message_type? == "Traffic" else
+                   2 if message_type? == "Response" else
+                   6 if answer? != null or reply_code? != null or reply_code_id? != null else
+                   1
+ocsf.category_uid = 4
+ocsf.class_uid = 4003
+ocsf.severity_id = 1
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+
+// --- OCSF: occurrence attributes --------------
+
+ocsf.time = _time
+ocsf.duration = int(duration * 1000) if duration? != null else null
+
+if response_time? != null {
+  ocsf.response_time = _time
+  ocsf.query_time = _time - seconds(response_time)
+}
+
+// --- OCSF: context attributes -----------------
+
+ocsf.metadata = {
+  product: {
+    name: product? else vendor_product? else "Splunk CIM",
+    vendor_name: vendor?,
+  },
+  version: "1.8.0",
+}
+
+ocsf.connection_info = {
+  protocol_name: transport?,
+}
+match transport? {
+  "icmp" => {
+    ocsf.connection_info.protocol_num = 1
+  }
+  "tcp" => {
+    ocsf.connection_info.protocol_num = 6
+  }
+  "udp" => {
+    ocsf.connection_info.protocol_num = 17
+  }
+  _ => {}
+}
+
+// --- OCSF: primary DNS attributes -------------
+
+ocsf.query = {
+  hostname: query?,
+  packet_uid: transaction_id?,
+  type: record_type?,
+}
+match query_type? {
+  "Query" => {
+    ocsf.query.opcode_id = 0
+  }
+  "IQuery" => {
+    ocsf.query.opcode_id = 1
+  }
+  "Status" => {
+    ocsf.query.opcode_id = 2
+  }
+  "Notify" => {
+    ocsf.query.opcode_id = 4
+  }
+  "Update" => {
+    ocsf.query.opcode_id = 5
+  }
+  _ => {
+    ocsf.query.opcode = query_type?
+    ocsf.query.opcode_id = 99 if query_type? != null else null
+  }
+}
+
+if answer? != null and ttl? != null {
+  ocsf.answers = zip(answer, ttl).map(x => {
+    rdata: x.left,
+    ttl: x.right,
+    type: record_type?,
+  })
+} else if answer? != null {
+  ocsf.answers = answer.map(x => {
+    rdata: x,
+    type: record_type?,
+  })
+}
+
+ocsf.rcode_id = reply_code_id?
+if ocsf.rcode_id == null {
+  match reply_code? {
+    "No Error" => {
+      ocsf.rcode_id = 0
+    }
+    "NoError" => {
+      ocsf.rcode_id = 0
+    }
+    "Format Error" => {
+      ocsf.rcode_id = 1
+    }
+    "Server Failure" => {
+      ocsf.rcode_id = 2
+    }
+    "Non-Existent Domain" => {
+      ocsf.rcode_id = 3
+    }
+    "NXDomain" => {
+      ocsf.rcode_id = 3
+    }
+    "Not Implemented" => {
+      ocsf.rcode_id = 4
+    }
+    "Query Refused" => {
+      ocsf.rcode_id = 5
+    }
+    _ => {}
+  }
+}
+
+match ocsf.rcode_id {
+  0 => {
+    ocsf.rcode = "NoError"
+  }
+  1 => {
+    ocsf.rcode = "FormError"
+  }
+  2 => {
+    ocsf.rcode = "ServError"
+  }
+  3 => {
+    ocsf.rcode = "NXDomain"
+  }
+  4 => {
+    ocsf.rcode = "NotImp"
+  }
+  5 => {
+    ocsf.rcode = "Refused"
+  }
+  6 => {
+    ocsf.rcode = "YXDomain"
+  }
+  7 => {
+    ocsf.rcode = "YXRRSet"
+  }
+  8 => {
+    ocsf.rcode = "NXRRSet"
+  }
+  9 => {
+    ocsf.rcode = "NotAuth"
+  }
+  10 => {
+    ocsf.rcode = "NotZone"
+  }
+  11 => {
+    ocsf.rcode = "DSOTYPENI"
+  }
+  16 => {
+    ocsf.rcode = "BADSIG_VERS"
+  }
+  17 => {
+    ocsf.rcode = "BADKEY"
+  }
+  18 => {
+    ocsf.rcode = "BADTIME"
+  }
+  19 => {
+    ocsf.rcode = "BADMODE"
+  }
+  20 => {
+    ocsf.rcode = "BADNAME"
+  }
+  21 => {
+    ocsf.rcode = "BADALG"
+  }
+  22 => {
+    ocsf.rcode = "BADTRUNC"
+  }
+  23 => {
+    ocsf.rcode = "BADCOOKIE"
+  }
+  24 => {
+    ocsf.rcode = "Unassigned"
+  }
+  25 => {
+    ocsf.rcode = "Reserved"
+  }
+  _ => {
+    ocsf.rcode = reply_code?
+  }
+}
+
+ocsf.status_id = 0 if ocsf.rcode_id == null else 1 if ocsf.rcode_id == 0 else 2
+
+// --- OCSF: endpoint attributes ----------------
+
+ocsf.src_endpoint = {
+  ip: src_ip?,
+  name: src? if src_ip? == null else null,
+  port: src_port?,
+}
+
+ocsf.dst_endpoint = {
+  ip: dest_ip?,
+  name: dest? if dest_ip? == null else null,
+  port: dest_port?,
+}
+
+// --- Finalize ---------------------------------
+
+this = ocsf
