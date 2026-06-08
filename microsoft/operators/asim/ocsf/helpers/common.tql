@@ -2,29 +2,28 @@
 description: Initializes shared ASIM fields from a validated OCSF event.
 ---
 
-_ocsf = this
-asim = {}
+this = {ocsf: this, asim: {}}
 
 asim.EventCount = 1
-asim.EventStartTime = start_time? else time
-asim.EventEndTime = end_time? else time
-asim.EventProduct = metadata?.product?.name? else metadata?.product?.feature?.name? else "Unknown"
-asim.EventVendor = metadata?.product?.vendor_name? else "Microsoft"
+asim.EventStartTime = ocsf.start_time? else ocsf.time
+asim.EventEndTime = ocsf.end_time? else ocsf.time
+asim.EventProduct = ocsf.metadata?.product?.name? else ocsf.metadata?.product?.feature?.name? else "Unknown"
+asim.EventVendor = ocsf.metadata?.product?.vendor_name? else "Microsoft"
 
-if metadata?.original_event_uid? != null {
-  asim.EventOriginalUid = metadata.original_event_uid
-  asim.EventUid = metadata.original_event_uid
+if ocsf.metadata?.original_event_uid? != null {
+  asim.EventOriginalUid = ocsf.metadata.original_event_uid
+  asim.EventUid = ocsf.metadata.original_event_uid
 }
-if metadata?.event_code? != null {
-  asim.EventOriginalType = metadata.event_code
+if ocsf.metadata?.event_code? != null {
+  asim.EventOriginalType = ocsf.metadata.event_code
 } else {
-  asim.EventOriginalType = type_uid.string()
+  asim.EventOriginalType = ocsf.type_uid.string()
 }
-if message? != null {
-  asim.EventMessage = message
+if ocsf.message? != null {
+  asim.EventMessage = ocsf.message
 }
 
-match severity_id? {
+match ocsf.severity_id? {
   1 => {
     asim.EventSeverity = "Informational"
   }
@@ -39,26 +38,26 @@ match severity_id? {
   }
   5 => {
     asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = severity? else "Critical"
+    asim.EventOriginalSeverity = ocsf.severity? else "Critical"
   }
   6 => {
     asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = severity? else "Fatal"
+    asim.EventOriginalSeverity = ocsf.severity? else "Fatal"
   }
-  _ if severity? == "Critical" or severity? == "Fatal" => {
+  _ if ocsf.severity? == "Critical" or ocsf.severity? == "Fatal" => {
     asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = severity
+    asim.EventOriginalSeverity = ocsf.severity
   }
-  _ if severity? in ["Informational", "Low", "Medium", "High"] => {
-    asim.EventSeverity = severity
+  _ if ocsf.severity? in ["Informational", "Low", "Medium", "High"] => {
+    asim.EventSeverity = ocsf.severity
   }
-  _ if severity? != null => {
-    asim.EventOriginalSeverity = severity
+  _ if ocsf.severity? != null => {
+    asim.EventOriginalSeverity = ocsf.severity
   }
   _ => {}
 }
 
-match status? {
+match ocsf.status? {
   "Success" => {
     asim.EventResult = "Success"
   }
@@ -69,8 +68,8 @@ match status? {
     asim.EventResult = "Partial"
   }
   _ => {
-    match status_id? {
-      1 if class_uid != 2003 and class_uid != 2004 and class_uid != 2005 => {
+    match ocsf.status_id? {
+      1 if ocsf.class_uid != 2003 and ocsf.class_uid != 2004 and ocsf.class_uid != 2005 => {
         asim.EventResult = "Success"
       }
       2 => {
@@ -82,34 +81,34 @@ match status? {
     }
   }
 }
-if status_detail? != null {
-  asim.EventOriginalResultDetails = status_detail
+if ocsf.status_detail? != null {
+  asim.EventOriginalResultDetails = ocsf.status_detail
 }
-if status_code? != null {
-  asim.EventOriginalResultDetails = status_code.string()
+if ocsf.status_code? != null {
+  asim.EventOriginalResultDetails = ocsf.status_code.string()
 }
 
-if device?.hostname? != null {
-  asim.Dvc = device.hostname
-  asim.DvcHostname = device.hostname
-  asim.DvcFQDN = device.hostname
+if ocsf.device?.hostname? != null {
+  asim.Dvc = ocsf.device.hostname
+  asim.DvcHostname = ocsf.device.hostname
+  asim.DvcFQDN = ocsf.device.hostname
 }
-if device?.uid? != null {
-  asim.DvcId = device.uid
+if ocsf.device?.uid? != null {
+  asim.DvcId = ocsf.device.uid
 }
-if device?.ip? != null {
-  asim.DvcIpAddr = device.ip
+if ocsf.device?.ip? != null {
+  asim.DvcIpAddr = ocsf.device.ip
   if asim.Dvc? == null {
-    asim.Dvc = device.ip.string()
+    asim.Dvc = ocsf.device.ip.string()
   }
 }
 if asim.Dvc? == null {
   asim.Dvc = asim.EventProduct
 }
 
-if disposition? != null {
-  asim.DvcAction = disposition
+if ocsf.disposition? != null {
+  asim.DvcAction = ocsf.disposition
 }
-if action? != null {
-  asim.DvcAction = action
+if ocsf.action? != null {
+  asim.DvcAction = ocsf.action
 }

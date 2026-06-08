@@ -8,7 +8,7 @@ microsoft::asim::ocsf::helpers::common
 asim.EventSchema = "AuditEvent"
 asim.EventSchemaVersion = "0.1.2"
 asim.EventType = "Other"
-match activity_name {
+match ocsf.activity_name {
   "Create" => { asim.EventType = "Create" }
   "Read" => { asim.EventType = "Read" }
   "Update" | "Set" => { asim.EventType = "Set" }
@@ -22,19 +22,19 @@ match activity_name {
   "Stop" => { asim.EventType = "Stop" }
   _ => {}
 }
-asim.Operation = activity_name? else type_name? else asim.EventType
-asim.Object = job?.name? else log_name? else metadata?.log_name? else entity?.name? else entity?.uid? else win_service?.name? else win_service?.service_file?.path?
-assert asim.Object != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+asim.Operation = ocsf.activity_name? else ocsf.type_name? else asim.EventType
+asim.Object = ocsf.job?.name? else ocsf.log_name? else ocsf.metadata?.log_name? else ocsf.entity?.name? else ocsf.entity?.uid? else ocsf.win_service?.name? else ocsf.win_service?.service_file?.path?
+assert asim.Object != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 asim.ObjectType = "Service"
-asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid? else actor?.app_name? else actor?.app_uid?
-if actor?.user?.domain? != null and actor?.user?.name? != null {
-  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid? else ocsf.actor?.app_name? else ocsf.actor?.app_uid?
+if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
+  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
   asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserId = ocsf.actor?.user?.uid?
 asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
-asim.SrcIpAddr = src_endpoint?.ip?
-asim.TargetHostname = dst_endpoint?.hostname?
-asim.TargetIpAddr = dst_endpoint?.ip?
+asim.SrcIpAddr = ocsf.src_endpoint?.ip?
+asim.TargetHostname = ocsf.dst_endpoint?.hostname?
+asim.TargetIpAddr = ocsf.dst_endpoint?.ip?
 
-this = {...asim, AdditionalFields: _ocsf}
+this = {...asim, AdditionalFields: ocsf}

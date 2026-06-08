@@ -8,7 +8,7 @@ microsoft::asim::ocsf::helpers::common
 asim.EventSchema = "Authentication"
 asim.EventSchemaVersion = "0.1.4"
 asim.EventType = "Elevate"
-match logon_type? {
+match ocsf.logon_type? {
   "System" => { asim.EventSubType = "System" }
   "Interactive" | "Cached Interactive" | "Unlock" | "Cached Unlock" => {
     asim.EventSubType = "Interactive"
@@ -20,36 +20,36 @@ match logon_type? {
   "OS Service" => { asim.EventSubType = "Service" }
   _ => {}
 }
-if logon_type? != null {
-  asim.EventOriginalSubType = logon_type
+if ocsf.logon_type? != null {
+  asim.EventOriginalSubType = ocsf.logon_type
 }
-asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?
-if actor?.user?.domain? != null and actor?.user?.name? != null {
-  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid?
+if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
+  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
   asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserId = ocsf.actor?.user?.uid?
 asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
-asim.ActorSessionId = actor?.session?.uid? else actor?.session?.uid_alt?
-asim.TargetUsername = user?.email_addr? else user?.name? else user?.uid?
-if user?.domain? != null and user?.name? != null {
-  asim.TargetUsername = f"{user.domain}\\{user.name}"
+asim.ActorSessionId = ocsf.actor?.session?.uid? else ocsf.actor?.session?.uid_alt?
+asim.TargetUsername = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.user?.uid?
+if ocsf.user?.domain? != null and ocsf.user?.name? != null {
+  asim.TargetUsername = f"{ocsf.user.domain}\\{ocsf.user.name}"
   asim.TargetUsernameType = "Windows"
-  asim.TargetDomain = user.domain
+  asim.TargetDomain = ocsf.user.domain
   asim.TargetDomainType = "Windows"
 }
-asim.TargetUserId = user?.uid?
+asim.TargetUserId = ocsf.user?.uid?
 asim.TargetUserIdType = "SID" if (asim.TargetUserId?.starts_with("S-") else false) else null
-asim.TargetSessionId = session?.uid? else session?.uid_alt?
-asim.SrcIpAddr = src_endpoint?.ip?
-asim.SrcHostname = src_endpoint?.hostname?
-asim.SrcPortNumber = src_endpoint?.port?
-asim.TargetHostname = dst_endpoint?.hostname? else device?.hostname?
-asim.TargetAppId = service?.uid? else dst_endpoint?.uid?
-asim.TargetAppName = service?.name? else dst_endpoint?.svc_name?
-asim.LogonProtocol = auth_protocol?
-if auth_factors? != null {
-  asim.LogonMethod = auth_factors[0]?.factor_type?
+asim.TargetSessionId = ocsf.session?.uid? else ocsf.session?.uid_alt?
+asim.SrcIpAddr = ocsf.src_endpoint?.ip?
+asim.SrcHostname = ocsf.src_endpoint?.hostname?
+asim.SrcPortNumber = ocsf.src_endpoint?.port?
+asim.TargetHostname = ocsf.dst_endpoint?.hostname? else ocsf.device?.hostname?
+asim.TargetAppId = ocsf.service?.uid? else ocsf.dst_endpoint?.uid?
+asim.TargetAppName = ocsf.service?.name? else ocsf.dst_endpoint?.svc_name?
+asim.LogonProtocol = ocsf.auth_protocol?
+if ocsf.auth_factors? != null {
+  asim.LogonMethod = ocsf.auth_factors[0]?.factor_type?
 }
 
-this = {...asim, AdditionalFields: _ocsf}
+this = {...asim, AdditionalFields: ocsf}

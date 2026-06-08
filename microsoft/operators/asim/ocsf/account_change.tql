@@ -2,23 +2,23 @@
 description: Maps OCSF Account Change events to Microsoft Sentinel ASIM UserManagement events.
 ---
 
-microsoft::asim::ocsf::helpers::common
-
 assert class_uid == 3001
+
+microsoft::asim::ocsf::helpers::common
 
 @name = "asim.user_management"
 asim.EventSchema = "UserManagement"
 asim.EventSchemaVersion = "0.1.2"
 asim.EventSeverity = asim.EventSeverity? else "Informational"
-asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid? else actor?.app_name? else actor?.app_uid?
-if actor?.user?.domain? != null and actor?.user?.name? != null {
-  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid? else ocsf.actor?.app_name? else ocsf.actor?.app_uid?
+if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
+  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
   asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserId = ocsf.actor?.user?.uid?
 asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
 
-match activity_name {
+match ocsf.activity_name {
   "Create" => { asim.EventType = "UserCreated" }
   "Delete" => { asim.EventType = "UserDeleted" }
   "Update" => { asim.EventType = "UserModified" }
@@ -31,17 +31,17 @@ match activity_name {
   _ => { asim.EventType = "UserModified" }
 }
 
-asim.TargetUsername = user?.email_addr? else user?.name? else user?.uid?
-if user?.domain? != null and user?.name? != null {
-  asim.TargetUsername = f"{user.domain}\\{user.name}"
+asim.TargetUsername = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.user?.uid?
+if ocsf.user?.domain? != null and ocsf.user?.name? != null {
+  asim.TargetUsername = f"{ocsf.user.domain}\\{ocsf.user.name}"
   asim.TargetUsernameType = "Windows"
 }
-asim.TargetUserId = user?.uid?
+asim.TargetUserId = ocsf.user?.uid?
 asim.TargetUserIdType = "SID" if (asim.TargetUserId?.starts_with("S-") else false) else null
-asim.GroupName = group?.name?
-asim.GroupId = group?.uid?
+asim.GroupName = ocsf.group?.name?
+asim.GroupId = ocsf.group?.uid?
 asim.GroupIdType = "SID" if (asim.GroupId?.starts_with("S-") else false) else null
-asim.SrcIpAddr = src_endpoint?.ip?
-asim.SrcHostname = src_endpoint?.hostname?
+asim.SrcIpAddr = ocsf.src_endpoint?.ip?
+asim.SrcHostname = ocsf.src_endpoint?.hostname?
 
-this = {...asim, AdditionalFields: _ocsf}
+this = {...asim, AdditionalFields: ocsf}

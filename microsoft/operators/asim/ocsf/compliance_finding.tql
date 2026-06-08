@@ -8,19 +8,19 @@ microsoft::asim::ocsf::helpers::common
 asim.EventSchema = "AlertEvent"
 asim.EventSchemaVersion = "0.1"
 asim.EventType = "Alert"
-asim.EventUid = finding_info?.uid? else metadata?.original_event_uid?
-assert asim.EventUid != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+asim.EventUid = ocsf.finding_info?.uid? else ocsf.metadata?.original_event_uid?
+assert asim.EventUid != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: ocsf.class_uid, class_name: ocsf.class_name, type_uid: ocsf.type_uid, type_name: ocsf.type_name, name: @name}
 
-asim.AlertName = finding_info?.title? else message?
-asim.EventReportUrl = finding_info?.url? else null
+asim.AlertName = ocsf.finding_info?.title? else ocsf.message?
+asim.EventReportUrl = ocsf.finding_info?.url? else null
 asim.EventSubType = "Compliance Violation"
-asim.ThreatName = malware?[0]?.name? else finding_info?.title?
+asim.ThreatName = ocsf.malware?[0]?.name? else ocsf.finding_info?.title?
 asim.ThreatCategory = "Security Policy Violation"
-asim.ThreatOriginalCategory = finding_info?.types?[0]?
-asim.Username = user?.email_addr? else user?.name? else actor?.user?.email_addr? else actor?.user?.name?
-asim.UserId = user?.uid? else actor?.user?.uid?
+asim.ThreatOriginalCategory = ocsf.finding_info?.types?[0]?
+asim.Username = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name?
+asim.UserId = ocsf.user?.uid? else ocsf.actor?.user?.uid?
 asim.UserIdType = "SID" if (asim.UserId?.starts_with("S-") else false) else null
-match status? {
+match ocsf.status? {
   "New" | "Active" | "In Progress" => {
     asim.AlertStatus = "Active"
   }
@@ -29,8 +29,8 @@ match status? {
   }
   _ => {}
 }
-asim.AlertOriginalStatus = status?
-match verdict? {
+asim.AlertOriginalStatus = ocsf.status?
+match ocsf.verdict? {
   "True Positive" => { asim.AlertVerdict = "True Positive" }
   "False Positive" => { asim.AlertVerdict = "False Positive" }
   "Benign" => { asim.AlertVerdict = "Benign Positive" }
@@ -38,4 +38,4 @@ match verdict? {
   _ => {}
 }
 
-this = {...asim, AdditionalFields: _ocsf}
+this = {...asim, AdditionalFields: ocsf}
