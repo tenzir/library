@@ -7,8 +7,7 @@ ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-_message_type = move cim.message_type?
-match _message_type {
+match cim.message_type? {
   "Traffic" => {
     ocsf.activity_id = 6
   }
@@ -22,6 +21,7 @@ match _message_type {
     ocsf.activity_id = 1
   }
 }
+drop cim.message_type?
 ocsf.category_uid = 4
 ocsf.class_uid = 4003
 ocsf.severity_id = 1
@@ -30,32 +30,29 @@ ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 // --- OCSF: occurrence attributes --------------
 
 ocsf.time = move cim._time?
-_duration = move cim.duration?
-ocsf.duration = _duration?.seconds().count_milliseconds().round()
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
 
-_response_time = move cim.response_time?
-if _response_time != null {
+if cim.response_time? != null {
   ocsf.response_time = ocsf.time
-  ocsf.query_time = ocsf.time - _response_time.seconds()
+  ocsf.query_time = ocsf.time - (move cim.response_time).seconds()
 }
 
 // --- OCSF: context attributes -----------------
 
-_product = move cim.product?
-_vendor_product = move cim.vendor_product?
 ocsf.metadata = {
   product: {
-    name: _product else _vendor_product else "Splunk CIM",
+    name: move cim.product? else move cim.vendor_product? else "Splunk CIM",
     vendor_name: move cim.vendor?,
   },
   version: "1.8.0",
 }
 
-_transport = move cim.transport?
 ocsf.connection_info = {
-  protocol_name: _transport,
+  protocol_name: move cim.transport?,
 }
-match _transport {
+match ocsf.connection_info.protocol_name {
   "icmp" => {
     ocsf.connection_info.protocol_num = 1
   }
@@ -70,14 +67,12 @@ match _transport {
 
 // --- OCSF: primary DNS attributes -------------
 
-_record_type = move cim.record_type?
 ocsf.query = {
   hostname: move cim.query?,
   packet_uid: move cim.transaction_id?,
-  type: _record_type?,
+  type: move cim.record_type?,
 }
-_query_type = move cim.query_type?
-match _query_type {
+match cim.query_type? {
   "Query" => {
     ocsf.query.opcode_id = 0
   }
@@ -94,30 +89,28 @@ match _query_type {
     ocsf.query.opcode_id = 5
   }
   _ => {
-    ocsf.query.opcode = _query_type
-    ocsf.query.opcode_id = 99 if _query_type != null
+    ocsf.query.opcode = cim.query_type?
+    ocsf.query.opcode_id = 99 if cim.query_type? != null
   }
 }
+drop cim.query_type?
 
-_answer = move cim.answer?
-_ttl = move cim.ttl?
-if _answer != null and _ttl != null {
-  ocsf.answers = zip(_answer, _ttl).map(x => {
+if cim.answer? != null and cim.ttl? != null {
+  ocsf.answers = zip(move cim.answer, move cim.ttl).map(x => {
     rdata: x.left,
     ttl: x.right,
-    type: _record_type?,
+    type: ocsf.query.type?,
   })
-} else if _answer != null {
-  ocsf.answers = _answer.map(x => {
+} else if cim.answer? != null {
+  ocsf.answers = (move cim.answer).map(x => {
     rdata: x,
-    type: _record_type?,
+    type: ocsf.query.type?,
   })
 }
 
 ocsf.rcode_id = move cim.reply_code_id?
-_reply_code = move cim.reply_code?
 if ocsf.rcode_id == null {
-  match _reply_code {
+  match cim.reply_code? {
     "No Error" => {
       ocsf.rcode_id = 0
     }
@@ -214,9 +207,10 @@ match ocsf.rcode_id {
     ocsf.rcode = "Reserved"
   }
   _ => {
-    ocsf.rcode = _reply_code
+    ocsf.rcode = cim.reply_code?
   }
 }
+drop cim.reply_code?
 
 match ocsf.rcode_id {
   null => {
