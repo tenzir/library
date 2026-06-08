@@ -10,7 +10,16 @@ asim.EventSchemaVersion = "0.1.4"
 match activity_name {
   "Launch" => { asim.EventType = "ProcessCreated" }
   "Terminate" => { asim.EventType = "ProcessTerminated" }
-  _ => { microsoft::asim::ocsf::helpers::unsupported }
+  _ => {
+    assert false, message={
+      reason: "unsupported OCSF to ASIM mapping",
+      class_uid: class_uid?,
+      class_name: class_name?,
+      type_uid: type_uid?,
+      type_name: type_name?,
+      name: @name,
+    }
+  }
 }
 asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?
 if actor?.user?.domain? != null and actor?.user?.name? != null {
@@ -28,4 +37,5 @@ asim.TargetUserId = user?.uid?
 assert asim.ActorUsername != null and asim.ActingProcessId != null and asim.TargetProcessId != null and asim.TargetProcessName != null and asim.TargetProcessCommandLine != null,
   message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
 
-microsoft::asim::ocsf::helpers::finalize
+this = {...asim, AdditionalFields: {...this}}
+drop AdditionalFields.asim

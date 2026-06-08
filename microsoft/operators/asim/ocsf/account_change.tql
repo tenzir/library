@@ -4,6 +4,8 @@ description: Maps OCSF Account Change events to Microsoft Sentinel ASIM UserMana
 
 microsoft::asim::ocsf::helpers::common
 
+assert class_uid == 3001
+
 @name = "asim.user_management"
 asim.EventSchema = "UserManagement"
 asim.EventSchemaVersion = "0.1.2"
@@ -13,7 +15,6 @@ if actor?.user?.domain? != null and actor?.user?.name? != null {
   asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
   asim.ActorUsernameType = "Windows"
 }
-assert asim.ActorUsername != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
 asim.ActorUserId = actor?.user?.uid?
 asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
 
@@ -43,4 +44,5 @@ asim.GroupIdType = "SID" if (asim.GroupId?.starts_with("S-") else false) else nu
 asim.SrcIpAddr = src_endpoint?.ip?
 asim.SrcHostname = src_endpoint?.hostname?
 
-microsoft::asim::ocsf::helpers::finalize
+this = {...asim, AdditionalFields: {...this}}
+drop AdditionalFields.asim
