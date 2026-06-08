@@ -1,0 +1,46 @@
+---
+description: OCSF Account Change event -> Microsoft Sentinel ASIM UserManagement event.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.user_management"
+asim.EventSchema = "UserManagement"
+asim.EventSchemaVersion = "0.1.2"
+asim.EventSeverity = asim.EventSeverity? else "Informational"
+asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid? else actor?.app_name? else actor?.app_uid?
+if actor?.user?.domain? != null and actor?.user?.name? != null {
+  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+  asim.ActorUsernameType = "Windows"
+}
+assert asim.ActorUsername != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
+
+match activity_name {
+  "Create" => { asim.EventType = "UserCreated" }
+  "Delete" => { asim.EventType = "UserDeleted" }
+  "Update" => { asim.EventType = "UserModified" }
+  "Lock" => { asim.EventType = "UserLocked" }
+  "Unlock" => { asim.EventType = "UserUnlocked" }
+  "Disable" => { asim.EventType = "UserDisabled" }
+  "Enable" => { asim.EventType = "UserEnabled" }
+  "Password Change" => { asim.EventType = "PasswordChanged" }
+  "Password Reset" => { asim.EventType = "PasswordReset" }
+  _ => { asim.EventType = "UserModified" }
+}
+
+asim.TargetUsername = user?.email_addr? else user?.name? else user?.uid?
+if user?.domain? != null and user?.name? != null {
+  asim.TargetUsername = f"{user.domain}\\{user.name}"
+  asim.TargetUsernameType = "Windows"
+}
+asim.TargetUserId = user?.uid?
+asim.TargetUserIdType = "SID" if (asim.TargetUserId?.starts_with("S-") else false) else null
+asim.GroupName = group?.name?
+asim.GroupId = group?.uid?
+asim.GroupIdType = "SID" if (asim.GroupId?.starts_with("S-") else false) else null
+asim.SrcIpAddr = src_endpoint?.ip?
+asim.SrcHostname = src_endpoint?.hostname?
+
+microsoft::asim::ocsf::helpers::finalize

@@ -1,0 +1,40 @@
+---
+description: OCSF Event Log Activity event -> Microsoft Sentinel ASIM AuditEvent.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.audit_event"
+asim.EventSchema = "AuditEvent"
+asim.EventSchemaVersion = "0.1.2"
+asim.EventType = "Other"
+match activity_name {
+  "Create" => { asim.EventType = "Create" }
+  "Read" => { asim.EventType = "Read" }
+  "Update" | "Set" => { asim.EventType = "Set" }
+  "Delete" => { asim.EventType = "Delete" }
+  "Execute" => { asim.EventType = "Execute" }
+  "Install" => { asim.EventType = "Install" }
+  "Clear" => { asim.EventType = "Clear" }
+  "Enable" => { asim.EventType = "Enable" }
+  "Disable" => { asim.EventType = "Disable" }
+  "Start" => { asim.EventType = "Start" }
+  "Stop" => { asim.EventType = "Stop" }
+  _ => {}
+}
+asim.Operation = activity_name? else type_name? else asim.EventType
+asim.Object = job?.name? else log_name? else metadata?.log_name? else entity?.name? else entity?.uid? else win_service?.name? else win_service?.service_file?.path?
+assert asim.Object != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+asim.ObjectType = "Event Log"
+asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid? else actor?.app_name? else actor?.app_uid?
+if actor?.user?.domain? != null and actor?.user?.name? != null {
+  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+  asim.ActorUsernameType = "Windows"
+}
+asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
+asim.SrcIpAddr = src_endpoint?.ip?
+asim.TargetHostname = dst_endpoint?.hostname?
+asim.TargetIpAddr = dst_endpoint?.ip?
+
+microsoft::asim::ocsf::helpers::finalize

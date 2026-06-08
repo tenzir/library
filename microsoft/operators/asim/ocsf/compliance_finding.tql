@@ -1,0 +1,41 @@
+---
+description: OCSF Compliance Finding event -> Microsoft Sentinel ASIM AlertEvent.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.alert_event"
+asim.EventSchema = "AlertEvent"
+asim.EventSchemaVersion = "0.1"
+asim.EventType = "Alert"
+asim.EventUid = finding_info?.uid? else metadata?.original_event_uid?
+assert asim.EventUid != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+
+asim.AlertName = finding_info?.title? else message?
+asim.EventReportUrl = finding_info?.url? else null
+asim.EventSubType = "Compliance Violation"
+asim.ThreatName = malware?[0]?.name? else finding_info?.title?
+asim.ThreatCategory = "Security Policy Violation"
+asim.ThreatOriginalCategory = finding_info?.types?[0]?
+asim.Username = user?.email_addr? else user?.name? else actor?.user?.email_addr? else actor?.user?.name?
+asim.UserId = user?.uid? else actor?.user?.uid?
+asim.UserIdType = "SID" if (asim.UserId?.starts_with("S-") else false) else null
+match status? {
+  "New" | "Active" | "In Progress" => {
+    asim.AlertStatus = "Active"
+  }
+  "Resolved" | "Closed" => {
+    asim.AlertStatus = "Closed"
+  }
+  _ => {}
+}
+asim.AlertOriginalStatus = status?
+match verdict? {
+  "True Positive" => { asim.AlertVerdict = "True Positive" }
+  "False Positive" => { asim.AlertVerdict = "False Positive" }
+  "Benign" => { asim.AlertVerdict = "Benign Positive" }
+  "Unknown" => { asim.AlertVerdict = "Unknown" }
+  _ => {}
+}
+
+microsoft::asim::ocsf::helpers::finalize

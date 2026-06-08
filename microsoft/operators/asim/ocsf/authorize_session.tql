@@ -1,0 +1,55 @@
+---
+description: OCSF Authorize Session event -> Microsoft Sentinel ASIM Authentication event.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.authentication"
+asim.EventSchema = "Authentication"
+asim.EventSchemaVersion = "0.1.4"
+asim.EventType = "Elevate"
+match logon_type? {
+  "System" => { asim.EventSubType = "System" }
+  "Interactive" | "Cached Interactive" | "Unlock" | "Cached Unlock" => {
+    asim.EventSubType = "Interactive"
+  }
+  "Network" | "Network Cleartext" => { asim.EventSubType = "Remote" }
+  "Remote Interactive" | "Cached Remote Interactive" => {
+    asim.EventSubType = "RemoteInteractive"
+  }
+  "OS Service" => { asim.EventSubType = "Service" }
+  _ => {}
+}
+if logon_type? != null {
+  asim.EventOriginalSubType = logon_type
+}
+asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?
+if actor?.user?.domain? != null and actor?.user?.name? != null {
+  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+  asim.ActorUsernameType = "Windows"
+}
+asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
+asim.ActorSessionId = actor?.session?.uid? else actor?.session?.uid_alt?
+asim.TargetUsername = user?.email_addr? else user?.name? else user?.uid?
+if user?.domain? != null and user?.name? != null {
+  asim.TargetUsername = f"{user.domain}\\{user.name}"
+  asim.TargetUsernameType = "Windows"
+  asim.TargetDomain = user.domain
+  asim.TargetDomainType = "Windows"
+}
+asim.TargetUserId = user?.uid?
+asim.TargetUserIdType = "SID" if (asim.TargetUserId?.starts_with("S-") else false) else null
+asim.TargetSessionId = session?.uid? else session?.uid_alt?
+asim.SrcIpAddr = src_endpoint?.ip?
+asim.SrcHostname = src_endpoint?.hostname?
+asim.SrcPortNumber = src_endpoint?.port?
+asim.TargetHostname = dst_endpoint?.hostname? else device?.hostname?
+asim.TargetAppId = service?.uid? else dst_endpoint?.uid?
+asim.TargetAppName = service?.name? else dst_endpoint?.svc_name?
+asim.LogonProtocol = auth_protocol?
+if auth_factors? != null {
+  asim.LogonMethod = auth_factors[0]?.factor_type?
+}
+
+microsoft::asim::ocsf::helpers::finalize

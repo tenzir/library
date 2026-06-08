@@ -1,0 +1,26 @@
+---
+description: OCSF DNS Activity event -> Microsoft Sentinel ASIM Dns event.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.dns"
+asim.EventSchema = "Dns"
+asim.EventSchemaVersion = "0.1.7"
+asim.EventType = query?.opcode? else "Query"
+match activity_name {
+  "Query" => { asim.EventSubType = "request" }
+  "Response" => { asim.EventSubType = "response" }
+  _ => {}
+}
+asim.DnsQuery = query?.hostname?
+asim.DnsQueryTypeName = query?.type?
+asim.DnsQueryClassName = query?.class?
+asim.EventResultDetails = rcode? else "NA"
+asim.SrcIpAddr = src_endpoint?.ip?
+asim.SrcHostname = src_endpoint?.hostname?
+asim.DstIpAddr = dst_endpoint?.ip?
+asim.DstHostname = dst_endpoint?.hostname?
+assert asim.DnsQuery != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+
+microsoft::asim::ocsf::helpers::finalize

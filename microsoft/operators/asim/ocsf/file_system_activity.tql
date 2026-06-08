@@ -1,0 +1,37 @@
+---
+description: OCSF File System Activity event -> Microsoft Sentinel ASIM FileEvent.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.file_event"
+asim.EventSchema = "FileEvent"
+asim.EventSchemaVersion = "0.2.2"
+match activity_name {
+  "Create" => { asim.EventType = "FileCreated" }
+  "Read" | "Open" => { asim.EventType = "FileAccessed" }
+  "Update" | "Set Attributes" | "Set Security" => { asim.EventType = "FileModified" }
+  "Delete" => { asim.EventType = "FileDeleted" }
+  "Rename" => { asim.EventType = "FileRenamed" }
+  _ => { asim.EventType = "FileCreatedOrModified" }
+}
+asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?
+if actor?.user?.domain? != null and actor?.user?.name? != null {
+  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+  asim.ActorUsernameType = "Windows"
+}
+asim.ActorUserId = actor?.user?.uid?
+asim.TargetFilePath = file?.path? else file?.name?
+asim.TargetFileName = file?.name? else asim.TargetFilePath?.split("\\")[-1]
+if activity_name == "Rename" and file_result? != null {
+  asim.SrcFilePath = asim.TargetFilePath
+  asim.SrcFileName = asim.TargetFileName
+  asim.SrcFilePathType = "Windows Local" if (asim.SrcFilePath?.contains("\\") else false) else "Unix Local"
+  asim.TargetFilePath = file_result.path? else asim.TargetFilePath
+  asim.TargetFileName = file_result.name? else asim.TargetFileName
+}
+asim.TargetFilePathType = "Windows Local" if (asim.TargetFilePath?.contains("\\") else false) else "Unix Local"
+assert asim.ActorUsername != null and asim.TargetFilePath != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+
+microsoft::asim::ocsf::helpers::finalize

@@ -1,0 +1,19 @@
+---
+description: OCSF HTTP Activity event -> Microsoft Sentinel ASIM WebSession.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.web_session"
+asim.EventSchema = "WebSession"
+asim.EventSchemaVersion = "0.2.7"
+asim.EventType = "HTTPsession"
+asim.Url = http_request?.url?.url_string?
+asim.HttpRequestMethod = http_request?.http_method? else activity_name?.to_upper()
+asim.EventResultDetails = http_response?.code?.string() else status_code?.string()
+if http_response?.code? != null {
+  asim.EventResult = "Success" if http_response.code < 400 else "Failure"
+}
+assert asim.Url != null, message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+
+microsoft::asim::ocsf::helpers::finalize

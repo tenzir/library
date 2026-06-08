@@ -1,0 +1,31 @@
+---
+description: OCSF Process Activity event -> Microsoft Sentinel ASIM ProcessEvent.
+---
+
+microsoft::asim::ocsf::helpers::common
+
+@name = "asim.process_event"
+asim.EventSchema = "ProcessEvent"
+asim.EventSchemaVersion = "0.1.4"
+match activity_name {
+  "Launch" => { asim.EventType = "ProcessCreated" }
+  "Terminate" => { asim.EventType = "ProcessTerminated" }
+  _ => { microsoft::asim::ocsf::helpers::unsupported }
+}
+asim.ActorUsername = actor?.user?.email_addr? else actor?.user?.name? else actor?.user?.uid?
+if actor?.user?.domain? != null and actor?.user?.name? != null {
+  asim.ActorUsername = f"{actor.user.domain}\\{actor.user.name}"
+  asim.ActorUsernameType = "Windows"
+}
+asim.ActorUserId = actor?.user?.uid?
+asim.ActorUserIdType = "SID" if (asim.ActorUserId?.starts_with("S-") else false) else null
+asim.ActingProcessId = actor?.process?.pid?.string() else process?.parent_process?.pid?.string() else process?.pid?.string()
+asim.ParentProcessId = actor?.process?.parent_process?.pid?.string()
+asim.TargetProcessId = process?.pid?.string()
+asim.TargetProcessName = process?.name? else process?.file?.name? else process?.path?.split("\\")[-1]
+asim.TargetProcessCommandLine = process?.cmd_line?
+asim.TargetUserId = user?.uid?
+assert asim.ActorUsername != null and asim.ActingProcessId != null and asim.TargetProcessId != null and asim.TargetProcessName != null and asim.TargetProcessCommandLine != null,
+  message={reason: "insufficient OCSF fields for ASIM mapping", class_uid: class_uid, class_name: class_name, type_uid: type_uid, type_name: type_name, name: @name}
+
+microsoft::asim::ocsf::helpers::finalize

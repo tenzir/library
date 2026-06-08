@@ -12,7 +12,7 @@ created: 2026-05-27T09:17:24Z
 The Microsoft package can now collect and normalize common Microsoft Graph
 security and inventory data.
 
-Use the Graph source operators and `microsoft::graph::ocsf::map` for Entra ID
+Use the Graph source operators and `microsoft::ocsf::map` for Entra ID
 sign-ins, directory audits, Defender alerts and incidents, Identity Protection
 risk data, and Intune inventory and compliance data.
 
