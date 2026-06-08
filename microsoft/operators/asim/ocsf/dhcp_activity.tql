@@ -1,8 +1,15 @@
 ---
 description: Maps OCSF DHCP Activity events to Microsoft Sentinel ASIM DhcpEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-assert class_uid == 4004
+assert $event.class_uid == 4004
+
+ocsf = $event
 
 microsoft::asim::ocsf::helpers::common
 
@@ -19,4 +26,5 @@ asim.SrcHostname = ocsf.src_endpoint?.hostname? else ocsf.src_endpoint?.ip?.stri
 asim.SrcIpAddr = ocsf.src_endpoint?.ip?
 asim.SrcMacAddr = ocsf.src_endpoint?.mac?
 
-this = {...asim, AdditionalFields: ocsf}
+$event = {...asim, AdditionalFields: ocsf}
+drop ocsf, asim

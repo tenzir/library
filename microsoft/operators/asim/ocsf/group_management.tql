@@ -1,8 +1,15 @@
 ---
 description: Maps OCSF Group Management events to Microsoft Sentinel ASIM UserManagement events.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-assert class_uid == 3006
+assert $event.class_uid == 3006
+
+ocsf = $event
 
 microsoft::asim::ocsf::helpers::common
 
@@ -40,4 +47,5 @@ asim.GroupIdType = "SID" if asim.GroupId?.starts_with("S-") == true
 asim.SrcIpAddr = ocsf.src_endpoint?.ip?
 asim.SrcHostname = ocsf.src_endpoint?.hostname?
 
-this = {...asim, AdditionalFields: ocsf}
+$event = {...asim, AdditionalFields: ocsf}
+drop ocsf, asim

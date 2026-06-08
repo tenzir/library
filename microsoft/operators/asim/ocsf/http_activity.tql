@@ -1,8 +1,15 @@
 ---
 description: Maps OCSF HTTP Activity events to Microsoft Sentinel ASIM WebSession records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-assert class_uid == 4002
+assert $event.class_uid == 4002
+
+ocsf = $event
 
 microsoft::asim::ocsf::helpers::common
 
@@ -17,4 +24,5 @@ if ocsf.http_response?.code? != null {
   asim.EventResult = "Success" if ocsf.http_response.code < 400 else "Failure"
 }
 
-this = {...asim, AdditionalFields: ocsf}
+$event = {...asim, AdditionalFields: ocsf}
+drop ocsf, asim

@@ -1,8 +1,15 @@
 ---
 description: Maps OCSF File System Activity events to Microsoft Sentinel ASIM FileEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-assert class_uid == 1001
+assert $event.class_uid == 1001
+
+ocsf = $event
 
 microsoft::asim::ocsf::helpers::common
 
@@ -34,4 +41,5 @@ if ocsf.activity_name == "Rename" and ocsf.file_result? != null {
 }
 asim.TargetFilePathType = "Windows Local" if asim.TargetFilePath?.contains("\\") == true else "Unix Local"
 
-this = {...asim, AdditionalFields: ocsf}
+$event = {...asim, AdditionalFields: ocsf}
+drop ocsf, asim

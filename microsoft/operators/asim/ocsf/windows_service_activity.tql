@@ -1,8 +1,15 @@
 ---
 description: Maps OCSF Windows Service Activity events to Microsoft Sentinel ASIM AuditEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-assert class_uid == 201004
+assert $event.class_uid == 201004
+
+ocsf = $event
 
 microsoft::asim::ocsf::helpers::common
 
@@ -38,4 +45,5 @@ asim.SrcIpAddr = ocsf.src_endpoint?.ip?
 asim.TargetHostname = ocsf.dst_endpoint?.hostname?
 asim.TargetIpAddr = ocsf.dst_endpoint?.ip?
 
-this = {...asim, AdditionalFields: ocsf}
+$event = {...asim, AdditionalFields: ocsf}
+drop ocsf, asim
