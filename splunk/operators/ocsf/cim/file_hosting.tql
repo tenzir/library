@@ -1,0 +1,120 @@
+---
+description: Splunk CIM Data Access → OCSF File Hosting Activity (6006)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "upload" => {
+    ocsf.activity_id = 1
+  }
+  "download" => {
+    ocsf.activity_id = 2
+  }
+  "update" => {
+    ocsf.activity_id = 3
+  }
+  "delete" => {
+    ocsf.activity_id = 4
+  }
+  "rename" => {
+    ocsf.activity_id = 5
+  }
+  "copy" => {
+    ocsf.activity_id = 6
+  }
+  "move" => {
+    ocsf.activity_id = 7
+  }
+  "restore" => {
+    ocsf.activity_id = 8
+  }
+  "preview" => {
+    ocsf.activity_id = 9
+  }
+  "lock" => {
+    ocsf.activity_id = 10
+  }
+  "unlock" => {
+    ocsf.activity_id = 11
+  }
+  "share" => {
+    ocsf.activity_id = 12
+  }
+  "unshare" => {
+    ocsf.activity_id = 13
+  }
+  "open" => {
+    ocsf.activity_id = 14
+  }
+  "sync" => {
+    ocsf.activity_id = 15
+  }
+  "unsync" => {
+    ocsf.activity_id = 16
+  }
+  "access_check" => {
+    ocsf.activity_id = 17
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 6
+ocsf.class_uid = 6006
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: file attributes --------------------
+
+ocsf.file = {
+  name: move cim.object?,
+  size: move cim.object_size?,
+  type: move cim.object_category?,
+  uid: move cim.object_id?,
+  url: {
+    url_string: move cim.dest_url?,
+  },
+  path: move cim.object_path?,
+}
+ocsf.share = move cim.parent_object?
+ocsf.share_type = move cim.parent_object_category?
+ocsf.http_request = {
+  user_agent: move cim.user_agent?,
+}
+ocsf.src_endpoint = {
+  ip: move cim.src?,
+}
+ocsf.dst_endpoint = {
+  hostname: move cim.dest?,
+}
+ocsf.actor = {
+  app_name: move cim.app?,
+  user: {
+    name: move cim.user_name? else move cim.user?,
+    type: move cim.user_type? else move cim.user_role?,
+    uid: move cim.user_id?,
+  },
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = ["host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+if cim.vendor_account? != null or cim.vendor_region? != null {
+  ocsf.metadata.profiles = [...(ocsf.metadata.profiles? else []), "cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account?,
+    },
+    region: move cim.vendor_region?,
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.file_hosting"
+this = {...ocsf, unmapped: cim}

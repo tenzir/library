@@ -21,7 +21,6 @@ match cim.message_type? {
     ocsf.activity_id = 1
   }
 }
-drop cim.message_type?
 ocsf.category_uid = 4
 ocsf.class_uid = 4003
 ocsf.severity_id = 1
@@ -69,10 +68,11 @@ match ocsf.connection_info.protocol_name {
 
 ocsf.query = {
   hostname: move cim.query?,
+  opcode: move cim.query_type?,
   packet_uid: move cim.transaction_id?,
   type: move cim.record_type?,
 }
-match cim.query_type? {
+match ocsf.query.opcode {
   "Query" => {
     ocsf.query.opcode_id = 0
   }
@@ -89,11 +89,9 @@ match cim.query_type? {
     ocsf.query.opcode_id = 5
   }
   _ => {
-    ocsf.query.opcode = cim.query_type?
-    ocsf.query.opcode_id = 99 if cim.query_type? != null
+    ocsf.query.opcode_id = 99 if ocsf.query.opcode? != null
   }
 }
-drop cim.query_type?
 
 if cim.answer? != null and cim.ttl? != null {
   ocsf.answers = zip(move cim.answer, move cim.ttl).map(x => {
@@ -109,8 +107,9 @@ if cim.answer? != null and cim.ttl? != null {
 }
 
 ocsf.rcode_id = move cim.reply_code_id?
+ocsf.rcode = move cim.reply_code?
 if ocsf.rcode_id == null {
-  match cim.reply_code? {
+  match ocsf.rcode {
     "No Error" => {
       ocsf.rcode_id = 0
     }
@@ -206,11 +205,8 @@ match ocsf.rcode_id {
   25 => {
     ocsf.rcode = "Reserved"
   }
-  _ => {
-    ocsf.rcode = cim.reply_code?
-  }
+  _ => {}
 }
-drop cim.reply_code?
 
 match ocsf.rcode_id {
   null => {
@@ -238,4 +234,5 @@ ocsf.dst_endpoint = {
 
 // --- Finalize ---------------------------------
 
+@name = "ocsf.dns_activity"
 this = {...ocsf, unmapped: cim}

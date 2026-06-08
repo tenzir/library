@@ -1,0 +1,113 @@
+---
+description: Splunk CIM Endpoint Processes → OCSF Process Activity (1007)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "launch" | "create" | "start" => {
+    ocsf.activity_id = 1
+  }
+  "terminate" | "stop" => {
+    ocsf.activity_id = 2
+  }
+  "open" => {
+    ocsf.activity_id = 3
+  }
+  "inject" => {
+    ocsf.activity_id = 4
+  }
+  "set_user_id" => {
+    ocsf.activity_id = 5
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 1
+ocsf.class_uid = 1007
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: process attributes -----------------
+
+ocsf.process = {
+  cmd_line: move cim.process?,
+  file: {
+    name: move cim.process_exec?,
+    path: move cim.process_path?,
+  },
+  name: move cim.process_name?,
+  pid: move cim.process_id?,
+  uid: move cim.process_guid?,
+  user: {
+    name: move cim.user?,
+    uid: move cim.user_id?,
+  },
+  working_directory: move cim.process_current_directory?,
+}
+match cim.process_integrity_level?.to_lower() {
+  "unknown" => {
+    ocsf.process.integrity_id = 0
+  }
+  "untrusted" => {
+    ocsf.process.integrity_id = 1
+  }
+  "low" => {
+    ocsf.process.integrity_id = 2
+  }
+  "medium" => {
+    ocsf.process.integrity_id = 3
+  }
+  "high" => {
+    ocsf.process.integrity_id = 4
+  }
+  "system" => {
+    ocsf.process.integrity_id = 5
+  }
+  "protected" => {
+    ocsf.process.integrity_id = 6
+  }
+  _ if cim.process_integrity_level? != null => {
+    ocsf.process.integrity_id = 99
+  }
+  _ => {}
+}
+if cim.process_hash? != null {
+  ocsf.process.file.hashes = (move cim.process_hash).map(h => {
+    value: h,
+  })
+}
+if cim.parent_process? != null or cim.parent_process_name? != null {
+  ocsf.process.parent_process = {
+    cmd_line: move cim.parent_process?,
+    file: {
+      name: move cim.parent_process_exec?,
+      path: move cim.parent_process_path?,
+    },
+    name: move cim.parent_process_name?,
+    pid: move cim.parent_process_id?,
+    uid: move cim.parent_process_guid?,
+    user: {
+      name: move cim.parent_user?,
+    },
+  }
+  if cim.parent_process_hash? != null {
+    ocsf.process.parent_process.file.hashes = (move cim.parent_process_hash).map(h => {
+      value: h,
+    })
+  }
+}
+ocsf.device = {
+  hostname: move cim.dest?,
+  os: {
+    name: move cim.os?,
+  },
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.process_activity"
+this = {...ocsf, unmapped: cim}

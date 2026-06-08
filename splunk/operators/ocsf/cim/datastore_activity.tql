@@ -1,0 +1,45 @@
+---
+description: Splunk CIM Databases Database Query → OCSF Datastore Activity (6005)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 4
+ocsf.category_uid = 6
+ocsf.class_uid = 6005
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: datastore attributes ---------------
+
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+} else if cim.response_time? != null {
+  ocsf.duration = (move cim.response_time).seconds().count_milliseconds().round()
+}
+ocsf.table = {
+  name: move cim.object?,
+}
+ocsf.database = {
+  name: move cim.dest?,
+}
+ocsf.query_info = {
+  query_string: move cim.query?,
+  query_time: move cim.query_time?,
+  uid: move cim.query_id?,
+}
+ocsf.src_endpoint = {
+  ip: move cim.src?,
+}
+ocsf.actor = {
+  user: {
+    name: move cim.user?,
+  },
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.datastore_activity"
+this = {...ocsf, unmapped: cim}

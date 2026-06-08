@@ -1,0 +1,124 @@
+---
+description: Splunk CIM Authentication → OCSF Authentication (3002)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+ocsf.activity_id = 1
+ocsf.category_uid = 3
+ocsf.class_uid = 3002
+if cim.action? != null {
+  match cim.action.to_lower() {
+    "success" => {
+      ocsf.status_id = 1
+    }
+    "failure" => {
+      ocsf.status_id = 2
+    }
+    "unknown" => {
+      ocsf.status_id = 0
+    }
+    _ => {}
+  }
+}
+splunk::ocsf::cim::helpers::common
+splunk::ocsf::cim::helpers::status
+
+// --- OCSF: occurrence attributes --------------
+
+if cim.duration? != null {
+  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+}
+
+// --- OCSF: authentication attributes ----------
+
+if cim.authentication_method? != null {
+  ocsf.auth_protocol = move cim.authentication_method
+  match ocsf.auth_protocol.to_lower() {
+    "ntlm" => {
+      ocsf.auth_protocol_id = 1
+    }
+    "kerberos" => {
+      ocsf.auth_protocol_id = 2
+    }
+    "digest" => {
+      ocsf.auth_protocol_id = 3
+    }
+    "openid" => {
+      ocsf.auth_protocol_id = 4
+    }
+    "saml" => {
+      ocsf.auth_protocol_id = 5
+    }
+    "oauth 2.0" | "oauth2" => {
+      ocsf.auth_protocol_id = 6
+    }
+    "pap" => {
+      ocsf.auth_protocol_id = 7
+    }
+    "chap" => {
+      ocsf.auth_protocol_id = 8
+    }
+    "eap" => {
+      ocsf.auth_protocol_id = 9
+    }
+    "radius" => {
+      ocsf.auth_protocol_id = 10
+    }
+    "basic authentication" | "basic" => {
+      ocsf.auth_protocol_id = 11
+    }
+    "ldap" => {
+      ocsf.auth_protocol_id = 12
+    }
+    _ => {
+      ocsf.auth_protocol_id = 99
+    }
+  }
+}
+ocsf.service = {
+  name: move cim.authentication_service? else move cim.app?,
+}
+ocsf.session = {
+  uid: move cim.session_id?,
+}
+ocsf.user = {
+  name: move cim.user?,
+  uid: move cim.user_id?,
+  type: move cim.user_type? else move cim.user_role?,
+}
+ocsf.actor = {
+  user: {
+    name: move cim.src_user?,
+    uid: move cim.src_user_id?,
+    type: move cim.src_user_type? else move cim.src_user_role?,
+  },
+  process: {
+    cmd_line: move cim.process?,
+  },
+}
+ocsf.src_endpoint = {
+  hostname: move cim.src?,
+}
+ocsf.dst_endpoint = {
+  hostname: move cim.dest?,
+}
+ocsf.http_request = {
+  user_agent: move cim.user_agent?,
+}
+if cim.vendor_account? != null {
+  ocsf.metadata.profiles = ["cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account,
+    },
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.authentication"
+this = {...ocsf, unmapped: cim}

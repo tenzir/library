@@ -1,0 +1,84 @@
+---
+description: Splunk CIM Data Access → OCSF API Activity (6003)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "create" => {
+    ocsf.activity_id = 1
+  }
+  "read" => {
+    ocsf.activity_id = 2
+  }
+  "update" => {
+    ocsf.activity_id = 3
+  }
+  "delete" => {
+    ocsf.activity_id = 4
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 6
+ocsf.class_uid = 6003
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: API attributes ---------------------
+
+ocsf.api = {
+  operation: move cim.object?,
+  service: {
+    name: move cim.app?,
+  },
+}
+ocsf.resources = [
+  {
+    name: ocsf.api.operation?,
+    type: move cim.object_category?,
+    uid: move cim.object_id?,
+  },
+]
+ocsf.http_request = {
+  url: {
+    url_string: move cim.dest_url?,
+  },
+  user_agent: move cim.user_agent?,
+}
+ocsf.src_endpoint = {
+  ip: move cim.src?,
+}
+ocsf.dst_endpoint = {
+  hostname: move cim.dest?,
+}
+ocsf.actor = {
+  user: {
+    name: move cim.user_name? else move cim.user?,
+    type: move cim.user_type? else move cim.user_role?,
+    uid: move cim.user_id?,
+  },
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = ["host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+if cim.vendor_account? != null or cim.vendor_region? != null {
+  ocsf.metadata.profiles = [...(ocsf.metadata.profiles? else []), "cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account?,
+    },
+    region: move cim.vendor_region?,
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.api_activity"
+this = {...ocsf, unmapped: cim}

@@ -1,0 +1,45 @@
+---
+description: Common Splunk CIM → OCSF base attributes
+---
+
+ocsf.time = move cim._time?
+
+let $severity_ids = {
+  "0": 0,
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+}
+let $severity_names = {
+  "unknown": 0,
+  "informational": 1,
+  "info": 1,
+  "low": 2,
+  "medium": 3,
+  "high": 4,
+  "critical": 5,
+  "fatal": 6,
+}
+if ocsf.severity_id? == null {
+  if cim.severity_id? != null {
+    ocsf.severity_id = $severity_ids[(move cim.severity_id).string()]? else 1
+  } else if cim.severity? != null {
+    ocsf.severity = move cim.severity
+    ocsf.severity_id = $severity_names[ocsf.severity.to_lower()]? else 1
+  } else {
+    ocsf.severity_id = 1
+  }
+}
+
+ocsf.metadata = {
+  product: {
+    name: move cim.product? else move cim.vendor_product? else "Splunk CIM",
+    vendor_name: move cim.vendor?,
+  },
+  version: "1.8.0",
+}
+
+ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id

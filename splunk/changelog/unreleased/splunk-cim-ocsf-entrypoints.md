@@ -13,5 +13,7 @@ canonical entry point for mapping supported events to OCSF. The OCSF-specific
 CIM mapper moved to `splunk::cim::ocsf::map`, and the previous
 `splunk::cim::from_ocsf` namespace was removed before release.
 
-The first CIM-to-OCSF mapper covers Splunk CIM Network Resolution DNS events and
-emits OCSF DNS Activity events.
+The CIM-to-OCSF mapper covers Splunk CIM DNS, Endpoint, Change, Alerts,
+Vulnerabilities, Authentication, Network Traffic, Email, Network Sessions VPN,
+Data Access, Database Query, and Web events and emits the corresponding OCSF
+1.8 event classes.

@@ -1,0 +1,99 @@
+---
+description: Splunk CIM Change Account Management → OCSF Account Change (3001)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "create" => {
+    ocsf.activity_id = 1
+  }
+  "enable" => {
+    ocsf.activity_id = 2
+  }
+  "password_change" => {
+    ocsf.activity_id = 3
+  }
+  "password_reset" => {
+    ocsf.activity_id = 4
+  }
+  "disable" => {
+    ocsf.activity_id = 5
+  }
+  "delete" => {
+    ocsf.activity_id = 6
+  }
+  "attach_policy" => {
+    ocsf.activity_id = 7
+  }
+  "detach_policy" => {
+    ocsf.activity_id = 8
+  }
+  "lock" => {
+    ocsf.activity_id = 9
+  }
+  "mfa_factor_enable" => {
+    ocsf.activity_id = 10
+  }
+  "mfa_factor_disable" => {
+    ocsf.activity_id = 11
+  }
+  "unlock" => {
+    ocsf.activity_id = 12
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 3
+ocsf.class_uid = 3001
+splunk::ocsf::cim::helpers::common
+splunk::ocsf::cim::helpers::status
+
+// --- OCSF: account attributes -----------------
+
+ocsf.user = {
+  name: move cim.user_name? else move cim.object?,
+  type: move cim.user_type? else move cim.object_category?,
+  uid: move cim.object_id?,
+}
+ocsf.user_result = {
+  name: ocsf.user.name?,
+  type: ocsf.user.type?,
+  uid: ocsf.user.uid?,
+}
+ocsf.actor = {
+  user: {
+    name: move cim.src_user_name? else move cim.src_user?,
+    type: move cim.src_user_type?,
+  },
+}
+ocsf.src_endpoint = {
+  hostname: move cim.src?,
+}
+if cim.dvc? != null {
+  ocsf.metadata.profiles = [...(ocsf.metadata.profiles? else []), "host"]
+  ocsf.device = {
+    hostname: move cim.dvc,
+  }
+}
+ocsf.http_request = {
+  user_agent: move cim.user_agent?,
+}
+if cim.vendor_account? != null or cim.vendor_region? != null {
+  ocsf.metadata.profiles = [...(ocsf.metadata.profiles? else []), "cloud"]
+  ocsf.cloud = {
+    account: {
+      uid: move cim.vendor_account?,
+    },
+    region: move cim.vendor_region?,
+  }
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.account_change"
+this = {...ocsf, unmapped: cim}

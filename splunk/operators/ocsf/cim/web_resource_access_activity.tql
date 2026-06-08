@@ -1,0 +1,68 @@
+---
+description: Splunk CIM Web → OCSF Web Resource Access Activity (6004)
+---
+
+cim = this
+ocsf = {}
+
+// --- OCSF: classification attributes ----------
+
+match cim.action? {
+  "access_grant" => {
+    ocsf.activity_id = 1
+  }
+  "access_deny" => {
+    ocsf.activity_id = 2
+  }
+  "access_revoke" => {
+    ocsf.activity_id = 3
+  }
+  "access_error" => {
+    ocsf.activity_id = 4
+  }
+  _ => {
+    ocsf.activity_id = 99
+  }
+}
+ocsf.category_uid = 6
+ocsf.class_uid = 6004
+splunk::ocsf::cim::helpers::common
+
+// --- OCSF: web resource attributes ------------
+
+ocsf.http_request = {
+  http_method: move cim.http_method?,
+  referrer: move cim.http_referrer?,
+  user_agent: move cim.http_user_agent?,
+  url: {
+    domain: move cim.url_domain?,
+    path: move cim.uri_path?,
+    query_string: move cim.uri_query?,
+    url_string: move cim.url?,
+  },
+}
+ocsf.http_response = {
+  code: int(move cim.status?),
+  content_type: move cim.http_content_type?,
+  latency: move cim.response_time?,
+}
+ocsf.web_resources = [
+  {
+    url_string: ocsf.http_request.url.url_string?,
+  },
+]
+ocsf.src_endpoint = {
+  ip: move cim.src_ip?,
+}
+ocsf.metadata.profiles = [...(ocsf.metadata.profiles? else []), "host"]
+ocsf.actor = {
+  app_name: move cim.app?,
+  user: {
+    name: move cim.user?,
+  },
+}
+
+// --- Finalize ---------------------------------
+
+@name = "ocsf.web_resource_access_activity"
+this = {...ocsf, unmapped: cim}
