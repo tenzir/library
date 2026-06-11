@@ -25,5 +25,4 @@ preserved in OCSF `raw_data` and `raw_data_size`.
 
 The mapper covers the Microsoft package's current OCSF authentication, process,
 audit, user-management, and alert outputs, plus direct OCSF counterparts for
-file, network, DNS, DHCP, and web session ASIM schemas. The full original OCSF
-event is preserved under `AdditionalFields` so no source data is lost.
+file, network, DNS, DHCP, and web session ASIM schemas.
