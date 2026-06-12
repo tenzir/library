@@ -1,128 +1,133 @@
 ---
 description: Microsoft Entra ID sign-in log → OCSF Authentication (3002)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.authentication"
 
-ocsf.metadata.product.name = "Microsoft Entra ID"
-ocsf.metadata.log_name = "auditLogs/signIns"
-ocsf.metadata.profiles = ["cloud", "security_control"]
+$event.ocsf.metadata.product.name = "Microsoft Entra ID"
+$event.ocsf.metadata.log_name = "auditLogs/signIns"
+$event.ocsf.metadata.profiles = ["cloud", "security_control"]
 
-ocsf.category_uid = 3
-ocsf.class_uid = 3002
-ocsf.activity_id = 1  // Logon
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+$event.ocsf.activity_id = 1  // Logon
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.time = time(move graph.createdDateTime)
+$event.ocsf.time = time(move $event.graph.createdDateTime)
 
-ocsf.user = {
-  uid: move graph.userId?,
-  name: graph.userPrincipalName?.split("@")[0]?,
-  domain: graph.userPrincipalName?.split("@")[1]?,
-  email_addr: move graph.userPrincipalName?,
-  full_name: move graph.userDisplayName?,
+$event.ocsf.user = {
+  uid: move $event.graph.userId?,
+  name: $event.graph.userPrincipalName?.split("@")[0]?,
+  domain: $event.graph.userPrincipalName?.split("@")[1]?,
+  email_addr: move $event.graph.userPrincipalName?,
+  full_name: move $event.graph.userDisplayName?,
   type_id: 1,
 }
-ocsf.actor = {
-  user: ocsf.user,
+$event.ocsf.actor = {
+  user: $event.ocsf.user,
 }
 
-ocsf.service = {
-  uid: move graph.appId?,
-  name: move graph.appDisplayName?,
+$event.ocsf.service = {
+  uid: move $event.graph.appId?,
+  name: move $event.graph.appDisplayName?,
 }
 
-ocsf.dst_endpoint = {
-  uid: move graph.resourceId?,
-  svc_name: move graph.resourceDisplayName?,
+$event.ocsf.dst_endpoint = {
+  uid: move $event.graph.resourceId?,
+  svc_name: move $event.graph.resourceDisplayName?,
 }
 
-ocsf.src_endpoint = {
-  ip: move graph.ipAddress?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.graph.ipAddress?,
   location: {
-    city: move graph.location.city?,
-    country: move graph.location.countryOrRegion?,
+    city: move $event.graph.location.city?,
+    country: move $event.graph.location.countryOrRegion?,
   },
   os: {
-    name: move graph.deviceDetail.operatingSystem?,
+    name: move $event.graph.deviceDetail.operatingSystem?,
   },
-  uid: move graph.deviceDetail.deviceId?,
+  uid: move $event.graph.deviceDetail.deviceId?,
 }
 
 let $status_ids = {
   "0": 1,
 }
-ocsf.status_id = $status_ids[graph.status.errorCode.string()]? else 2
-if ocsf.status_id == 2 {
-  ocsf.severity_id = 2
+$event.ocsf.status_id = $status_ids[$event.graph.status.errorCode.string()]? else 2
+if $event.ocsf.status_id == 2 {
+  $event.ocsf.severity_id = 2
 }
-ocsf.status_code = (move graph.status.errorCode).string()
-ocsf.status_detail = move graph.status.failureReason?
-drop graph.status?
-drop graph.location?
-drop graph.deviceDetail?
+$event.ocsf.status_code = (move $event.graph.status.errorCode).string()
+$event.ocsf.status_detail = move $event.graph.status.failureReason?
+drop $event.graph.status?
+drop $event.graph.location?
+drop $event.graph.deviceDetail?
 
-ocsf.is_mfa = graph.mfaDetail? != null
-if graph.mfaDetail.authMethod? != null {
-  graph._auth_factor_type = graph.mfaDetail.authMethod
-  match graph._auth_factor_type.to_lower() {
+$event.ocsf.is_mfa = $event.graph.mfaDetail? != null
+if $event.graph.mfaDetail.authMethod? != null {
+  $event.graph._auth_factor_type = $event.graph.mfaDetail.authMethod
+  match $event.graph._auth_factor_type.to_lower() {
     "sms" => {
-      graph._auth_factor_type_id = 1
-      graph._auth_factor_type = "SMS"
+      $event.graph._auth_factor_type_id = 1
+      $event.graph._auth_factor_type = "SMS"
     }
     "phone" | "phone call" | "voice" | "voicemail" => {
-      graph._auth_factor_type_id = 3
-      graph._auth_factor_type = "Phone Call"
+      $event.graph._auth_factor_type_id = 3
+      $event.graph._auth_factor_type = "Phone Call"
     }
     "push" | "push notification" | "authenticator app" => {
-      graph._auth_factor_type_id = 5
-      graph._auth_factor_type = "Push Notification"
+      $event.graph._auth_factor_type_id = 5
+      $event.graph._auth_factor_type = "Push Notification"
     }
     "oath" | "software oath token" | "otp" => {
-      graph._auth_factor_type_id = 7
-      graph._auth_factor_type = "OTP"
+      $event.graph._auth_factor_type_id = 7
+      $event.graph._auth_factor_type = "OTP"
     }
     "email" => {
-      graph._auth_factor_type_id = 8
-      graph._auth_factor_type = "Email"
+      $event.graph._auth_factor_type_id = 8
+      $event.graph._auth_factor_type = "Email"
     }
     _ => {
-      graph._auth_factor_type_id = 99
+      $event.graph._auth_factor_type_id = 99
     }
   }
-  ocsf.auth_factors = [{
-    factor_type: move graph._auth_factor_type,
-    factor_type_id: move graph._auth_factor_type_id,
+  $event.ocsf.auth_factors = [{
+    factor_type: move $event.graph._auth_factor_type,
+    factor_type_id: move $event.graph._auth_factor_type_id,
   }]
-  drop graph.mfaDetail.authMethod?
+  drop $event.graph.mfaDetail.authMethod?
 }
-if graph.mfaDetail.authDetail? == null {
-  drop graph.mfaDetail?
+if $event.graph.mfaDetail.authDetail? == null {
+  drop $event.graph.mfaDetail?
 }
 
-match graph.conditionalAccessStatus {
+match $event.graph.conditionalAccessStatus {
   "success" => {
-    ocsf.action_id = 1
-    ocsf.disposition_id = 1
-    drop graph.conditionalAccessStatus
+    $event.ocsf.action_id = 1
+    $event.ocsf.disposition_id = 1
+    drop $event.graph.conditionalAccessStatus
   }
   "failure" => {
-    ocsf.action_id = 2
-    ocsf.disposition_id = 26
-    drop graph.conditionalAccessStatus
+    $event.ocsf.action_id = 2
+    $event.ocsf.disposition_id = 26
+    drop $event.graph.conditionalAccessStatus
   }
   "notApplied" => {
-    ocsf.action_id = 3
-    ocsf.disposition_id = 16
-    drop graph.conditionalAccessStatus
+    $event.ocsf.action_id = 3
+    $event.ocsf.disposition_id = 16
+    drop $event.graph.conditionalAccessStatus
   }
   _ => {}
 }
 
-ocsf.is_remote = true
+$event.ocsf.is_remote = true
 
-if graph.isInteractive? != null {
-  ocsf.logon_type_id = 99
-  ocsf.logon_type = "interactiveUser" if graph.isInteractive else "nonInteractiveUser"
-  drop graph.isInteractive
+if $event.graph.isInteractive? != null {
+  $event.ocsf.logon_type_id = 99
+  $event.ocsf.logon_type = "interactiveUser" if $event.graph.isInteractive else "nonInteractiveUser"
+  drop $event.graph.isInteractive
 }

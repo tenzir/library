@@ -7,14 +7,13 @@ args:
       type: field
 ---
 
-graph = $event
-ocsf = {}
+$event = {...$event, graph: $event, ocsf: {}}
 
-ocsf.cloud = {
+$event.ocsf.cloud = {
   provider: "Azure",
 }
 
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     vendor_name: "Microsoft",
     feature: {
@@ -24,49 +23,49 @@ ocsf.metadata = {
   profiles: ["cloud"],
   version: "1.8.0",
 }
-if graph.tenantId? != null {
-  ocsf.metadata.tenant_uid = move graph.tenantId
+if $event.graph.tenantId? != null {
+  $event.ocsf.metadata.tenant_uid = move $event.graph.tenantId
 }
-if graph.correlationId? != null {
-  ocsf.metadata.correlation_uid = move graph.correlationId
+if $event.graph.correlationId? != null {
+  $event.ocsf.metadata.correlation_uid = move $event.graph.correlationId
 }
-if graph.id? != null {
-  ocsf.metadata.original_event_uid = move graph.id
+if $event.graph.id? != null {
+  $event.ocsf.metadata.original_event_uid = move $event.graph.id
 }
 
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
 match @name {
   "microsoft.graph.sign_in" => {
-    microsoft::graph::ocsf::events::sign_in
+    microsoft::graph::ocsf::events::sign_in event=$event
   }
   "microsoft.graph.directory_audit" => {
-    microsoft::graph::ocsf::events::directory_audit
+    microsoft::graph::ocsf::events::directory_audit event=$event
   }
   "microsoft.graph.defender.alert" => {
-    microsoft::graph::ocsf::events::defender_alert
+    microsoft::graph::ocsf::events::defender_alert event=$event
   }
   "microsoft.graph.defender.incident" => {
-    microsoft::graph::ocsf::events::defender_incident
+    microsoft::graph::ocsf::events::defender_incident event=$event
   }
   "microsoft.graph.identity_protection.risk_detection" => {
-    microsoft::graph::ocsf::events::risk_detection
+    microsoft::graph::ocsf::events::risk_detection event=$event
   }
   "microsoft.graph.identity_protection.risky_user" => {
-    microsoft::graph::ocsf::events::risky_user
+    microsoft::graph::ocsf::events::risky_user event=$event
   }
   "microsoft.graph.intune.managed_device" => {
-    microsoft::graph::ocsf::events::managed_device
+    microsoft::graph::ocsf::events::managed_device event=$event
   }
   "microsoft.graph.intune.detected_app" => {
-    microsoft::graph::ocsf::events::detected_app
+    microsoft::graph::ocsf::events::detected_app event=$event
   }
   "microsoft.graph.intune.compliance_policy_setting_state_summary" => {
-    microsoft::graph::ocsf::events::compliance_policy_setting_state_summary
+    microsoft::graph::ocsf::events::compliance_policy_setting_state_summary event=$event
   }
   _ => {
-    microsoft::graph::ocsf::base
+    microsoft::graph::ocsf::base event=$event
   }
 }
 
-$event = {...move ocsf, unmapped: move graph}
+$event = {...$event.ocsf, unmapped: $event.graph}

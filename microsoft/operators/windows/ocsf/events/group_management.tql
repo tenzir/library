@@ -2,12 +2,17 @@
 description: >
   Security Group Lifecycle (EID 4727–4730 global, 4731–4734 local,
   4754–4758 universal) → OCSF Group Management (3006)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.group_management"
 
-ocsf.category_uid = 3
-ocsf.class_uid = 3006
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3006
 
 let $activities = {
   // Create group
@@ -21,34 +26,34 @@ let $activities = {
   // Group changed (universal group modified — no closer activity)
   "4755": 99,
 }
-ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    uid: move windows.EventData.SubjectUserSid,
-    name: move windows.EventData.SubjectUserName,
-    domain: move windows.EventData.SubjectDomainName,
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move windows.EventData.SubjectLogonId,
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
   },
 }
 
 // TargetUser* fields describe the group being acted on (not a user account).
-ocsf.group = {
-  uid: move windows.EventData.TargetSid,
-  name: move windows.EventData.TargetUserName,
-  domain: move windows.EventData.TargetDomainName,
+$event.ocsf.group = {
+  uid: move $event.windows.EventData.TargetSid,
+  name: move $event.windows.EventData.TargetUserName,
+  domain: move $event.windows.EventData.TargetDomainName,
 }
 
 // Member fields only present on add/remove events (4728/4729/4732/4733/4756/4757).
-if windows.EventData.MemberSid? != null {
-  ocsf.user = {
-    uid: move windows.EventData.MemberSid,
-    name: move windows.EventData.MemberName,
+if $event.windows.EventData.MemberSid? != null {
+  $event.ocsf.user = {
+    uid: move $event.windows.EventData.MemberSid,
+    name: move $event.windows.EventData.MemberName,
   }
 }
 
 // PrivilegeList is always "-" on these events; drop to keep unmapped clean.
-drop windows.EventData.PrivilegeList
+drop $event.windows.EventData.PrivilegeList

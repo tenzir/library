@@ -7,61 +7,61 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 3002
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 3002
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.authentication"
-asim.EventSchema = "Authentication"
-asim.EventSchemaVersion = "0.1.4"
-match ocsf.activity_name {
-  "Logoff" => { asim.EventType = "Logoff" }
-  _ => { asim.EventType = "Logon" }
+$event.asim.EventSchema = "Authentication"
+$event.asim.EventSchemaVersion = "0.1.4"
+match $event.ocsf.activity_name {
+  "Logoff" => { $event.asim.EventType = "Logoff"}
+  _ => { $event.asim.EventType = "Logon"}
 }
-match ocsf.logon_type? {
-  "System" => { asim.EventSubType = "System" }
+match $event.ocsf.logon_type? {
+  "System" => { $event.asim.EventSubType = "System"}
   "Interactive" | "Cached Interactive" | "Unlock" | "Cached Unlock" => {
-    asim.EventSubType = "Interactive"
+    $event.asim.EventSubType = "Interactive"
   }
-  "Network" | "Network Cleartext" => { asim.EventSubType = "Remote" }
+  "Network" | "Network Cleartext" => { $event.asim.EventSubType = "Remote"}
   "Remote Interactive" | "Cached Remote Interactive" => {
-    asim.EventSubType = "RemoteInteractive"
+    $event.asim.EventSubType = "RemoteInteractive"
   }
-  "OS Service" => { asim.EventSubType = "Service" }
+  "OS Service" => { $event.asim.EventSubType = "Service"}
   _ => {}
 }
-if ocsf.logon_type? != null {
-  asim.EventOriginalSubType = ocsf.logon_type
+if $event.ocsf.logon_type? != null {
+  $event.asim.EventOriginalSubType = $event.ocsf.logon_type
 }
-asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid?
-if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
-  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
-  asim.ActorUsernameType = "Windows"
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = ocsf.actor?.user?.uid?
-asim.ActorUserIdType = "SID" if asim.ActorUserId?.starts_with("S-") == true
-asim.ActorSessionId = ocsf.actor?.session?.uid? else ocsf.actor?.session?.uid_alt?
-asim.TargetUsername = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.user?.uid?
-if ocsf.user?.domain? != null and ocsf.user?.name? != null {
-  asim.TargetUsername = f"{ocsf.user.domain}\\{ocsf.user.name}"
-  asim.TargetUsernameType = "Windows"
-  asim.TargetDomain = ocsf.user.domain
-  asim.TargetDomainType = "Windows"
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
+$event.asim.ActorSessionId = $event.ocsf.actor?.session?.uid? else $event.ocsf.actor?.session?.uid_alt?
+$event.asim.TargetUsername = $event.ocsf.user?.email_addr? else $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+if $event.ocsf.user?.domain? != null and $event.ocsf.user?.name? != null {
+  $event.asim.TargetUsername = f"{$event.ocsf.user.domain}\\{$event.ocsf.user.name}"
+  $event.asim.TargetUsernameType = "Windows"
+  $event.asim.TargetDomain = $event.ocsf.user.domain
+  $event.asim.TargetDomainType = "Windows"
 }
-asim.TargetUserId = ocsf.user?.uid?
-asim.TargetUserIdType = "SID" if asim.TargetUserId?.starts_with("S-") == true
-asim.TargetSessionId = ocsf.session?.uid? else ocsf.session?.uid_alt?
-asim.SrcIpAddr = ocsf.src_endpoint?.ip?
-asim.SrcHostname = ocsf.src_endpoint?.hostname?
-asim.SrcPortNumber = ocsf.src_endpoint?.port?
-asim.TargetHostname = ocsf.dst_endpoint?.hostname? else ocsf.device?.hostname?
-asim.TargetAppId = ocsf.service?.uid? else ocsf.dst_endpoint?.uid?
-asim.TargetAppName = ocsf.service?.name? else ocsf.dst_endpoint?.svc_name?
-asim.LogonProtocol = ocsf.auth_protocol?
-if ocsf.auth_factors? != null {
-  asim.LogonMethod = ocsf.auth_factors[0]?.factor_type?
+$event.asim.TargetUserId = $event.ocsf.user?.uid?
+$event.asim.TargetUserIdType = "SID" if $event.asim.TargetUserId?.starts_with("S-") == true
+$event.asim.TargetSessionId = $event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
+$event.asim.SrcPortNumber = $event.ocsf.src_endpoint?.port?
+$event.asim.TargetHostname = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.device?.hostname?
+$event.asim.TargetAppId = $event.ocsf.service?.uid? else $event.ocsf.dst_endpoint?.uid?
+$event.asim.TargetAppName = $event.ocsf.service?.name? else $event.ocsf.dst_endpoint?.svc_name?
+$event.asim.LogonProtocol = $event.ocsf.auth_protocol?
+if $event.ocsf.auth_factors? != null {
+  $event.asim.LogonMethod = $event.ocsf.auth_factors[0]?.factor_type?
 }
 
-$event = move asim
+$event = move $event.asim

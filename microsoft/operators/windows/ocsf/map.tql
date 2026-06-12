@@ -7,143 +7,141 @@ args:
       type: field
 ---
 
-windows = $event
-ocsf = {}
+$event = {...$event, windows: $event, ocsf: {}}
 
-ocsf.metadata = {
-  event_code: windows.System.EventID.string(),
+$event.ocsf.metadata = {
+  event_code: $event.windows.System.EventID.string(),
   extensions: [{name: "win"}],
   log_format: "xml",
-  log_name: move windows.System.Channel,
-  log_level: (move windows.System.Level).string(),
-  log_version: (move windows.System.Version).string(),
-  logged_time: move windows.System.TimeCreated.SystemTime,
-  original_event_uid: (move windows.System.EventRecordID).string(),
+  log_name: move $event.windows.System.Channel,
+  log_level: (move $event.windows.System.Level).string(),
+  log_version: (move $event.windows.System.Version).string(),
+  logged_time: move $event.windows.System.TimeCreated.SystemTime,
+  original_event_uid: (move $event.windows.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move windows.System.Provider.Name,
-    uid: move windows.System.Provider.Guid?,
+    name: move $event.windows.System.Provider.Name,
+    uid: move $event.windows.System.Provider.Guid?,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
   version: "1.8.0",
 }
-windows.System.EventID = windows.System.EventID.int()
-drop windows.System.Provider
-drop windows.System.TimeCreated
+$event.windows.System.EventID = $event.windows.System.EventID.int()
+drop $event.windows.System.Provider
+drop $event.windows.System.TimeCreated
 
 
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
 // Native Windows events have only one timestamp (SystemTime); copy it to time.
-ocsf.time = ocsf.metadata.logged_time
+$event.ocsf.time = $event.ocsf.metadata.logged_time
 
-ocsf.device = {
-  hostname: move windows.System.Computer,
+$event.ocsf.device = {
+  hostname: move $event.windows.System.Computer,
 }
 
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace what="-", with=null
 
-match windows.System.EventID {
+match $event.windows.System.EventID {
   99..103 | 129 | 199..202 => {
-    microsoft::windows::ocsf::events::task_run
+    microsoft::windows::ocsf::events::task_run event=$event
   }
   106 | 139..142 => {
-    microsoft::windows::ocsf::events::task_lifecycle
+    microsoft::windows::ocsf::events::task_lifecycle event=$event
   }
   1000 => {
-    microsoft::windows::ocsf::events::application_error
+    microsoft::windows::ocsf::events::application_error event=$event
   }
   1001 => {
-    microsoft::windows::ocsf::events::application_crash_report
+    microsoft::windows::ocsf::events::application_crash_report event=$event
   }
   1002 => {
-    microsoft::windows::ocsf::events::application_hang
+    microsoft::windows::ocsf::events::application_hang event=$event
   }
   1005..1008 => {
-    microsoft::windows::ocsf::events::defender_threat
+    microsoft::windows::ocsf::events::defender_threat event=$event
   }
   1102 => {
-    microsoft::windows::ocsf::events::eventlog_clear
+    microsoft::windows::ocsf::events::eventlog_clear event=$event
   }
   1115..1118 => {
-    microsoft::windows::ocsf::events::defender_detection
+    microsoft::windows::ocsf::events::defender_detection event=$event
   }
   1121 => {
-    microsoft::windows::ocsf::events::defender_asr
+    microsoft::windows::ocsf::events::defender_asr event=$event
   }
   2000 => {
-    microsoft::windows::ocsf::events::defender_signature_update
+    microsoft::windows::ocsf::events::defender_signature_update event=$event
   }
   4100 => {
-    microsoft::windows::ocsf::events::powershell_error
+    microsoft::windows::ocsf::events::powershell_error event=$event
   }
   4103 => {
-    microsoft::windows::ocsf::events::powershell_module_logging
+    microsoft::windows::ocsf::events::powershell_module_logging event=$event
   }
   4104 => {
-    microsoft::windows::ocsf::events::powershell_script_block
+    microsoft::windows::ocsf::events::powershell_script_block event=$event
   }
   4104..4107 => {
-    microsoft::windows::ocsf::events::powershell_script_block_invocation
+    microsoft::windows::ocsf::events::powershell_script_block_invocation event=$event
   }
   4624 => {
-    microsoft::windows::ocsf::events::logon
+    microsoft::windows::ocsf::events::logon event=$event
   }
   4625 => {
-    microsoft::windows::ocsf::events::logon_failed
+    microsoft::windows::ocsf::events::logon_failed event=$event
   }
   4648 => {
-    microsoft::windows::ocsf::events::explicit_credential_logon
+    microsoft::windows::ocsf::events::explicit_credential_logon event=$event
   }
   4672 => {
-    microsoft::windows::ocsf::events::authorize_session
+    microsoft::windows::ocsf::events::authorize_session event=$event
   }
   4688 => {
-    microsoft::windows::ocsf::events::process_create
+    microsoft::windows::ocsf::events::process_create event=$event
   }
   4697 => {
-    microsoft::windows::ocsf::events::service_install
+    microsoft::windows::ocsf::events::service_install event=$event
   }
   4698 => {
-    microsoft::windows::ocsf::events::scheduled_task_create
+    microsoft::windows::ocsf::events::scheduled_task_create event=$event
   }
   4720 | 4721..4727 => {
-    microsoft::windows::ocsf::events::account_change
+    microsoft::windows::ocsf::events::account_change event=$event
   }
   4726..4735 | 4753..4759 => {
-    microsoft::windows::ocsf::events::group_management
+    microsoft::windows::ocsf::events::group_management event=$event
   }
   4769 => {
-    microsoft::windows::ocsf::events::kerberos_service_ticket
+    microsoft::windows::ocsf::events::kerberos_service_ticket event=$event
   }
   4771 => {
-    microsoft::windows::ocsf::events::kerberos_preauth_failed
+    microsoft::windows::ocsf::events::kerberos_preauth_failed event=$event
   }
   4776 => {
-    microsoft::windows::ocsf::events::ntlm_auth
+    microsoft::windows::ocsf::events::ntlm_auth event=$event
   }
   5001 | 5007 => {
-    microsoft::windows::ocsf::events::defender_tamper
+    microsoft::windows::ocsf::events::defender_tamper event=$event
   }
   6005 => {
-    microsoft::windows::ocsf::events::eventlog_start
+    microsoft::windows::ocsf::events::eventlog_start event=$event
   }
   6006 => {
-    microsoft::windows::ocsf::events::eventlog_stop
+    microsoft::windows::ocsf::events::eventlog_stop event=$event
   }
   7034 => {
-    microsoft::windows::ocsf::events::service_crashed
+    microsoft::windows::ocsf::events::service_crashed event=$event
   }
   7045 => {
-    microsoft::windows::ocsf::events::service_install_scm
+    microsoft::windows::ocsf::events::service_install_scm event=$event
   }
   _ => {
-    microsoft::windows::ocsf::base
+    microsoft::windows::ocsf::base event=$event
   }
 }
-drop windows.System.EventID
+drop $event.windows.System.EventID
 
-$event = {...ocsf, unmapped: windows}
-drop windows, ocsf
+$event = {...$event.ocsf, unmapped: $event.windows}

@@ -7,36 +7,36 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 4001
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 4001
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.network_session"
-asim.EventSchema = "NetworkSession"
-asim.EventSchemaVersion = "0.2.7"
-asim.EventType = "NetworkSession"
-asim.EventType = "Flow" if ocsf.activity_name == "Traffic" else asim.EventType
-asim.SrcIpAddr = ocsf.src_endpoint?.ip?
-asim.SrcHostname = ocsf.src_endpoint?.hostname?
-asim.SrcPortNumber = ocsf.src_endpoint?.port?
-asim.DstIpAddr = ocsf.dst_endpoint?.ip?
-asim.DstHostname = ocsf.dst_endpoint?.hostname?
-asim.DstPortNumber = ocsf.dst_endpoint?.port?
-asim.SrcBytes = ocsf.traffic?.bytes_out?
-asim.DstBytes = ocsf.traffic?.bytes_in?
-match ocsf.disposition? {
+$event.asim.EventSchema = "NetworkSession"
+$event.asim.EventSchemaVersion = "0.2.7"
+$event.asim.EventType = "NetworkSession"
+$event.asim.EventType = "Flow" if $event.ocsf.activity_name == "Traffic" else $event.asim.EventType
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
+$event.asim.SrcPortNumber = $event.ocsf.src_endpoint?.port?
+$event.asim.DstIpAddr = $event.ocsf.dst_endpoint?.ip?
+$event.asim.DstHostname = $event.ocsf.dst_endpoint?.hostname?
+$event.asim.DstPortNumber = $event.ocsf.dst_endpoint?.port?
+$event.asim.SrcBytes = $event.ocsf.traffic?.bytes_out?
+$event.asim.DstBytes = $event.ocsf.traffic?.bytes_in?
+match $event.ocsf.disposition? {
   "Allowed" => {
-    asim.DvcAction = "Allow"
-    asim.EventResult = "Success"
+    $event.asim.DvcAction = "Allow"
+    $event.asim.EventResult = "Success"
   }
   "Blocked" | "Denied" => {
-    asim.DvcAction = "Deny"
-    asim.EventResult = "Failure"
-    asim.EventSeverity = asim.EventSeverity? else "Low"
+    $event.asim.DvcAction = "Deny"
+    $event.asim.EventResult = "Failure"
+    $event.asim.EventSeverity = $event.asim.EventSeverity? else "Low"
   }
   _ => {}
 }
 
-$event = move asim
+$event = move $event.asim

@@ -7,48 +7,48 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 3001
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 3001
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.user_management"
-asim.EventSchema = "UserManagement"
-asim.EventSchemaVersion = "0.1.2"
-asim.EventSeverity = asim.EventSeverity? else "Informational"
-asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid? else ocsf.actor?.app_name? else ocsf.actor?.app_uid?
-if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
-  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
-  asim.ActorUsernameType = "Windows"
+$event.asim.EventSchema = "UserManagement"
+$event.asim.EventSchemaVersion = "0.1.2"
+$event.asim.EventSeverity = $event.asim.EventSeverity? else "Informational"
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid? else $event.ocsf.actor?.app_name? else $event.ocsf.actor?.app_uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = ocsf.actor?.user?.uid?
-asim.ActorUserIdType = "SID" if asim.ActorUserId?.starts_with("S-") == true
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
 
-match ocsf.activity_name {
-  "Create" => { asim.EventType = "UserCreated" }
-  "Delete" => { asim.EventType = "UserDeleted" }
-  "Update" => { asim.EventType = "UserModified" }
-  "Lock" => { asim.EventType = "UserLocked" }
-  "Unlock" => { asim.EventType = "UserUnlocked" }
-  "Disable" => { asim.EventType = "UserDisabled" }
-  "Enable" => { asim.EventType = "UserEnabled" }
-  "Password Change" => { asim.EventType = "PasswordChanged" }
-  "Password Reset" => { asim.EventType = "PasswordReset" }
-  _ => { asim.EventType = "UserModified" }
+match $event.ocsf.activity_name {
+  "Create" => { $event.asim.EventType = "UserCreated"}
+  "Delete" => { $event.asim.EventType = "UserDeleted"}
+  "Update" => { $event.asim.EventType = "UserModified"}
+  "Lock" => { $event.asim.EventType = "UserLocked"}
+  "Unlock" => { $event.asim.EventType = "UserUnlocked"}
+  "Disable" => { $event.asim.EventType = "UserDisabled"}
+  "Enable" => { $event.asim.EventType = "UserEnabled"}
+  "Password Change" => { $event.asim.EventType = "PasswordChanged"}
+  "Password Reset" => { $event.asim.EventType = "PasswordReset"}
+  _ => { $event.asim.EventType = "UserModified"}
 }
 
-asim.TargetUsername = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.user?.uid?
-if ocsf.user?.domain? != null and ocsf.user?.name? != null {
-  asim.TargetUsername = f"{ocsf.user.domain}\\{ocsf.user.name}"
-  asim.TargetUsernameType = "Windows"
+$event.asim.TargetUsername = $event.ocsf.user?.email_addr? else $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+if $event.ocsf.user?.domain? != null and $event.ocsf.user?.name? != null {
+  $event.asim.TargetUsername = f"{$event.ocsf.user.domain}\\{$event.ocsf.user.name}"
+  $event.asim.TargetUsernameType = "Windows"
 }
-asim.TargetUserId = ocsf.user?.uid?
-asim.TargetUserIdType = "SID" if asim.TargetUserId?.starts_with("S-") == true
-asim.GroupName = ocsf.group?.name?
-asim.GroupId = ocsf.group?.uid?
-asim.GroupIdType = "SID" if asim.GroupId?.starts_with("S-") == true
-asim.SrcIpAddr = ocsf.src_endpoint?.ip?
-asim.SrcHostname = ocsf.src_endpoint?.hostname?
+$event.asim.TargetUserId = $event.ocsf.user?.uid?
+$event.asim.TargetUserIdType = "SID" if $event.asim.TargetUserId?.starts_with("S-") == true
+$event.asim.GroupName = $event.ocsf.group?.name?
+$event.asim.GroupId = $event.ocsf.group?.uid?
+$event.asim.GroupIdType = "SID" if $event.asim.GroupId?.starts_with("S-") == true
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
 
-$event = move asim
+$event = move $event.asim

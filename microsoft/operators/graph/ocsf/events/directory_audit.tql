@@ -1,49 +1,54 @@
 ---
 description: Microsoft Entra ID directory audit log → OCSF IAM activity
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
-ocsf.metadata.product.name = "Microsoft Entra ID"
-ocsf.metadata.log_name = "auditLogs/directoryAudits"
-ocsf.metadata.source = move graph.loggedByService?
+$event.ocsf.metadata.product.name = "Microsoft Entra ID"
+$event.ocsf.metadata.log_name = "auditLogs/directoryAudits"
+$event.ocsf.metadata.source = move $event.graph.loggedByService?
 
-ocsf.category_uid = 3
-ocsf.time = time(move graph.activityDateTime)
-ocsf.message = move graph.activityDisplayName?
-ocsf.status_detail = move graph.resultReason?
+$event.ocsf.category_uid = 3
+$event.ocsf.time = time(move $event.graph.activityDateTime)
+$event.ocsf.message = move $event.graph.activityDisplayName?
+$event.ocsf.status_detail = move $event.graph.resultReason?
 let $status_ids = {
   success: 1,
 }
-ocsf.status_id = $status_ids[graph.result]? else 2
-if ocsf.status_id == 2 {
-  ocsf.severity_id = 2
+$event.ocsf.status_id = $status_ids[$event.graph.result]? else 2
+if $event.ocsf.status_id == 2 {
+  $event.ocsf.severity_id = 2
 }
-drop graph.result?
+drop $event.graph.result?
 
-if graph.initiatedBy.user? != null {
-  ocsf.actor = {
+if $event.graph.initiatedBy.user? != null {
+  $event.ocsf.actor = {
     user: {
-      uid: move graph.initiatedBy.user.id?,
-      name: graph.initiatedBy.user.userPrincipalName?.split("@")[0]?,
-      domain: graph.initiatedBy.user.userPrincipalName?.split("@")[1]?,
-      email_addr: move graph.initiatedBy.user.userPrincipalName?,
-      full_name: move graph.initiatedBy.user.displayName?,
+      uid: move $event.graph.initiatedBy.user.id?,
+      name: $event.graph.initiatedBy.user.userPrincipalName?.split("@")[0]?,
+      domain: $event.graph.initiatedBy.user.userPrincipalName?.split("@")[1]?,
+      email_addr: move $event.graph.initiatedBy.user.userPrincipalName?,
+      full_name: move $event.graph.initiatedBy.user.displayName?,
       type_id: 1,
     },
   }
-  ocsf.src_endpoint = {
-    ip: move graph.initiatedBy.user.ipAddress?,
+  $event.ocsf.src_endpoint = {
+    ip: move $event.graph.initiatedBy.user.ipAddress?,
   }
-} else if graph.initiatedBy.app? != null {
-  ocsf.actor = {
-    app_name: move graph.initiatedBy.app.displayName?,
-    app_uid: move graph.initiatedBy.app.appId?,
+} else if $event.graph.initiatedBy.app? != null {
+  $event.ocsf.actor = {
+    app_name: move $event.graph.initiatedBy.app.displayName?,
+    app_uid: move $event.graph.initiatedBy.app.appId?,
     user: {
-      uid: move graph.initiatedBy.app.servicePrincipalId?,
+      uid: move $event.graph.initiatedBy.app.servicePrincipalId?,
       type_id: 4,
     },
   }
 }
-drop graph.initiatedBy?
+drop $event.graph.initiatedBy?
 
 let $account_activity_ids = {
   "Add user": 1,
@@ -60,87 +65,87 @@ let $group_activity_ids = {
   "Add group": 6,
 }
 
-match graph.category {
+match $event.graph.category {
   "GroupManagement" => {
-    graph._ocsf_class = "group_management"
+    $event.graph._ocsf_class = "group_management"
   }
-  "UserManagement" if $group_activity_ids[ocsf.message]? != null => {
-    graph._ocsf_class = "group_management"
+  "UserManagement" if $group_activity_ids[$event.ocsf.message]? != null => {
+    $event.graph._ocsf_class = "group_management"
   }
   "UserManagement" => {
-    graph._ocsf_class = "account_change"
+    $event.graph._ocsf_class = "account_change"
   }
   _ => {
-    graph._ocsf_class = "entity_management"
+    $event.graph._ocsf_class = "entity_management"
   }
 }
 
-match graph._ocsf_class {
+match $event.graph._ocsf_class {
   "group_management" => {
     @name = "ocsf.group_management"
-    ocsf.class_uid = 3006
-    ocsf.activity_id = $group_activity_ids[ocsf.message]? else 99
-    graph._target_groups = graph.targetResources.where(r => r.Type? == "Group" or r.type? == "Group")
-    graph._target_users = graph.targetResources.where(r => r.Type? == "User" or r.type? == "User")
-    ocsf.group = {
-      uid: graph._target_groups[0]?.id? else graph.targetResources[0]?.id?,
-      name: graph._target_groups[0]?.displayName? else graph.targetResources[0]?.displayName?,
+    $event.ocsf.class_uid = 3006
+    $event.ocsf.activity_id = $group_activity_ids[$event.ocsf.message]? else 99
+    $event.graph._target_groups = $event.graph.targetResources.where(r => r.Type? == "Group" or r.type? == "Group")
+    $event.graph._target_users = $event.graph.targetResources.where(r => r.Type? == "User" or r.type? == "User")
+    $event.ocsf.group = {
+      uid: $event.graph._target_groups[0]?.id? else $event.graph.targetResources[0]?.id?,
+      name: $event.graph._target_groups[0]?.displayName? else $event.graph.targetResources[0]?.displayName?,
     }
-    if graph._target_users[0]? != null {
-      ocsf.user = {
-        uid: graph._target_users[0]?.id?,
-        full_name: graph._target_users[0]?.displayName?,
-        email_addr: graph._target_users[0]?.userPrincipalName?,
+    if $event.graph._target_users[0]? != null {
+      $event.ocsf.user = {
+        uid: $event.graph._target_users[0]?.id?,
+        full_name: $event.graph._target_users[0]?.displayName?,
+        email_addr: $event.graph._target_users[0]?.userPrincipalName?,
         type_id: 1,
       }
     }
-    drop graph._target_groups?
-    drop graph._target_users?
+    drop $event.graph._target_groups?
+    drop $event.graph._target_users?
   }
   "account_change" => {
     @name = "ocsf.account_change"
-    ocsf.class_uid = 3001
-    ocsf.activity_id = $account_activity_ids[ocsf.message]? else 99
-    ocsf.user = {
-      uid: graph.targetResources[0]?.id?,
-      full_name: graph.targetResources[0]?.displayName?,
+    $event.ocsf.class_uid = 3001
+    $event.ocsf.activity_id = $account_activity_ids[$event.ocsf.message]? else 99
+    $event.ocsf.user = {
+      uid: $event.graph.targetResources[0]?.id?,
+      full_name: $event.graph.targetResources[0]?.displayName?,
       type_id: 1,
     }
   }
   _ => {
     @name = "ocsf.entity_management"
-    ocsf.class_uid = 3004
-    match graph.operationType {
+    $event.ocsf.class_uid = 3004
+    match $event.graph.operationType {
       "Add" => {
-        ocsf.activity_id = 1
+        $event.ocsf.activity_id = 1
       }
       "Read" => {
-        ocsf.activity_id = 2
+        $event.ocsf.activity_id = 2
       }
       "Update" => {
-        ocsf.activity_id = 3
+        $event.ocsf.activity_id = 3
       }
       "Delete" => {
-        ocsf.activity_id = 4
+        $event.ocsf.activity_id = 4
       }
       _ => {
-        ocsf.activity_id = 99
+        $event.ocsf.activity_id = 99
       }
     }
-    ocsf.entity = {
-      uid: graph.targetResources[0]?.id?,
-      name: graph.targetResources[0]?.displayName?,
+    $event.ocsf.entity = {
+      uid: $event.graph.targetResources[0]?.id?,
+      name: $event.graph.targetResources[0]?.displayName?,
     }
   }
 }
-drop graph._ocsf_class
+drop $event.graph._ocsf_class
 
-if ocsf.activity_id == 99 {
-  ocsf.activity_name = ocsf.message
+if $event.ocsf.activity_id == 99 {
+  $event.ocsf.activity_name = $event.ocsf.message
 }
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Preserve targetResources in unmapped because modifiedProperties often carry
 // the security-relevant before/after values.
-drop graph.operationType?
-drop graph.category?
+drop $event.graph.operationType?
+drop $event.graph.category?

@@ -1,18 +1,23 @@
 ---
 description: Microsoft Entra ID risky user → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Microsoft Entra ID Protection"
-ocsf.metadata.log_name = "identityProtection/riskyUsers"
-ocsf.metadata.profiles = ["cloud", "security_control"]
+$event.ocsf.metadata.product.name = "Microsoft Entra ID Protection"
+$event.ocsf.metadata.log_name = "identityProtection/riskyUsers"
+$event.ocsf.metadata.profiles = ["cloud", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = time(move graph.riskLastUpdatedDateTime)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = time(move $event.graph.riskLastUpdatedDateTime)
 
 let $risk_levels = {
   none: 1,
@@ -26,10 +31,10 @@ let $risk_level_ids = {
   medium: 2,
   high: 3,
 }
-ocsf.severity_id = $risk_levels[graph.riskLevel]? else 0
-ocsf.risk_level_id = $risk_level_ids[graph.riskLevel]?
-if ocsf.risk_level_id != null {
-  drop graph.riskLevel?
+$event.ocsf.severity_id = $risk_levels[$event.graph.riskLevel]? else 0
+$event.ocsf.risk_level_id = $risk_level_ids[$event.graph.riskLevel]?
+if $event.ocsf.risk_level_id != null {
+  drop $event.graph.riskLevel?
 }
 
 let $statuses = {
@@ -40,26 +45,26 @@ let $statuses = {
   remediated: 4,
   dismissed: 3,
 }
-ocsf.status_id = $statuses[graph.riskState]?
-if ocsf.status_id != null {
-  drop graph.riskState?
+$event.ocsf.status_id = $statuses[$event.graph.riskState]?
+if $event.ocsf.status_id != null {
+  drop $event.graph.riskState?
 }
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
   title: "Risky user",
-  desc: move graph.riskDetail?,
+  desc: move $event.graph.riskDetail?,
 }
 
-ocsf.resources = [{
-  uid: ocsf.finding_info.uid,
-  name: move graph.userPrincipalName?,
+$event.ocsf.resources = [{
+  uid: $event.ocsf.finding_info.uid,
+  name: move $event.graph.userPrincipalName?,
   type: "User",
   role_id: 3,
   owner: {
-    full_name: move graph.userDisplayName?,
+    full_name: move $event.graph.userDisplayName?,
     type_id: 1,
   },
 }]
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true

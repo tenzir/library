@@ -1,32 +1,37 @@
 ---
 description: PowerShell Script Block Logging (EID 4104) → OCSF Script Activity (1009, Execute)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.script_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1009
-ocsf.activity_id = 1  // Execute
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1009
+$event.ocsf.activity_id = 1  // Execute
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Windows Level 3 (Warning) when AMSI flags the block; Level 5 (Verbose) for
 // benign blocks.  Map Level 3 → Low (2), everything else → Informational (1).
-ocsf.severity_id = 2 if ocsf.metadata.log_level == "3" else 1
+$event.ocsf.severity_id = 2 if $event.ocsf.metadata.log_level == "3" else 1
 
-ocsf.script = {
-  uid: move windows.EventData.ScriptBlockId,
+$event.ocsf.script = {
+  uid: move $event.windows.EventData.ScriptBlockId,
   type_id: 2,  // PowerShell
 }
 
 // Path is the script file path when the block originates from a file;
 // empty string means an interactive/in-memory block.
-if windows.EventData.Path? != null and windows.EventData.Path? != "" {
-  ocsf.script.file = {
-    path: move windows.EventData.Path,
+if $event.windows.EventData.Path? != null and $event.windows.EventData.Path? != "" {
+  $event.ocsf.script.file = {
+    path: move $event.windows.EventData.Path,
     type_id: 1,  // Regular file
   }
-  ocsf.script.file.name = ocsf.script.file.path.split("\\")[-1]
-  ocsf.script.name = ocsf.script.file.name
+  $event.ocsf.script.file.name = $event.ocsf.script.file.path.split("\\")[-1]
+  $event.ocsf.script.name = $event.ocsf.script.file.name
 }
 
 // ScriptBlockText is the raw script content and can be large.

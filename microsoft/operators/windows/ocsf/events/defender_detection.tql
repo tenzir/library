@@ -2,17 +2,22 @@
 description: >
   Windows Defender Malware Detection/Remediation (EID 1116 Detected,
   1117 Action Taken) → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.severity_id = move windows.EventData["Severity ID"]
+$event.ocsf.severity_id = move $event.windows.EventData["Severity ID"]
 
 // Defender Action IDs → OCSF disposition_id (present on EID 1117).
 let $dispositions = {
@@ -23,55 +28,55 @@ let $dispositions = {
   "9": 16,  // No Action → No Action
   "10": 2,  // Block → Blocked
 }
-if windows.EventData.has("Action ID") {
-  ocsf.disposition_id = $dispositions[(move windows.EventData["Action ID"]).string()]? else 99
+if $event.windows.EventData.has("Action ID") {
+  $event.ocsf.disposition_id = $dispositions[(move $event.windows.EventData["Action ID"]).string()]? else 99
 }
 
 // Threat name is copied into finding_info.title then moved into malware.name.
-ocsf.finding_info = {
-  title: windows.EventData["Threat Name"],
-  uid: move windows.EventData["Detection ID"],
-  types: [move windows.EventData["Category Name"]],
+$event.ocsf.finding_info = {
+  title: $event.windows.EventData["Threat Name"],
+  uid: move $event.windows.EventData["Detection ID"],
+  types: [move $event.windows.EventData["Category Name"]],
 }
-ocsf.malware = [{
-  name: move windows.EventData["Threat Name"],
+$event.ocsf.malware = [{
+  name: move $event.windows.EventData["Threat Name"],
 }]
 
 // Detected file; wrap in evidences as required by Detection Finding.
-ocsf.file = {
-  path: move windows.EventData.Path,
+$event.ocsf.file = {
+  path: move $event.windows.EventData.Path,
   type_id: 1,  // Regular file
 }
-ocsf.file.name = ocsf.file.path.split("\\")[-1]
-ocsf.evidences = [{ file: move ocsf.file }]
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+$event.ocsf.evidences = [{ file: move $event.ocsf.file }]
 
 // Process that triggered the detection.
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    path: move windows.EventData["Process Name"],
+    path: move $event.windows.EventData["Process Name"],
     file: { type_id: 1 },
   },
 }
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
 // Detection User is "DOMAIN\username" format.
-_user = (move windows.EventData["Detection User"]).split("\\")
-ocsf.actor.user = {
+_user = (move $event.windows.EventData["Detection User"]).split("\\")
+$event.ocsf.actor.user = {
   domain: _user[0],
   name: _user[1],
 }
 drop _user
 
 // Drop sentinel/redundant fields.
-drop windows.EventData.Unused
-drop windows.EventData.Unused2
-drop windows.EventData.Unused3
-drop windows.EventData["Severity Name"]
-drop windows.EventData["Action Name"]
-drop windows.EventData["Type Name"]
-drop windows.EventData["Origin Name"]
-drop windows.EventData["Execution Name"]
-drop windows.EventData["Status Description"]
-drop windows.EventData["Remediation User"]
+drop $event.windows.EventData.Unused
+drop $event.windows.EventData.Unused2
+drop $event.windows.EventData.Unused3
+drop $event.windows.EventData["Severity Name"]
+drop $event.windows.EventData["Action Name"]
+drop $event.windows.EventData["Type Name"]
+drop $event.windows.EventData["Origin Name"]
+drop $event.windows.EventData["Execution Name"]
+drop $event.windows.EventData["Status Description"]
+drop $event.windows.EventData["Remediation User"]

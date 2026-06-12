@@ -7,21 +7,21 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 4002
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 4002
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.web_session"
-asim.EventSchema = "WebSession"
-asim.EventSchemaVersion = "0.2.7"
-asim.EventType = "HTTPsession"
-asim.Url = ocsf.http_request?.url?.url_string?
-asim.HttpRequestMethod = ocsf.http_request?.http_method? else ocsf.activity_name?.to_upper()
-asim.EventResultDetails = ocsf.http_response?.code?.string() else ocsf.status_code?.string()
-if ocsf.http_response?.code? != null {
-  asim.EventResult = "Success" if ocsf.http_response.code < 400 else "Failure"
+$event.asim.EventSchema = "WebSession"
+$event.asim.EventSchemaVersion = "0.2.7"
+$event.asim.EventType = "HTTPsession"
+$event.asim.Url = $event.ocsf.http_request?.url?.url_string?
+$event.asim.HttpRequestMethod = $event.ocsf.http_request?.http_method? else $event.ocsf.activity_name?.to_upper()
+$event.asim.EventResultDetails = $event.ocsf.http_response?.code?.string() else $event.ocsf.status_code?.string()
+if $event.ocsf.http_response?.code? != null {
+  $event.asim.EventResult = "Success" if $event.ocsf.http_response.code < 400 else "Failure"
 }
 
-$event = move asim
+$event = move $event.asim

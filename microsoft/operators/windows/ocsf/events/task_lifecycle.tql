@@ -2,28 +2,33 @@
 description: >
   Task Scheduler Lifecycle (EID 106 Register, 140 Update, 141 Delete)
   → OCSF Scheduled Job Activity (1006)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.scheduled_job_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1006
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1006
 
 let $activities = {
   "106": 1,  // Create
   "140": 2,  // Update
   "141": 3,  // Delete
 }
-ocsf.activity_id = $activities[ocsf.metadata.event_code]? else 99
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.job = {
-  name: move windows.EventData.TaskName,
+$event.ocsf.job = {
+  name: move $event.windows.EventData.TaskName,
 }
 
 // UserContext is "DOMAIN\username" format.
-_user = (move windows.EventData.UserContext).split("\\")
-ocsf.actor = {
+_user = (move $event.windows.EventData.UserContext).split("\\")
+$event.ocsf.actor = {
   user: {
     domain: _user[0],
     name: _user[1],

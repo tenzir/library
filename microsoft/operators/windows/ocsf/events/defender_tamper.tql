@@ -2,27 +2,32 @@
 description: >
   Windows Defender Tamper Events (EID 5001 Real-Time Protection Disabled,
   5007 Configuration Changed) → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // AV tamper events are always high-severity.
-ocsf.severity_id = 4  // High
+$event.ocsf.severity_id = 4  // High
 
 let $titles = {
   "5001": "Windows Defender Real-Time Protection Disabled",
   "5007": "Windows Defender Configuration Changed",
 }
-ocsf.finding_info = {
-  title: $titles[ocsf.metadata.event_code]? else "Windows Defender Tamper",
-  uid: ocsf.metadata.original_event_uid,
+$event.ocsf.finding_info = {
+  title: $titles[$event.ocsf.metadata.event_code]? else "Windows Defender Tamper",
+  uid: $event.ocsf.metadata.original_event_uid,
   types: ["Software: Antivirus"],
 }
 
 // "Product Name" is redundant with metadata.product.name.
-drop windows.EventData["Product Name"]
+drop $event.windows.EventData["Product Name"]

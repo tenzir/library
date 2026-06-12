@@ -7,23 +7,23 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 4004
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 4004
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.dhcp_event"
-asim.EventSchema = "DhcpEvent"
-asim.EventSchemaVersion = "0.1.1"
-match ocsf.activity_name {
-  "Ack" | "Offer" => { asim.EventType = "Assign" }
-  "Request" => { asim.EventType = "Renew" }
-  "Release" => { asim.EventType = "Release" }
-  _ => { asim.EventType = "Assign" }
+$event.asim.EventSchema = "DhcpEvent"
+$event.asim.EventSchemaVersion = "0.1.1"
+match $event.ocsf.activity_name {
+  "Ack" | "Offer" => { $event.asim.EventType = "Assign"}
+  "Request" => { $event.asim.EventType = "Renew"}
+  "Release" => { $event.asim.EventType = "Release"}
+  _ => { $event.asim.EventType = "Assign"}
 }
-asim.SrcHostname = ocsf.src_endpoint?.hostname? else ocsf.src_endpoint?.ip?.string()
-asim.SrcIpAddr = ocsf.src_endpoint?.ip?
-asim.SrcMacAddr = ocsf.src_endpoint?.mac?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip?.string()
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcMacAddr = $event.ocsf.src_endpoint?.mac?
 
-$event = move asim
+$event = move $event.asim

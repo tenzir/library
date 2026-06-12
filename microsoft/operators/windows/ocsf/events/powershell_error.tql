@@ -1,41 +1,46 @@
 ---
 description: PowerShell Engine Error (EID 4100) → OCSF Script Activity (1009, Execute/Failure)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.script_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1009
-ocsf.activity_id = 1  // Execute
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1009
+$event.ocsf.activity_id = 1  // Execute
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.status_id = 2  // Failure — this event fires on PS engine errors
-ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
-ocsf.status_code = (move windows.EventData.ErrorCode).string()
-ocsf.status_detail = move windows.EventData.Message
+$event.ocsf.status_id = 2  // Failure — this event fires on PS engine errors
+$event.ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
+$event.ocsf.status_code = (move $event.windows.EventData.ErrorCode).string()
+$event.ocsf.status_detail = move $event.windows.EventData.Message
 
 // HostApplication is the full command line (exe + args), not just the path.
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    cmd_line: move windows.EventData.HostApplication,
+    cmd_line: move $event.windows.EventData.HostApplication,
     file: { type_id: 8 },
   },
 }
 
 // User is in "DOMAIN\username" format.
-_user = (move windows.EventData.User).split("\\")
-ocsf.actor.user = {
+_user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor.user = {
   domain: _user[0],
   name: _user[1],
 }
 drop _user
 
-ocsf.script = {
+$event.ocsf.script = {
   type_id: 2,  // PowerShell
-  name: move windows.EventData.CommandInvocation,
+  name: move $event.windows.EventData.CommandInvocation,
 }
 
 // CommandLine (the full command attempted), HostVersion, EngineVersion,
 // RunspaceId, PipelineId, ScriptName, ShellId — left in unmapped.
-drop windows.EventData.HostName
-drop windows.EventData.ConnectedUser
+drop $event.windows.EventData.HostName
+drop $event.windows.EventData.ConnectedUser

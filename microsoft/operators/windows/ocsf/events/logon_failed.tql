@@ -1,42 +1,47 @@
 ---
 description: Failed Logon (EID 4625) → OCSF Authentication (3002, Logon/Failure)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.authentication"
 
-ocsf.category_uid = 3
-ocsf.class_uid = 3002
-ocsf.activity_id = 1  // Logon
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+$event.ocsf.activity_id = 1  // Logon
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.status_id = 2  // Failure
-ocsf.severity_id = 2  // Low — single failed logon; brute-force detection is a higher layer
-ocsf.status_code = move windows.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
+$event.ocsf.status_id = 2  // Failure
+$event.ocsf.severity_id = 2  // Low — single failed logon; brute-force detection is a higher layer
+$event.ocsf.status_code = move $event.windows.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
 
 // Windows LogonType integers map directly to OCSF logon_type_id values.
-ocsf.logon_type_id = move windows.EventData.LogonType
+$event.ocsf.logon_type_id = move $event.windows.EventData.LogonType
 
-ocsf.user = {
-  uid: move windows.EventData.TargetUserSid,
-  name: move windows.EventData.TargetUserName,
-  domain: move windows.EventData.TargetDomainName,
+$event.ocsf.user = {
+  uid: move $event.windows.EventData.TargetUserSid,
+  name: move $event.windows.EventData.TargetUserName,
+  domain: move $event.windows.EventData.TargetDomainName,
 }
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    uid: move windows.EventData.SubjectUserSid,
-    name: move windows.EventData.SubjectUserName,
-    domain: move windows.EventData.SubjectDomainName,
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move windows.EventData.SubjectLogonId,
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
   },
 }
 
-ocsf.src_endpoint = {
-  ip: move windows.EventData.IpAddress,
-  port: move windows.EventData.IpPort,
-  hostname: move windows.EventData.WorkstationName,
+$event.ocsf.src_endpoint = {
+  ip: move $event.windows.EventData.IpAddress,
+  port: move $event.windows.EventData.IpPort,
+  hostname: move $event.windows.EventData.WorkstationName,
 }
 
-ocsf.auth_protocol = move windows.EventData.AuthenticationPackageName
+$event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName

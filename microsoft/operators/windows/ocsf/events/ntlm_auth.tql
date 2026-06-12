@@ -1,20 +1,25 @@
 ---
 description: NTLM Authentication (EID 4776) → OCSF Authentication (3002, Logon)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.authentication"
 
-ocsf.category_uid = 3
-ocsf.class_uid = 3002
-ocsf.activity_id = 1  // Logon
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+$event.ocsf.activity_id = 1  // Logon
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Status 0x0 = success; non-zero = failure (e.g. 0xC000006A = wrong password).
-ocsf.status_id = 1 if windows.EventData.Status == "0x0" else 2
-ocsf.status_code = move windows.EventData.Status
+$event.ocsf.status_id = 1 if $event.windows.EventData.Status == "0x0" else 2
+$event.ocsf.status_code = move $event.windows.EventData.Status
 
-ocsf.user = {
-  name: move windows.EventData.TargetUserName,
+$event.ocsf.user = {
+  name: move $event.windows.EventData.TargetUserName,
 }
 
 // PackageName identifies the NTLM variant; map to auth_protocol_id so that
@@ -23,9 +28,9 @@ let $protocols = {
   "MICROSOFT_AUTHENTICATION_PACKAGE_V1_0": 1,  // NTLM v1
   "NTLM": 1,
 }
-ocsf.auth_protocol_id = $protocols[windows.EventData.PackageName]? else 99
-drop windows.EventData.PackageName
+$event.ocsf.auth_protocol_id = $protocols[$event.windows.EventData.PackageName]? else 99
+drop $event.windows.EventData.PackageName
 
-ocsf.src_endpoint = {
-  hostname: move windows.EventData.Workstation,
+$event.ocsf.src_endpoint = {
+  hostname: move $event.windows.EventData.Workstation,
 }

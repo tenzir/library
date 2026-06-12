@@ -1,114 +1,117 @@
 ---
 description: Initializes shared ASIM fields from a validated OCSF event.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
 ---
 
-asim = {}
+$event.asim.EventCount = 1
+$event.asim.EventStartTime = $event.ocsf.start_time? else $event.ocsf.time
+$event.asim.EventEndTime = $event.ocsf.end_time? else $event.ocsf.time
+$event.asim.EventProduct = $event.ocsf.metadata?.product?.name? else $event.ocsf.metadata?.product?.feature?.name? else "Unknown"
+$event.asim.EventVendor = $event.ocsf.metadata?.product?.vendor_name? else "Microsoft"
 
-asim.EventCount = 1
-asim.EventStartTime = ocsf.start_time? else ocsf.time
-asim.EventEndTime = ocsf.end_time? else ocsf.time
-asim.EventProduct = ocsf.metadata?.product?.name? else ocsf.metadata?.product?.feature?.name? else "Unknown"
-asim.EventVendor = ocsf.metadata?.product?.vendor_name? else "Microsoft"
-
-if ocsf.metadata?.original_event_uid? != null {
-  asim.EventOriginalUid = ocsf.metadata.original_event_uid
-  asim.EventUid = ocsf.metadata.original_event_uid
+if $event.ocsf.metadata?.original_event_uid? != null {
+  $event.asim.EventOriginalUid = $event.ocsf.metadata.original_event_uid
+  $event.asim.EventUid = $event.ocsf.metadata.original_event_uid
 }
-if ocsf.metadata?.event_code? != null {
-  asim.EventOriginalType = ocsf.metadata.event_code
+if $event.ocsf.metadata?.event_code? != null {
+  $event.asim.EventOriginalType = $event.ocsf.metadata.event_code
 } else {
-  asim.EventOriginalType = ocsf.type_uid.string()
+  $event.asim.EventOriginalType = $event.ocsf.type_uid.string()
 }
-if ocsf.message? != null {
-  asim.EventMessage = ocsf.message
+if $event.ocsf.message? != null {
+  $event.asim.EventMessage = $event.ocsf.message
 }
 
-match ocsf.severity_id? {
+match $event.ocsf.severity_id? {
   1 => {
-    asim.EventSeverity = "Informational"
+    $event.asim.EventSeverity = "Informational"
   }
   2 => {
-    asim.EventSeverity = "Low"
+    $event.asim.EventSeverity = "Low"
   }
   3 => {
-    asim.EventSeverity = "Medium"
+    $event.asim.EventSeverity = "Medium"
   }
   4 => {
-    asim.EventSeverity = "High"
+    $event.asim.EventSeverity = "High"
   }
   5 => {
-    asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = ocsf.severity? else "Critical"
+    $event.asim.EventSeverity = "High"
+    $event.asim.EventOriginalSeverity = $event.ocsf.severity? else "Critical"
   }
   6 => {
-    asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = ocsf.severity? else "Fatal"
+    $event.asim.EventSeverity = "High"
+    $event.asim.EventOriginalSeverity = $event.ocsf.severity? else "Fatal"
   }
-  _ if ocsf.severity? == "Critical" or ocsf.severity? == "Fatal" => {
-    asim.EventSeverity = "High"
-    asim.EventOriginalSeverity = ocsf.severity
+  _ if $event.ocsf.severity? == "Critical" or $event.ocsf.severity? == "Fatal" => {
+    $event.asim.EventSeverity = "High"
+    $event.asim.EventOriginalSeverity = $event.ocsf.severity
   }
-  _ if ocsf.severity? in ["Informational", "Low", "Medium", "High"] => {
-    asim.EventSeverity = ocsf.severity
+  _ if $event.ocsf.severity? in ["Informational", "Low", "Medium", "High"] => {
+    $event.asim.EventSeverity = $event.ocsf.severity
   }
-  _ if ocsf.severity? != null => {
-    asim.EventOriginalSeverity = ocsf.severity
+  _ if $event.ocsf.severity? != null => {
+    $event.asim.EventOriginalSeverity = $event.ocsf.severity
   }
   _ => {}
 }
 
-match ocsf.status? {
+match $event.ocsf.status? {
   "Success" => {
-    asim.EventResult = "Success"
+    $event.asim.EventResult = "Success"
   }
   "Failure" => {
-    asim.EventResult = "Failure"
+    $event.asim.EventResult = "Failure"
   }
   "Partial" => {
-    asim.EventResult = "Partial"
+    $event.asim.EventResult = "Partial"
   }
   _ => {
-    match ocsf.status_id? {
-      1 if ocsf.class_uid != 2003 and ocsf.class_uid != 2004 and ocsf.class_uid != 2005 => {
-        asim.EventResult = "Success"
+    match $event.ocsf.status_id? {
+      1 if $event.ocsf.class_uid != 2003 and $event.ocsf.class_uid != 2004 and $event.ocsf.class_uid != 2005 => {
+        $event.asim.EventResult = "Success"
       }
       2 => {
-        asim.EventResult = "Failure"
+        $event.asim.EventResult = "Failure"
       }
       _ => {
-        asim.EventResult = "NA"
+        $event.asim.EventResult = "NA"
       }
     }
   }
 }
-if ocsf.status_detail? != null {
-  asim.EventOriginalResultDetails = ocsf.status_detail
+if $event.ocsf.status_detail? != null {
+  $event.asim.EventOriginalResultDetails = $event.ocsf.status_detail
 }
-if ocsf.status_code? != null {
-  asim.EventOriginalResultDetails = ocsf.status_code.string()
+if $event.ocsf.status_code? != null {
+  $event.asim.EventOriginalResultDetails = $event.ocsf.status_code.string()
 }
 
-if ocsf.device?.hostname? != null {
-  asim.Dvc = ocsf.device.hostname
-  asim.DvcHostname = ocsf.device.hostname
-  asim.DvcFQDN = ocsf.device.hostname
+if $event.ocsf.device?.hostname? != null {
+  $event.asim.Dvc = $event.ocsf.device.hostname
+  $event.asim.DvcHostname = $event.ocsf.device.hostname
+  $event.asim.DvcFQDN = $event.ocsf.device.hostname
 }
-if ocsf.device?.uid? != null {
-  asim.DvcId = ocsf.device.uid
+if $event.ocsf.device?.uid? != null {
+  $event.asim.DvcId = $event.ocsf.device.uid
 }
-if ocsf.device?.ip? != null {
-  asim.DvcIpAddr = ocsf.device.ip
-  if asim.Dvc? == null {
-    asim.Dvc = ocsf.device.ip.string()
+if $event.ocsf.device?.ip? != null {
+  $event.asim.DvcIpAddr = $event.ocsf.device.ip
+  if $event.asim.Dvc? == null {
+    $event.asim.Dvc = $event.ocsf.device.ip.string()
   }
 }
-if asim.Dvc? == null {
-  asim.Dvc = asim.EventProduct
+if $event.asim.Dvc? == null {
+  $event.asim.Dvc = $event.asim.EventProduct
 }
 
-if ocsf.disposition? != null {
-  asim.DvcAction = ocsf.disposition
+if $event.ocsf.disposition? != null {
+  $event.asim.DvcAction = $event.ocsf.disposition
 }
-if ocsf.action? != null {
-  asim.DvcAction = ocsf.action
+if $event.ocsf.action? != null {
+  $event.asim.DvcAction = $event.ocsf.action
 }

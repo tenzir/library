@@ -1,49 +1,54 @@
 ---
 description: Microsoft Defender incident → OCSF Incident Finding (2005)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.incident_finding"
 
-ocsf.metadata.product.name = "Microsoft Defender"
-ocsf.metadata.log_name = "security/incidents"
-ocsf.metadata.profiles = ["cloud", "incident", "security_control"]
+$event.ocsf.metadata.product.name = "Microsoft Defender"
+$event.ocsf.metadata.log_name = "security/incidents"
+$event.ocsf.metadata.profiles = ["cloud", "incident", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2005
-ocsf.time = time(move graph.createdDateTime)
-ocsf.end_time = time(move graph.lastUpdateDateTime?)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2005
+$event.ocsf.time = time(move $event.graph.createdDateTime)
+$event.ocsf.end_time = time(move $event.graph.lastUpdateDateTime?)
 
-match graph.status {
+match $event.graph.status {
   "active" | "new" => {
-    ocsf.status_id = 1
+    $event.ocsf.status_id = 1
   }
   "inProgress" => {
-    ocsf.status_id = 2
+    $event.ocsf.status_id = 2
   }
   "resolved" => {
-    ocsf.status_id = 4
+    $event.ocsf.status_id = 4
   }
   "redirected" => {
-    ocsf.status_id = 5
+    $event.ocsf.status_id = 5
   }
   _ => {
-    ocsf.status_id = 1
+    $event.ocsf.status_id = 1
   }
 }
-drop graph.status?
+drop $event.graph.status?
 
-match ocsf.status_id {
+match $event.ocsf.status_id {
   4 | 5 => {
-    ocsf.activity_id = 3  // Close
+    $event.ocsf.activity_id = 3  // Close
   }
-  _ if ocsf.end_time != null and ocsf.end_time != ocsf.time => {
-    ocsf.activity_id = 2  // Update
+  _ if $event.ocsf.end_time != null and $event.ocsf.end_time != $event.ocsf.time => {
+    $event.ocsf.activity_id = 2  // Update
   }
   _ => {
-    ocsf.activity_id = 1  // Create
+    $event.ocsf.activity_id = 1  // Create
   }
 }
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $severities = {
   informational: 1,
@@ -51,73 +56,73 @@ let $severities = {
   medium: 3,
   high: 4,
 }
-ocsf.severity_id = $severities[graph.severity]? else 0
-drop graph.severity?
+$event.ocsf.severity_id = $severities[$event.graph.severity]? else 0
+drop $event.graph.severity?
 
-if graph.priorityScore? != null {
-  ocsf.risk_score = move graph.priorityScore
-  ocsf.priority_id = 1
-  if ocsf.risk_score >= 15 {
-    ocsf.priority_id = 2
+if $event.graph.priorityScore? != null {
+  $event.ocsf.risk_score = move $event.graph.priorityScore
+  $event.ocsf.priority_id = 1
+  if $event.ocsf.risk_score >= 15 {
+    $event.ocsf.priority_id = 2
   }
-  if ocsf.risk_score > 85 {
-    ocsf.priority_id = 4
+  if $event.ocsf.risk_score > 85 {
+    $event.ocsf.priority_id = 4
   }
 }
 
-if graph.customTags? != null or graph.systemTags? != null {
-  ocsf.metadata.labels = [
-    ...move graph.customTags?,
-    ...move graph.systemTags?,
+if $event.graph.customTags? != null or $event.graph.systemTags? != null {
+  $event.ocsf.metadata.labels = [
+    ...move $event.graph.customTags?,
+    ...move $event.graph.systemTags?,
   ]
-  if ocsf.metadata.labels.length() == 0 {
-    drop ocsf.metadata.labels
+  if $event.ocsf.metadata.labels.length() == 0 {
+    drop $event.ocsf.metadata.labels
   }
 }
-match graph.determination {
+match $event.graph.determination {
   "unknown" | "unknownFutureValue" => {}
-  _ if graph.determination? != null => {
-    graph._finding_types = {
-      types: [move graph.determination],
+  _ if $event.graph.determination? != null => {
+    $event.graph._finding_types = {
+      types: [move $event.graph.determination],
     }
   }
   _ => {}
 }
-if graph.redirectIncidentId? != null {
-  graph._related_events = {
+if $event.graph.redirectIncidentId? != null {
+  $event.graph._related_events = {
     related_events: [{
-      uid: move graph.redirectIncidentId,
+      uid: move $event.graph.redirectIncidentId,
     }],
   }
 }
 
-ocsf.message = move graph.displayName?
-ocsf.desc = move graph.description?
-ocsf.finding_info_list = [
+$event.ocsf.message = move $event.graph.displayName?
+$event.ocsf.desc = move $event.graph.description?
+$event.ocsf.finding_info_list = [
   {
-    uid: ocsf.metadata.original_event_uid,
-    title: ocsf.message,
-    desc: move graph.summary?,
-    ...move graph._finding_types?,
-    ...move graph._related_events?,
+    uid: $event.ocsf.metadata.original_event_uid,
+    title: $event.ocsf.message,
+    desc: move $event.graph.summary?,
+    ...move $event.graph._finding_types?,
+    ...move $event.graph._related_events?,
   },
 ]
-if graph.alerts? != null {
-  ocsf.finding_info_list = [
-    ...ocsf.finding_info_list,
-    ...graph.alerts.map(a => {
+if $event.graph.alerts? != null {
+  $event.ocsf.finding_info_list = [
+    ...$event.ocsf.finding_info_list,
+    ...$event.graph.alerts.map(a => {
       uid: a.id,
       title: a.title,
     }),
   ]
-  drop graph.alerts
+  drop $event.graph.alerts
 }
 
-if graph.assignedTo? != null {
-  ocsf.assignee = {
-    name: graph.assignedTo.split("@")[0]?,
-    domain: graph.assignedTo.split("@")[1]?,
-    email_addr: move graph.assignedTo,
+if $event.graph.assignedTo? != null {
+  $event.ocsf.assignee = {
+    name: $event.graph.assignedTo.split("@")[0]?,
+    domain: $event.graph.assignedTo.split("@")[1]?,
+    email_addr: move $event.graph.assignedTo,
     type_id: 1,
   }
 }
@@ -128,7 +133,7 @@ let $verdicts = {
   truePositive: 2,
   informationalExpectedActivity: 5,
 }
-ocsf.verdict_id = $verdicts[graph.classification?]?
-if ocsf.verdict_id != null {
-  drop graph.classification?
+$event.ocsf.verdict_id = $verdicts[$event.graph.classification?]?
+if $event.ocsf.verdict_id != null {
+  drop $event.graph.classification?
 }

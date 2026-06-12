@@ -7,32 +7,32 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 1007
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 1007
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.process_event"
-asim.EventSchema = "ProcessEvent"
-asim.EventSchemaVersion = "0.1.4"
-match ocsf.activity_name {
-  "Launch" => { asim.EventType = "ProcessCreated" }
-  "Terminate" => { asim.EventType = "ProcessTerminated" }
+$event.asim.EventSchema = "ProcessEvent"
+$event.asim.EventSchemaVersion = "0.1.4"
+match $event.ocsf.activity_name {
+  "Launch" => { $event.asim.EventType = "ProcessCreated"}
+  "Terminate" => { $event.asim.EventType = "ProcessTerminated"}
   _ => {}
 }
-asim.ActorUsername = ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name? else ocsf.actor?.user?.uid?
-if ocsf.actor?.user?.domain? != null and ocsf.actor?.user?.name? != null {
-  asim.ActorUsername = f"{ocsf.actor.user.domain}\\{ocsf.actor.user.name}"
-  asim.ActorUsernameType = "Windows"
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
 }
-asim.ActorUserId = ocsf.actor?.user?.uid?
-asim.ActorUserIdType = "SID" if asim.ActorUserId?.starts_with("S-") == true
-asim.ActingProcessId = ocsf.actor?.process?.pid?.string() else ocsf.process?.parent_process?.pid?.string() else ocsf.process?.pid?.string()
-asim.ParentProcessId = ocsf.actor?.process?.parent_process?.pid?.string()
-asim.TargetProcessId = ocsf.process?.pid?.string()
-asim.TargetProcessName = ocsf.process?.name? else ocsf.process?.file?.name? else ocsf.process?.path?.split("\\")[-1]
-asim.TargetProcessCommandLine = ocsf.process?.cmd_line?
-asim.TargetUserId = ocsf.user?.uid?
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
+$event.asim.ActingProcessId = $event.ocsf.actor?.process?.pid?.string() else $event.ocsf.process?.parent_process?.pid?.string() else $event.ocsf.process?.pid?.string()
+$event.asim.ParentProcessId = $event.ocsf.actor?.process?.parent_process?.pid?.string()
+$event.asim.TargetProcessId = $event.ocsf.process?.pid?.string()
+$event.asim.TargetProcessName = $event.ocsf.process?.name? else $event.ocsf.process?.file?.name? else $event.ocsf.process?.path?.split("\\")[-1]
+$event.asim.TargetProcessCommandLine = $event.ocsf.process?.cmd_line?
+$event.asim.TargetUserId = $event.ocsf.user?.uid?
 
-$event = move asim
+$event = move $event.asim

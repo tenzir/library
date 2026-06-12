@@ -7,9 +7,9 @@ args:
       type: field
 ---
 
-assert $event.class_uid == 2004
+$event = {...$event, ocsf: $event, asim: {}}
 
-ocsf = $event
+assert $event.ocsf.class_uid == 2004
 
 let $threat_categories = {
   adware: "Adware",
@@ -26,39 +26,39 @@ let $threat_categories = {
   worm: "Worm",
 }
 
-microsoft::asim::ocsf::common
+microsoft::asim::ocsf::common event=$event
 
 @name = "asim.alert_event"
-asim.EventSchema = "AlertEvent"
-asim.EventSchemaVersion = "0.1"
-asim.EventType = "Alert"
-asim.EventUid = ocsf.finding_info?.uid? else ocsf.metadata?.original_event_uid?
+$event.asim.EventSchema = "AlertEvent"
+$event.asim.EventSchemaVersion = "0.1"
+$event.asim.EventType = "Alert"
+$event.asim.EventUid = $event.ocsf.finding_info?.uid? else $event.ocsf.metadata?.original_event_uid?
 
-asim.AlertName = ocsf.finding_info?.title? else ocsf.message?
-asim.EventReportUrl = ocsf.finding_info?.url?
-asim.EventSubType = "Threat"
-asim.ThreatName = ocsf.malware?[0]?.name? else ocsf.finding_info?.title?
-asim.ThreatCategory = $threat_categories[ocsf.finding_info?.types?[0]?.to_lower()]?
-asim.ThreatOriginalCategory = ocsf.finding_info?.types?[0]?
-asim.Username = ocsf.user?.email_addr? else ocsf.user?.name? else ocsf.actor?.user?.email_addr? else ocsf.actor?.user?.name?
-asim.UserId = ocsf.user?.uid? else ocsf.actor?.user?.uid?
-asim.UserIdType = "SID" if asim.UserId?.starts_with("S-") == true
-match ocsf.status? {
+$event.asim.AlertName = $event.ocsf.finding_info?.title? else $event.ocsf.message?
+$event.asim.EventReportUrl = $event.ocsf.finding_info?.url?
+$event.asim.EventSubType = "Threat"
+$event.asim.ThreatName = $event.ocsf.malware?[0]?.name? else $event.ocsf.finding_info?.title?
+$event.asim.ThreatCategory = $threat_categories[$event.ocsf.finding_info?.types?[0]?.to_lower()]?
+$event.asim.ThreatOriginalCategory = $event.ocsf.finding_info?.types?[0]?
+$event.asim.Username = $event.ocsf.user?.email_addr? else $event.ocsf.user?.name? else $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name?
+$event.asim.UserId = $event.ocsf.user?.uid? else $event.ocsf.actor?.user?.uid?
+$event.asim.UserIdType = "SID" if $event.asim.UserId?.starts_with("S-") == true
+match $event.ocsf.status? {
   "New" | "Active" | "In Progress" => {
-    asim.AlertStatus = "Active"
+    $event.asim.AlertStatus = "Active"
   }
   "Resolved" | "Closed" => {
-    asim.AlertStatus = "Closed"
+    $event.asim.AlertStatus = "Closed"
   }
   _ => {}
 }
-asim.AlertOriginalStatus = ocsf.status?
-match ocsf.verdict? {
-  "True Positive" => { asim.AlertVerdict = "True Positive" }
-  "False Positive" => { asim.AlertVerdict = "False Positive" }
-  "Benign" => { asim.AlertVerdict = "Benign Positive" }
-  "Unknown" => { asim.AlertVerdict = "Unknown" }
+$event.asim.AlertOriginalStatus = $event.ocsf.status?
+match $event.ocsf.verdict? {
+  "True Positive" => { $event.asim.AlertVerdict = "True Positive"}
+  "False Positive" => { $event.asim.AlertVerdict = "False Positive"}
+  "Benign" => { $event.asim.AlertVerdict = "Benign Positive"}
+  "Unknown" => { $event.asim.AlertVerdict = "Unknown"}
   _ => {}
 }
 
-$event = move asim
+$event = move $event.asim

@@ -2,55 +2,60 @@
 description: >
   Windows Defender Attack Surface Reduction Block (EID 1121)
   → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
 // ASR blocks are always high-severity actionable events.
-ocsf.severity_id = 4  // High
-ocsf.disposition_id = 2  // Blocked
+$event.ocsf.severity_id = 4  // High
+$event.ocsf.disposition_id = 2  // Blocked
 
-ocsf.finding_info = {
-  title: windows.EventData["Threat Name"],
-  uid: move windows.EventData["Rule ID"],
-  desc: move windows.EventData["Rule Name"],
+$event.ocsf.finding_info = {
+  title: $event.windows.EventData["Threat Name"],
+  uid: move $event.windows.EventData["Rule ID"],
+  desc: move $event.windows.EventData["Rule Name"],
   types: ["ASR Rule Block"],
 }
-ocsf.malware = [{
-  name: move windows.EventData["Threat Name"],
+$event.ocsf.malware = [{
+  name: move $event.windows.EventData["Threat Name"],
 }]
 
 // Process that was blocked.
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    path: move windows.EventData["Process name"],
+    path: move $event.windows.EventData["Process name"],
     file: { type_id: 1 },
   },
 }
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
 // User is "DOMAIN\username" format.
-_user = (move windows.EventData.User).split("\\")
-ocsf.actor.user = {
+_user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor.user = {
   domain: _user[0],
   name: _user[1],
 }
 drop _user
 
 // Affected file with hashes; wrap in evidences as required by Detection Finding.
-ocsf.file = {
-  path: move windows.EventData.Path,
+$event.ocsf.file = {
+  path: move $event.windows.EventData.Path,
   type_id: 1,
 }
-ocsf.file.name = ocsf.file.path.split("\\")[-1]
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
 
 // Parse "SHA256=<hex>" or "MD5=<hex>,SHA256=<hex>,..." into hash objects.
 let $algorithms = {
@@ -59,11 +64,11 @@ let $algorithms = {
   SHA256: 3,
   SHA512: 4,
 }
-ocsf.file.hashes = ((move windows.EventData.Hashes)
+$event.ocsf.file.hashes = ((move $event.windows.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
     algorithm_id: $algorithms[kv[0]?]? else 99,
     value: kv[1]?,
   }))
-ocsf.evidences = [{ file: move ocsf.file }]
+$event.ocsf.evidences = [{ file: move $event.ocsf.file }]
