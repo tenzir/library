@@ -1,78 +1,81 @@
 ---
 description: Splunk CIM Change Auditing Changes → OCSF Event Log Activity (1008)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "clear" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "delete" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "export" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "archive" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "rotate" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   "start" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "stop" => {
-    ocsf.activity_id = 7
+    $event.ocsf.activity_id = 7
   }
   "restart" => {
-    ocsf.activity_id = 8
+    $event.ocsf.activity_id = 8
   }
   "enable" => {
-    ocsf.activity_id = 9
+    $event.ocsf.activity_id = 9
   }
   "disable" => {
-    ocsf.activity_id = 10
+    $event.ocsf.activity_id = 10
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 1
-ocsf.class_uid = 1008
-splunk::ocsf::cim::helpers::common
-splunk::ocsf::cim::helpers::status
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1008
+splunk::ocsf::cim::helpers::common event=$event
+splunk::ocsf::cim::helpers::status event=$event
 
 // --- OCSF: event log attributes ---------------
 
-ocsf.log_name = move cim.object?
-ocsf.log_provider = move cim.command?
-ocsf.log_type = move cim.object_category?
-ocsf.file = {
-  path: move cim.object_path?,
-  uid: move cim.object_id?,
+$event.ocsf.log_name = move $event.cim.object?
+$event.ocsf.log_provider = move $event.cim.command?
+$event.ocsf.log_type = move $event.cim.object_category?
+$event.ocsf.file = {
+  path: move $event.cim.object_path?,
+  uid: move $event.cim.object_id?,
 }
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    name: move cim.user?,
-    type: move cim.user_type?,
+    name: move $event.cim.user?,
+    type: move $event.cim.user_type?,
   },
 }
-ocsf.src_endpoint = {
-  hostname: move cim.src?,
+$event.ocsf.src_endpoint = {
+  hostname: move $event.cim.src?,
 }
-ocsf.dst_endpoint = {
-  hostname: move cim.dest?,
+$event.ocsf.dst_endpoint = {
+  hostname: move $event.cim.dest?,
 }
-ocsf.device = {
-  hostname: move cim.dvc?,
+$event.ocsf.device = {
+  hostname: move $event.cim.dvc?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.event_log_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

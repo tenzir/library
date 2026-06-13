@@ -5,15 +5,11 @@ description: |
   Transforms Route53 Resolver Query Log events into OCSF-compliant DNS Activity
   events with support for DNS Firewall rule dispositions.
 args:
-  positional:
-    - name: event
-      type: field
-      description: Parsed Route53 Resolver Query Log record.
   named:
-    - name: raw
+    - name: event
+      description: The field that holds the event to map.
       type: field
-      default: null
-      description: Raw Route53 Resolver Query Log record to preserve in OCSF `raw_data`.
+      default: this
 ---
 
 // --- Constants --------------------------------
@@ -66,39 +62,32 @@ let $firewall_actions = {
 
 // --- Preamble ---------------------------------
 
-ocsf = {}
-
-if $raw != null {
-  ocsf.raw_data = $raw
-  ocsf.raw_data_size = $raw.length_bytes()
-}
-
 where $event != null
-route53 = $event
+$event = {...$event, route53: $event, ocsf: {}}
 
 // --- OCSF: classification attributes ----------
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4003
-ocsf.severity_id = 1
-ocsf.activity_id = 6
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4003
+$event.ocsf.severity_id = 1
+$event.ocsf.activity_id = 6
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.cloud = {
+$event.ocsf.cloud = {
   account: {
-    uid: move route53.account_id?,
+    uid: move $event.route53.account_id?,
   },
-  region: move route53.region?,
+  region: move $event.route53.region?,
   provider: "AWS",
 }
 
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     name: "Amazon Route 53",
     vendor_name: "AWS",
-    version: route53.version?.string(),
+    version: $event.route53.version?.string(),
     feature: {
       name: "Resolver Query Logs",
     },
@@ -106,100 +95,100 @@ ocsf.metadata = {
   version: "1.8.0",
   profiles: ["cloud"],
 }
-drop route53.version?
+drop $event.route53.version?
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.time = move route53.query_timestamp?
-ocsf.query_time = ocsf.time
+$event.ocsf.time = move $event.route53.query_timestamp?
+$event.ocsf.query_time = $event.ocsf.time
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.query = {
-  hostname: move route53.query_name?,
-  type: move route53.query_type?,
-  class: move route53.query_class?,
+$event.ocsf.query = {
+  hostname: move $event.route53.query_name?,
+  type: move $event.route53.query_type?,
+  class: move $event.route53.query_class?,
 }
 
-if route53.has("answers") and route53.answers.length() > 0 {
-  ocsf.answers = (move route53.answers).map(a => {
+if $event.route53.has("answers") and $event.route53.answers.length() > 0 {
+  $event.ocsf.answers = (move $event.route53.answers).map(a => {
     rdata: string(a.Rdata),
     type: a.Type,
     class: a.Class,
   })
-  ocsf.response_time = ocsf.time
+  $event.ocsf.response_time = $event.ocsf.time
 } else {
-  drop route53.answers?
+  drop $event.route53.answers?
 }
 
 // Map DNS response codes to OCSF rcode_id values.
-if route53.has("rcode") {
-  ocsf.rcode_id = $rcode_id[route53.rcode] else 99
-  if ocsf.rcode_id == 99 {
-    ocsf.rcode = move route53.rcode
+if $event.route53.has("rcode") {
+  $event.ocsf.rcode_id = $rcode_id[$event.route53.rcode] else 99
+  if $event.ocsf.rcode_id == 99 {
+    $event.ocsf.rcode = move $event.route53.rcode
   } else {
-    drop route53.rcode
+    drop $event.route53.rcode
   }
-  ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
+  $event.ocsf.status_id = 1 if $event.ocsf.rcode_id == 0 else 2
 } else {
-  ocsf.status_id = 0
+  $event.ocsf.status_id = 0
 }
 
 // --- OCSF: network attributes -----------------
 
-if route53.has("srcaddr") {
-  ocsf.src_endpoint.ip = ip(move route53.srcaddr)
-  ocsf.connection_info.protocol_ver_id = 6 if ocsf.src_endpoint.ip.is_v6() else 4
+if $event.route53.has("srcaddr") {
+  $event.ocsf.src_endpoint.ip = ip(move $event.route53.srcaddr)
+  $event.ocsf.connection_info.protocol_ver_id = 6 if $event.ocsf.src_endpoint.ip.is_v6() else 4
 }
-if route53.has("srcport") {
-  ocsf.src_endpoint.port = int(move route53.srcport)
+if $event.route53.has("srcport") {
+  $event.ocsf.src_endpoint.port = int(move $event.route53.srcport)
 }
-if route53.has("vpc_id") {
-  ocsf.src_endpoint.vpc_uid = move route53.vpc_id
+if $event.route53.has("vpc_id") {
+  $event.ocsf.src_endpoint.vpc_uid = move $event.route53.vpc_id
 }
-if route53.srcids?.instance? != null {
-  ocsf.src_endpoint.instance_uid = move route53.srcids.instance
+if $event.route53.srcids?.instance? != null {
+  $event.ocsf.src_endpoint.instance_uid = move $event.route53.srcids.instance
 }
 
 // Resolver endpoint info goes to dst_endpoint since it's the DNS server.
-if route53.srcids?.resolver_endpoint? != null {
-  ocsf.dst_endpoint.uid = move route53.srcids.resolver_endpoint
+if $event.route53.srcids?.resolver_endpoint? != null {
+  $event.ocsf.dst_endpoint.uid = move $event.route53.srcids.resolver_endpoint
 }
-if route53.srcids?.resolver_network_interface? != null {
-  ocsf.dst_endpoint.interface_uid = move route53.srcids.resolver_network_interface
+if $event.route53.srcids?.resolver_network_interface? != null {
+  $event.ocsf.dst_endpoint.interface_uid = move $event.route53.srcids.resolver_network_interface
 }
-drop route53.srcids?
+drop $event.route53.srcids?
 
-if route53.has("transport") {
-  ocsf.connection_info.protocol_name = route53.transport.to_lower()
-  ocsf.connection_info.protocol_num = $proto_nums[route53.transport] else -1
-  drop route53.transport
+if $event.route53.has("transport") {
+  $event.ocsf.connection_info.protocol_name = $event.route53.transport.to_lower()
+  $event.ocsf.connection_info.protocol_num = $proto_nums[$event.route53.transport] else -1
+  drop $event.route53.transport
 }
 
 // --- DNS Firewall (security_control profile) --
 
-if route53.has("firewall_rule_action") {
-  ocsf.metadata.profiles = ["cloud", "security_control"]
-  if $firewall_actions[route53.firewall_rule_action]? != null {
-    ocsf.action_id = $firewall_actions[route53.firewall_rule_action].action_id
-    ocsf.disposition_id = $firewall_actions[route53.firewall_rule_action].disposition_id
-    if $firewall_actions[route53.firewall_rule_action].is_alert? != null {
-      ocsf.is_alert = $firewall_actions[route53.firewall_rule_action].is_alert
+if $event.route53.has("firewall_rule_action") {
+  $event.ocsf.metadata.profiles = ["cloud", "security_control"]
+  if $firewall_actions[$event.route53.firewall_rule_action]? != null {
+    $event.ocsf.action_id = $firewall_actions[$event.route53.firewall_rule_action].action_id
+    $event.ocsf.disposition_id = $firewall_actions[$event.route53.firewall_rule_action].disposition_id
+    if $firewall_actions[$event.route53.firewall_rule_action].is_alert? != null {
+      $event.ocsf.is_alert = $firewall_actions[$event.route53.firewall_rule_action].is_alert
     }
   } else {
-    ocsf.action_id = 99
-    ocsf.action = route53.firewall_rule_action
-    ocsf.disposition_id = 99
-    ocsf.disposition = route53.firewall_rule_action
+    $event.ocsf.action_id = 99
+    $event.ocsf.action = $event.route53.firewall_rule_action
+    $event.ocsf.disposition_id = 99
+    $event.ocsf.disposition = $event.route53.firewall_rule_action
   }
-  drop route53.firewall_rule_action
-  ocsf.firewall_rule = {
-    uid: move route53.firewall_rule_group_id?,
-    match_details: [move route53.firewall_domain_list_id] if route53.firewall_domain_list_id? != null else null,
+  drop $event.route53.firewall_rule_action
+  $event.ocsf.firewall_rule = {
+    uid: move $event.route53.firewall_rule_group_id?,
+    match_details: [move $event.route53.firewall_domain_list_id] if $event.route53.firewall_domain_list_id? != null else null,
   }
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.dns_activity"
-this = {...ocsf, unmapped: route53}
+$event = {...$event.ocsf, unmapped: $event.route53}

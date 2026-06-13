@@ -1,130 +1,133 @@
 ---
 description: Splunk CIM Network Traffic All Traffic → OCSF Network Activity (4001)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "open" | "allowed" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "close" | "closed" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "reset" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "fail" | "failure" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "refuse" | "blocked" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   "traffic" | "observed" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "listen" => {
-    ocsf.activity_id = 7
+    $event.ocsf.activity_id = 7
   }
   _ => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
 }
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: traffic and connection attributes --
 
-if cim.duration? != null {
-  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+if $event.cim.duration? != null {
+  $event.ocsf.duration = (move $event.cim.duration).seconds().count_milliseconds().round()
 }
-ocsf.traffic = {
-  bytes: move cim.bytes?,
-  bytes_in: move cim.bytes_in?,
-  bytes_out: move cim.bytes_out?,
-  packets: move cim.packets?,
-  packets_in: move cim.packets_in?,
-  packets_out: move cim.packets_out?,
+$event.ocsf.traffic = {
+  bytes: move $event.cim.bytes?,
+  bytes_in: move $event.cim.bytes_in?,
+  bytes_out: move $event.cim.bytes_out?,
+  packets: move $event.cim.packets?,
+  packets_in: move $event.cim.packets_in?,
+  packets_out: move $event.cim.packets_out?,
 }
-ocsf.connection_info = {
-  community_uid: move cim.flow_id?,
-  protocol_name: move cim.transport? else move cim.protocol?,
-  protocol_ver: move cim.protocol_version?,
+$event.ocsf.connection_info = {
+  community_uid: move $event.cim.flow_id?,
+  protocol_name: move $event.cim.transport? else move $event.cim.protocol?,
+  protocol_ver: move $event.cim.protocol_version?,
   session: {
-    uid: move cim.session_id?,
+    uid: move $event.cim.session_id?,
   },
-  tcp_flags: move cim.tcp_flag?,
+  tcp_flags: move $event.cim.tcp_flag?,
 }
-match cim.direction?.to_lower() {
+match $event.cim.direction?.to_lower() {
   "inbound" => {
-    ocsf.connection_info.direction_id = 1
+    $event.ocsf.connection_info.direction_id = 1
   }
   "outbound" => {
-    ocsf.connection_info.direction_id = 2
+    $event.ocsf.connection_info.direction_id = 2
   }
   "lateral" => {
-    ocsf.connection_info.direction_id = 3
+    $event.ocsf.connection_info.direction_id = 3
   }
   "local" => {
-    ocsf.connection_info.direction_id = 4
+    $event.ocsf.connection_info.direction_id = 4
   }
   "unknown" => {
-    ocsf.connection_info.direction_id = 0
+    $event.ocsf.connection_info.direction_id = 0
   }
-  _ if cim.direction? != null => {
-    ocsf.connection_info.direction_id = 99
+  _ if $event.cim.direction? != null => {
+    $event.ocsf.connection_info.direction_id = 99
   }
   _ => {}
 }
-match ocsf.connection_info.protocol_name {
+match $event.ocsf.connection_info.protocol_name {
   "icmp" => {
-    ocsf.connection_info.protocol_num = 1
+    $event.ocsf.connection_info.protocol_num = 1
   }
   "tcp" => {
-    ocsf.connection_info.protocol_num = 6
+    $event.ocsf.connection_info.protocol_num = 6
   }
   "udp" => {
-    ocsf.connection_info.protocol_num = 17
+    $event.ocsf.connection_info.protocol_num = 17
   }
   _ => {}
 }
 
 // --- OCSF: endpoint attributes ----------------
 
-ocsf.src_endpoint = {
-  ip: move cim.src_ip?,
-  mac: move cim.src_mac?,
-  interface_name: move cim.src_interface?,
-  network_scope: move cim.src_zone?,
-  port: move cim.src_port?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.cim.src_ip?,
+  mac: move $event.cim.src_mac?,
+  interface_name: move $event.cim.src_interface?,
+  network_scope: move $event.cim.src_zone?,
+  port: move $event.cim.src_port?,
   proxy_endpoint: {
-    ip: move cim.src_translated_ip?,
-    port: move cim.src_translated_port?,
+    ip: move $event.cim.src_translated_ip?,
+    port: move $event.cim.src_translated_port?,
   },
 }
-ocsf.dst_endpoint = {
-  ip: move cim.dest_ip?,
-  mac: move cim.dest_mac?,
-  interface_name: move cim.dest_interface?,
-  network_scope: move cim.dest_zone?,
-  port: move cim.dest_port?,
+$event.ocsf.dst_endpoint = {
+  ip: move $event.cim.dest_ip?,
+  mac: move $event.cim.dest_mac?,
+  interface_name: move $event.cim.dest_interface?,
+  network_scope: move $event.cim.dest_zone?,
+  port: move $event.cim.dest_port?,
   proxy_endpoint: {
-    ip: move cim.dest_translated_ip?,
-    port: move cim.dest_translated_port?,
+    ip: move $event.cim.dest_translated_ip?,
+    port: move $event.cim.dest_translated_port?,
   },
 }
-ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
-ocsf.device = {
-  hostname: move cim.dvc?,
-  ip: move cim.dvc_ip?,
-  mac: move cim.dvc_mac?,
+$event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
+$event.ocsf.device = {
+  hostname: move $event.cim.dvc?,
+  ip: move $event.cim.dvc_ip?,
+  mac: move $event.cim.dvc_mac?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.network_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

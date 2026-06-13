@@ -1,64 +1,69 @@
 ---
 description: "Check Point detections → OCSF Detection Finding (2004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.is_alert = true
-ocsf.action_id = 3
-ocsf.disposition_id = 15
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.is_alert = true
+$event.ocsf.action_id = 3
+$event.ocsf.disposition_id = 15
 
-ocsf.finding_info = {
+$event.ocsf.finding_info = {
   title: "Check Point detection",
-  desc: ocsf.message?,
-  uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+  desc: $event.ocsf.message?,
+  uid: $event.ocsf.metadata.uid? else $event.ocsf.metadata.original_event_uid?,
   analytic: {
     name: "Check Point detection",
     type_id: 1,
-    uid: ocsf.metadata.uid? else ocsf.metadata.original_event_uid?,
+    uid: $event.ocsf.metadata.uid? else $event.ocsf.metadata.original_event_uid?,
   },
 }
 
-if ocsf.message? != null {
-  ocsf.finding_info.title = ocsf.message
-  ocsf.finding_info.analytic.name = ocsf.message
+if $event.ocsf.message? != null {
+  $event.ocsf.finding_info.title = $event.ocsf.message
+  $event.ocsf.finding_info.analytic.name = $event.ocsf.message
 }
-if checkpoint.threat_name? != null {
-  ocsf.finding_info.title = checkpoint.threat_name
-  ocsf.finding_info.analytic.name = move checkpoint.threat_name
+if $event.checkpoint.threat_name? != null {
+  $event.ocsf.finding_info.title = $event.checkpoint.threat_name
+  $event.ocsf.finding_info.analytic.name = move $event.checkpoint.threat_name
 }
-if checkpoint.protection_name? != null {
-  ocsf.finding_info.desc = checkpoint.protection_name
-  ocsf.finding_info.analytic.name = move checkpoint.protection_name
+if $event.checkpoint.protection_name? != null {
+  $event.ocsf.finding_info.desc = $event.checkpoint.protection_name
+  $event.ocsf.finding_info.analytic.name = move $event.checkpoint.protection_name
 }
-if checkpoint.confidence_level? != null {
+if $event.checkpoint.confidence_level? != null {
   let $confidence = {
     Low: 1,
     Medium: 2,
     High: 3,
   }
-  ocsf.confidence_id = $confidence[checkpoint.confidence_level]? else 99
-  if ocsf.confidence_id == 99 {
-    ocsf.confidence = checkpoint.confidence_level
+  $event.ocsf.confidence_id = $confidence[$event.checkpoint.confidence_level]? else 99
+  if $event.ocsf.confidence_id == 99 {
+    $event.ocsf.confidence = $event.checkpoint.confidence_level
   }
-  drop checkpoint.confidence_level
+  drop $event.checkpoint.confidence_level
 }
-if checkpoint.policy? != null {
-  ocsf.finding_info.analytic.category = move checkpoint.policy
+if $event.checkpoint.policy? != null {
+  $event.ocsf.finding_info.analytic.category = move $event.checkpoint.policy
 }
 
-ocsf.evidences = [{
-  src_endpoint: move ocsf.src_endpoint?,
-  dst_endpoint: move ocsf.dst_endpoint?,
-  connection_info: move ocsf.connection_info?,
+$event.ocsf.evidences = [{
+  src_endpoint: move $event.ocsf.src_endpoint?,
+  dst_endpoint: move $event.ocsf.dst_endpoint?,
+  connection_info: move $event.ocsf.connection_info?,
 }]
 
-if checkpoint.action? == "Detect" {
-  drop checkpoint.action
+if $event.checkpoint.action? == "Detect" {
+  drop $event.checkpoint.action
 }

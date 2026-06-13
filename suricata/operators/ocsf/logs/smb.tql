@@ -1,3 +1,10 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
 /*
@@ -18,50 +25,50 @@ let $smb_activity_id = {
   FILE_OVERWRITE_IF: 6,
 }
 
-ocsf.activity_id = $smb_activity_id[suricata.smb.disposition?]? else 0
+$event.ocsf.activity_id = $smb_activity_id[$event.suricata.smb.disposition?]? else 0
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4006
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4006
 
 // Severity: informational for normal operations
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-if suricata.smb.client_dialects? != null {
-  ocsf.client_dialects = move suricata.smb.client_dialects
+if $event.suricata.smb.client_dialects? != null {
+  $event.ocsf.client_dialects = move $event.suricata.smb.client_dialects
 }
-ocsf.dialect = move suricata.smb.dialect?
+$event.ocsf.dialect = move $event.suricata.smb.dialect?
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.command = move suricata.smb.command?
+$event.ocsf.command = move $event.suricata.smb.command?
 
-if suricata.smb.has("session_id") {
-  ocsf.connection_info.session = {
-    uid: string(move suricata.smb.session_id),
+if $event.suricata.smb.has("session_id") {
+  $event.ocsf.connection_info.session = {
+    uid: string(move $event.suricata.smb.session_id),
   }
 }
 
 // Map server (device) information from response
-if suricata.smb.has("response") {
-  if suricata.smb.response.has("native_os") {
-    ocsf.device.os.name = move suricata.smb.response.native_os?
-    ocsf.metadata.profiles = ocsf.metadata?.profiles?.add("host")
+if $event.suricata.smb.has("response") {
+  if $event.suricata.smb.response.has("native_os") {
+    $event.ocsf.device.os.name = move $event.suricata.smb.response.native_os?
+    $event.ocsf.metadata.profiles = $event.ocsf.metadata?.profiles?.add("host")
   }
 }
 
-if suricata.smb.has("filename") {
-  suricata::ocsf::map_smb_file
+if $event.suricata.smb.has("filename") {
+  suricata::ocsf::map_smb_file event=$event
 }
 
-ocsf.status_code = move suricata.smb.status_code
-ocsf.status_detail = move suricata.smb.status
-ocsf.status_id = 1 if ocsf.status_code? == "0x0" else 2
+$event.ocsf.status_code = move $event.suricata.smb.status_code
+$event.ocsf.status_detail = move $event.suricata.smb.status
+$event.ocsf.status_id = 1 if $event.ocsf.status_code? == "0x0" else 2
 
-ocsf.tree_uid = string(move suricata.smb.tree_id?)
+$event.ocsf.tree_uid = string(move $event.suricata.smb.tree_id?)
 
 // --- Finalize ---------------------------------
 

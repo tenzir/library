@@ -1,72 +1,77 @@
 ---
 description: OCSF Authentication (3002) → Splunk CIM Authentication
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 3002
+assert $event.ocsf.class_uid == 3002
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["authentication"]
+$event.cim.tag = ["authentication"]
 
 // --- CIM: occurrence attributes ---------------
 
-cim._time = time
-if duration? != null {
-  cim.duration = duration.milliseconds().count_seconds()
+$event.cim._time = $event.ocsf.time
+if $event.ocsf.duration? != null {
+  $event.cim.duration = $event.ocsf.duration.milliseconds().count_seconds()
 }
 
 // --- CIM: result attributes -------------------
 
-cim.action = status?.to_lower() else "unknown"
-match status_id? {
+$event.cim.action = $event.ocsf.status?.to_lower() else "unknown"
+match $event.ocsf.status_id? {
   0 => {
-    cim.action = "unknown"
+    $event.cim.action = "unknown"
   }
   1 => {
-    cim.action = "success"
+    $event.cim.action = "success"
   }
   2 => {
-    cim.action = "failure"
+    $event.cim.action = "failure"
   }
   _ => {}
 }
-cim.result = cim.action
-cim.reason = status_detail? else message?
-cim.reason_id = status_code?
+$event.cim.result = $event.cim.action
+$event.cim.reason = $event.ocsf.status_detail? else $event.ocsf.message?
+$event.cim.reason_id = $event.ocsf.status_code?
 
 // --- CIM: authentication attributes -----------
 
-cim.app = actor?.app_name? else service?.name? else metadata.product.name?
-cim.authentication_method = auth_protocol? else auth_protocol_id?.string()
-cim.authentication_service = service?.name? else service?.uid?
-cim.session_id = session?.uid? else actor?.session?.uid?
-cim.signature = type_name? else class_name?
-cim.signature_id = metadata.event_code? else type_uid?.string()
+$event.cim.app = $event.ocsf.actor?.app_name? else $event.ocsf.service?.name? else $event.ocsf.metadata.product.name?
+$event.cim.authentication_method = $event.ocsf.auth_protocol? else $event.ocsf.auth_protocol_id?.string()
+$event.cim.authentication_service = $event.ocsf.service?.name? else $event.ocsf.service?.uid?
+$event.cim.session_id = $event.ocsf.session?.uid? else $event.ocsf.actor?.session?.uid?
+$event.cim.signature = $event.ocsf.type_name? else $event.ocsf.class_name?
+$event.cim.signature_id = $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name?
 
 // --- CIM: user and process attributes ---------
 
-cim.user = user?.name? else user?.uid?
-cim.user_id = user?.uid?
-cim.user_role = user?.type?
-cim.user_type = user?.type?
-cim.src_user = actor?.user?.name? else actor?.user?.uid?
-cim.src_user_id = actor?.user?.uid?
-cim.src_user_role = actor?.user?.type?
-cim.src_user_type = actor?.user?.type?
-cim.process = actor?.process?.cmd_line? else actor?.process?.path? else actor?.process?.name?
-cim.user_agent = http_request?.user_agent?
+$event.cim.user = $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+$event.cim.user_id = $event.ocsf.user?.uid?
+$event.cim.user_role = $event.ocsf.user?.type?
+$event.cim.user_type = $event.ocsf.user?.type?
+$event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.src_user_id = $event.ocsf.actor?.user?.uid?
+$event.cim.src_user_role = $event.ocsf.actor?.user?.type?
+$event.cim.src_user_type = $event.ocsf.actor?.user?.type?
+$event.cim.process = $event.ocsf.actor?.process?.cmd_line? else $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.name?
+$event.cim.user_agent = $event.ocsf.http_request?.user_agent?
 
 // --- CIM: cloud attributes --------------------
 
-cim.vendor_account = cloud?.account?.uid?
+$event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

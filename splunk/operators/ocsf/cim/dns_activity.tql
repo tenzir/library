@@ -1,238 +1,241 @@
 ---
 description: Splunk CIM Network Resolution DNS → OCSF DNS Activity (4003)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.message_type? {
+match $event.cim.message_type? {
   "Traffic" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "Response" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
-  _ if cim.answer? != null or cim.reply_code? != null or cim.reply_code_id? != null => {
-    ocsf.activity_id = 6
+  _ if $event.cim.answer? != null or $event.cim.reply_code? != null or $event.cim.reply_code_id? != null => {
+    $event.ocsf.activity_id = 6
   }
   _ => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
 }
-ocsf.category_uid = 4
-ocsf.class_uid = 4003
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4003
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: occurrence attributes --------------
 
-ocsf.time = move cim._time?
-if cim.duration? != null {
-  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+$event.ocsf.time = move $event.cim._time?
+if $event.cim.duration? != null {
+  $event.ocsf.duration = (move $event.cim.duration).seconds().count_milliseconds().round()
 }
 
-if cim.response_time? != null {
-  ocsf.response_time = ocsf.time
-  ocsf.query_time = ocsf.time - (move cim.response_time).seconds()
+if $event.cim.response_time? != null {
+  $event.ocsf.response_time = $event.ocsf.time
+  $event.ocsf.query_time = $event.ocsf.time - (move $event.cim.response_time).seconds()
 }
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
-    name: move cim.product? else move cim.vendor_product? else "Splunk CIM",
-    vendor_name: move cim.vendor?,
+    name: move $event.cim.product? else move $event.cim.vendor_product? else "Splunk CIM",
+    vendor_name: move $event.cim.vendor?,
   },
   version: "1.8.0",
 }
 
-ocsf.connection_info = {
-  protocol_name: move cim.transport?,
+$event.ocsf.connection_info = {
+  protocol_name: move $event.cim.transport?,
 }
-match ocsf.connection_info.protocol_name {
+match $event.ocsf.connection_info.protocol_name {
   "icmp" => {
-    ocsf.connection_info.protocol_num = 1
+    $event.ocsf.connection_info.protocol_num = 1
   }
   "tcp" => {
-    ocsf.connection_info.protocol_num = 6
+    $event.ocsf.connection_info.protocol_num = 6
   }
   "udp" => {
-    ocsf.connection_info.protocol_num = 17
+    $event.ocsf.connection_info.protocol_num = 17
   }
   _ => {}
 }
 
 // --- OCSF: primary DNS attributes -------------
 
-ocsf.query = {
-  hostname: move cim.query?,
-  opcode: move cim.query_type?,
-  packet_uid: move cim.transaction_id?,
-  type: move cim.record_type?,
+$event.ocsf.query = {
+  hostname: move $event.cim.query?,
+  opcode: move $event.cim.query_type?,
+  packet_uid: move $event.cim.transaction_id?,
+  type: move $event.cim.record_type?,
 }
-match ocsf.query.opcode {
+match $event.ocsf.query.opcode {
   "Query" => {
-    ocsf.query.opcode_id = 0
+    $event.ocsf.query.opcode_id = 0
   }
   "IQuery" => {
-    ocsf.query.opcode_id = 1
+    $event.ocsf.query.opcode_id = 1
   }
   "Status" => {
-    ocsf.query.opcode_id = 2
+    $event.ocsf.query.opcode_id = 2
   }
   "Notify" => {
-    ocsf.query.opcode_id = 4
+    $event.ocsf.query.opcode_id = 4
   }
   "Update" => {
-    ocsf.query.opcode_id = 5
+    $event.ocsf.query.opcode_id = 5
   }
   _ => {
-    ocsf.query.opcode_id = 99 if ocsf.query.opcode? != null
+    $event.ocsf.query.opcode_id = 99 if $event.ocsf.query.opcode? != null
   }
 }
 
-if cim.answer? != null and cim.ttl? != null {
-  ocsf.answers = zip(move cim.answer, move cim.ttl).map(x => {
+if $event.cim.answer? != null and $event.cim.ttl? != null {
+  $event.ocsf.answers = zip(move $event.cim.answer, move $event.cim.ttl).map(x => {
     rdata: x.left,
     ttl: x.right,
-    type: ocsf.query.type?,
+    type: $event.ocsf.query.type?,
   })
-} else if cim.answer? != null {
-  ocsf.answers = (move cim.answer).map(x => {
+} else if $event.cim.answer? != null {
+  $event.ocsf.answers = (move $event.cim.answer).map(x => {
     rdata: x,
-    type: ocsf.query.type?,
+    type: $event.ocsf.query.type?,
   })
 }
 
-ocsf.rcode_id = move cim.reply_code_id?
-ocsf.rcode = move cim.reply_code?
-if ocsf.rcode_id == null {
-  match ocsf.rcode {
+$event.ocsf.rcode_id = move $event.cim.reply_code_id?
+$event.ocsf.rcode = move $event.cim.reply_code?
+if $event.ocsf.rcode_id == null {
+  match $event.ocsf.rcode {
     "No Error" => {
-      ocsf.rcode_id = 0
+      $event.ocsf.rcode_id = 0
     }
     "NoError" => {
-      ocsf.rcode_id = 0
+      $event.ocsf.rcode_id = 0
     }
     "Format Error" => {
-      ocsf.rcode_id = 1
+      $event.ocsf.rcode_id = 1
     }
     "Server Failure" => {
-      ocsf.rcode_id = 2
+      $event.ocsf.rcode_id = 2
     }
     "Non-Existent Domain" => {
-      ocsf.rcode_id = 3
+      $event.ocsf.rcode_id = 3
     }
     "NXDomain" => {
-      ocsf.rcode_id = 3
+      $event.ocsf.rcode_id = 3
     }
     "Not Implemented" => {
-      ocsf.rcode_id = 4
+      $event.ocsf.rcode_id = 4
     }
     "Query Refused" => {
-      ocsf.rcode_id = 5
+      $event.ocsf.rcode_id = 5
     }
     _ => {}
   }
 }
 
-match ocsf.rcode_id {
+match $event.ocsf.rcode_id {
   0 => {
-    ocsf.rcode = "NoError"
+    $event.ocsf.rcode = "NoError"
   }
   1 => {
-    ocsf.rcode = "FormError"
+    $event.ocsf.rcode = "FormError"
   }
   2 => {
-    ocsf.rcode = "ServError"
+    $event.ocsf.rcode = "ServError"
   }
   3 => {
-    ocsf.rcode = "NXDomain"
+    $event.ocsf.rcode = "NXDomain"
   }
   4 => {
-    ocsf.rcode = "NotImp"
+    $event.ocsf.rcode = "NotImp"
   }
   5 => {
-    ocsf.rcode = "Refused"
+    $event.ocsf.rcode = "Refused"
   }
   6 => {
-    ocsf.rcode = "YXDomain"
+    $event.ocsf.rcode = "YXDomain"
   }
   7 => {
-    ocsf.rcode = "YXRRSet"
+    $event.ocsf.rcode = "YXRRSet"
   }
   8 => {
-    ocsf.rcode = "NXRRSet"
+    $event.ocsf.rcode = "NXRRSet"
   }
   9 => {
-    ocsf.rcode = "NotAuth"
+    $event.ocsf.rcode = "NotAuth"
   }
   10 => {
-    ocsf.rcode = "NotZone"
+    $event.ocsf.rcode = "NotZone"
   }
   11 => {
-    ocsf.rcode = "DSOTYPENI"
+    $event.ocsf.rcode = "DSOTYPENI"
   }
   16 => {
-    ocsf.rcode = "BADSIG_VERS"
+    $event.ocsf.rcode = "BADSIG_VERS"
   }
   17 => {
-    ocsf.rcode = "BADKEY"
+    $event.ocsf.rcode = "BADKEY"
   }
   18 => {
-    ocsf.rcode = "BADTIME"
+    $event.ocsf.rcode = "BADTIME"
   }
   19 => {
-    ocsf.rcode = "BADMODE"
+    $event.ocsf.rcode = "BADMODE"
   }
   20 => {
-    ocsf.rcode = "BADNAME"
+    $event.ocsf.rcode = "BADNAME"
   }
   21 => {
-    ocsf.rcode = "BADALG"
+    $event.ocsf.rcode = "BADALG"
   }
   22 => {
-    ocsf.rcode = "BADTRUNC"
+    $event.ocsf.rcode = "BADTRUNC"
   }
   23 => {
-    ocsf.rcode = "BADCOOKIE"
+    $event.ocsf.rcode = "BADCOOKIE"
   }
   24 => {
-    ocsf.rcode = "Unassigned"
+    $event.ocsf.rcode = "Unassigned"
   }
   25 => {
-    ocsf.rcode = "Reserved"
+    $event.ocsf.rcode = "Reserved"
   }
   _ => {}
 }
 
-match ocsf.rcode_id {
+match $event.ocsf.rcode_id {
   null => {
-    ocsf.status_id = 0
+    $event.ocsf.status_id = 0
   }
   0 => {
-    ocsf.status_id = 1
+    $event.ocsf.status_id = 1
   }
   _ => {
-    ocsf.status_id = 2
+    $event.ocsf.status_id = 2
   }
 }
 
 // --- OCSF: endpoint attributes ----------------
 
-ocsf.src_endpoint = {
-  ip: move cim.src_ip?,
-  port: move cim.src_port?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.cim.src_ip?,
+  port: move $event.cim.src_port?,
 }
 
-ocsf.dst_endpoint = {
-  ip: move cim.dest_ip?,
-  port: move cim.dest_port?,
+$event.ocsf.dst_endpoint = {
+  ip: move $event.cim.dest_ip?,
+  port: move $event.cim.dest_port?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.dns_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

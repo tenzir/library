@@ -1,49 +1,54 @@
 ---
 description: "FortiGate email filter logs → OCSF Email Activity (4009)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.email_activity"
 
 // Email filter events are scan actions on in-transit email.
-ocsf.category_uid = 4
-ocsf.class_uid = 4009
-ocsf.activity_id = 3  // Scan
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4009
+$event.ocsf.activity_id = 3  // Scan
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
 // `direction` maps to OCSF direction_id for the email flow (Email Activity
 // class carries this at the top level, not in connection_info).
-ocsf.direction_id = 0
-if fortinet.direction? == "incoming" {
-  ocsf.direction_id = 1  // Inbound
-} else if fortinet.direction? == "outgoing" {
-  ocsf.direction_id = 2  // Outbound
+$event.ocsf.direction_id = 0
+if $event.fortinet.direction? == "incoming" {
+  $event.ocsf.direction_id = 1  // Inbound
+} else if $event.fortinet.direction? == "outgoing" {
+  $event.ocsf.direction_id = 2  // Outbound
 }
-drop fortinet.direction?
+drop $event.fortinet.direction?
 
 // Email envelope fields.
-ocsf.email = {
-  from: move fortinet.from,
-  to: [move fortinet.to],
-  subject: move fortinet.subject,
-  size: move fortinet.size,
+$event.ocsf.email = {
+  from: move $event.fortinet.from,
+  to: [move $event.fortinet.to],
+  subject: move $event.fortinet.subject,
+  size: move $event.fortinet.size,
 }
 
 // `service` identifies the email protocol (IMAPS, SMTPS, POP3S).
 // Use move so network_endpoints does not also map it to dst_endpoint.svc_name.
-ocsf.protocol_name = move fortinet.service
+$event.ocsf.protocol_name = move $event.fortinet.service
 
-fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::network_endpoints event=$event
 // Email Activity has no connection_info field; proto/sessionid stay in unmapped.
 
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
     monitored: 17,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

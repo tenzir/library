@@ -1,61 +1,64 @@
 ---
 description: Splunk CIM Network Sessions VPN → OCSF Tunnel Activity (4014)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "started" | "open" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "ended" | "closed" | "close" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "renewed" | "renew" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "unknown" => {
-    ocsf.activity_id = 0
+    $event.ocsf.activity_id = 0
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 4
-ocsf.class_uid = 4014
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4014
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: tunnel attributes ------------------
 
-if cim.duration? != null {
-  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+if $event.cim.duration? != null {
+  $event.ocsf.duration = (move $event.cim.duration).seconds().count_milliseconds().round()
 }
-ocsf.tunnel_type = move cim.signature?
-ocsf.tunnel_type_id = int(move cim.signature_id?)
-ocsf.src_endpoint = {
-  hostname: move cim.src_dns? else move cim.src_nt_host?,
-  ip: move cim.src_ip?,
-  mac: move cim.src_mac?,
+$event.ocsf.tunnel_type = move $event.cim.signature?
+$event.ocsf.tunnel_type_id = int(move $event.cim.signature_id?)
+$event.ocsf.src_endpoint = {
+  hostname: move $event.cim.src_dns? else move $event.cim.src_nt_host?,
+  ip: move $event.cim.src_ip?,
+  mac: move $event.cim.src_mac?,
 }
-ocsf.dst_endpoint = {
-  hostname: move cim.dest_dns? else move cim.dest_nt_host?,
-  ip: move cim.dest_ip?,
-  mac: move cim.dest_mac?,
+$event.ocsf.dst_endpoint = {
+  hostname: move $event.cim.dest_dns? else move $event.cim.dest_nt_host?,
+  ip: move $event.cim.dest_ip?,
+  mac: move $event.cim.dest_mac?,
 }
-if cim.dvc? != null {
-  ocsf.metadata.profiles = ["host"]
-  ocsf.device = {
-    hostname: move cim.dvc,
+if $event.cim.dvc? != null {
+  $event.ocsf.metadata.profiles = ["host"]
+  $event.ocsf.device = {
+    hostname: move $event.cim.dvc,
   }
 }
-ocsf.user = {
-  name: move cim.user?,
+$event.ocsf.user = {
+  name: move $event.cim.user?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.tunnel_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

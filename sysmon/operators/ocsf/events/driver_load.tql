@@ -1,30 +1,35 @@
 ---
 description: Sysmon DriverLoad (EID 6) → OCSF Kernel Extension Activity (1002, Load)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.kernel_extension_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1002
-ocsf.activity_id = 1  // Load
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1002
+$event.ocsf.activity_id = 1  // Load
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
 let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 
 // Sysmon reports driver loads from the kernel (PID 4 / System), so there is no
 // meaningful user-space actor. The required actor object is left empty.
-ocsf.actor = {}
+$event.ocsf.actor = {}
 
 // Replace "-" sentinels before building the file object.
-replace sysmon.EventData.Signature, what="-", with=null
-replace sysmon.EventData.SignatureStatus, what="-", with=null
+replace $event.sysmon.EventData.Signature, what="-", with=null
+replace $event.sysmon.EventData.SignatureStatus, what="-", with=null
 
-ocsf.driver = {
+$event.ocsf.driver = {
   file: {
-    path: move sysmon.EventData.ImageLoaded,
+    path: move $event.sysmon.EventData.ImageLoaded,
     type_id: 8,  // Executable File (kernel drivers are PE images)
-    hashes: ((move sysmon.EventData.Hashes)
+    hashes: ((move $event.sysmon.EventData.Hashes)
                .split(",")
                .map(h => h.split("=", max=1))
                .map(kv => {
@@ -33,20 +38,20 @@ ocsf.driver = {
                })),
   },
 }
-ocsf.driver.file.name = ocsf.driver.file.path.split("\\")[-1]
+$event.ocsf.driver.file.name = $event.ocsf.driver.file.path.split("\\")[-1]
 
 // Attach digital-signature details when the driver is signed.
-if sysmon.EventData.Signed {
-  ocsf.driver.file.signature = {
+if $event.sysmon.EventData.Signed {
+  $event.ocsf.driver.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
-    state_id: $sig_states[sysmon.EventData.SignatureStatus]?,
+    state_id: $sig_states[$event.sysmon.EventData.SignatureStatus]?,
   }
-  if sysmon.EventData.Signature != null {
-    ocsf.driver.file.signature.certificate = {
-      issuer: move sysmon.EventData.Signature,
+  if $event.sysmon.EventData.Signature != null {
+    $event.ocsf.driver.file.signature.certificate = {
+      issuer: move $event.sysmon.EventData.Signature,
     }
   }
 }
-drop sysmon.EventData.Signed
-drop sysmon.EventData.Signature
-drop sysmon.EventData.SignatureStatus
+drop $event.sysmon.EventData.Signed
+drop $event.sysmon.EventData.Signature
+drop $event.sysmon.EventData.SignatureStatus

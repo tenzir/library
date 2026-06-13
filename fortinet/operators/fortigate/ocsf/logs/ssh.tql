@@ -1,5 +1,10 @@
 ---
 description: "FortiGate SSH inspection logs → OCSF SSH Activity (4007)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.ssh_activity"
@@ -11,27 +16,27 @@ let $actions = {
   "blocked": 5,  // Refuse
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4007
-ocsf.activity_id = $actions[fortinet.action?]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4007
+$event.ocsf.activity_id = $actions[$event.fortinet.action?]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
-fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::network_endpoints event=$event
 
 // `login` is the remote username used for the SSH session.
-if fortinet.login? != null {
-  ocsf.dst_endpoint.uid = move fortinet.login
+if $event.fortinet.login? != null {
+  $event.ocsf.dst_endpoint.uid = move $event.fortinet.login
 }
 
-fortinet::fortigate::ocsf::connection_info
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::connection_info event=$event
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

@@ -1,71 +1,76 @@
 ---
 description: Sophos Detection → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Sophos XDR"
-ocsf.metadata.log_name = "detections"
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.product.name = "Sophos XDR"
+$event.ocsf.metadata.log_name = "detections"
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = time(move sophos.time)
-ocsf.severity_id = int(sophos.severity)
-ocsf.risk_level_id = int(sophos.severity) - 1
-ocsf.confidence_score = int(sophos.intelixFileReputation[0].reputationScore?)
-ocsf.status_id = 3 if sophos.suppressed else 1
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = time(move $event.sophos.time)
+$event.ocsf.severity_id = int($event.sophos.severity)
+$event.ocsf.risk_level_id = int($event.sophos.severity) - 1
+$event.ocsf.confidence_score = int($event.sophos.intelixFileReputation[0].reputationScore?)
+$event.ocsf.status_id = 3 if $event.sophos.suppressed else 1
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
-  title: sophos.rawData?.detection_name? else sophos.detectionRule? else sophos.type?,
-  desc: move sophos.ruleDescription?,
-  created_time: time(move sophos.sensorGeneratedAt?),
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  title: $event.sophos.rawData?.detection_name? else $event.sophos.detectionRule? else $event.sophos.type?,
+  desc: move $event.sophos.ruleDescription?,
+  created_time: time(move $event.sophos.sensorGeneratedAt?),
   product: {
-    name: move sophos.sensor.source?,
-    version: move sophos.sensor.version?,
-    uid: move sophos.sensor.id?,
+    name: move $event.sophos.sensor.source?,
+    version: move $event.sophos.sensor.version?,
+    uid: move $event.sophos.sensor.id?,
     vendor_name: "Sophos",
   },
-  types: [move sophos.attackType?, move sophos.detectionAttack?],
+  types: [move $event.sophos.attackType?, move $event.sophos.detectionAttack?],
 }
 
-ocsf.device = {
-  uid: sophos.device?.id? else sophos.rawData?.customer_id?,
-  name: sophos.device?.entity? else sophos.rawData?.meta_hostname?,
-  hostname: sophos.device?.entity? else sophos.rawData?.meta_hostname?,
+$event.ocsf.device = {
+  uid: $event.sophos.device?.id? else $event.sophos.rawData?.customer_id?,
+  name: $event.sophos.device?.entity? else $event.sophos.rawData?.meta_hostname?,
+  hostname: $event.sophos.device?.entity? else $event.sophos.rawData?.meta_hostname?,
   type_id: 2,
 }
 
-ocsf.evidences = [{
-  device: ocsf.device?,
+$event.ocsf.evidences = [{
+  device: $event.ocsf.device?,
   actor: {
     user: {
-      name: move sophos.rawData?.meta_username?,
+      name: move $event.sophos.rawData?.meta_username?,
       type_id: 1,
     },
   },
   process: {
-    name: move sophos.rawData?.process_name?,
-    cmd_line: move sophos.rawData?.process_cmd_line?,
+    name: move $event.sophos.rawData?.process_name?,
+    cmd_line: move $event.sophos.rawData?.process_cmd_line?,
     file: {
-      path: move sophos.rawData?.process_path?,
-      name: sophos.rawData?.process_path?.split("\\")[-1]?,
+      path: move $event.sophos.rawData?.process_path?,
+      name: $event.sophos.rawData?.process_path?.split("\\")[-1]?,
       hashes: [{
         algorithm_id: 3,
-        value: move sophos.rawData?.process_sha256?,
+        value: move $event.sophos.rawData?.process_sha256?,
       }],
     },
   },
 }]
 
-ocsf.resources = [{
-  uid: ocsf.device.uid,
-  name: ocsf.device.hostname,
+$event.ocsf.resources = [{
+  uid: $event.ocsf.device.uid,
+  name: $event.ocsf.device.hostname,
   type: "Device",
   role_id: 3,
 }]
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true

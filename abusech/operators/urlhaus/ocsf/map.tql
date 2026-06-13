@@ -1,56 +1,62 @@
 ---
 description: URLhaus rows → OCSF OSINT Inventory Info
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {urlhaus: this}
+$event = {...$event, urlhaus: $event, ocsf: {}}
 
-osint = {}
-osint.category = move urlhaus.threat?
-osint.confidence_id = 3
-osint.created_time = time(urlhaus.dateadded)
-drop urlhaus.dateadded
-osint.external_uid = string(move urlhaus.id)
-if urlhaus.last_online? != null {
-  osint.modified_time = time(urlhaus.last_online)
-  drop urlhaus.last_online
+$event.osint = {}
+$event.osint.category = move $event.urlhaus.threat?
+$event.osint.confidence_id = 3
+$event.osint.created_time = time($event.urlhaus.dateadded)
+drop $event.urlhaus.dateadded
+$event.osint.external_uid = string(move $event.urlhaus.id)
+if $event.urlhaus.last_online? != null {
+  $event.osint.modified_time = time($event.urlhaus.last_online)
+  drop $event.urlhaus.last_online
 }
-if urlhaus.reporter? != null {
-  osint.creator = {
-    name: move urlhaus.reporter,
+if $event.urlhaus.reporter? != null {
+  $event.osint.creator = {
+    name: move $event.urlhaus.reporter,
   }
 }
-if urlhaus.tags? != null {
-  osint.labels = (move urlhaus.tags).split(",")
+if $event.urlhaus.tags? != null {
+  $event.osint.labels = (move $event.urlhaus.tags).split(",")
 }
-if urlhaus.urlhaus_link? != null {
-  osint.references = [urlhaus.urlhaus_link]
-  osint.src_url = move urlhaus.urlhaus_link
+if $event.urlhaus.urlhaus_link? != null {
+  $event.osint.references = [$event.urlhaus.urlhaus_link]
+  $event.osint.src_url = move $event.urlhaus.urlhaus_link
 } else {
-  osint.src_url = "https://urlhaus.abuse.ch/"
+  $event.osint.src_url = "https://urlhaus.abuse.ch/"
 }
-osint.severity_id = 4
-osint.type_id = 5
-osint.value = move urlhaus.url
-osint.vendor_name = "abuse.ch"
+$event.osint.severity_id = 4
+$event.osint.type_id = 5
+$event.osint.value = move $event.urlhaus.url
+$event.osint.vendor_name = "abuse.ch"
 
-ocsf = {}
-ocsf.activity_id = 2
-ocsf.actor = {
+$event.ocsf = {}
+$event.ocsf.activity_id = 2
+$event.ocsf.actor = {
   app_name: "Tenzir",
 }
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.metadata = {
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.metadata = {
   product: {
     name: "URLhaus",
     vendor_name: "abuse.ch",
   },
   version: "1.8.0",
 }
-ocsf.osint = [move osint]
-ocsf.severity_id = 1
-ocsf.time = ocsf.osint[0].created_time
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.osint = [move $event.osint]
+$event.ocsf.severity_id = 1
+$event.ocsf.time = $event.ocsf.osint[0].created_time
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-this = {...ocsf, unmapped: urlhaus}
+$event = {...$event.ocsf, unmapped: $event.urlhaus}
 @name = "ocsf.osint_inventory_info"

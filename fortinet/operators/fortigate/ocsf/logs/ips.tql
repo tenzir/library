@@ -1,43 +1,48 @@
 ---
 description: "FortiGate IPS logs → OCSF Detection Finding (2004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
 // IPS events are always new detections.
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // IPS detections are always alertable.
-ocsf.is_alert = true
+$event.ocsf.is_alert = true
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
 // `attack` is the signature name; `attackid` is its numeric ID;
 // `incidentserialno` is the unique identifier of this detection instance.
-ocsf.finding_info = {
-  uid: (move fortinet.incidentserialno).string(),
-  title: fortinet.attack,
-  src_url: move fortinet.ref,
+$event.ocsf.finding_info = {
+  uid: (move $event.fortinet.incidentserialno).string(),
+  title: $event.fortinet.attack,
+  src_url: move $event.fortinet.ref,
   analytic: {
     // IPS signatures are rule-based detections.
     type_id: 1,
-    uid: (move fortinet.attackid).string(),
-    name: move fortinet.attack,
+    uid: (move $event.fortinet.attackid).string(),
+    name: move $event.fortinet.attack,
   },
 }
 
 // Network context goes into evidences for Detection Finding.
 // `hostname` is consumed by the network_evidence UDO.
-fortinet::fortigate::ocsf::network_evidence
+fortinet::fortigate::ocsf::network_evidence event=$event
 
 // IPS is a security control: it detected and acted on the traffic.
 // `action` is the IPS response; map to disposition.
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     dropped: 6,
     pass: 1,
@@ -45,8 +50,8 @@ if fortinet.action? != null {
     block: 2,
     alert: 19,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.
-fortinet::fortigate::ocsf::risk
+fortinet::fortigate::ocsf::risk event=$event

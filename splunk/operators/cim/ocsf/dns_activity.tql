@@ -1,168 +1,173 @@
 ---
 description: OCSF DNS Activity (4003) → Splunk CIM Network Resolution DNS
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 4003
+assert $event.ocsf.class_uid == 4003
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["network", "resolution", "dns"]
+$event.cim.tag = ["network", "resolution", "dns"]
 
 // --- CIM: occurrence attributes ---------------
 
-cim._time = time
-if duration? != null {
-  cim.duration = duration.milliseconds().count_seconds()
+$event.cim._time = $event.ocsf.time
+if $event.ocsf.duration? != null {
+  $event.cim.duration = $event.ocsf.duration.milliseconds().count_seconds()
 }
-cim.name = type_name? else class_name? else "DNS Activity"
+$event.cim.name = $event.ocsf.type_name? else $event.ocsf.class_name? else "DNS Activity"
 
-if query_time? != null and response_time? != null {
-  cim.response_time = (response_time - query_time).count_seconds()
+if $event.ocsf.query_time? != null and $event.ocsf.response_time? != null {
+  $event.cim.response_time = ($event.ocsf.response_time - $event.ocsf.query_time).count_seconds()
 }
 
 // --- CIM: primary DNS attributes --------------
 
-cim.query = query?.hostname?
-cim.query_count = 1 if query? != null else 0
-cim.query_type = query?.opcode?
-match query?.opcode_id? {
+$event.cim.query = $event.ocsf.query?.hostname?
+$event.cim.query_count = 1 if $event.ocsf.query? != null else 0
+$event.cim.query_type = $event.ocsf.query?.opcode?
+match $event.ocsf.query?.opcode_id? {
   0 => {
-    cim.query_type = "Query"
+    $event.cim.query_type = "Query"
   }
   1 => {
-    cim.query_type = "IQuery"
+    $event.cim.query_type = "IQuery"
   }
   2 => {
-    cim.query_type = "Status"
+    $event.cim.query_type = "Status"
   }
   4 => {
-    cim.query_type = "Notify"
+    $event.cim.query_type = "Notify"
   }
   5 => {
-    cim.query_type = "Update"
+    $event.cim.query_type = "Update"
   }
   _ => {}
 }
-cim.record_type = query?.type?
-cim.transaction_id = query?.packet_uid? else answers?[0]?.packet_uid?
+$event.cim.record_type = $event.ocsf.query?.type?
+$event.cim.transaction_id = $event.ocsf.query?.packet_uid? else $event.ocsf.answers?[0]?.packet_uid?
 
-cim.answer = [...answers?.map(a => a.rdata)]
-cim.answer_count = cim.answer.length()
-cim.ttl = [...answers?.map(a => a.ttl?)]
+$event.cim.answer = [...$event.ocsf.answers?.map(a => a.rdata)]
+$event.cim.answer_count = $event.cim.answer.length()
+$event.cim.ttl = [...$event.ocsf.answers?.map(a => a.ttl?)]
 
-cim.reply_code_id = rcode_id?
-cim.reply_code = rcode?
-match rcode_id? {
+$event.cim.reply_code_id = $event.ocsf.rcode_id?
+$event.cim.reply_code = $event.ocsf.rcode?
+match $event.ocsf.rcode_id? {
   0 => {
-    cim.reply_code = "No Error"
+    $event.cim.reply_code = "No Error"
   }
   1 => {
-    cim.reply_code = "Format Error"
+    $event.cim.reply_code = "Format Error"
   }
   2 => {
-    cim.reply_code = "Server Failure"
+    $event.cim.reply_code = "Server Failure"
   }
   3 => {
-    cim.reply_code = "Non-Existent Domain"
+    $event.cim.reply_code = "Non-Existent Domain"
   }
   4 => {
-    cim.reply_code = "Not Implemented"
+    $event.cim.reply_code = "Not Implemented"
   }
   5 => {
-    cim.reply_code = "Query Refused"
+    $event.cim.reply_code = "Query Refused"
   }
   6 => {
-    cim.reply_code = "Name Exists when it should not"
+    $event.cim.reply_code = "Name Exists when it should not"
   }
   7 => {
-    cim.reply_code = "RR Set Exists when it should not"
+    $event.cim.reply_code = "RR Set Exists when it should not"
   }
   8 => {
-    cim.reply_code = "RR Set that should exist does not"
+    $event.cim.reply_code = "RR Set that should exist does not"
   }
   9 => {
-    cim.reply_code = "Server Not Authoritative for zone"
+    $event.cim.reply_code = "Server Not Authoritative for zone"
   }
   10 => {
-    cim.reply_code = "Name not contained in zone"
+    $event.cim.reply_code = "Name not contained in zone"
   }
   11 => {
-    cim.reply_code = "DSO-TYPE Not Implemented"
+    $event.cim.reply_code = "DSO-TYPE Not Implemented"
   }
   16 => {
-    cim.reply_code = rcode? else "TSIG Signature Failure or Bad OPT Version"
+    $event.cim.reply_code = $event.ocsf.rcode? else "TSIG Signature Failure or Bad OPT Version"
   }
   17 => {
-    cim.reply_code = "Key not recognized"
+    $event.cim.reply_code = "Key not recognized"
   }
   18 => {
-    cim.reply_code = "Signature out of time window"
+    $event.cim.reply_code = "Signature out of time window"
   }
   19 => {
-    cim.reply_code = "Bad TKEY Mode"
+    $event.cim.reply_code = "Bad TKEY Mode"
   }
   20 => {
-    cim.reply_code = "Duplicate key name"
+    $event.cim.reply_code = "Duplicate key name"
   }
   21 => {
-    cim.reply_code = "Algorithm not supported"
+    $event.cim.reply_code = "Algorithm not supported"
   }
   22 => {
-    cim.reply_code = "Bad Truncation"
+    $event.cim.reply_code = "Bad Truncation"
   }
   23 => {
-    cim.reply_code = "Bad/missing Server Cookie"
+    $event.cim.reply_code = "Bad/missing Server Cookie"
   }
   24 => {
-    cim.reply_code = "Unassigned"
+    $event.cim.reply_code = "Unassigned"
   }
   25 => {
-    cim.reply_code = "Reserved"
+    $event.cim.reply_code = "Reserved"
   }
   _ => {}
 }
 
-match activity_id {
+match $event.ocsf.activity_id {
   1 => {
-    cim.message_type = "Query"
+    $event.cim.message_type = "Query"
   }
   2 => {
-    cim.message_type = "Response"
+    $event.cim.message_type = "Response"
   }
   _ => {
-    cim.message_type = activity_name? else "unknown"
+    $event.cim.message_type = $event.ocsf.activity_name? else "unknown"
   }
 }
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.src_ip = src_endpoint?.ip?
-cim.src_port = src_endpoint?.port?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.src_ip = $event.ocsf.src_endpoint?.ip?
+$event.cim.src_port = $event.ocsf.src_endpoint?.port?
 
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
-cim.dest_ip = dst_endpoint?.ip?
-cim.dest_port = dst_endpoint?.port?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name?
+$event.cim.dest_ip = $event.ocsf.dst_endpoint?.ip?
+$event.cim.dest_port = $event.ocsf.dst_endpoint?.port?
 
 // --- CIM: product attributes ------------------
 
-splunk::cim::ocsf::helpers::product
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- CIM: network attributes ------------------
 
-cim.transport = connection_info?.protocol_name?
-if cim.transport == null {
-  match connection_info?.protocol_num? {
+$event.cim.transport = $event.ocsf.connection_info?.protocol_name?
+if $event.cim.transport == null {
+  match $event.ocsf.connection_info?.protocol_num? {
     1 => {
-      cim.transport = "icmp"
+      $event.cim.transport = "icmp"
     }
     6 => {
-      cim.transport = "tcp"
+      $event.cim.transport = "tcp"
     }
     17 => {
-      cim.transport = "udp"
+      $event.cim.transport = "udp"
     }
     _ => {}
   }
@@ -170,4 +175,4 @@ if cim.transport == null {
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

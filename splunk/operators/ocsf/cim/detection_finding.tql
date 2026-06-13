@@ -1,29 +1,32 @@
 ---
 description: Splunk CIM Alerts → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 1
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.is_alert = cim.type? == "alert"
-splunk::ocsf::cim::helpers::common
+$event.ocsf.activity_id = 1
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.is_alert = $event.cim.type? == "alert"
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: finding attributes -----------------
 
-ocsf.finding_info = {
-  desc: move cim.description?,
-  title: move cim.signature?,
-  uid: move cim.id? else move cim.signature_id?,
+$event.ocsf.finding_info = {
+  desc: move $event.cim.description?,
+  title: move $event.cim.signature?,
+  uid: move $event.cim.id? else move $event.cim.signature_id?,
 }
-ocsf.message = move cim.subject?
-ocsf.metadata.product.name = move cim.app? else ocsf.metadata.product.name
-if cim.mitre_technique_id? != null {
-  ocsf.finding_info.attacks = (move cim.mitre_technique_id).map(t => {
+$event.ocsf.message = move $event.cim.subject?
+$event.ocsf.metadata.product.name = move $event.cim.app? else $event.ocsf.metadata.product.name
+if $event.cim.mitre_technique_id? != null {
+  $event.ocsf.finding_info.attacks = (move $event.cim.mitre_technique_id).map(t => {
     technique: {
       uid: t,
     },
@@ -36,4 +39,4 @@ if cim.mitre_technique_id? != null {
 // --- Finalize ---------------------------------
 
 @name = "ocsf.detection_finding"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

@@ -1,50 +1,55 @@
 ---
 description: |
   Zeek smb_files.log → OCSF SMB Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
 // The Zeek actions don't naturally map to the corresponding OCSF
 // class. Zeek actions have the pattern `SMB::{TYPE}_{ACTION}` where
 // `TYPE` is one of `FILE`, `PIPE`, or `PRINT`.
-if zeek.action.ends_with("_OPEN") {
-  ocsf.activity_id = 2
+if $event.zeek.action.ends_with("_OPEN") {
+  $event.ocsf.activity_id = 2
 } else {
-  ocsf.activity_id = 99
+  $event.ocsf.activity_id = 99
 }
-ocsf.class_uid = 4006
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.class_uid = 4006
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "smb_files.log"
+$event.ocsf.metadata.log_name = "smb_files.log"
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.connection_info.protocol_name = "tcp"
-ocsf.connection_info.protocol_num = 6
+$event.ocsf.connection_info.protocol_name = "tcp"
+$event.ocsf.connection_info.protocol_num = 6
 
-ocsf.file = {
-  path: move zeek.path,
+$event.ocsf.file = {
+  path: move $event.zeek.path,
 }
-ocsf.share = move zeek.name
-if zeek.action.starts_with("SMB::FILE") {
-  ocsf.share_type_id = 1
-  ocsf.share_type = "File"
-} else if zeek.action.starts_with("SMB::PIPE") {
-  ocsf.share_type_id = 2
-  ocsf.share_type = "Pipe"
-} else if zeek.action.starts_with("SMB::PRINT") {
-  ocsf.share_type_id = 3
-  ocsf.share_type = "Print"
+$event.ocsf.share = move $event.zeek.name
+if $event.zeek.action.starts_with("SMB::FILE") {
+  $event.ocsf.share_type_id = 1
+  $event.ocsf.share_type = "File"
+} else if $event.zeek.action.starts_with("SMB::PIPE") {
+  $event.ocsf.share_type_id = 2
+  $event.ocsf.share_type = "Pipe"
+} else if $event.zeek.action.starts_with("SMB::PRINT") {
+  $event.ocsf.share_type_id = 3
+  $event.ocsf.share_type = "Print"
 } else {
-  ocsf.share_type_id = 0
-  ocsf.share_type = "Unknown"
+  $event.ocsf.share_type_id = 0
+  $event.ocsf.share_type = "Unknown"
 }
-drop zeek.action
+drop $event.zeek.action
 
 @name = "ocsf.smb_activity"

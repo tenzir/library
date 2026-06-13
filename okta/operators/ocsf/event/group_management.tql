@@ -1,5 +1,10 @@
 ---
 description: "Okta → OCSF Group Management (3006)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // --- OCSF: classification attributes ----------
@@ -15,28 +20,28 @@ let $activity_map = {
   "group.application_assignment.update": 99,
   "group.user_membership.rule.add_exclusion": 99,
 }
-ocsf.activity_id = $activity_map[ocsf.metadata.event_code]? else 99
-ocsf.category_uid = 3
-ocsf.class_uid = 3006
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activity_map[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3006
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $status_map = {
   SUCCESS: 1,
   FAILURE: 2,
 }
-ocsf.status_id = $status_map[okta.outcome.result?]? else 0
-ocsf.status_detail = move okta.outcome.reason?
-drop okta.outcome?
+$event.ocsf.status_id = $status_map[$event.okta.outcome.result?]? else 0
+$event.ocsf.status_detail = move $event.okta.outcome.reason?
+drop $event.okta.outcome?
 
 // --- OCSF: group and user from target[] -------
 
-if okta.target? != null {
-  ocsf.group = okta.target.where(t => t.type == "UserGroup").map(t => {
+if $event.okta.target? != null {
+  $event.ocsf.group = $event.okta.target.where(t => t.type == "UserGroup").map(t => {
     uid: t.id,
     name: t.displayName,
   })[0]?
-  ocsf.group.privileges = move okta.debugContext.debugData.privilegeGranted?
-  ocsf.user = okta.target.where(t => t.type == "User").map(t => {
+  $event.ocsf.group.privileges = move $event.okta.debugContext.debugData.privilegeGranted?
+  $event.ocsf.user = $event.okta.target.where(t => t.type == "User").map(t => {
     uid: t.id,
     name: t.alternateId?.split("@")[0]?,
     full_name: string(t.displayName?),

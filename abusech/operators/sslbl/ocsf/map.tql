@@ -1,38 +1,44 @@
 ---
 description: SSLBL rows → OCSF OSINT Inventory Info
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {sslbl: this}
+$event = {...$event, sslbl: $event, ocsf: {}}
 
-osint = {}
-osint.category = move sslbl.reason
-osint.confidence_id = 3
-osint.created_time = time(sslbl.timestamp)
-drop sslbl.timestamp
-osint.severity_id = 4
-osint.src_url = "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
-osint.type_id = 7
-osint.value = move sslbl.SHA1
-osint.vendor_name = "abuse.ch"
+$event.osint = {}
+$event.osint.category = move $event.sslbl.reason
+$event.osint.confidence_id = 3
+$event.osint.created_time = time($event.sslbl.timestamp)
+drop $event.sslbl.timestamp
+$event.osint.severity_id = 4
+$event.osint.src_url = "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
+$event.osint.type_id = 7
+$event.osint.value = move $event.sslbl.SHA1
+$event.osint.vendor_name = "abuse.ch"
 
-ocsf = {}
-ocsf.activity_id = 2
-ocsf.actor = {
+$event.ocsf = {}
+$event.ocsf.activity_id = 2
+$event.ocsf.actor = {
   app_name: "Tenzir",
 }
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.metadata = {
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.metadata = {
   product: {
     name: "SSLBL",
     vendor_name: "abuse.ch",
   },
   version: "1.8.0",
 }
-ocsf.osint = [move osint]
-ocsf.severity_id = 1
-ocsf.time = ocsf.osint[0].created_time
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.osint = [move $event.osint]
+$event.ocsf.severity_id = 1
+$event.ocsf.time = $event.ocsf.osint[0].created_time
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-this = {...ocsf, unmapped: sslbl}
+$event = {...$event.ocsf, unmapped: $event.sslbl}
 @name = "ocsf.osint_inventory_info"

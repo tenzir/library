@@ -1,38 +1,43 @@
 ---
 description: "FortiGate wireless event logs → OCSF Detection Finding (2004) or Base Event"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // Rogue-AP events carry a `bssid` (the rogue AP's MAC address); routine
 // wireless telemetry (DHCP, handshakes, traffic stats) does not. Use bssid
 // presence as the structural discriminator rather than enumerating action
 // values, which can expand across firmware versions.
-if fortinet.bssid? != null {
+if $event.fortinet.bssid? != null {
   @name = "ocsf.detection_finding"
 
-  ocsf.category_uid = 2
-  ocsf.class_uid = 2004
-  ocsf.activity_id = 1  // Create
-  ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+  $event.ocsf.category_uid = 2
+  $event.ocsf.class_uid = 2004
+  $event.ocsf.activity_id = 1  // Create
+  $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-  ocsf.is_alert = true
+  $event.ocsf.is_alert = true
 
   // `ssid` is the rogue AP name; `bssid` is its MAC (unique identifier).
-  ocsf.finding_info = {
-    uid: move fortinet.bssid,
-    title: f"Rogue AP: {move fortinet.ssid}",
+  $event.ocsf.finding_info = {
+    uid: move $event.fortinet.bssid,
+    title: f"Rogue AP: {move $event.fortinet.ssid}",
     analytic: {
       type_id: 1,  // Rule
-      name: move fortinet.action,
+      name: move $event.fortinet.action,
     },
   }
 
   // `snclosest` is the FortiAP serial number that detected the rogue AP.
-  if fortinet.snclosest? != null {
-    ocsf.device = {
-      uid: move fortinet.snclosest,
-      zone: ocsf.device.zone,
+  if $event.fortinet.snclosest? != null {
+    $event.ocsf.device = {
+      uid: move $event.fortinet.snclosest,
+      zone: $event.ocsf.device.zone,
     }
   }
 } else {
-  fortinet::fortigate::ocsf::base
+  fortinet::fortigate::ocsf::base event=$event
 }

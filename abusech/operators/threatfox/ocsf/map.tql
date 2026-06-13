@@ -1,8 +1,14 @@
 ---
 description: ThreatFox indicators → OCSF OSINT Inventory Info
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {threatfox: this}
+$event = {...$event, threatfox: $event, ocsf: {}}
 
 let $type_ids = {
   domain: 2,
@@ -15,68 +21,68 @@ let $type_ids = {
   url: 5,
 }
 
-osint = {}
-if threatfox.confidence_level? != null {
-  match threatfox.confidence_level {
+$event.osint = {}
+if $event.threatfox.confidence_level? != null {
+  match $event.threatfox.confidence_level {
     -1..30 => {
-      osint.confidence_id = 1
+      $event.osint.confidence_id = 1
     }
     29..70 => {
-      osint.confidence_id = 2
+      $event.osint.confidence_id = 2
     }
     _ => {
-      osint.confidence_id = 3
+      $event.osint.confidence_id = 3
     }
   }
-  osint.risk_score = move threatfox.confidence_level
+  $event.osint.risk_score = move $event.threatfox.confidence_level
 }
-if threatfox.first_seen? != null {
-  osint.created_time = parse_time(threatfox.first_seen, "%Y-%m-%d %H:%M:%S UTC")
-  drop threatfox.first_seen
+if $event.threatfox.first_seen? != null {
+  $event.osint.created_time = parse_time($event.threatfox.first_seen, "%Y-%m-%d %H:%M:%S UTC")
+  drop $event.threatfox.first_seen
 }
-if threatfox.last_seen? != null {
-  osint.modified_time = parse_time(threatfox.last_seen, "%Y-%m-%d %H:%M:%S UTC")
-  drop threatfox.last_seen
+if $event.threatfox.last_seen? != null {
+  $event.osint.modified_time = parse_time($event.threatfox.last_seen, "%Y-%m-%d %H:%M:%S UTC")
+  drop $event.threatfox.last_seen
 }
-if threatfox.malware_printable? != null or threatfox.malware? != null {
-  osint.malware = [{
+if $event.threatfox.malware_printable? != null or $event.threatfox.malware? != null {
+  $event.osint.malware = [{
     classification_ids: [0],
-    name: move threatfox.malware_printable? else move threatfox.malware?,
+    name: move $event.threatfox.malware_printable? else move $event.threatfox.malware?,
     provider: "ThreatFox",
   }]
 }
-osint.category = move threatfox.threat_type?
-osint.desc = move threatfox.threat_type_desc?
-osint.labels = move threatfox.tags?
-osint.references = [move threatfox.reference] if threatfox.reference? != null else null
-osint.src_url = "https://threatfox.abuse.ch/ioc/" + encode_url(threatfox.ioc)
-osint.type_id = $type_ids[threatfox.ioc_type]? else 99
-if osint.type_id == 99 {
-  osint.type = move threatfox.ioc_type
+$event.osint.category = move $event.threatfox.threat_type?
+$event.osint.desc = move $event.threatfox.threat_type_desc?
+$event.osint.labels = move $event.threatfox.tags?
+$event.osint.references = [move $event.threatfox.reference] if $event.threatfox.reference? != null else null
+$event.osint.src_url = "https://threatfox.abuse.ch/ioc/" + encode_url($event.threatfox.ioc)
+$event.osint.type_id = $type_ids[$event.threatfox.ioc_type]? else 99
+if $event.osint.type_id == 99 {
+  $event.osint.type = move $event.threatfox.ioc_type
 } else {
-  drop threatfox.ioc_type
+  drop $event.threatfox.ioc_type
 }
-osint.value = move threatfox.ioc
-osint.vendor_name = "abuse.ch"
+$event.osint.value = move $event.threatfox.ioc
+$event.osint.vendor_name = "abuse.ch"
 
-ocsf = {}
-ocsf.activity_id = 2
-ocsf.actor = {
+$event.ocsf = {}
+$event.ocsf.activity_id = 2
+$event.ocsf.actor = {
   app_name: "Tenzir",
 }
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.metadata = {
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.metadata = {
   product: {
     name: "ThreatFox",
     vendor_name: "abuse.ch",
   },
   version: "1.8.0",
 }
-ocsf.osint = [move osint]
-ocsf.severity_id = 1
-ocsf.time = ocsf.osint[0].created_time? else now()
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.osint = [move $event.osint]
+$event.ocsf.severity_id = 1
+$event.ocsf.time = $event.ocsf.osint[0].created_time? else now()
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-this = {...ocsf, unmapped: threatfox}
+$event = {...$event.ocsf, unmapped: $event.threatfox}
 @name = "ocsf.osint_inventory_info"

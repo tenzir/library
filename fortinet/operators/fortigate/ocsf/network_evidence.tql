@@ -3,33 +3,38 @@ description: >-
   Map FortiGate network fields into ocsf.evidences for Detection Finding.
   Puts src_endpoint, dst_endpoint, and connection_info inside the evidence
   artifact where Detection Finding can carry them.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::network_endpoints event=$event
 
 // `hostname` is consumed here before packing; parse_kv may parse
 // IP-shaped hostname values as ip_t so coerce to string.
-if fortinet.hostname? != null {
-  ocsf.dst_endpoint.hostname = (move fortinet.hostname).string()
+if $event.fortinet.hostname? != null {
+  $event.ocsf.dst_endpoint.hostname = (move $event.fortinet.hostname).string()
 }
 
 // `direction` in Detection Finding logs (IPS, virus, DLP) describes the
 // inspected packet's orientation relative to the UTM engine, not the network
 // session direction. Dropping it here prevents it from inverting direction_id
 // for sessions whose actual direction can be inferred from intfroles.
-drop fortinet.direction?
-fortinet::fortigate::ocsf::connection_info
+drop $event.fortinet.direction?
+fortinet::fortigate::ocsf::connection_info event=$event
 
 // Only emit evidences when at least one endpoint IP is present; an all-null
 // evidence record is unhelpful and drop_null_fields does not recurse into lists.
-if ocsf.src_endpoint.ip? != null or ocsf.dst_endpoint.ip? != null {
-  ocsf.evidences = [{
-    src_endpoint: move ocsf.src_endpoint,
-    dst_endpoint: move ocsf.dst_endpoint,
-    connection_info: move ocsf.connection_info,
+if $event.ocsf.src_endpoint.ip? != null or $event.ocsf.dst_endpoint.ip? != null {
+  $event.ocsf.evidences = [{
+    src_endpoint: move $event.ocsf.src_endpoint,
+    dst_endpoint: move $event.ocsf.dst_endpoint,
+    connection_info: move $event.ocsf.connection_info,
   }]
 } else {
-  drop ocsf.src_endpoint?
-  drop ocsf.dst_endpoint?
-  drop ocsf.connection_info?
+  drop $event.ocsf.src_endpoint?
+  drop $event.ocsf.dst_endpoint?
+  drop $event.ocsf.connection_info?
 }

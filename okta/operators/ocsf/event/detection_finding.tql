@@ -1,37 +1,42 @@
 ---
 description: "Okta → OCSF Detection Finding (2004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 1
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 1
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $status_map = {
   SUCCESS: 1,
   FAILURE: 2,
   DENY: 2,
 }
-ocsf.status_id = $status_map[okta.outcome.result?]? else 0
-ocsf.status_detail = move okta.outcome.reason?
-drop okta.outcome?
+$event.ocsf.status_id = $status_map[$event.okta.outcome.result?]? else 0
+$event.ocsf.status_detail = move $event.okta.outcome.reason?
+drop $event.okta.outcome?
 
 // --- OCSF: finding_info -----------------------
 
-ocsf.finding_info = {
-  title: ocsf.metadata.event_code,
-  uid: ocsf.metadata.loggers[0].event_uid?,
-  desc: ocsf.message,
+$event.ocsf.finding_info = {
+  title: $event.ocsf.metadata.event_code,
+  uid: $event.ocsf.metadata.loggers[0].event_uid?,
+  desc: $event.ocsf.message,
 }
 
 // --- OCSF: evidences[] -----------------------
 
-ocsf.evidences = [{
-  actor: move ocsf.actor?,
-  src_endpoint: move ocsf.src_endpoint?,
-  http_request: move ocsf.http_request?,
-  data: okta.debugContext.debugData?,
+$event.ocsf.evidences = [{
+  actor: move $event.ocsf.actor?,
+  src_endpoint: move $event.ocsf.src_endpoint?,
+  http_request: move $event.ocsf.http_request?,
+  data: $event.okta.debugContext.debugData?,
 }]
 @name = "ocsf.detection_finding"

@@ -1,47 +1,52 @@
 ---
 description: "FortiGate web filter logs → OCSF HTTP Activity (4002)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.http_activity"
 
 // Web filter logs report a URL access attempt; the HTTP method is unknown.
-ocsf.category_uid = 4
-ocsf.class_uid = 4002
-ocsf.activity_id = 0  // Unknown: FortiGate doesn't log the HTTP verb here
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4002
+$event.ocsf.activity_id = 0  // Unknown: FortiGate doesn't log the HTTP verb here
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
-fortinet::fortigate::ocsf::network_endpoints
+fortinet::fortigate::ocsf::network_endpoints event=$event
 // `hostname` is the virtual host name of the requested site.
-ocsf.dst_endpoint.hostname = move fortinet.hostname
+$event.ocsf.dst_endpoint.hostname = move $event.fortinet.hostname
 
-fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::connection_info event=$event
 
 // `url` is the path; `hostname` (already mapped above) is the host.
-ocsf.http_request = {
+$event.ocsf.http_request = {
   url: {
-    hostname: ocsf.dst_endpoint.hostname,
-    path: move fortinet.url,
+    hostname: $event.ocsf.dst_endpoint.hostname,
+    path: move $event.fortinet.url,
   },
 }
 
-ocsf.traffic = {
-  bytes_in: move fortinet.rcvdbyte,
-  bytes_out: move fortinet.sentbyte,
+$event.ocsf.traffic = {
+  bytes_in: move $event.fortinet.rcvdbyte,
+  bytes_out: move $event.fortinet.sentbyte,
 }
 
 // Web filter is a security control: it evaluated and acted on the request.
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
     monitored: 17,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.
-fortinet::fortigate::ocsf::risk
+fortinet::fortigate::ocsf::risk event=$event

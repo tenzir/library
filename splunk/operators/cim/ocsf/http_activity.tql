@@ -1,67 +1,72 @@
 ---
 description: OCSF HTTP Activity (4002) → Splunk CIM Web
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 4002
+assert $event.ocsf.class_uid == 4002
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["web"]
+$event.cim.tag = ["web"]
 
 // --- CIM: occurrence attributes ---------------
 
-cim._time = time
-cim.duration = duration?
-cim.response_time = http_response?.latency?
+$event.cim._time = $event.ocsf.time
+$event.cim.duration = $event.ocsf.duration?
+$event.cim.response_time = $event.ocsf.http_response?.latency?
 
 // --- CIM: action and application attributes ---
 
-splunk::cim::ocsf::helpers::action
-cim.app = app_name? else app_protocol_name? else metadata.product.name?
+splunk::cim::ocsf::helpers::action event=$event
+$event.cim.app = $event.ocsf.app_name? else $event.ocsf.app_protocol_name? else $event.ocsf.metadata.product.name?
 
 // --- CIM: traffic attributes ------------------
 
-cim.bytes = traffic?.bytes?
-cim.bytes_in = traffic?.bytes_in? else http_request?.length?
-cim.bytes_out = traffic?.bytes_out? else http_response?.length?
+$event.cim.bytes = $event.ocsf.traffic?.bytes?
+$event.cim.bytes_in = $event.ocsf.traffic?.bytes_in? else $event.ocsf.http_request?.length?
+$event.cim.bytes_out = $event.ocsf.traffic?.bytes_out? else $event.ocsf.http_response?.length?
 
 // --- CIM: HTTP attributes ---------------------
 
-cim.http_content_type = http_response?.content_type?
-cim.http_method = http_request?.http_method?
-cim.http_referrer = http_request?.referrer?
-cim.http_user_agent = http_request?.user_agent?
-cim.status = http_status?.string() else http_response?.code?.string() else status_code?
-cim.uri_path = http_request?.url?.path? else url?.path?
-cim.uri_query = http_request?.url?.query_string? else http_request?.args? else url?.query_string?
-cim.url = http_request?.url?.url_string? else url?.url_string? else file?.url?.url_string?
-cim.url_domain = http_request?.url?.domain? else http_request?.url?.hostname? else
-                 url?.domain? else url?.hostname?
-cim.category = http_request?.url?.categories? else url?.categories?
-if cim.url != null {
-  cim.url_length = cim.url.length_chars()
+$event.cim.http_content_type = $event.ocsf.http_response?.content_type?
+$event.cim.http_method = $event.ocsf.http_request?.http_method?
+$event.cim.http_referrer = $event.ocsf.http_request?.referrer?
+$event.cim.http_user_agent = $event.ocsf.http_request?.user_agent?
+$event.cim.status = $event.ocsf.http_status?.string() else $event.ocsf.http_response?.code?.string() else $event.ocsf.status_code?
+$event.cim.uri_path = $event.ocsf.http_request?.url?.path? else $event.ocsf.url?.path?
+$event.cim.uri_query = $event.ocsf.http_request?.url?.query_string? else $event.ocsf.http_request?.args? else $event.ocsf.url?.query_string?
+$event.cim.url = $event.ocsf.http_request?.url?.url_string? else $event.ocsf.url?.url_string? else $event.ocsf.file?.url?.url_string?
+$event.cim.url_domain = $event.ocsf.http_request?.url?.domain? else $event.ocsf.http_request?.url?.hostname? else
+                 $event.ocsf.url?.domain? else $event.ocsf.url?.hostname?
+$event.cim.category = $event.ocsf.http_request?.url?.categories? else $event.ocsf.url?.categories?
+if $event.cim.url != null {
+  $event.cim.url_length = $event.cim.url.length_chars()
 }
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.src_ip = src_endpoint?.ip?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.src_ip = $event.ocsf.src_endpoint?.ip?
 
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name? else
-           http_request?.url?.hostname? else url?.hostname?
-cim.dest_ip = dst_endpoint?.ip?
-cim.dest_port = dst_endpoint?.port? else http_request?.url?.port? else url?.port?
-if cim.dest == null {
-  cim.dest = cim.url_domain
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name? else
+           $event.ocsf.http_request?.url?.hostname? else $event.ocsf.url?.hostname?
+$event.cim.dest_ip = $event.ocsf.dst_endpoint?.ip?
+$event.cim.dest_port = $event.ocsf.dst_endpoint?.port? else $event.ocsf.http_request?.url?.port? else $event.ocsf.url?.port?
+if $event.cim.dest == null {
+  $event.cim.dest = $event.cim.url_domain
 }
 
 // --- CIM: user and product attributes ---------
 
-cim.user = actor?.user?.name? else actor?.user?.uid?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

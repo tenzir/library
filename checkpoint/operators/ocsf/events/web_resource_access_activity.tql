@@ -1,62 +1,67 @@
 ---
 description: "Check Point URL/Application Control → OCSF Web Resource Access Activity (6004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.web_resource_access_activity"
 
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 6
-ocsf.class_uid = 6004
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6004
 
-match checkpoint.action? {
+match $event.checkpoint.action? {
   "Accept" | "Allow" => {
-    ocsf.activity_id = 1
-    ocsf.action_id = 1
-    ocsf.disposition_id = 1
-    ocsf.status_id = 1
+    $event.ocsf.activity_id = 1
+    $event.ocsf.action_id = 1
+    $event.ocsf.disposition_id = 1
+    $event.ocsf.status_id = 1
   }
   "Drop" | "Prevent" | "Reject" => {
-    ocsf.activity_id = 2
-    ocsf.action_id = 2
-    ocsf.disposition_id = 2
-    ocsf.status_id = 2
+    $event.ocsf.activity_id = 2
+    $event.ocsf.action_id = 2
+    $event.ocsf.disposition_id = 2
+    $event.ocsf.status_id = 2
   }
   _ => {
-    ocsf.activity_id = 0
-    ocsf.action_id = 0
-    ocsf.disposition_id = 0
-    ocsf.status_id = 0
+    $event.ocsf.activity_id = 0
+    $event.ocsf.action_id = 0
+    $event.ocsf.disposition_id = 0
+    $event.ocsf.status_id = 0
   }
 }
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop checkpoint.action?
+drop $event.checkpoint.action?
 
-if checkpoint.url? != null {
-  ocsf.http_request.url.path = checkpoint.url
-  ocsf.web_resources = [{
-    url_string: move checkpoint.url,
+if $event.checkpoint.url? != null {
+  $event.ocsf.http_request.url.path = $event.checkpoint.url
+  $event.ocsf.web_resources = [{
+    url_string: move $event.checkpoint.url,
   }]
 } else {
-  ocsf.http_request = {}
-  ocsf.web_resources = [{
-    name: ocsf.message? else "web resource",
+  $event.ocsf.http_request = {}
+  $event.ocsf.web_resources = [{
+    name: $event.ocsf.message? else "web resource",
   }]
 }
 
-if checkpoint.src? != null {
-  ocsf.src_endpoint.ip = move checkpoint.src
+if $event.checkpoint.src? != null {
+  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
 }
-if checkpoint.s_port? != null {
-  ocsf.src_endpoint.port = move checkpoint.s_port
+if $event.checkpoint.s_port? != null {
+  $event.ocsf.src_endpoint.port = move $event.checkpoint.s_port
 }
-if checkpoint.sname? != null {
-  ocsf.src_endpoint.hostname = move checkpoint.sname
+if $event.checkpoint.sname? != null {
+  $event.ocsf.src_endpoint.hostname = move $event.checkpoint.sname
 }
-if checkpoint.user? != null {
-  ocsf.actor.user.name = move checkpoint.user
+if $event.checkpoint.user? != null {
+  $event.ocsf.actor.user.name = move $event.checkpoint.user
 }
-if checkpoint.reason? != null {
-  ocsf.status_detail = move checkpoint.reason
+if $event.checkpoint.reason? != null {
+  $event.ocsf.status_detail = move $event.checkpoint.reason
 }

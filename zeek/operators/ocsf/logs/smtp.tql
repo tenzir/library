@@ -1,6 +1,11 @@
 ---
 description: |
   Zeek smtp.log → OCSF Email Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // TODO:
@@ -9,36 +14,36 @@ description: |
 // - Surface Zeek file UIDs (`fuids`) for corresponding Network File Activity
 //   events when possible.
 
-zeek::ocsf::map_network
-drop ocsf.connection_info?
+zeek::ocsf::map_network event=$event
+drop $event.ocsf.connection_info?
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 1
-ocsf.class_uid = 4009
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 1
+$event.ocsf.class_uid = 4009
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "smtp.log"
+$event.ocsf.metadata.log_name = "smtp.log"
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.dst_endpoint.intermediate_ips = move zeek.path
+$event.ocsf.dst_endpoint.intermediate_ips = move $event.zeek.path
 
-ocsf.email = {
-  from_mailbox: move zeek.from,
-  from: move zeek.mailfrom,
-  cc: move zeek.cc?,
-  reply_to: move zeek.reply_to?,
-  message_uid: move zeek.msg_id,
-  to: move zeek.rcptto,
-  to_mailboxes: move zeek.to,
-  subject: move zeek.subject,
+$event.ocsf.email = {
+  from_mailbox: move $event.zeek.from,
+  from: move $event.zeek.mailfrom,
+  cc: move $event.zeek.cc?,
+  reply_to: move $event.zeek.reply_to?,
+  message_uid: move $event.zeek.msg_id,
+  to: move $event.zeek.rcptto,
+  to_mailboxes: move $event.zeek.to,
+  subject: move $event.zeek.subject,
 }
-ocsf.command = move zeek.helo
-ocsf.protocol_name = "SMTP"
-ocsf.status_detail = move zeek.last_reply
+$event.ocsf.command = move $event.zeek.helo
+$event.ocsf.protocol_name = "SMTP"
+$event.ocsf.status_detail = move $event.zeek.last_reply
 
 @name = "ocsf.email_activity"

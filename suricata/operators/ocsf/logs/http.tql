@@ -1,3 +1,10 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
 let $activity_id = {
@@ -12,34 +19,34 @@ let $activity_id = {
   PATCH: 9,
 }
 
-ocsf.activity_id = $activity_id[suricata.http.http_method] else 99
-ocsf.category_uid = 4
-ocsf.class_uid = 4002
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activity_id[$event.suricata.http.http_method] else 99
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4002
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-if suricata.http.has("fileinfo") {
-  ocsf.file = {
+if $event.suricata.http.has("fileinfo") {
+  $event.ocsf.file = {
     type_id: 0,
-    name: move suricata.fileinfo.filename,
-    size: move suricata.fileinfo.size,
+    name: move $event.suricata.fileinfo.filename,
+    size: move $event.suricata.fileinfo.size,
   }
 }
 
 // --- OCSF: primary attributes -----------------
 
-suricata::ocsf::map_http
+suricata::ocsf::map_http event=$event
 
-if ocsf.http_response.code? == null {
-  ocsf.status_id = 0
-} else if ocsf.http_response.code >= 200 and ocsf.http_response.code < 400 {
-  ocsf.status_id = 1
-} else if ocsf.http_response.code >= 400 and ocsf.http_response.code < 600 {
-  ocsf.status_id = 2
+if $event.ocsf.http_response.code? == null {
+  $event.ocsf.status_id = 0
+} else if $event.ocsf.http_response.code >= 200 and $event.ocsf.http_response.code < 400 {
+  $event.ocsf.status_id = 1
+} else if $event.ocsf.http_response.code >= 400 and $event.ocsf.http_response.code < 600 {
+  $event.ocsf.status_id = 2
 } else {
-  ocsf.status_id = 0
+  $event.ocsf.status_id = 0
 }
 
 // --- Finalize ---------------------------------

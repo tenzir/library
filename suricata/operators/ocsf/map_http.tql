@@ -1,34 +1,41 @@
-assert suricata.has("http")
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+assert $event.suricata.has("http")
 
-suricata.http._hostname = move suricata.http.hostname
-suricata.http._url = move suricata.http.url
-suricata.http._url_parts = suricata.http._url.split("?", max=1)
+$event.suricata.http._hostname = move $event.suricata.http.hostname
+$event.suricata.http._url = move $event.suricata.http.url
+$event.suricata.http._url_parts = $event.suricata.http._url.split("?", max=1)
 
-ocsf.http_request.url = {
-  hostname: suricata.http._hostname.string(),
-  path: suricata.http._url_parts[0],
+$event.ocsf.http_request.url = {
+  hostname: $event.suricata.http._hostname.string(),
+  path: $event.suricata.http._url_parts[0],
   scheme: "http",
-  url_string: f"http://{suricata.http._hostname.string()}{suricata.http._url}",
+  url_string: f"http://{$event.suricata.http._hostname.string()}{$event.suricata.http._url}",
 }
-ocsf.http_request.http_method = move suricata.http.http_method?
-ocsf.http_request.referrer = move suricata.http.http_refer?
-ocsf.http_request.user_agent = move suricata.http.http_user_agent?
-ocsf.http_request.version = move suricata.http.protocol?
-if suricata.http._url_parts.length() == 2 {
-  ocsf.http_request.url.query_string = suricata.http._url_parts[1]
+$event.ocsf.http_request.http_method = move $event.suricata.http.http_method?
+$event.ocsf.http_request.referrer = move $event.suricata.http.http_refer?
+$event.ocsf.http_request.user_agent = move $event.suricata.http.http_user_agent?
+$event.ocsf.http_request.version = move $event.suricata.http.protocol?
+if $event.suricata.http._url_parts.length() == 2 {
+  $event.ocsf.http_request.url.query_string = $event.suricata.http._url_parts[1]
 }
-drop suricata.http._hostname
-drop suricata.http._url
-drop suricata.http._url_parts
-if suricata.http.has("request_headers") {
-  ocsf.http_request.http_headers = move suricata.http.request_headers
+drop $event.suricata.http._hostname
+drop $event.suricata.http._url
+drop $event.suricata.http._url_parts
+if $event.suricata.http.has("request_headers") {
+  $event.ocsf.http_request.http_headers = move $event.suricata.http.request_headers
 }
 
-ocsf.http_response.body_length = move suricata.http.length?
-ocsf.http_response.content_type = move suricata.http.http_content_type?
-if suricata.http.has("status") {
-  ocsf.http_response.code = move suricata.http.status
+$event.ocsf.http_response.body_length = move $event.suricata.http.length?
+$event.ocsf.http_response.content_type = move $event.suricata.http.http_content_type?
+if $event.suricata.http.has("status") {
+  $event.ocsf.http_response.code = move $event.suricata.http.status
 }
-if suricata.http.has("response_headers") {
-  ocsf.http_response.http_headers = move suricata.http.response_headers
+if $event.suricata.http.has("response_headers") {
+  $event.ocsf.http_response.http_headers = move $event.suricata.http.response_headers
 }

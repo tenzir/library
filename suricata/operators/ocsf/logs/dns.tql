@@ -1,36 +1,43 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
-if (suricata.dns.has("queries") and suricata.dns.has("answers")) {
-  ocsf.activity_id = 6
-} else if (suricata.dns.has("queries")) {
-  ocsf.activity_id = 1
-} else if (suricata.dns.has("answers")) {
-  ocsf.activity_id = 2
+if ($event.suricata.dns.has("queries") and $event.suricata.dns.has("answers")) {
+  $event.ocsf.activity_id = 6
+} else if ($event.suricata.dns.has("queries")) {
+  $event.ocsf.activity_id = 1
+} else if ($event.suricata.dns.has("answers")) {
+  $event.ocsf.activity_id = 2
 } else {
-  ocsf.activity_id = 0
+  $event.ocsf.activity_id = 0
 }
 
-ocsf.class_uid = 4003
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.class_uid = 4003
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
 // TODO: support `grouped`.
 
-if suricata.dns.has("queries") {
-  suricata::ocsf::map_dns_query
+if $event.suricata.dns.has("queries") {
+  suricata::ocsf::map_dns_query event=$event
 }
 
-if suricata.dns.has("answers") {
-  ocsf.answers = (suricata.dns.answers).map(answer => {
+if $event.suricata.dns.has("answers") {
+  $event.ocsf.answers = ($event.suricata.dns.answers).map(answer => {
     rdata: answer.rdata,
     type: answer.rrtype,
     ttl: answer.ttl,
   })
 }
 
-if suricata.dns.has("rcode") {
+if $event.suricata.dns.has("rcode") {
   let $rcode_id = {
     NOERROR: 0,
     FORMERROR: 1,
@@ -53,14 +60,14 @@ if suricata.dns.has("rcode") {
     BADTRUNC: 22,
     BADCOOKIE: 23,
   }
-  ocsf.rcode_id = $rcode_id[suricata.dns.rcode] else 99
-  if ocsf.rcode_id == 99 {
-    ocsf.rcode = suricata.dns.rcode
+  $event.ocsf.rcode_id = $rcode_id[$event.suricata.dns.rcode] else 99
+  if $event.ocsf.rcode_id == 99 {
+    $event.ocsf.rcode = $event.suricata.dns.rcode
   }
-  ocsf.status_id = 1 if ocsf.rcode_id == 0 else 2
-  drop suricata.dns.rcode
+  $event.ocsf.status_id = 1 if $event.ocsf.rcode_id == 0 else 2
+  drop $event.suricata.dns.rcode
 } else {
-  ocsf.status_id = 0
+  $event.ocsf.status_id = 0
 }
 
 // --- Finalize ---------------------------------

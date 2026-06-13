@@ -1,15 +1,20 @@
 ---
 description: Sysmon ProcessCreate (EID 1) → OCSF Process Activity (1007, Launch)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.process_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1007
-ocsf.activity_id = 1  // Launch
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 1  // Launch
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.launch_type_id = 1
+$event.ocsf.launch_type_id = 1
 
 // Map IntegrityLevel string to its OCSF enum id.
 let $integrity_ids = {
@@ -22,50 +27,50 @@ let $integrity_ids = {
   Protected: 6,
 }
 
-_user = (move sysmon.EventData.User).split("\\")
-_parent_user = (move sysmon.EventData.ParentUser).split("\\")
-ocsf.process = {
-  pid: (move sysmon.EventData.ProcessId).int(),
-  uid: move sysmon.EventData.ProcessGuid,
-  path: move sysmon.EventData.Image,
-  cmd_line: move sysmon.EventData.CommandLine,
-  created_time: ocsf.time,
-  working_directory: move sysmon.EventData.CurrentDirectory,
-  integrity_id: $integrity_ids[move sysmon.EventData.IntegrityLevel]? else 0,
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event._parent_user = (move $event.sysmon.EventData.ParentUser).split("\\")
+$event.ocsf.process = {
+  pid: (move $event.sysmon.EventData.ProcessId).int(),
+  uid: move $event.sysmon.EventData.ProcessGuid,
+  path: move $event.sysmon.EventData.Image,
+  cmd_line: move $event.sysmon.EventData.CommandLine,
+  created_time: $event.ocsf.time,
+  working_directory: move $event.sysmon.EventData.CurrentDirectory,
+  integrity_id: $integrity_ids[move $event.sysmon.EventData.IntegrityLevel]? else 0,
   file: {
     type_id: 8,  // Executable File
-    version: move sysmon.EventData.FileVersion,
-    desc: move sysmon.EventData.Description,
-    company_name: move sysmon.EventData.Company,
-    internal_name: move sysmon.EventData.OriginalFileName,
+    version: move $event.sysmon.EventData.FileVersion,
+    desc: move $event.sysmon.EventData.Description,
+    company_name: move $event.sysmon.EventData.Company,
+    internal_name: move $event.sysmon.EventData.OriginalFileName,
     product: {
-      name: move sysmon.EventData.Product,
+      name: move $event.sysmon.EventData.Product,
     },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
   parent_process: {
-    pid: (move sysmon.EventData.ParentProcessId).int(),
-    uid: move sysmon.EventData.ParentProcessGuid,
-    path: move sysmon.EventData.ParentImage,
-    cmd_line: move sysmon.EventData.ParentCommandLine,
+    pid: (move $event.sysmon.EventData.ParentProcessId).int(),
+    uid: move $event.sysmon.EventData.ParentProcessGuid,
+    path: move $event.sysmon.EventData.ParentImage,
+    cmd_line: move $event.sysmon.EventData.ParentCommandLine,
     file: {
       type_id: 8,
     },
     user: {
-      name: _parent_user[-1],
-      domain: _parent_user[0] if _parent_user.length() > 1 else null,
+      name: $event._parent_user[-1],
+      domain: $event._parent_user[0] if $event._parent_user.length() > 1 else null,
     },
   },
 }
-drop _user, _parent_user
-ocsf.process.name = ocsf.process.path.split("\\")[-1]
-ocsf.process.file.name = ocsf.process.name
-ocsf.process.file.path = ocsf.process.path
-ocsf.process.parent_process.file.name = ocsf.process.parent_process.path.split("\\")[-1]
-ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
+drop $event._user, $event._parent_user
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
+$event.ocsf.process.parent_process.file.name = $event.ocsf.process.parent_process.path.split("\\")[-1]
+$event.ocsf.process.parent_process.file.path = $event.ocsf.process.parent_process.path
 
 let $algorithms = {
   MD5: 1,
@@ -75,7 +80,7 @@ let $algorithms = {
 }
 
 // Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
-ocsf.process.file.hashes = ((move sysmon.EventData.Hashes)
+$event.ocsf.process.file.hashes = ((move $event.sysmon.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
@@ -87,27 +92,27 @@ ocsf.process.file.hashes = ((move sysmon.EventData.Hashes)
 // for Launch events both actor.process (creator) and process.parent_process (OS
 // parent) should be populated. Sysmon does not distinguish creator from parent,
 // so the same data fills both fields.
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    uid: ocsf.process.parent_process.uid,
-    pid: ocsf.process.parent_process.pid,
-    path: ocsf.process.parent_process.path,
-    name: ocsf.process.parent_process.file.name,
-    cmd_line: ocsf.process.parent_process.cmd_line,
-    file: ocsf.process.parent_process.file,
-    user: ocsf.process.parent_process.user,
+    uid: $event.ocsf.process.parent_process.uid,
+    pid: $event.ocsf.process.parent_process.pid,
+    path: $event.ocsf.process.parent_process.path,
+    name: $event.ocsf.process.parent_process.file.name,
+    cmd_line: $event.ocsf.process.parent_process.cmd_line,
+    file: $event.ocsf.process.parent_process.file,
+    user: $event.ocsf.process.parent_process.user,
   },
-  user: ocsf.process.parent_process.user,
+  user: $event.ocsf.process.parent_process.user,
   // LogonGuid/LogonId are the logon session of the spawned process, not the
   // creator. They are placed in actor.session because it is the only session
   // data available and is useful for cross-event correlation; the two sessions
   // are identical in the common case where the parent did not change the token.
   // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
   session: {
-    uid: move sysmon.EventData.LogonGuid,
-    uid_alt: move sysmon.EventData.LogonId,
+    uid: move $event.sysmon.EventData.LogonGuid,
+    uid_alt: move $event.sysmon.EventData.LogonId,
   },
 }
 
 // EID 1 only fires on successful process creation; there is no failure variant.
-ocsf.status_id = 1
+$event.ocsf.status_id = 1

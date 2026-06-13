@@ -1,87 +1,90 @@
 ---
 description: Splunk CIM Change Account Management → OCSF Group Management (3006)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "assign_privileges" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "revoke_privileges" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "add_user" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "remove_user" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "delete" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   "create" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "add_subgroup" => {
-    ocsf.activity_id = 7
+    $event.ocsf.activity_id = 7
   }
   "remove_subgroup" => {
-    ocsf.activity_id = 8
+    $event.ocsf.activity_id = 8
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 3
-ocsf.class_uid = 3006
-splunk::ocsf::cim::helpers::common
-splunk::ocsf::cim::helpers::status
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3006
+splunk::ocsf::cim::helpers::common event=$event
+splunk::ocsf::cim::helpers::status event=$event
 
 // --- OCSF: group attributes -------------------
 
-ocsf.group = {
-  name: move cim.object?,
-  type: move cim.object_category?,
-  uid: move cim.object_id?,
+$event.ocsf.group = {
+  name: move $event.cim.object?,
+  type: move $event.cim.object_category?,
+  uid: move $event.cim.object_id?,
 }
-ocsf.privileges = move cim.object_attrs?
-ocsf.user = {
-  name: move cim.user_name? else move cim.user?,
-  type: move cim.user_type?,
+$event.ocsf.privileges = move $event.cim.object_attrs?
+$event.ocsf.user = {
+  name: move $event.cim.user_name? else move $event.cim.user?,
+  type: move $event.cim.user_type?,
 }
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    name: move cim.src_user_name? else move cim.src_user?,
-    type: move cim.src_user_type?,
+    name: move $event.cim.src_user_name? else move $event.cim.src_user?,
+    type: move $event.cim.src_user_type?,
   },
 }
-ocsf.src_endpoint = {
-  hostname: move cim.src?,
+$event.ocsf.src_endpoint = {
+  hostname: move $event.cim.src?,
 }
-if cim.dvc? != null {
-  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
-  ocsf.device = {
-    hostname: move cim.dvc,
+if $event.cim.dvc? != null {
+  $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
+  $event.ocsf.device = {
+    hostname: move $event.cim.dvc,
   }
 }
-ocsf.http_request = {
-  user_agent: move cim.user_agent?,
+$event.ocsf.http_request = {
+  user_agent: move $event.cim.user_agent?,
 }
-if cim.vendor_account? != null or cim.vendor_region? != null {
-  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "cloud"]
-  ocsf.cloud = {
+if $event.cim.vendor_account? != null or $event.cim.vendor_region? != null {
+  $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "cloud"]
+  $event.ocsf.cloud = {
     account: {
-      uid: move cim.vendor_account?,
+      uid: move $event.cim.vendor_account?,
     },
-    region: move cim.vendor_region?,
+    region: move $event.cim.vendor_region?,
   }
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.group_management"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

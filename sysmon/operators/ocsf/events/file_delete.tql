@@ -4,26 +4,31 @@ description: >
   OCSF File System Activity (1001, Delete).
   Both events report a file deletion; EID 23 additionally archives the file
   to the Sysmon ArchiveDirectory (reflected in is_deleted and unmapped).
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.file_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1001
-ocsf.activity_id = 4  // Delete
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+$event.ocsf.activity_id = 4  // Delete
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
 
 
-ocsf.file = {
-  path: move sysmon.EventData.TargetFilename,
-  type_id: 8 if (move sysmon.EventData.IsExecutable) else 1,
+$event.ocsf.file = {
+  path: move $event.sysmon.EventData.TargetFilename,
+  type_id: 8 if (move $event.sysmon.EventData.IsExecutable) else 1,
   is_deleted: true,
 }
-ocsf.file.name = ocsf.file.path.split("\\")[-1]
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
 
-ocsf.file.hashes = ((move sysmon.EventData.Hashes)
+$event.ocsf.file.hashes = ((move $event.sysmon.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
@@ -31,24 +36,24 @@ ocsf.file.hashes = ((move sysmon.EventData.Hashes)
     value: kv[1]?,
   }))
 
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.actor = {
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid: move sysmon.EventData.ProcessGuid,
-    pid: (move sysmon.EventData.ProcessId).int(),
-    path: move sysmon.EventData.Image,
+    uid: move $event.sysmon.EventData.ProcessGuid,
+    pid: (move $event.sysmon.EventData.ProcessId).int(),
+    path: move $event.sysmon.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
+drop $event._user
 
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
 
 // Archived (EID 23 only) — no OCSF field; left in unmapped.

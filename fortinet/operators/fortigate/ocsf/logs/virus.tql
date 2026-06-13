@@ -1,51 +1,56 @@
 ---
 description: "FortiGate antivirus logs → OCSF Detection Finding (2004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
 // `virus` is the malware name; `virusid` is the signature ID;
 // `dtype` is the detection type (e.g. "Virus", "Botnet").
-ocsf.malware = [{
-  name: move fortinet.virus,
-  uid: (move fortinet.virusid).string(),
+$event.ocsf.malware = [{
+  name: move $event.fortinet.virus,
+  uid: (move $event.fortinet.virusid).string(),
   // `dtype` maps to classification: "Virus" → 19.
   classification_ids: [19],
   provider: "FortiGate",
 }]
 
-ocsf.finding_info = {
-  uid: ocsf.malware[0].uid,
-  title: ocsf.malware[0].name,
-  src_url: move fortinet.ref,
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.malware[0].uid,
+  title: $event.ocsf.malware[0].name,
+  src_url: move $event.fortinet.ref,
   analytic: {
     type_id: 1,  // Rule
-    name: ocsf.malware[0].name,
+    name: $event.ocsf.malware[0].name,
   },
 }
 
 // Network context goes into evidences for Detection Finding.
-fortinet::fortigate::ocsf::network_evidence
+fortinet::fortigate::ocsf::network_evidence event=$event
 
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
     monitored: 17,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.
-fortinet::fortigate::ocsf::risk
+fortinet::fortigate::ocsf::risk event=$event

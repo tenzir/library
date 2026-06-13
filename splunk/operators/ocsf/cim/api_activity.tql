@@ -1,84 +1,87 @@
 ---
 description: Splunk CIM Data Access → OCSF API Activity (6003)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "create" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "read" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "update" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "delete" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 6
-ocsf.class_uid = 6003
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6003
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: API attributes ---------------------
 
-ocsf.api = {
-  operation: move cim.object?,
+$event.ocsf.api = {
+  operation: move $event.cim.object?,
   service: {
-    name: move cim.app?,
+    name: move $event.cim.app?,
   },
 }
-ocsf.resources = [
+$event.ocsf.resources = [
   {
-    name: ocsf.api.operation?,
-    type: move cim.object_category?,
-    uid: move cim.object_id?,
+    name: $event.ocsf.api.operation?,
+    type: move $event.cim.object_category?,
+    uid: move $event.cim.object_id?,
   },
 ]
-ocsf.http_request = {
+$event.ocsf.http_request = {
   url: {
-    url_string: move cim.dest_url?,
+    url_string: move $event.cim.dest_url?,
   },
-  user_agent: move cim.user_agent?,
+  user_agent: move $event.cim.user_agent?,
 }
-ocsf.src_endpoint = {
-  ip: move cim.src?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.cim.src?,
 }
-ocsf.dst_endpoint = {
-  hostname: move cim.dest?,
+$event.ocsf.dst_endpoint = {
+  hostname: move $event.cim.dest?,
 }
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    name: move cim.user_name? else move cim.user?,
-    type: move cim.user_type? else move cim.user_role?,
-    uid: move cim.user_id?,
+    name: move $event.cim.user_name? else move $event.cim.user?,
+    type: move $event.cim.user_type? else move $event.cim.user_role?,
+    uid: move $event.cim.user_id?,
   },
 }
-if cim.dvc? != null {
-  ocsf.metadata.profiles = ["host"]
-  ocsf.device = {
-    hostname: move cim.dvc,
+if $event.cim.dvc? != null {
+  $event.ocsf.metadata.profiles = ["host"]
+  $event.ocsf.device = {
+    hostname: move $event.cim.dvc,
   }
 }
-if cim.vendor_account? != null or cim.vendor_region? != null {
-  ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "cloud"]
-  ocsf.cloud = {
+if $event.cim.vendor_account? != null or $event.cim.vendor_region? != null {
+  $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "cloud"]
+  $event.ocsf.cloud = {
     account: {
-      uid: move cim.vendor_account?,
+      uid: move $event.cim.vendor_account?,
     },
-    region: move cim.vendor_region?,
+    region: move $event.cim.vendor_region?,
   }
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.api_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

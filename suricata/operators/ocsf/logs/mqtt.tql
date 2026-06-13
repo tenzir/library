@@ -1,3 +1,10 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
 /*
@@ -7,68 +14,68 @@
  * - disconnect: Network connection closed = activity_id 2
  * - publish/subscribe/suback/etc: Traffic = activity_id 6
  */
-if suricata.mqtt.has("connect") or (suricata.mqtt.has("connack") and suricata.mqtt.connack.return_code == 0) {
-  ocsf.activity_id = 1
-} else if suricata.mqtt.has("connack") and suricata.mqtt.connack.return_code != 0 {
-  ocsf.activity_id = 4
-} else if suricata.mqtt.has("disconnect") {
-  ocsf.activity_id = 2
-} else if suricata.mqtt.has("publish") or suricata.mqtt.has("subscribe") or suricata.mqtt.has("suback") {
-  ocsf.activity_id = 6
+if $event.suricata.mqtt.has("connect") or ($event.suricata.mqtt.has("connack") and $event.suricata.mqtt.connack.return_code == 0) {
+  $event.ocsf.activity_id = 1
+} else if $event.suricata.mqtt.has("connack") and $event.suricata.mqtt.connack.return_code != 0 {
+  $event.ocsf.activity_id = 4
+} else if $event.suricata.mqtt.has("disconnect") {
+  $event.ocsf.activity_id = 2
+} else if $event.suricata.mqtt.has("publish") or $event.suricata.mqtt.has("subscribe") or $event.suricata.mqtt.has("suback") {
+  $event.ocsf.activity_id = 6
 } else {
-  ocsf.activity_id = 99
+  $event.ocsf.activity_id = 99
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
 
 // Severity: informational for normal operations
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
 // Protocol details for MQTT
-if suricata.mqtt.has("connect") {
-  ocsf.app_protocol_name = "mqtt"
-  ocsf.connection_info.session.uid = move suricata.mqtt.connect.client_id?
+if $event.suricata.mqtt.has("connect") {
+  $event.ocsf.app_protocol_name = "mqtt"
+  $event.ocsf.connection_info.session.uid = move $event.suricata.mqtt.connect.client_id?
 }
 
 // --- OCSF: primary attributes -----------------
 
-if suricata.mqtt.has("connack") {
-  suricata.mqtt.connack._return_code = suricata.mqtt.connack.return_code
-  ocsf.status_code = string(move suricata.mqtt.connack.return_code)
-  ocsf.status_id = 1 if suricata.mqtt.connack._return_code == 0 else 2
-  drop suricata.mqtt.connack._return_code
+if $event.suricata.mqtt.has("connack") {
+  $event.suricata.mqtt.connack._return_code = $event.suricata.mqtt.connack.return_code
+  $event.ocsf.status_code = string(move $event.suricata.mqtt.connack.return_code)
+  $event.ocsf.status_id = 1 if $event.suricata.mqtt.connack._return_code == 0 else 2
+  drop $event.suricata.mqtt.connack._return_code
 }
 
-if suricata.mqtt.has("disconnect") {
-  if suricata.mqtt.disconnect.has("reason_code") {
-    ocsf.status_code = string(move suricata.mqtt.disconnect.reason_code)
+if $event.suricata.mqtt.has("disconnect") {
+  if $event.suricata.mqtt.disconnect.has("reason_code") {
+    $event.ocsf.status_code = string(move $event.suricata.mqtt.disconnect.reason_code)
   }
 }
 
-if suricata.mqtt.has("publish") {
-  ocsf.message = move suricata.mqtt.publish.topic
-  drop suricata.mqtt.publish.message_id?
-  drop suricata.mqtt.publish.qos?
-  drop suricata.mqtt.publish.message // binary
+if $event.suricata.mqtt.has("publish") {
+  $event.ocsf.message = move $event.suricata.mqtt.publish.topic
+  drop $event.suricata.mqtt.publish.message_id?
+  drop $event.suricata.mqtt.publish.qos?
+  drop $event.suricata.mqtt.publish.message // binary
 }
 
-if suricata.mqtt.has("subscribe") {
-  drop suricata.mqtt.subscribe.message_id?
-  drop suricata.mqtt.subscribe.qos?
+if $event.suricata.mqtt.has("subscribe") {
+  drop $event.suricata.mqtt.subscribe.message_id?
+  drop $event.suricata.mqtt.subscribe.qos?
 }
 
-if suricata.mqtt.has("suback") {
-  drop suricata.mqtt.suback.message_id?
-  drop suricata.mqtt.suback.qos_granted?
+if $event.suricata.mqtt.has("suback") {
+  drop $event.suricata.mqtt.suback.message_id?
+  drop $event.suricata.mqtt.suback.qos_granted?
 }
 
-if ocsf.status_id? == null {
-  ocsf.status_id = 1
+if $event.ocsf.status_id? == null {
+  $event.ocsf.status_id = 1
 }
 
 // --- Finalize ---------------------------------

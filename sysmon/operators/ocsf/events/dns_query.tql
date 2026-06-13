@@ -1,28 +1,33 @@
 ---
 description: Sysmon DnsQuery (EID 22) → OCSF DNS Activity (4003, Query)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.dns_activity"
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4003
-ocsf.activity_id = 1  // Query
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4003
+$event.ocsf.activity_id = 1  // Query
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Sysmon always knows the DNS client process; the query is outbound.
 // Note: is_src_dst_assignment_known is not part of DNS Activity (4003) — only
 // Network Activity (4001) defines it.
-ocsf.connection_info = { direction_id: 2 }  // Outbound
+$event.ocsf.connection_info = { direction_id: 2 }  // Outbound
 
-ocsf.query = {
-  hostname:  move sysmon.EventData.QueryName,
+$event.ocsf.query = {
+  hostname:  move $event.sysmon.EventData.QueryName,
   opcode_id: 0,  // Standard query
 }
 
 // QueryStatus 0 = success (RCODE NOERROR); anything else is an error.
 // Read first for status_id, then move for status_code.
-ocsf.status_id = 1 if sysmon.EventData.QueryStatus == 0 else 2
-ocsf.status_code = (move sysmon.EventData.QueryStatus).string()
+$event.ocsf.status_id = 1 if $event.sysmon.EventData.QueryStatus == 0 else 2
+$event.ocsf.status_code = (move $event.sysmon.EventData.QueryStatus).string()
 
 // Sysmon bundles CNAME chains + IPs into QueryResults as a semicolon-separated
 // string (e.g. "type:  5 cdn.example.com;::ffff:1.2.3.4;"). There is no clean
@@ -30,23 +35,23 @@ ocsf.status_code = (move sysmon.EventData.QueryStatus).string()
 // raw field is left in unmapped.EventData for consumers that need it.
 
 // The process and user that issued the query — mapped via the Host profile actor.
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.actor = {
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid:  move sysmon.EventData.ProcessGuid,
-    pid:  (move sysmon.EventData.ProcessId).int(),
-    path: move sysmon.EventData.Image,
+    uid:  move $event.sysmon.EventData.ProcessGuid,
+    pid:  (move $event.sysmon.EventData.ProcessId).int(),
+    path: move $event.sysmon.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name:   _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name:   $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
+drop $event._user
 
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
-drop sysmon.EventData.Initiated  // always "true" for Sysmon DNS events
+drop $event.sysmon.EventData.Initiated  // always "true" for Sysmon DNS events

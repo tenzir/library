@@ -1,69 +1,74 @@
 ---
 description: Sophos SIEM Event → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Sophos Endpoint"
-ocsf.metadata.log_name = "siem/events"
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.product.name = "Sophos Endpoint"
+$event.ocsf.metadata.log_name = "siem/events"
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = now()
-if sophos.when? != null {
-  ocsf.time = time(move sophos.when)
-} else if sophos.created_at? != null {
-  ocsf.time = time(move sophos.created_at)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = now()
+if $event.sophos.when? != null {
+  $event.ocsf.time = time(move $event.sophos.when)
+} else if $event.sophos.created_at? != null {
+  $event.ocsf.time = time(move $event.sophos.created_at)
 }
-ocsf.status_id = 1
+$event.ocsf.status_id = 1
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
-  title: sophos.threat? else sophos.name? else sophos.type?,
-  desc: move sophos.name?,
-  created_time: time(move sophos.created_at?),
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  title: $event.sophos.threat? else $event.sophos.name? else $event.sophos.type?,
+  desc: move $event.sophos.name?,
+  created_time: time(move $event.sophos.created_at?),
   product: {
-    name: move sophos.origin?,
+    name: move $event.sophos.origin?,
     vendor_name: "Sophos",
   },
-  types: [move sophos.group?],
+  types: [move $event.sophos.group?],
 }
 
-ocsf.device = {
-  uid: sophos.endpoint_id?,
-  name: sophos.location?,
-  hostname: sophos.location?,
+$event.ocsf.device = {
+  uid: $event.sophos.endpoint_id?,
+  name: $event.sophos.location?,
+  hostname: $event.sophos.location?,
   type_id: 2,
-  ip: sophos.source_info?.ip?,
+  ip: $event.sophos.source_info?.ip?,
 }
 
-ocsf.evidences = [{
-  device: ocsf.device?,
+$event.ocsf.evidences = [{
+  device: $event.ocsf.device?,
   actor: {
     user: {
-      uid: move sophos.user_id?,
-      name: sophos.source?.split("\\")[-1]?,
-      domain: sophos.source?.split("\\")[0]?,
-      full_name: move sophos.source?,
+      uid: move $event.sophos.user_id?,
+      name: $event.sophos.source?.split("\\")[-1]?,
+      domain: $event.sophos.source?.split("\\")[0]?,
+      full_name: move $event.sophos.source?,
       type_id: 1,
     },
   },
   src_endpoint: {
-    ip: sophos.source_info?.ip?,
+    ip: $event.sophos.source_info?.ip?,
   },
   data: {
-    file_sha256: move sophos.appSha256?,
+    file_sha256: move $event.sophos.appSha256?,
   },
 }]
 
-ocsf.resources = [{
-  uid: ocsf.device.uid,
-  name: ocsf.device.hostname,
+$event.ocsf.resources = [{
+  uid: $event.ocsf.device.uid,
+  name: $event.ocsf.device.hostname,
   type: "Device",
   role_id: 3,
 }]
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true
