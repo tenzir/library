@@ -10,8 +10,6 @@ args:
 
 $event = {udm: $event, ocsf: {}}
 
-$event._google_entity_type = $event.udm.metadata.entityType? else "UNKNOWN_ENTITYTYPE"
-
 $event.ocsf.time = $event.udm.metadata.collectedTimestamp? else $event.udm.metadata.creationTimestamp? else $event.udm.metadata.eventMetadata?.eventTimestamp?
 $event.ocsf.severity_id = 1
 $event.ocsf.category_uid = 5
@@ -27,7 +25,7 @@ $event.ocsf.metadata = {
 }
 $event.ocsf.message = $event.udm.metadata.description?
 
-match $event._google_entity_type {
+match ($event.udm.metadata.entityType? else "UNKNOWN_ENTITYTYPE") {
   "ASSET" => {
     @name = "ocsf.inventory_info"
     $event.ocsf.class_uid = 5001
@@ -89,55 +87,31 @@ match $event._google_entity_type {
     })]
   }
   "DOMAIN_NAME" => {
-    $event._google_osint_value = $event.udm.entity?.domain?.name? else $event.udm.entity?.hostname?
-    if $event._google_osint_value != null {
-      @name = "ocsf.osint_inventory_info"
-      $event.ocsf.class_uid = 5021
-      $event.ocsf.activity_id = 2
-      $event.ocsf.osint = [{
-        type_id: 2,
-        value: $event._google_osint_value,
-      }]
-    } else {
-      @name = "ocsf.base_event"
-      $event.ocsf.category_uid = 0
-      $event.ocsf.class_uid = 0
-      $event.ocsf.activity_id = 99
-    }
+    @name = "ocsf.osint_inventory_info"
+    $event.ocsf.class_uid = 5021
+    $event.ocsf.activity_id = 2
+    $event.ocsf.osint = [{
+      type_id: 2,
+      value: $event.udm.entity?.domain?.name? else $event.udm.entity?.hostname?,
+    }]
   }
   "IP_ADDRESS" => {
-    $event._google_osint_value = $event.udm.entity?.ip?[0]?.string()
-    if $event._google_osint_value != null {
-      @name = "ocsf.osint_inventory_info"
-      $event.ocsf.class_uid = 5021
-      $event.ocsf.activity_id = 2
-      $event.ocsf.osint = [{
-        type_id: 1,
-        value: $event._google_osint_value,
-      }]
-    } else {
-      @name = "ocsf.base_event"
-      $event.ocsf.category_uid = 0
-      $event.ocsf.class_uid = 0
-      $event.ocsf.activity_id = 99
-    }
+    @name = "ocsf.osint_inventory_info"
+    $event.ocsf.class_uid = 5021
+    $event.ocsf.activity_id = 2
+    $event.ocsf.osint = [{
+      type_id: 1,
+      value: $event.udm.entity?.ip?[0]?.string(),
+    }]
   }
   "URL" => {
-    $event._google_osint_value = $event.udm.entity?.url?
-    if $event._google_osint_value != null {
-      @name = "ocsf.osint_inventory_info"
-      $event.ocsf.class_uid = 5021
-      $event.ocsf.activity_id = 2
-      $event.ocsf.osint = [{
-        type_id: 5,
-        value: $event._google_osint_value,
-      }]
-    } else {
-      @name = "ocsf.base_event"
-      $event.ocsf.category_uid = 0
-      $event.ocsf.class_uid = 0
-      $event.ocsf.activity_id = 99
-    }
+    @name = "ocsf.osint_inventory_info"
+    $event.ocsf.class_uid = 5021
+    $event.ocsf.activity_id = 2
+    $event.ocsf.osint = [{
+      type_id: 5,
+      value: $event.udm.entity?.url?,
+    }]
   }
   _ => {
     @name = "ocsf.base_event"

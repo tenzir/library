@@ -11,8 +11,6 @@ args:
 $event = {ocsf: $event, udm: {}}
 @name = "google.udm.event"
 
-$event._google_class_uid = $event.ocsf.class_uid? else 0
-$event._google_activity_id = $event.ocsf.activity_id? else 0
 let $default_event_types = {
   "1001": "FILE_UNCATEGORIZED",
   "1002": "GENERIC_EVENT",
@@ -71,7 +69,7 @@ let $default_event_types = {
 $event.udm.metadata = {
   eventTimestamp: $event.ocsf.time?,
   collectedTimestamp: $event.ocsf.metadata?.logged_time? else $event.ocsf.time?,
-  eventType: $default_event_types[$event._google_class_uid.string()]? else "GENERIC_EVENT",
+  eventType: $default_event_types[$event.ocsf.class_uid?.string()]? else "GENERIC_EVENT",
   vendorName: $event.ocsf.metadata?.product?.vendor_name? else "OCSF",
   productName: $event.ocsf.metadata?.product?.name? else "OCSF",
   productVersion: $event.ocsf.metadata?.product?.version? else $event.ocsf.metadata?.version?,
@@ -80,9 +78,9 @@ $event.udm.metadata = {
   description: $event.ocsf.message?,
 }
 
-match $event._google_class_uid {
+match ($event.ocsf.class_uid? else 0) {
   1001 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       1 => {
         $event.udm.metadata.eventType = "FILE_CREATION"
       }
@@ -105,7 +103,7 @@ match $event._google_class_uid {
     }
   }
   1006 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       1 => {
         $event.udm.metadata.eventType = "SCHEDULED_TASK_CREATION"
       }
@@ -119,7 +117,7 @@ match $event._google_class_uid {
     }
   }
   1007 | 1009 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       1 => {
         $event.udm.metadata.eventType = "PROCESS_LAUNCH"
       }
@@ -136,7 +134,7 @@ match $event._google_class_uid {
     }
   }
   3001 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       1 => {
         $event.udm.metadata.eventType = "USER_CREATION"
       }
@@ -150,7 +148,7 @@ match $event._google_class_uid {
     }
   }
   3002 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       2 => {
         $event.udm.metadata.eventType = "USER_LOGOUT"
       }
@@ -161,7 +159,7 @@ match $event._google_class_uid {
     $event.udm.target.application = $event.ocsf.service?.name?
   }
   3006 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       5 => {
         $event.udm.metadata.eventType = "GROUP_DELETION"
       }
@@ -177,7 +175,7 @@ match $event._google_class_uid {
     }
   }
   6001 => {
-    match $event._google_activity_id {
+    match ($event.ocsf.activity_id? else 0) {
       1 => {
         $event.udm.metadata.eventType = "RESOURCE_CREATION"
       }
@@ -209,42 +207,30 @@ match $event._google_class_uid {
 }
 
 if $event.ocsf.src_endpoint? != null {
-  if $event.ocsf.src_endpoint.hostname? != null {
-    $event.udm.principal.hostname = $event.ocsf.src_endpoint.hostname
-  }
-  if $event.ocsf.src_endpoint.ip? != null {
-    $event.udm.principal.ip = [$event.ocsf.src_endpoint.ip]
-  }
-  if $event.ocsf.src_endpoint.port? != null {
-    $event.udm.principal.port = $event.ocsf.src_endpoint.port
-  }
-  if $event.ocsf.src_endpoint.mac? != null {
-    $event.udm.principal.mac = [$event.ocsf.src_endpoint.mac]
+  $event.udm.principal = {
+    ...$event.udm.principal?,
+    hostname: $event.ocsf.src_endpoint.hostname?,
+    ip: [$event.ocsf.src_endpoint.ip] if $event.ocsf.src_endpoint.ip? != null,
+    port: $event.ocsf.src_endpoint.port?,
+    mac: [$event.ocsf.src_endpoint.mac] if $event.ocsf.src_endpoint.mac? != null,
   }
 }
 
 if $event.ocsf.dst_endpoint? != null {
-  if $event.ocsf.dst_endpoint.hostname? != null {
-    $event.udm.target.hostname = $event.ocsf.dst_endpoint.hostname
-  }
-  if $event.ocsf.dst_endpoint.ip? != null {
-    $event.udm.target.ip = [$event.ocsf.dst_endpoint.ip]
-  }
-  if $event.ocsf.dst_endpoint.port? != null {
-    $event.udm.target.port = $event.ocsf.dst_endpoint.port
-  }
-  if $event.ocsf.dst_endpoint.mac? != null {
-    $event.udm.target.mac = [$event.ocsf.dst_endpoint.mac]
+  $event.udm.target = {
+    ...$event.udm.target?,
+    hostname: $event.ocsf.dst_endpoint.hostname?,
+    ip: [$event.ocsf.dst_endpoint.ip] if $event.ocsf.dst_endpoint.ip? != null,
+    port: $event.ocsf.dst_endpoint.port?,
+    mac: [$event.ocsf.dst_endpoint.mac] if $event.ocsf.dst_endpoint.mac? != null,
   }
 }
 
 if $event.udm.principal? == null and $event.ocsf.device? != null {
-  $event.udm.principal.hostname = $event.ocsf.device.hostname?
-  if $event.ocsf.device.ip? != null {
-    $event.udm.principal.ip = [$event.ocsf.device.ip]
-  }
-  if $event.ocsf.device.mac? != null {
-    $event.udm.principal.mac = [$event.ocsf.device.mac]
+  $event.udm.principal = {
+    hostname: $event.ocsf.device.hostname?,
+    ip: [$event.ocsf.device.ip] if $event.ocsf.device.ip? != null,
+    mac: [$event.ocsf.device.mac] if $event.ocsf.device.mac? != null,
   }
 }
 
@@ -270,7 +256,7 @@ if $event.ocsf.actor?.process? != null {
   }
 }
 if $event.ocsf.process? != null {
-  if $event._google_class_uid == 1007 {
+  if ($event.ocsf.class_uid? else 0) == 1007 {
     $event.udm.target.process.pid = $event.ocsf.process.pid?.string()
     $event.udm.target.process.commandLine = $event.ocsf.process.cmd_line?
     $event.udm.target.process.file.fullPath = $event.ocsf.process.file.path?
@@ -291,11 +277,8 @@ if $event.ocsf.module? != null {
   if $event.ocsf.module.file.name? != null {
     $event.udm.target.process.file.names = [$event.ocsf.module.file.name]
   }
-  if $event.ocsf.module.file.hashes? != null {
-    $event._google_sha256_hash = $event.ocsf.module.file.hashes.where(hash => hash.algorithm_id? == 3)[0]?.value?
-    if $event._google_sha256_hash != null {
-      $event.udm.target.process.file.sha256 = $event._google_sha256_hash
-    }
+  if $event.ocsf.module.file.hashes.where(hash => hash.algorithm_id? == 3)[0]?.value? != null {
+    $event.udm.target.process.file.sha256 = $event.ocsf.module.file.hashes.where(hash => hash.algorithm_id? == 3)[0].value
   }
 }
 
@@ -308,11 +291,8 @@ if $event.ocsf.file? != null {
   if $event.ocsf.file.name? != null {
     $event.udm.target.file.names = [$event.ocsf.file.name]
   }
-  if $event.ocsf.file.hashes? != null {
-    $event._google_sha256_hash = $event.ocsf.file.hashes.where(hash => hash.algorithm_id? == 3)[0]?.value?
-    if $event._google_sha256_hash != null {
-      $event.udm.target.file.sha256 = $event._google_sha256_hash
-    }
+  if $event.ocsf.file.hashes.where(hash => hash.algorithm_id? == 3)[0]?.value? != null {
+    $event.udm.target.file.sha256 = $event.ocsf.file.hashes.where(hash => hash.algorithm_id? == 3)[0].value
   }
 }
 
@@ -360,38 +340,41 @@ if $event.ocsf.traffic? != null {
   $event.udm.network.receivedPackets = $event.ocsf.traffic.packets_in?
 }
 
-if $event._google_class_uid == 4002 {
-  $event.udm.network.applicationProtocol = "HTTP"
-  $event.udm.network.http.method = $event.ocsf.http_request?.http_method?
-  $event.udm.network.http.userAgent = $event.ocsf.http_request?.user_agent?
-  $event.udm.network.http.responseCode = $event.ocsf.http_response?.code?
-  $event.udm.target.url = $event.ocsf.http_request?.url?.url_string?
-}
-if $event._google_class_uid == 4003 {
-  $event.udm.network.applicationProtocol = "DNS"
-  if $event.ocsf.query?.hostname? != null {
-    $event.udm.network.dns.questions = [drop_null_fields({
-      name: $event.ocsf.query.hostname,
-      type: $event.ocsf.query.type?,
-    })]
-    $event.udm.target.hostname = $event.ocsf.query.hostname
+match ($event.ocsf.class_uid? else 0) {
+  4002 => {
+    $event.udm.network.applicationProtocol = "HTTP"
+    $event.udm.network.http.method = $event.ocsf.http_request?.http_method?
+    $event.udm.network.http.userAgent = $event.ocsf.http_request?.user_agent?
+    $event.udm.network.http.responseCode = $event.ocsf.http_response?.code?
+    $event.udm.target.url = $event.ocsf.http_request?.url?.url_string?
   }
-  $event.udm.network.dns.responseCode = $event.ocsf.rcode_id?
-}
-if $event._google_class_uid == 4004 {
-  $event.udm.network.applicationProtocol = "DHCP"
-}
-if $event._google_class_uid == 4008 {
-  $event.udm.network.applicationProtocol = "FTP"
-}
-if $event._google_class_uid == 4009 or $event._google_class_uid == 4011 or $event._google_class_uid == 4012 {
-  $event.udm.network.applicationProtocol = "SMTP"
-  $event.udm.network.email.from = $event.ocsf.email?.from? else $event.ocsf.from?
-  $event.udm.network.email.mailId = $event.ocsf.email?.message_uid?
-  $event.udm.network.email.to = $event.ocsf.email?.to? else $event.ocsf.to?
-  if $event.ocsf.email?.subject? != null {
-    $event.udm.network.email.subject = [$event.ocsf.email.subject]
+  4003 => {
+    $event.udm.network.applicationProtocol = "DNS"
+    if $event.ocsf.query?.hostname? != null {
+      $event.udm.network.dns.questions = [drop_null_fields({
+        name: $event.ocsf.query.hostname,
+        type: $event.ocsf.query.type?,
+      })]
+      $event.udm.target.hostname = $event.ocsf.query.hostname
+    }
+    $event.udm.network.dns.responseCode = $event.ocsf.rcode_id?
   }
+  4004 => {
+    $event.udm.network.applicationProtocol = "DHCP"
+  }
+  4008 => {
+    $event.udm.network.applicationProtocol = "FTP"
+  }
+  4009 | 4011 | 4012 => {
+    $event.udm.network.applicationProtocol = "SMTP"
+    $event.udm.network.email.from = $event.ocsf.email?.from? else $event.ocsf.from?
+    $event.udm.network.email.mailId = $event.ocsf.email?.message_uid?
+    $event.udm.network.email.to = $event.ocsf.email?.to? else $event.ocsf.to?
+    if $event.ocsf.email?.subject? != null {
+      $event.udm.network.email.subject = [$event.ocsf.email.subject]
+    }
+  }
+  _ => {}
 }
 
 if $event.ocsf.resource? != null {
@@ -415,8 +398,7 @@ if $event.ocsf.web_resources_result? != null and $event.udm.target?.resource? ==
   $event.udm.target.resource.resourceSubtype = $event.ocsf.web_resources_result[0]?.type?
 }
 
-if ($event._google_class_uid >= 2001 and $event._google_class_uid <= 2008) or $event.ocsf.finding_info? != null {
-  $event._google_severity_id = $event.ocsf.severity_id? else 1
+if (($event.ocsf.class_uid? else 0) >= 2001 and ($event.ocsf.class_uid? else 0) <= 2008) or $event.ocsf.finding_info? != null {
   let $severities = {
     "0": "UNKNOWN_SEVERITY",
     "1": "INFORMATIONAL",
@@ -431,7 +413,7 @@ if ($event._google_class_uid >= 2001 and $event._google_class_uid <= 2008) or $e
     ruleName: $event.ocsf.finding_info?.title?,
     summary: $event.ocsf.finding_info?.title? else $event.ocsf.message?,
     description: $event.ocsf.finding_info?.desc? else $event.ocsf.message?,
-    severity: $severities[$event._google_severity_id.string()]? else "INFORMATIONAL",
+    severity: $severities[$event.ocsf.severity_id?.string()]? else "INFORMATIONAL",
     actionDetails: $event.ocsf.action? else $event.ocsf.disposition?,
   })]
 }
