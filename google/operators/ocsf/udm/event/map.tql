@@ -8,7 +8,7 @@ args:
       default: this
 ---
 
-$event = {...$event, udm: $event, ocsf: {}}
+$event = {udm: $event, ocsf: {}}
 
 $event._google_event_type = $event.udm.metadata.eventType? else "GENERIC_EVENT"
 
@@ -448,8 +448,6 @@ if $event.ocsf.class_uid == 4009 and $event.udm.network?.email? != null {
     subject: $event.udm.network.email.subject?[0]?,
     to: $event.udm.network.email.to?,
   }
-  $event.ocsf.from = $event.udm.network.email.from?
-  $event.ocsf.to = $event.udm.network.email.to?
 }
 if $event.ocsf.class_uid >= 2001 and $event.ocsf.class_uid <= 2004 {
   $event._google_security_result = $event.udm.securityResult?[0]?
@@ -459,6 +457,15 @@ if $event.ocsf.class_uid >= 2001 and $event.ocsf.class_uid <= 2004 {
     desc: $event._google_security_result.description? else $event.udm.metadata.description?,
   }
   $event.ocsf.message = $event._google_security_result.summary? else $event.ocsf.message?
+  let $severity_ids = {
+    UNKNOWN_SEVERITY: 0,
+    INFORMATIONAL: 1,
+    LOW: 2,
+    MEDIUM: 3,
+    HIGH: 4,
+    CRITICAL: 5,
+  }
+  $event.ocsf.severity_id = $severity_ids[$event._google_security_result.severity?]? else $event.ocsf.severity_id
 }
 if $event.ocsf.class_uid == 2002 {
   if $event.udm.extensions?.vulns?.vulnerabilities? != null {
