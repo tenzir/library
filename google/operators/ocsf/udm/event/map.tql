@@ -162,19 +162,70 @@ match $event._google_event_type {
     @name = "ocsf.dhcp_activity"
     $event.ocsf.category_uid = 4
     $event.ocsf.class_uid = 4004
-    $event.ocsf.activity_id = 6
+    let $dhcp_activity_ids = {
+      DISCOVER: 1,
+      OFFER: 2,
+      REQUEST: 3,
+      DECLINE: 4,
+      ACK: 5,
+      NAK: 6,
+      RELEASE: 7,
+      INFORM: 8,
+      WIN_EXPIRED: 9,
+    }
+    $event.ocsf.activity_id = $dhcp_activity_ids[($event.udm.network.dhcp.type? else "").to_upper()]? else 0
+    if $event.ocsf.activity_id == 0 {
+      @name = "ocsf.network_activity"
+      $event.ocsf.class_uid = 4001
+      $event.ocsf.activity_id = 6
+    }
   }
   "NETWORK_HTTP" => {
     @name = "ocsf.http_activity"
     $event.ocsf.category_uid = 4
     $event.ocsf.class_uid = 4002
-    $event.ocsf.activity_id = 6
+    let $http_activity_ids = {
+      CONNECT: 1,
+      DELETE: 2,
+      GET: 3,
+      HEAD: 4,
+      OPTIONS: 5,
+      POST: 6,
+      PUT: 7,
+      TRACE: 8,
+      PATCH: 9,
+    }
+    $event.ocsf.activity_id = $http_activity_ids[($event.udm.network.http.method? else "").to_upper()]? else 0
+    if $event.ocsf.activity_id == 0 {
+      @name = "ocsf.network_activity"
+      $event.ocsf.class_uid = 4001
+      $event.ocsf.activity_id = 6
+    }
   }
   "NETWORK_FTP" => {
     @name = "ocsf.ftp_activity"
     $event.ocsf.category_uid = 4
     $event.ocsf.class_uid = 4008
-    $event.ocsf.activity_id = 6
+    let $ftp_activity_ids = {
+      APPE: 1,
+      STOR: 1,
+      STOU: 1,
+      RETR: 2,
+      MLSD: 3,
+      MLST: 3,
+      LIST: 6,
+      NLST: 6,
+      DELE: 4,
+      RMD: 4,
+      RNFR: 5,
+      RNTO: 5,
+    }
+    $event.ocsf.activity_id = $ftp_activity_ids[($event.udm.network.ftp.command? else "").to_upper()]? else 0
+    if $event.ocsf.activity_id == 0 {
+      @name = "ocsf.network_activity"
+      $event.ocsf.class_uid = 4001
+      $event.ocsf.activity_id = 6
+    }
   }
   "NETWORK_SMTP" | "EMAIL_TRANSACTION" => {
     @name = "ocsf.email_activity"
@@ -200,7 +251,7 @@ match $event._google_event_type {
     $event.ocsf.class_uid = 2004
     $event.ocsf.activity_id = 1
   }
-  "RESOURCE_CREATION" => {
+  "RESOURCE_CREATION" | "USER_RESOURCE_CREATION" => {
     @name = "ocsf.web_resources_activity"
     $event.ocsf.category_uid = 6
     $event.ocsf.class_uid = 6001
@@ -212,17 +263,23 @@ match $event._google_event_type {
     $event.ocsf.class_uid = 6001
     $event.ocsf.activity_id = 2
   }
-  "RESOURCE_WRITTEN" => {
+  "RESOURCE_WRITTEN" | "USER_RESOURCE_UPDATE_CONTENT" => {
     @name = "ocsf.web_resources_activity"
     $event.ocsf.category_uid = 6
     $event.ocsf.class_uid = 6001
     $event.ocsf.activity_id = 3
   }
-  "RESOURCE_DELETION" => {
+  "RESOURCE_DELETION" | "USER_RESOURCE_DELETION" => {
     @name = "ocsf.web_resources_activity"
     $event.ocsf.category_uid = 6
     $event.ocsf.class_uid = 6001
     $event.ocsf.activity_id = 4
+  }
+  "RESOURCE_PERMISSIONS_CHANGE" | "USER_RESOURCE_UPDATE_PERMISSIONS" => {
+    @name = "ocsf.web_resources_activity"
+    $event.ocsf.category_uid = 6
+    $event.ocsf.class_uid = 6001
+    $event.ocsf.activity_id = 8
   }
   _ => {
     @name = "ocsf.base_event"
@@ -271,10 +328,6 @@ if $event.udm.principal.ip? != null {
 if $event.udm.principal.mac? != null {
   $event.ocsf.device.mac = $event.udm.principal.mac[0]
 }
-if $event.ocsf.device? != null {
-  $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
-}
-
 if $event.udm.principal.user? != null {
   $event.ocsf.actor.user.name = $event.udm.principal.user.userDisplayName? else $event.udm.principal.user.userid?
   $event.ocsf.actor.user.uid = $event.udm.principal.user.userid?
@@ -350,6 +403,10 @@ if $event.udm.target.file? != null {
   }
 }
 
+if $event.ocsf.device? != null or $event.ocsf.actor? != null {
+  $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
+}
+
 if $event.udm.network? != null {
   if $event.udm.network.sentBytes? != null or $event.udm.network.receivedBytes? != null or $event.udm.network.totalBytes? != null or $event.udm.network.sentPackets? != null or $event.udm.network.receivedPackets? != null {
     $event.ocsf.traffic.bytes_out = $event.udm.network.sentBytes?
@@ -392,6 +449,12 @@ if $event.ocsf.class_uid == 4003 {
 if $event.ocsf.class_uid == 3002 {
   $event.ocsf.service.name = $event.udm.target.application? else $event.udm.metadata.productName?
 }
+if $event.ocsf.class_uid == 4004 {
+  $event.ocsf.lease_dur = $event.udm.network.dhcp.leaseTimeSeconds?
+}
+if $event.ocsf.class_uid == 4008 {
+  $event.ocsf.command = $event.udm.network.ftp.command?
+}
 if $event.ocsf.class_uid >= 2001 and $event.ocsf.class_uid <= 2004 {
   $event.ocsf.finding_info = {
     uid: $event.udm.securityResult[0]?.ruleId?,
@@ -401,9 +464,11 @@ if $event.ocsf.class_uid >= 2001 and $event.ocsf.class_uid <= 2004 {
   $event.ocsf.message = $event.udm.securityResult[0]?.summary? else $event.ocsf.message?
 }
 if $event.ocsf.category_uid == 6 and $event.udm.target.resource? != null {
-  $event.ocsf.resource.name = $event.udm.target.resource.name?
-  $event.ocsf.resource.uid = $event.udm.target.resource.productObjectId?
-  $event.ocsf.resource.type = $event.udm.target.resource.resourceSubtype?
+  $event.ocsf.web_resources = [drop_null_fields({
+    name: $event.udm.target.resource.name?,
+    uid: $event.udm.target.resource.productObjectId?,
+    type: $event.udm.target.resource.resourceSubtype? else $event.udm.target.resource.resourceType?,
+  })]
 }
 
 $event = {...$event.ocsf, unmapped: $event.udm}
