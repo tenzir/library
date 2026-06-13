@@ -1,0 +1,44 @@
+---
+description: Maps OCSF File System Activity events to Microsoft Sentinel ASIM FileEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 1001
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.file_event"
+$event.asim.EventSchema = "FileEvent"
+$event.asim.EventSchemaVersion = "0.2.2"
+match $event.ocsf.activity_name {
+  "Create" => { $event.asim.EventType = "FileCreated"}
+  "Read" | "Open" => { $event.asim.EventType = "FileAccessed"}
+  "Update" | "Set Attributes" | "Set Security" => { $event.asim.EventType = "FileModified"}
+  "Delete" => { $event.asim.EventType = "FileDeleted"}
+  "Rename" => { $event.asim.EventType = "FileRenamed"}
+  _ => { $event.asim.EventType = "FileCreatedOrModified"}
+}
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
+}
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.TargetFilePath = $event.ocsf.file?.path? else $event.ocsf.file?.name?
+$event.asim.TargetFileName = $event.ocsf.file?.name? else $event.asim.TargetFilePath?.split("\\")[-1]
+if $event.ocsf.activity_name == "Rename" and $event.ocsf.file_result? != null {
+  $event.asim.SrcFilePath = $event.asim.TargetFilePath
+  $event.asim.SrcFileName = $event.asim.TargetFileName
+  $event.asim.SrcFilePathType = "Windows Local" if $event.asim.SrcFilePath?.contains("\\") == true else "Unix Local"
+  $event.asim.TargetFilePath = $event.ocsf.file_result.path? else $event.asim.TargetFilePath
+  $event.asim.TargetFileName = $event.ocsf.file_result.name? else $event.asim.TargetFileName
+}
+$event.asim.TargetFilePathType = "Windows Local" if $event.asim.TargetFilePath?.contains("\\") == true else "Unix Local"
+
+$event = move $event.asim

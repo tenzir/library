@@ -1,0 +1,42 @@
+---
+description: Maps OCSF Network Activity events to Microsoft Sentinel ASIM NetworkSession records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 4001
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.network_session"
+$event.asim.EventSchema = "NetworkSession"
+$event.asim.EventSchemaVersion = "0.2.7"
+$event.asim.EventType = "NetworkSession"
+$event.asim.EventType = "Flow" if $event.ocsf.activity_name == "Traffic" else $event.asim.EventType
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
+$event.asim.SrcPortNumber = $event.ocsf.src_endpoint?.port?
+$event.asim.DstIpAddr = $event.ocsf.dst_endpoint?.ip?
+$event.asim.DstHostname = $event.ocsf.dst_endpoint?.hostname?
+$event.asim.DstPortNumber = $event.ocsf.dst_endpoint?.port?
+$event.asim.SrcBytes = $event.ocsf.traffic?.bytes_out?
+$event.asim.DstBytes = $event.ocsf.traffic?.bytes_in?
+match $event.ocsf.disposition? {
+  "Allowed" => {
+    $event.asim.DvcAction = "Allow"
+    $event.asim.EventResult = "Success"
+  }
+  "Blocked" | "Denied" => {
+    $event.asim.DvcAction = "Deny"
+    $event.asim.EventResult = "Failure"
+    $event.asim.EventSeverity = $event.asim.EventSeverity? else "Low"
+  }
+  _ => {}
+}
+
+$event = move $event.asim

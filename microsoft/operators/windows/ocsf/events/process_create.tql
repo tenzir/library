@@ -1,47 +1,52 @@
 ---
 description: Process Creation (EID 4688) → OCSF Process Activity (1007, Launch)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.process_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1007
-ocsf.activity_id = 1  // Launch
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 1  // Launch
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.launch_type_id = 1  // Spawn
+$event.ocsf.launch_type_id = 1  // Spawn
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    uid: move windows.EventData.SubjectUserSid,
-    name: move windows.EventData.SubjectUserName,
-    domain: move windows.EventData.SubjectDomainName,
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move windows.EventData.SubjectLogonId,
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
   },
 }
 
-ocsf.process = {
-  pid: int(move windows.EventData.NewProcessId, base=16),
-  path: move windows.EventData.NewProcessName,
-  cmd_line: move windows.EventData.CommandLine,
+$event.ocsf.process = {
+  pid: int(move $event.windows.EventData.NewProcessId, base=16),
+  path: move $event.windows.EventData.NewProcessName,
+  cmd_line: move $event.windows.EventData.CommandLine,
   file: { type_id: 8 },
   parent_process: {
-    pid: int(move windows.EventData.ProcessId, base=16),
-    path: move windows.EventData.ParentProcessName,
+    pid: int(move $event.windows.EventData.ProcessId, base=16),
+    path: move $event.windows.EventData.ParentProcessName,
     file: { type_id: 8 },
   },
 }
-ocsf.process.name = ocsf.process.path.split("\\")[-1]
-ocsf.process.file.name = ocsf.process.name
-ocsf.process.file.path = ocsf.process.path
-ocsf.process.parent_process.name = ocsf.process.parent_process.path.split("\\")[-1]
-ocsf.process.parent_process.file.name = ocsf.process.parent_process.name
-ocsf.process.parent_process.file.path = ocsf.process.parent_process.path
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
+$event.ocsf.process.parent_process.name = $event.ocsf.process.parent_process.path.split("\\")[-1]
+$event.ocsf.process.parent_process.file.name = $event.ocsf.process.parent_process.name
+$event.ocsf.process.parent_process.file.path = $event.ocsf.process.parent_process.path
 
 // EID 4688 only fires on success.
-ocsf.status_id = 1
+$event.ocsf.status_id = 1
 
 // TargetUserSid/Name/Domain are the impersonation target (usually null after
 // sentinel replacement). TokenElevationType and MandatoryLabel have no OCSF home.

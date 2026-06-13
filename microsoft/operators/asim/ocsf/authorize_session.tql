@@ -1,0 +1,64 @@
+---
+description: Maps OCSF Authorize Session events to Microsoft Sentinel ASIM Authentication events.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 3003
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.authentication"
+$event.asim.EventSchema = "Authentication"
+$event.asim.EventSchemaVersion = "0.1.4"
+$event.asim.EventType = "Elevate"
+match $event.ocsf.logon_type? {
+  "System" => { $event.asim.EventSubType = "System"}
+  "Interactive" | "Cached Interactive" | "Unlock" | "Cached Unlock" => {
+    $event.asim.EventSubType = "Interactive"
+  }
+  "Network" | "Network Cleartext" => { $event.asim.EventSubType = "Remote"}
+  "Remote Interactive" | "Cached Remote Interactive" => {
+    $event.asim.EventSubType = "RemoteInteractive"
+  }
+  "OS Service" => { $event.asim.EventSubType = "Service"}
+  _ => {}
+}
+if $event.ocsf.logon_type? != null {
+  $event.asim.EventOriginalSubType = $event.ocsf.logon_type
+}
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
+}
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
+$event.asim.ActorSessionId = $event.ocsf.actor?.session?.uid? else $event.ocsf.actor?.session?.uid_alt?
+$event.asim.TargetUsername = $event.ocsf.user?.email_addr? else $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+if $event.ocsf.user?.domain? != null and $event.ocsf.user?.name? != null {
+  $event.asim.TargetUsername = f"{$event.ocsf.user.domain}\\{$event.ocsf.user.name}"
+  $event.asim.TargetUsernameType = "Windows"
+  $event.asim.TargetDomain = $event.ocsf.user.domain
+  $event.asim.TargetDomainType = "Windows"
+}
+$event.asim.TargetUserId = $event.ocsf.user?.uid?
+$event.asim.TargetUserIdType = "SID" if $event.asim.TargetUserId?.starts_with("S-") == true
+$event.asim.TargetSessionId = $event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
+$event.asim.SrcPortNumber = $event.ocsf.src_endpoint?.port?
+$event.asim.TargetHostname = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.device?.hostname?
+$event.asim.TargetAppId = $event.ocsf.service?.uid? else $event.ocsf.dst_endpoint?.uid?
+$event.asim.TargetAppName = $event.ocsf.service?.name? else $event.ocsf.dst_endpoint?.svc_name?
+$event.asim.LogonProtocol = $event.ocsf.auth_protocol?
+if $event.ocsf.auth_factors? != null {
+  $event.asim.LogonMethod = $event.ocsf.auth_factors[0]?.factor_type?
+}
+
+$event = move $event.asim

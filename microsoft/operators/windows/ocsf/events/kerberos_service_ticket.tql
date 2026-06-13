@@ -1,39 +1,44 @@
 ---
 description: Kerberos Service Ticket Requested (EID 4769) → OCSF Authentication (3002, Service Ticket)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.authentication"
 
-ocsf.category_uid = 3
-ocsf.class_uid = 3002
-ocsf.activity_id = 4  // Service Ticket
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+$event.ocsf.activity_id = 4  // Service Ticket
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Status 0x0 = success; anything else = failure (e.g. 0x1F = no TGT).
-ocsf.status_id = 1 if windows.EventData.Status == "0x0" else 2
-ocsf.status_code = move windows.EventData.Status
+$event.ocsf.status_id = 1 if $event.windows.EventData.Status == "0x0" else 2
+$event.ocsf.status_code = move $event.windows.EventData.Status
 
 // TargetUserName usually includes @REALM (e.g. "jdoe@CORP.LOCAL"); split off
 // the realm into domain. Fall back to TargetDomainName when no @ is present.
-_parts = (move windows.EventData.TargetUserName).split("@")
-ocsf.user = {
+_parts = (move $event.windows.EventData.TargetUserName).split("@")
+$event.ocsf.user = {
   name: _parts[0],
-  domain: _parts[1]? else move windows.EventData.TargetDomainName,
+  domain: _parts[1]? else move $event.windows.EventData.TargetDomainName,
 }
 drop _parts
 
-ocsf.dst_endpoint = {
-  svc_name: move windows.EventData.ServiceName,
+$event.ocsf.dst_endpoint = {
+  svc_name: move $event.windows.EventData.ServiceName,
 }
 
-ocsf.src_endpoint = {
-  ip: move windows.EventData.IpAddress,
-  port: move windows.EventData.IpPort,
+$event.ocsf.src_endpoint = {
+  ip: move $event.windows.EventData.IpAddress,
+  port: move $event.windows.EventData.IpPort,
 }
 
 // The logon GUID links this TGS request back to the original TGT logon event.
-ocsf.session = {
-  uid: move windows.EventData.LogonGuid,
+$event.ocsf.session = {
+  uid: move $event.windows.EventData.LogonGuid,
 }
 
 // TicketOptions, TicketEncryptionType, ServiceSid, TransmittedServices — unmapped.

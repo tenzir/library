@@ -11,7 +11,7 @@ prs:
 created: 2026-03-24T13:37:04.933237Z
 ---
 
-The `microsoft::windows::ocsf::map` operator now covers five additional Windows Event Log categories:
+The `microsoft::ocsf::map` operator now covers five additional Windows Event Log categories:
 
 **PowerShell logging** (EIDs 4100/4103/4104/4105/4106) maps to OCSF Script Activity (1009). EID 4104 (Script Block Logging) sets `severity_id` to Low when AMSI flags the block; EID 4100 (engine error) marks the execution as a failure.
 

@@ -1,29 +1,34 @@
 ---
 description: Audit Log Cleared (EID 1102) → OCSF Event Log Activity (1008, Clear)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.event_log_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1008
-ocsf.activity_id = 1  // Clear
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1008
+$event.ocsf.activity_id = 1  // Clear
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // Clearing the security audit log is a high-severity indicator of an attacker
 // covering their tracks (MITRE ATT&CK T1070.001).
-ocsf.severity_id = 4  // High
+$event.ocsf.severity_id = 4  // High
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    uid: move windows.EventData.SubjectUserSid,
-    name: move windows.EventData.SubjectUserName,
-    domain: move windows.EventData.SubjectDomainName,
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move windows.EventData.SubjectLogonId,
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
   },
   process: {
-    pid: int(move windows.EventData.ClientProcessId, base=16),
+    pid: int(move $event.windows.EventData.ClientProcessId, base=16),
   },
 }
 

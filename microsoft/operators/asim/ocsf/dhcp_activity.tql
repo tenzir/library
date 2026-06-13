@@ -1,0 +1,29 @@
+---
+description: Maps OCSF DHCP Activity events to Microsoft Sentinel ASIM DhcpEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 4004
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.dhcp_event"
+$event.asim.EventSchema = "DhcpEvent"
+$event.asim.EventSchemaVersion = "0.1.1"
+match $event.ocsf.activity_name {
+  "Ack" | "Offer" => { $event.asim.EventType = "Assign"}
+  "Request" => { $event.asim.EventType = "Renew"}
+  "Release" => { $event.asim.EventType = "Release"}
+  _ => { $event.asim.EventType = "Assign"}
+}
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip?.string()
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcMacAddr = $event.ocsf.src_endpoint?.mac?
+
+$event = move $event.asim

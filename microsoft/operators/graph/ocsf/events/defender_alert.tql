@@ -1,19 +1,24 @@
 ---
 description: Microsoft Defender alert → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Microsoft Defender"
-ocsf.metadata.log_name = "security/alerts_v2"
-ocsf.metadata.profiles = ["cloud", "incident", "security_control"]
+$event.ocsf.metadata.product.name = "Microsoft Defender"
+$event.ocsf.metadata.log_name = "security/alerts_v2"
+$event.ocsf.metadata.profiles = ["cloud", "incident", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = time(move graph.createdDateTime)
-ocsf.end_time = time(move graph.lastUpdateDateTime?)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = time(move $event.graph.createdDateTime)
+$event.ocsf.end_time = time(move $event.graph.lastUpdateDateTime?)
 
 let $severities = {
   informational: 1,
@@ -21,17 +26,17 @@ let $severities = {
   medium: 3,
   high: 4,
 }
-ocsf.severity_id = $severities[graph.severity]? else 0
-drop graph.severity?
+$event.ocsf.severity_id = $severities[$event.graph.severity]? else 0
+drop $event.graph.severity?
 
 let $statuses = {
   new: 1,
   inProgress: 2,
   resolved: 4,
 }
-ocsf.status_id = $statuses[graph.status]?
-if ocsf.status_id != null {
-  drop graph.status?
+$event.ocsf.status_id = $statuses[$event.graph.status]?
+if $event.ocsf.status_id != null {
+  drop $event.graph.status?
 }
 
 let $verdicts = {
@@ -40,61 +45,61 @@ let $verdicts = {
   truePositive: 2,
   informationalExpectedActivity: 5,
 }
-ocsf.verdict_id = $verdicts[graph.classification?]?
-if ocsf.verdict_id != null {
-  drop graph.classification?
+$event.ocsf.verdict_id = $verdicts[$event.graph.classification?]?
+if $event.ocsf.verdict_id != null {
+  drop $event.graph.classification?
 }
 
-match graph.determination {
+match $event.graph.determination {
   "unknown" | "unknownFutureValue" => {}
-  _ if graph.determination? != null => {
-    graph._finding_types = {
-      types: [move graph.determination],
+  _ if $event.graph.determination? != null => {
+    $event.graph._finding_types = {
+      types: [move $event.graph.determination],
     }
   }
   _ => {}
 }
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
-  uid_alt: move graph.providerAlertId?,
-  title: move graph.title?,
-  desc: move graph.description?,
-  modified_time: ocsf.end_time,
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  uid_alt: move $event.graph.providerAlertId?,
+  title: move $event.graph.title?,
+  desc: move $event.graph.description?,
+  modified_time: $event.ocsf.end_time,
   product: {
-    name: move graph.serviceSource?,
+    name: move $event.graph.serviceSource?,
     vendor_name: "Microsoft",
     feature: {
-      name: move graph.detectionSource?,
+      name: move $event.graph.detectionSource?,
     },
   },
   related_events: [{
-    uid: move graph.incidentId?,
+    uid: move $event.graph.incidentId?,
   }],
-  ...move graph._finding_types?,
+  ...move $event.graph._finding_types?,
 }
-if graph.detectorId? != null {
-  ocsf.finding_info.analytic = {
-    uid: move graph.detectorId,
+if $event.graph.detectorId? != null {
+  $event.ocsf.finding_info.analytic = {
+    uid: move $event.graph.detectorId,
     type_id: 0,
   }
 }
 
-if graph.mitreTechniques? != null {
-  ocsf.attacks = graph.mitreTechniques.map(t => {
+if $event.graph.mitreTechniques? != null {
+  $event.ocsf.attacks = $event.graph.mitreTechniques.map(t => {
     technique: {
       uid: t,
     },
   })
-  drop graph.mitreTechniques
+  drop $event.graph.mitreTechniques
 }
 
-if graph.evidence? != null {
-  ocsf.evidences = graph.evidence.map(e => {
+if $event.graph.evidence? != null {
+  $event.ocsf.evidences = $event.graph.evidence.map(e => {
     name: e["@odata.type"]?,
     data: e,
   })
-  drop graph.evidence
+  drop $event.graph.evidence
 }
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true

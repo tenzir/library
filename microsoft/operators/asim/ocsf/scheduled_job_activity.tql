@@ -1,0 +1,48 @@
+---
+description: Maps OCSF Scheduled Job Activity events to Microsoft Sentinel ASIM AuditEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 1006
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.audit_event"
+$event.asim.EventSchema = "AuditEvent"
+$event.asim.EventSchemaVersion = "0.1.2"
+$event.asim.EventType = "Other"
+match $event.ocsf.activity_name {
+  "Create" => { $event.asim.EventType = "Create"}
+  "Read" => { $event.asim.EventType = "Read"}
+  "Update" | "Set" => { $event.asim.EventType = "Set"}
+  "Delete" => { $event.asim.EventType = "Delete"}
+  "Execute" => { $event.asim.EventType = "Execute"}
+  "Install" => { $event.asim.EventType = "Install"}
+  "Clear" => { $event.asim.EventType = "Clear"}
+  "Enable" => { $event.asim.EventType = "Enable"}
+  "Disable" => { $event.asim.EventType = "Disable"}
+  "Start" => { $event.asim.EventType = "Start"}
+  "Stop" => { $event.asim.EventType = "Stop"}
+  _ => {}
+}
+$event.asim.Operation = $event.ocsf.activity_name? else $event.ocsf.type_name? else $event.asim.EventType
+$event.asim.Object = $event.ocsf.job?.name? else $event.ocsf.log_name? else $event.ocsf.metadata?.log_name? else $event.ocsf.entity?.name? else $event.ocsf.entity?.uid? else $event.ocsf.win_service?.name? else $event.ocsf.win_service?.service_file?.path?
+$event.asim.ObjectType = "Scheduled Task"
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid? else $event.ocsf.actor?.app_name? else $event.ocsf.actor?.app_uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
+}
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.TargetHostname = $event.ocsf.dst_endpoint?.hostname?
+$event.asim.TargetIpAddr = $event.ocsf.dst_endpoint?.ip?
+
+$event = move $event.asim

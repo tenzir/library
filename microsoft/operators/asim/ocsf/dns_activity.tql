@@ -1,0 +1,34 @@
+---
+description: Maps OCSF DNS Activity events to Microsoft Sentinel ASIM Dns records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 4003
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.dns"
+$event.asim.EventSchema = "Dns"
+$event.asim.EventSchemaVersion = "0.1.7"
+$event.asim.EventType = $event.ocsf.query?.opcode? else "Query"
+match $event.ocsf.activity_name {
+  "Query" => { $event.asim.EventSubType = "request"}
+  "Response" => { $event.asim.EventSubType = "response"}
+  _ => {}
+}
+$event.asim.DnsQuery = $event.ocsf.query?.hostname?
+$event.asim.DnsQueryTypeName = $event.ocsf.query?.type?
+$event.asim.DnsQueryClassName = $event.ocsf.query?.class?
+$event.asim.EventResultDetails = $event.ocsf.rcode? else "NA"
+$event.asim.SrcIpAddr = $event.ocsf.src_endpoint?.ip?
+$event.asim.SrcHostname = $event.ocsf.src_endpoint?.hostname?
+$event.asim.DstIpAddr = $event.ocsf.dst_endpoint?.ip?
+$event.asim.DstHostname = $event.ocsf.dst_endpoint?.hostname?
+
+$event = move $event.asim

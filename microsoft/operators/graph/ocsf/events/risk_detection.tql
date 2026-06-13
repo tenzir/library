@@ -1,19 +1,24 @@
 ---
 description: Microsoft Entra ID risk detection → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Microsoft Entra ID Protection"
-ocsf.metadata.log_name = "identityProtection/riskDetections"
-ocsf.metadata.profiles = ["cloud", "security_control"]
+$event.ocsf.metadata.product.name = "Microsoft Entra ID Protection"
+$event.ocsf.metadata.log_name = "identityProtection/riskDetections"
+$event.ocsf.metadata.profiles = ["cloud", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = time(move graph.detectedDateTime)
-ocsf.end_time = time(move graph.lastUpdatedDateTime?)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = time(move $event.graph.detectedDateTime)
+$event.ocsf.end_time = time(move $event.graph.lastUpdatedDateTime?)
 
 let $risk_levels = {
   none: 1,
@@ -27,10 +32,10 @@ let $risk_level_ids = {
   medium: 2,
   high: 3,
 }
-ocsf.severity_id = $risk_levels[graph.riskLevel]? else 0
-ocsf.risk_level_id = $risk_level_ids[graph.riskLevel]?
-if ocsf.risk_level_id != null {
-  drop graph.riskLevel?
+$event.ocsf.severity_id = $risk_levels[$event.graph.riskLevel]? else 0
+$event.ocsf.risk_level_id = $risk_level_ids[$event.graph.riskLevel]?
+if $event.ocsf.risk_level_id != null {
+  drop $event.graph.riskLevel?
 }
 
 let $statuses = {
@@ -41,48 +46,48 @@ let $statuses = {
   remediated: 4,
   dismissed: 3,
 }
-ocsf.status_id = $statuses[graph.riskState]?
-if ocsf.status_id != null {
-  drop graph.riskState?
+$event.ocsf.status_id = $statuses[$event.graph.riskState]?
+if $event.ocsf.status_id != null {
+  drop $event.graph.riskState?
 }
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
-  title: move graph.riskEventType?,
-  desc: move graph.riskDetail?,
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  title: move $event.graph.riskEventType?,
+  desc: move $event.graph.riskDetail?,
   product: {
-    name: move graph.source?,
+    name: move $event.graph.source?,
     vendor_name: "Microsoft",
   },
 }
 
-ocsf.evidences = [{
+$event.ocsf.evidences = [{
   actor: {
     user: {
-      uid: move graph.userId?,
-      name: graph.userPrincipalName?.split("@")[0]?,
-      domain: graph.userPrincipalName?.split("@")[1]?,
-      email_addr: move graph.userPrincipalName?,
-      full_name: move graph.userDisplayName?,
+      uid: move $event.graph.userId?,
+      name: $event.graph.userPrincipalName?.split("@")[0]?,
+      domain: $event.graph.userPrincipalName?.split("@")[1]?,
+      email_addr: move $event.graph.userPrincipalName?,
+      full_name: move $event.graph.userDisplayName?,
       type_id: 1,
     },
   },
   src_endpoint: {
-    ip: move graph.ipAddress?,
+    ip: move $event.graph.ipAddress?,
     location: {
-      city: move graph.location.city?,
-      country: move graph.location.countryOrRegion?,
+      city: move $event.graph.location.city?,
+      country: move $event.graph.location.countryOrRegion?,
     },
   },
 }]
 
-drop graph.location?
+drop $event.graph.location?
 
-ocsf.resources = [{
-  name: ocsf.evidences[0].actor.user.email_addr,
-  uid: ocsf.evidences[0].actor.user.uid,
+$event.ocsf.resources = [{
+  name: $event.ocsf.evidences[0].actor.user.email_addr,
+  uid: $event.ocsf.evidences[0].actor.user.uid,
   type: "User",
   role_id: 3,
 }]
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true

@@ -1,0 +1,64 @@
+---
+description: Maps OCSF Detection Finding events to Microsoft Sentinel ASIM AlertEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 2004
+
+let $threat_categories = {
+  adware: "Adware",
+  cryptominer: "Cryptominor",
+  malware: "Malware",
+  phishing: "Phishing",
+  ransomware: "Ransomware",
+  rootkit: "Rootkit",
+  spam: "Spam",
+  spoofing: "Spoofing",
+  spyware: "Spyware",
+  trojan: "Trojan",
+  virus: "Virus",
+  worm: "Worm",
+}
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.alert_event"
+$event.asim.EventSchema = "AlertEvent"
+$event.asim.EventSchemaVersion = "0.1"
+$event.asim.EventType = "Alert"
+$event.asim.EventUid = $event.ocsf.finding_info?.uid? else $event.ocsf.metadata?.original_event_uid?
+
+$event.asim.AlertName = $event.ocsf.finding_info?.title? else $event.ocsf.message?
+$event.asim.EventReportUrl = $event.ocsf.finding_info?.url?
+$event.asim.EventSubType = "Threat"
+$event.asim.ThreatName = $event.ocsf.malware?[0]?.name? else $event.ocsf.finding_info?.title?
+$event.asim.ThreatCategory = $threat_categories[$event.ocsf.finding_info?.types?[0]?.to_lower()]?
+$event.asim.ThreatOriginalCategory = $event.ocsf.finding_info?.types?[0]?
+$event.asim.Username = $event.ocsf.user?.email_addr? else $event.ocsf.user?.name? else $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name?
+$event.asim.UserId = $event.ocsf.user?.uid? else $event.ocsf.actor?.user?.uid?
+$event.asim.UserIdType = "SID" if $event.asim.UserId?.starts_with("S-") == true
+match $event.ocsf.status? {
+  "New" | "Active" | "In Progress" => {
+    $event.asim.AlertStatus = "Active"
+  }
+  "Resolved" | "Closed" => {
+    $event.asim.AlertStatus = "Closed"
+  }
+  _ => {}
+}
+$event.asim.AlertOriginalStatus = $event.ocsf.status?
+match $event.ocsf.verdict? {
+  "True Positive" => { $event.asim.AlertVerdict = "True Positive"}
+  "False Positive" => { $event.asim.AlertVerdict = "False Positive"}
+  "Benign" => { $event.asim.AlertVerdict = "Benign Positive"}
+  "Unknown" => { $event.asim.AlertVerdict = "Unknown"}
+  _ => {}
+}
+
+$event = move $event.asim

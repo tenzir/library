@@ -9,4 +9,4 @@ prs:
 created: 2026-06-02T08:30:07.026165Z
 ---
 
-The `microsoft::windows::ocsf::map` operator now maps Windows Security Event ID 4672, "Special privileges assigned to new logon", to OCSF Authorize Session (3003) with the Assign Privileges activity.
+The `microsoft::ocsf::map` operator now maps Windows Security Event ID 4672, "Special privileges assigned to new logon", to OCSF Authorize Session (3003) with the Assign Privileges activity.

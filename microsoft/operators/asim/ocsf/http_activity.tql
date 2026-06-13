@@ -1,0 +1,27 @@
+---
+description: Maps OCSF HTTP Activity events to Microsoft Sentinel ASIM WebSession records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 4002
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.web_session"
+$event.asim.EventSchema = "WebSession"
+$event.asim.EventSchemaVersion = "0.2.7"
+$event.asim.EventType = "HTTPsession"
+$event.asim.Url = $event.ocsf.http_request?.url?.url_string?
+$event.asim.HttpRequestMethod = $event.ocsf.http_request?.http_method? else $event.ocsf.activity_name?.to_upper()
+$event.asim.EventResultDetails = $event.ocsf.http_response?.code?.string() else $event.ocsf.status_code?.string()
+if $event.ocsf.http_response?.code? != null {
+  $event.asim.EventResult = "Success" if $event.ocsf.http_response.code < 400 else "Failure"
+}
+
+$event = move $event.asim

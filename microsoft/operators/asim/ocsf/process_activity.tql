@@ -1,0 +1,38 @@
+---
+description: Maps OCSF Process Activity events to Microsoft Sentinel ASIM ProcessEvent records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+---
+
+$event = {...$event, ocsf: $event, asim: {}}
+
+assert $event.ocsf.class_uid == 1007
+
+microsoft::asim::ocsf::common event=$event
+
+@name = "asim.process_event"
+$event.asim.EventSchema = "ProcessEvent"
+$event.asim.EventSchemaVersion = "0.1.4"
+match $event.ocsf.activity_name {
+  "Launch" => { $event.asim.EventType = "ProcessCreated"}
+  "Terminate" => { $event.asim.EventType = "ProcessTerminated"}
+  _ => {}
+}
+$event.asim.ActorUsername = $event.ocsf.actor?.user?.email_addr? else $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+if $event.ocsf.actor?.user?.domain? != null and $event.ocsf.actor?.user?.name? != null {
+  $event.asim.ActorUsername = f"{$event.ocsf.actor.user.domain}\\{$event.ocsf.actor.user.name}"
+  $event.asim.ActorUsernameType = "Windows"
+}
+$event.asim.ActorUserId = $event.ocsf.actor?.user?.uid?
+$event.asim.ActorUserIdType = "SID" if $event.asim.ActorUserId?.starts_with("S-") == true
+$event.asim.ActingProcessId = $event.ocsf.actor?.process?.pid?.string() else $event.ocsf.process?.parent_process?.pid?.string() else $event.ocsf.process?.pid?.string()
+$event.asim.ParentProcessId = $event.ocsf.actor?.process?.parent_process?.pid?.string()
+$event.asim.TargetProcessId = $event.ocsf.process?.pid?.string()
+$event.asim.TargetProcessName = $event.ocsf.process?.name? else $event.ocsf.process?.file?.name? else $event.ocsf.process?.path?.split("\\")[-1]
+$event.asim.TargetProcessCommandLine = $event.ocsf.process?.cmd_line?
+$event.asim.TargetUserId = $event.ocsf.user?.uid?
+
+$event = move $event.asim
