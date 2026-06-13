@@ -1,35 +1,40 @@
 ---
 description: Sysmon ImageLoad (EID 7) → OCSF Module Activity (1005, Load)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.module_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1005
-ocsf.activity_id = 1  // Load
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1005
+$event.ocsf.activity_id = 1  // Load
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $algorithms = { MD5: 1, SHA1: 2, SHA256: 3, SHA512: 4 }
 let $sig_states  = { Valid: 1, Expired: 2, Revoked: 3, Untrusted: 6 }
 
 // Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
-replace sysmon.EventData.FileVersion, what="-", with=null
-replace sysmon.EventData.Description, what="-", with=null
-replace sysmon.EventData.Product, what="-", with=null
-replace sysmon.EventData.Company, what="-", with=null
-replace sysmon.EventData.OriginalFileName, what="-", with=null
-replace sysmon.EventData.Signature, what="-", with=null
-replace sysmon.EventData.SignatureStatus, what="-", with=null
+replace $event.sysmon.EventData.FileVersion, what="-", with=null
+replace $event.sysmon.EventData.Description, what="-", with=null
+replace $event.sysmon.EventData.Product, what="-", with=null
+replace $event.sysmon.EventData.Company, what="-", with=null
+replace $event.sysmon.EventData.OriginalFileName, what="-", with=null
+replace $event.sysmon.EventData.Signature, what="-", with=null
+replace $event.sysmon.EventData.SignatureStatus, what="-", with=null
 
-ocsf.module = {
+$event.ocsf.module = {
   file: {
-    path: move sysmon.EventData.ImageLoaded,
+    path: move $event.sysmon.EventData.ImageLoaded,
     type_id: 8,  // Executable File (DLLs are PE images)
-    version: move sysmon.EventData.FileVersion,
-    desc: move sysmon.EventData.Description,
-    company_name: move sysmon.EventData.Company,
-    internal_name: move sysmon.EventData.OriginalFileName,
-    hashes: ((move sysmon.EventData.Hashes)
+    version: move $event.sysmon.EventData.FileVersion,
+    desc: move $event.sysmon.EventData.Description,
+    company_name: move $event.sysmon.EventData.Company,
+    internal_name: move $event.sysmon.EventData.OriginalFileName,
+    hashes: ((move $event.sysmon.EventData.Hashes)
                .split(",")
                .map(h => h.split("=", max=1))
                .map(kv => {
@@ -38,45 +43,45 @@ ocsf.module = {
                })),
   },
 }
-ocsf.module.file.name = ocsf.module.file.path.split("\\")[-1]
+$event.ocsf.module.file.name = $event.ocsf.module.file.path.split("\\")[-1]
 
 // product.name is a required field — only add the object when the source has a value.
-if sysmon.EventData.Product != null {
-  ocsf.module.file.product = { name: move sysmon.EventData.Product }
+if $event.sysmon.EventData.Product != null {
+  $event.ocsf.module.file.product = { name: move $event.sysmon.EventData.Product }
 }
-drop sysmon.EventData.Product
+drop $event.sysmon.EventData.Product
 
 // Attach digital-signature details when the module is signed.
-if sysmon.EventData.Signed {
-  ocsf.module.file.signature = {
+if $event.sysmon.EventData.Signed {
+  $event.ocsf.module.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
-    state_id: $sig_states[sysmon.EventData.SignatureStatus]?,
+    state_id: $sig_states[$event.sysmon.EventData.SignatureStatus]?,
   }
-  if sysmon.EventData.Signature != null {
-    ocsf.module.file.signature.certificate = {
-      issuer: move sysmon.EventData.Signature,
+  if $event.sysmon.EventData.Signature != null {
+    $event.ocsf.module.file.signature.certificate = {
+      issuer: move $event.sysmon.EventData.Signature,
     }
   }
 }
-drop sysmon.EventData.Signed
-drop sysmon.EventData.Signature
-drop sysmon.EventData.SignatureStatus
+drop $event.sysmon.EventData.Signed
+drop $event.sysmon.EventData.Signature
+drop $event.sysmon.EventData.SignatureStatus
 
 // The process that loaded the module.
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.actor = {
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid: move sysmon.EventData.ProcessGuid,
-    pid: (move sysmon.EventData.ProcessId).int(),
-    path: move sysmon.EventData.Image,
+    uid: move $event.sysmon.EventData.ProcessGuid,
+    pid: (move $event.sysmon.EventData.ProcessId).int(),
+    path: move $event.sysmon.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+drop $event._user
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path

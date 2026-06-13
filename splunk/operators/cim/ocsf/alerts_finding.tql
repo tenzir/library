@@ -1,51 +1,56 @@
 ---
 description: OCSF Finding → Splunk CIM Alerts
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid in [2001, 2004, 2006]
+assert $event.ocsf.class_uid in [2001, 2004, 2006]
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["alert"]
+$event.cim.tag = ["alert"]
 
 // --- CIM: occurrence attributes ---------------
 
-cim._time = time
-cim.type = "alert" if is_alert? == true else "event"
-cim.app = metadata.product.name?
+$event.cim._time = $event.ocsf.time
+$event.cim.type = "alert" if $event.ocsf.is_alert? == true else "event"
+$event.cim.app = $event.ocsf.metadata.product.name?
 
 // --- CIM: finding attributes ------------------
 
-cim.id = finding_info?.uid? else finding?.uid? else metadata.original_event_uid?
-cim.description = finding_info?.desc? else finding?.desc? else message?
-cim.signature = finding_info?.title? else finding?.title? else type_name? else class_name?
-cim.signature_id = finding_info?.uid? else finding?.uid? else metadata.event_code? else type_uid?.string()
-cim.subject = cim.signature
-cim.mitre_technique_id = [...(
-  finding_info?.attacks?.map(a => a.technique?.uid?) else
-  attacks?.map(a => a.technique?.uid?)
+$event.cim.id = $event.ocsf.finding_info?.uid? else $event.ocsf.finding?.uid? else $event.ocsf.metadata.original_event_uid?
+$event.cim.description = $event.ocsf.finding_info?.desc? else $event.ocsf.finding?.desc? else $event.ocsf.message?
+$event.cim.signature = $event.ocsf.finding_info?.title? else $event.ocsf.finding?.title? else $event.ocsf.type_name? else $event.ocsf.class_name?
+$event.cim.signature_id = $event.ocsf.finding_info?.uid? else $event.ocsf.finding?.uid? else $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
+$event.cim.subject = $event.cim.signature
+$event.cim.mitre_technique_id = [...(
+  $event.ocsf.finding_info?.attacks?.map(a => a.technique?.uid?) else
+  $event.ocsf.attacks?.map(a => a.technique?.uid?)
 )]
-splunk::cim::ocsf::helpers::severity
+splunk::cim::ocsf::helpers::severity event=$event
 
 // --- CIM: source and destination attributes ---
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name? else
-          actor?.process?.device?.hostname? else actor?.process?.device?.ip? else actor?.process?.device?.name?
-cim.src_type = src_endpoint?.type? else actor?.process?.device?.type?
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name? else
-           device?.hostname? else device?.ip? else device?.name? else
-           resource?.name? else resources?[0]?.name? else resources?[0]?.hostname? else resources?[0]?.ip?
-cim.dest_type = dst_endpoint?.type? else device?.type?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name? else
+          $event.ocsf.actor?.process?.device?.hostname? else $event.ocsf.actor?.process?.device?.ip? else $event.ocsf.actor?.process?.device?.name?
+$event.cim.src_type = $event.ocsf.src_endpoint?.type? else $event.ocsf.actor?.process?.device?.type?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name? else
+           $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name? else
+           $event.ocsf.resource?.name? else $event.ocsf.resources?[0]?.name? else $event.ocsf.resources?[0]?.hostname? else $event.ocsf.resources?[0]?.ip?
+$event.cim.dest_type = $event.ocsf.dst_endpoint?.type? else $event.ocsf.device?.type?
 
 // --- CIM: user and cloud attributes -----------
 
-cim.user = actor?.user?.name? else actor?.user?.uid? else user?.name? else user?.uid?
-cim.user_name = actor?.user?.name? else user?.name?
-cim.vendor_account = cloud?.account?.uid?
-cim.vendor_region = cloud?.region?
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid? else $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+$event.cim.user_name = $event.ocsf.actor?.user?.name? else $event.ocsf.user?.name?
+$event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
+$event.cim.vendor_region = $event.ocsf.cloud?.region?
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

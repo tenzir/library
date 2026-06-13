@@ -1,52 +1,57 @@
 ---
 description: OCSF Process Activity (1007) → Splunk CIM Endpoint Processes
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 1007
+assert $event.ocsf.class_uid == 1007
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["process", "report"]
+$event.cim.tag = ["process", "report"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+$event.cim._time = $event.ocsf.time
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
 
 // --- CIM: endpoint attributes -----------------
 
-cim.dest = device?.hostname? else device?.ip? else device?.name?
-cim.os = device?.os?.name?
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.os = $event.ocsf.device?.os?.name?
 
 // --- CIM: process attributes ------------------
 
-cim.process = process?.cmd_line? else process?.path? else process?.name?
-cim.process_exec = process?.file?.name? else process?.name?
-cim.process_guid = process?.uid? else process?.cpid?.string()
-cim.process_hash = [...process?.file?.hashes?.map(h => h.value)]
-cim.process_id = process?.pid?
-cim.process_integrity_level = process?.integrity?.to_lower()
-cim.process_name = process?.name? else process?.file?.name?
-cim.process_path = process?.path? else process?.file?.path?
-cim.process_current_directory = process?.working_directory?
+$event.cim.process = $event.ocsf.process?.cmd_line? else $event.ocsf.process?.path? else $event.ocsf.process?.name?
+$event.cim.process_exec = $event.ocsf.process?.file?.name? else $event.ocsf.process?.name?
+$event.cim.process_guid = $event.ocsf.process?.uid? else $event.ocsf.process?.cpid?.string()
+$event.cim.process_hash = [...$event.ocsf.process?.file?.hashes?.map(h => h.value)]
+$event.cim.process_id = $event.ocsf.process?.pid?
+$event.cim.process_integrity_level = $event.ocsf.process?.integrity?.to_lower()
+$event.cim.process_name = $event.ocsf.process?.name? else $event.ocsf.process?.file?.name?
+$event.cim.process_path = $event.ocsf.process?.path? else $event.ocsf.process?.file?.path?
+$event.cim.process_current_directory = $event.ocsf.process?.working_directory?
 
-cim.parent_process = process?.parent_process?.cmd_line?
-cim.parent_process_exec = process?.parent_process?.file?.name? else process?.parent_process?.name?
-cim.parent_process_guid = process?.parent_process?.uid?
-cim.parent_process_hash = [...process?.parent_process?.file?.hashes?.map(h => h.value)]
-cim.parent_process_id = process?.parent_process?.pid?
-cim.parent_process_name = process?.parent_process?.name? else process?.parent_process?.file?.name?
-cim.parent_process_path = process?.parent_process?.path? else process?.parent_process?.file?.path?
-cim.parent_user = process?.parent_process?.user?.name?
+$event.cim.parent_process = $event.ocsf.process?.parent_process?.cmd_line?
+$event.cim.parent_process_exec = $event.ocsf.process?.parent_process?.file?.name? else $event.ocsf.process?.parent_process?.name?
+$event.cim.parent_process_guid = $event.ocsf.process?.parent_process?.uid?
+$event.cim.parent_process_hash = [...$event.ocsf.process?.parent_process?.file?.hashes?.map(h => h.value)]
+$event.cim.parent_process_id = $event.ocsf.process?.parent_process?.pid?
+$event.cim.parent_process_name = $event.ocsf.process?.parent_process?.name? else $event.ocsf.process?.parent_process?.file?.name?
+$event.cim.parent_process_path = $event.ocsf.process?.parent_process?.path? else $event.ocsf.process?.parent_process?.file?.path?
+$event.cim.parent_user = $event.ocsf.process?.parent_process?.user?.name?
 
 // --- CIM: user and product attributes ---------
 
-cim.user = process?.user?.name? else process?.user?.uid?
-cim.user_id = process?.user?.uid?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.process?.user?.name? else $event.ocsf.process?.user?.uid?
+$event.cim.user_id = $event.ocsf.process?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

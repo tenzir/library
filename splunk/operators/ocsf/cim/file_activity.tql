@@ -1,126 +1,129 @@
 ---
 description: Splunk CIM Endpoint Filesystem → OCSF File System Activity (1001)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "create" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "read" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "update" | "write" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "delete" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "rename" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   "set_attributes" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "set_security" => {
-    ocsf.activity_id = 7
+    $event.ocsf.activity_id = 7
   }
   "get_attributes" => {
-    ocsf.activity_id = 8
+    $event.ocsf.activity_id = 8
   }
   "get_security" => {
-    ocsf.activity_id = 9
+    $event.ocsf.activity_id = 9
   }
   "encrypt" => {
-    ocsf.activity_id = 10
+    $event.ocsf.activity_id = 10
   }
   "decrypt" => {
-    ocsf.activity_id = 11
+    $event.ocsf.activity_id = 11
   }
   "mount" => {
-    ocsf.activity_id = 12
+    $event.ocsf.activity_id = 12
   }
   "unmount" => {
-    ocsf.activity_id = 13
+    $event.ocsf.activity_id = 13
   }
   "open" => {
-    ocsf.activity_id = 14
+    $event.ocsf.activity_id = 14
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 1
-ocsf.class_uid = 1001
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: primary file attributes -----------
 
-ocsf.file = {
-  accessed_time: move cim.file_access_time?,
-  created_time: move cim.file_create_time?,
-  modified_time: move cim.file_modify_time?,
-  name: move cim.file_name?,
-  path: move cim.file_path?,
-  security_descriptor: move cim.file_acl?,
+$event.ocsf.file = {
+  accessed_time: move $event.cim.file_access_time?,
+  created_time: move $event.cim.file_create_time?,
+  modified_time: move $event.cim.file_modify_time?,
+  name: move $event.cim.file_name?,
+  path: move $event.cim.file_path?,
+  security_descriptor: move $event.cim.file_acl?,
 }
-if cim.file_size? != null {
-  ocsf.file.size = int((move cim.file_size) * 1024)
+if $event.cim.file_size? != null {
+  $event.ocsf.file.size = int((move $event.cim.file_size) * 1024)
 }
-if cim.file_hash? != null {
-  ocsf.file.hashes = (move cim.file_hash).map(h => {
+if $event.cim.file_hash? != null {
+  $event.ocsf.file.hashes = (move $event.cim.file_hash).map(h => {
     value: h,
   })
 }
 
 // --- OCSF: actor and device attributes --------
 
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    cmd_line: move cim.process?,
+    cmd_line: move $event.cim.process?,
     file: {
-      name: move cim.process_exec?,
-      path: move cim.process_path?,
+      name: move $event.cim.process_exec?,
+      path: move $event.cim.process_path?,
     },
-    name: move cim.process_name?,
-    pid: move cim.process_id?,
-    uid: move cim.process_guid?,
+    name: move $event.cim.process_name?,
+    pid: move $event.cim.process_id?,
+    uid: move $event.cim.process_guid?,
   },
   user: {
-    name: move cim.user?,
+    name: move $event.cim.user?,
   },
 }
-if cim.process_hash? != null {
-  ocsf.actor.process.file.hashes = (move cim.process_hash).map(h => {
+if $event.cim.process_hash? != null {
+  $event.ocsf.actor.process.file.hashes = (move $event.cim.process_hash).map(h => {
     value: h,
   })
 }
-if cim.parent_process? != null or cim.parent_process_name? != null {
-  ocsf.actor.process.parent_process = {
-    cmd_line: move cim.parent_process?,
+if $event.cim.parent_process? != null or $event.cim.parent_process_name? != null {
+  $event.ocsf.actor.process.parent_process = {
+    cmd_line: move $event.cim.parent_process?,
     file: {
-      name: move cim.parent_process_exec?,
-      path: move cim.parent_process_path?,
+      name: move $event.cim.parent_process_exec?,
+      path: move $event.cim.parent_process_path?,
     },
-    name: move cim.parent_process_name?,
-    pid: move cim.parent_process_id?,
-    uid: move cim.parent_process_guid?,
+    name: move $event.cim.parent_process_name?,
+    pid: move $event.cim.parent_process_id?,
+    uid: move $event.cim.parent_process_guid?,
   }
-  if cim.parent_process_hash? != null {
-    ocsf.actor.process.parent_process.file.hashes = (move cim.parent_process_hash).map(h => {
+  if $event.cim.parent_process_hash? != null {
+    $event.ocsf.actor.process.parent_process.file.hashes = (move $event.cim.parent_process_hash).map(h => {
       value: h,
     })
   }
 }
-ocsf.device = {
-  hostname: move cim.dest?,
+$event.ocsf.device = {
+  hostname: move $event.cim.dest?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.file_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

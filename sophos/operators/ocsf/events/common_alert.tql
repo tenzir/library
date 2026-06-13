@@ -1,22 +1,27 @@
 ---
 description: Sophos Common Alert → OCSF Detection Finding (2004)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.metadata.product.name = "Sophos Endpoint"
-ocsf.metadata.log_name = "common/alerts"
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.product.name = "Sophos Endpoint"
+$event.ocsf.metadata.log_name = "common/alerts"
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = now()
-if sophos.raisedAt? != null {
-  ocsf.time = time(move sophos.raisedAt)
-} else if sophos.updatedAt? != null {
-  ocsf.time = time(move sophos.updatedAt)
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = now()
+if $event.sophos.raisedAt? != null {
+  $event.ocsf.time = time(move $event.sophos.raisedAt)
+} else if $event.sophos.updatedAt? != null {
+  $event.ocsf.time = time(move $event.sophos.updatedAt)
 }
 
 let $statuses = {
@@ -26,51 +31,51 @@ let $statuses = {
   resolved: 4,
   closed: 4,
 }
-ocsf.status_id = 1
-if sophos.status? != null {
-  ocsf.status_id = $statuses[move sophos.status]? else 1
+$event.ocsf.status_id = 1
+if $event.sophos.status? != null {
+  $event.ocsf.status_id = $statuses[move $event.sophos.status]? else 1
 }
 
-ocsf.finding_info = {
-  uid: ocsf.metadata.original_event_uid,
-  uid_alt: move sophos.groupKey?,
-  title: sophos.type? else sophos.category?,
-  desc: move sophos.description?,
-  created_time: ocsf.time,
-  modified_time: time(move sophos.updatedAt?),
-  last_seen_time: time(move sophos.lastCorrelatedAt?),
+$event.ocsf.finding_info = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  uid_alt: move $event.sophos.groupKey?,
+  title: $event.sophos.type? else $event.sophos.category?,
+  desc: move $event.sophos.description?,
+  created_time: $event.ocsf.time,
+  modified_time: time(move $event.sophos.updatedAt?),
+  last_seen_time: time(move $event.sophos.lastCorrelatedAt?),
   product: {
-    name: move sophos.product?,
+    name: move $event.sophos.product?,
     vendor_name: "Sophos",
   },
-  types: [move sophos.category?],
+  types: [move $event.sophos.category?],
 }
 
-ocsf.device = {
-  uid: sophos.managedAgent?.id?,
-  name: sophos.managedAgent?.name?,
-  hostname: sophos.managedAgent?.name?,
+$event.ocsf.device = {
+  uid: $event.sophos.managedAgent?.id?,
+  name: $event.sophos.managedAgent?.name?,
+  hostname: $event.sophos.managedAgent?.name?,
   type_id: 2,
 }
 
-ocsf.evidences = [{
-  device: ocsf.device?,
+$event.ocsf.evidences = [{
+  device: $event.ocsf.device?,
   actor: {
     user: {
-      uid: move sophos.person?.id?,
-      name: sophos.person?.name?.split("\\")[-1]?,
-      domain: sophos.person?.name?.split("\\")[0]?,
-      full_name: move sophos.person?.name?,
+      uid: move $event.sophos.person?.id?,
+      name: $event.sophos.person?.name?.split("\\")[-1]?,
+      domain: $event.sophos.person?.name?.split("\\")[0]?,
+      full_name: move $event.sophos.person?.name?,
       type_id: 1,
     },
   },
 }]
 
-ocsf.resources = [{
-  uid: ocsf.device.uid,
-  name: ocsf.device.hostname,
+$event.ocsf.resources = [{
+  uid: $event.ocsf.device.uid,
+  name: $event.ocsf.device.hostname,
   type: "Device",
   role_id: 3,
 }]
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true

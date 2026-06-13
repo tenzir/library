@@ -1,34 +1,39 @@
 ---
 description: Cisco Umbrella DNS logs → OCSF DNS Activity
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.dns_activity"
-ocsf.category_uid = 4
-ocsf.class_uid = 4003
-ocsf.activity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4003
+$event.ocsf.activity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-if umbrella.timestamp? != null {
-  ocsf.time = move umbrella.timestamp
-  ocsf.query_time = ocsf.time
+if $event.umbrella.timestamp? != null {
+  $event.ocsf.time = move $event.umbrella.timestamp
+  $event.ocsf.query_time = $event.ocsf.time
 }
 
-if umbrella.external_ip? != null {
-  ocsf.src_endpoint.ip = move umbrella.external_ip
+if $event.umbrella.external_ip? != null {
+  $event.ocsf.src_endpoint.ip = move $event.umbrella.external_ip
 }
-if umbrella.internal_ip? != null {
-  ocsf.device.ip = move umbrella.internal_ip
+if $event.umbrella.internal_ip? != null {
+  $event.ocsf.device.ip = move $event.umbrella.internal_ip
 }
-ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
+$event.ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
 
-if umbrella.domain? != null {
-  ocsf.query.hostname = move umbrella.domain
+if $event.umbrella.domain? != null {
+  $event.ocsf.query.hostname = move $event.umbrella.domain
 }
-if umbrella.query_type? != null {
-  query_type = umbrella.query_type.parse_grok(r"%{NUMBER:value} \(%{WORD:name}\)")
-  ocsf.query.type = query_type.name
-  drop query_type
-  drop umbrella.query_type
+if $event.umbrella.query_type? != null {
+  $event.query_type = $event.umbrella.query_type.parse_grok(r"%{NUMBER:value} \(%{WORD:name}\)")
+  $event.ocsf.query.type = $event.query_type.name
+  drop $event.query_type
+  drop $event.umbrella.query_type
 }
 
 let $rcode_mapping = {
@@ -54,25 +59,25 @@ let $rcode_mapping = {
   BADTRUNC: {rcode_id: 22, rcode: "BADTRUNC"},
   BADCOOKIE: {rcode_id: 23, rcode: "BADCOOKIE"},
 }
-if umbrella.response_code? != null {
-  ocsf.rcode_id = $rcode_mapping[umbrella.response_code]?.rcode_id else 99
-  ocsf.rcode = $rcode_mapping[umbrella.response_code]?.rcode else umbrella.response_code
-  drop umbrella.response_code
+if $event.umbrella.response_code? != null {
+  $event.ocsf.rcode_id = $rcode_mapping[$event.umbrella.response_code]?.rcode_id else 99
+  $event.ocsf.rcode = $rcode_mapping[$event.umbrella.response_code]?.rcode else $event.umbrella.response_code
+  drop $event.umbrella.response_code
 }
 
-match umbrella.action? {
+match $event.umbrella.action? {
   "Allowed" => {
-    ocsf.action_id = 1
+    $event.ocsf.action_id = 1
   }
   "Denied" => {
-    ocsf.action_id = 2
+    $event.ocsf.action_id = 2
   }
   _ => {
-    ocsf.action_id = 0
+    $event.ocsf.action_id = 0
   }
 }
-if umbrella.action? != null {
-  ocsf.action = move umbrella.action
+if $event.umbrella.action? != null {
+  $event.ocsf.action = move $event.umbrella.action
 }
 
-ocsf.status_id = 1
+$event.ocsf.status_id = 1

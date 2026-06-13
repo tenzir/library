@@ -1,26 +1,31 @@
 ---
 description: Sysmon ServiceStateChange (EID 4) → OCSF Windows Service Activity (201004, Start/Stop)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.windows_service_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 201004
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 201004
 
-ocsf.activity_id = 3 if sysmon.EventData.State == "Started" else 4  // Start / Stop
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 3 if $event.sysmon.EventData.State == "Started" else 4  // Start / Stop
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop sysmon.EventData.State
+drop $event.sysmon.EventData.State
 
 // The Sysmon service itself — name comes from the provider, version from the event.
-ocsf.win_service = {
+$event.ocsf.win_service = {
   name: "Sysmon",
-  version: (move sysmon.EventData.Version).string(),
+  version: (move $event.sysmon.EventData.Version).string(),
 }
 
 // Windows Service Activity requires actor (inherited from System Activity).
 // EID 4 carries no user/process context — the SCM starts/stops Sysmon autonomously.
-ocsf.actor = {}
+$event.ocsf.actor = {}
 
 // SchemaVersion describes the Sysmon config schema, not the OCSF schema — left in
 // unmapped intentionally so analysts can correlate config changes via EID 16.

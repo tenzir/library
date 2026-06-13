@@ -1,43 +1,48 @@
 ---
 description: OCSF Datastore Activity (6005) → Splunk CIM Databases Database Query
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 6005
+assert $event.ocsf.class_uid == 6005
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["database"]
+$event.cim.tag = ["database"]
 
 // --- CIM: occurrence attributes ---------------
 
-cim._time = time
-if duration? != null {
-  cim.duration = duration.milliseconds().count_seconds()
+$event.cim._time = $event.ocsf.time
+if $event.ocsf.duration? != null {
+  $event.cim.duration = $event.ocsf.duration.milliseconds().count_seconds()
 }
 
 // --- CIM: database query attributes -----------
 
-cim.object = table?.name? else database?.name? else databucket?.name?
-cim.query = query_info?.query_string? else query_info?.query?
-cim.query_id = query_info?.uid?
-cim.query_time = query_info?.query_time?
-cim.records_affected = query_info?.record_count?
-if query_info?.duration? != null {
-  cim.response_time = query_info.duration.milliseconds().count_seconds()
+$event.cim.object = $event.ocsf.table?.name? else $event.ocsf.database?.name? else $event.ocsf.databucket?.name?
+$event.cim.query = $event.ocsf.query_info?.query_string? else $event.ocsf.query_info?.query?
+$event.cim.query_id = $event.ocsf.query_info?.uid?
+$event.cim.query_time = $event.ocsf.query_info?.query_time?
+$event.cim.records_affected = $event.ocsf.query_info?.record_count?
+if $event.ocsf.query_info?.duration? != null {
+  $event.cim.response_time = $event.ocsf.query_info.duration.milliseconds().count_seconds()
 }
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name? else database?.name?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name? else $event.ocsf.database?.name?
 
 // --- CIM: user and product attributes ---------
 
-cim.user = actor?.user?.name? else actor?.user?.uid?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

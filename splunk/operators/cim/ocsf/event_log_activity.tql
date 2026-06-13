@@ -1,51 +1,56 @@
 ---
 description: OCSF Event Log Activity (1008) → Splunk CIM Change Auditing Changes
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 1008
+assert $event.ocsf.class_uid == 1008
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["change", "audit"]
+$event.cim.tag = ["change", "audit"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
-cim.change_type = "audit"
-cim.command = log_provider?
-cim.status = status?.to_lower()
-match status_id? {
+$event.cim._time = $event.ocsf.time
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+$event.cim.change_type = "audit"
+$event.cim.command = $event.ocsf.log_provider?
+$event.cim.status = $event.ocsf.status?.to_lower()
+match $event.ocsf.status_id? {
   1 => {
-    cim.status = "success"
+    $event.cim.status = "success"
   }
   2 => {
-    cim.status = "failure"
+    $event.cim.status = "failure"
   }
   _ => {}
 }
-cim.result = status_detail? else status?
-cim.result_id = status_code? else status_id?.string()
+$event.cim.result = $event.ocsf.status_detail? else $event.ocsf.status?
+$event.cim.result_id = $event.ocsf.status_code? else $event.ocsf.status_id?.string()
 
 // --- CIM: object attributes -------------------
 
-cim.object = log_name? else file?.name?
-cim.object_id = file?.uid?
-cim.object_category = log_type? else log_type_id?.string() else "event_log"
-cim.object_path = file?.path?
+$event.cim.object = $event.ocsf.log_name? else $event.ocsf.file?.name?
+$event.cim.object_id = $event.ocsf.file?.uid?
+$event.cim.object_category = $event.ocsf.log_type? else $event.ocsf.log_type_id?.string() else "event_log"
+$event.cim.object_path = $event.ocsf.file?.path?
 
 // --- CIM: endpoint and user attributes --------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
-cim.dvc = device?.hostname? else device?.ip? else device?.name?
-cim.user = actor?.user?.name? else actor?.user?.uid?
-cim.user_name = actor?.user?.name?
-cim.user_type = actor?.user?.type?
-splunk::cim::ocsf::helpers::product
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name?
+$event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.user_name = $event.ocsf.actor?.user?.name?
+$event.cim.user_type = $event.ocsf.actor?.user?.type?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

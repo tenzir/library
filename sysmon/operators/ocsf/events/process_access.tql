@@ -1,49 +1,54 @@
 ---
 description: Sysmon ProcessAccess (EID 10) → OCSF Process Activity (1007, Open)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.process_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1007
-ocsf.activity_id = 3  // Open
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 3  // Open
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // The process that opened the handle to the target.
-_src_user = (move sysmon.EventData.SourceUser).split("\\")
-ocsf.actor = {
+$event._src_user = (move $event.sysmon.EventData.SourceUser).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid: move sysmon.EventData.SourceProcessGuid,
-    pid: (move sysmon.EventData.SourceProcessId).int(),
-    path: move sysmon.EventData.SourceImage,
+    uid: move $event.sysmon.EventData.SourceProcessGuid,
+    pid: (move $event.sysmon.EventData.SourceProcessId).int(),
+    path: move $event.sysmon.EventData.SourceImage,
     file: { type_id: 8 },
   },
   user: {
-    name: _src_user[-1],
-    domain: _src_user[0] if _src_user.length() > 1 else null,
+    name: $event._src_user[-1],
+    domain: $event._src_user[0] if $event._src_user.length() > 1 else null,
   },
 }
-drop _src_user
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+drop $event._src_user
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
 // The process whose handle was obtained.
-_tgt_user = (move sysmon.EventData.TargetUser).split("\\")
-ocsf.process = {
-  uid: move sysmon.EventData.TargetProcessGuid,
-  pid: (move sysmon.EventData.TargetProcessId).int(),
-  path: move sysmon.EventData.TargetImage,
+$event._tgt_user = (move $event.sysmon.EventData.TargetUser).split("\\")
+$event.ocsf.process = {
+  uid: move $event.sysmon.EventData.TargetProcessGuid,
+  pid: (move $event.sysmon.EventData.TargetProcessId).int(),
+  path: move $event.sysmon.EventData.TargetImage,
   file: { type_id: 8 },
   user: {
-    name: _tgt_user[-1],
-    domain: _tgt_user[0] if _tgt_user.length() > 1 else null,
+    name: $event._tgt_user[-1],
+    domain: $event._tgt_user[0] if $event._tgt_user.length() > 1 else null,
   },
 }
-drop _tgt_user
-ocsf.process.name = ocsf.process.path.split("\\")[-1]
-ocsf.process.file.name = ocsf.process.name
-ocsf.process.file.path = ocsf.process.path
+drop $event._tgt_user
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
 
 // GrantedAccess is a hex string (e.g. "0x1010"); OCSF actual_permissions is
 // integer_t. Leave it in unmapped to avoid a cast type mismatch.

@@ -1,17 +1,22 @@
 ---
 description: "Check Point MTA/Anti-Spam/Email Security → OCSF Email Activity (4009)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.email_activity"
 
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4009
-ocsf.activity_id = 3  // Scan
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4009
+$event.ocsf.activity_id = 3  // Scan
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-checkpoint::ocsf::security_control_outcome
+checkpoint::ocsf::security_control_outcome event=$event
 
 let $direction_ids = {
   Inbound: 1,
@@ -19,34 +24,34 @@ let $direction_ids = {
   Incoming: 1,
   Outgoing: 2,
 }
-ocsf.direction_id = $direction_ids[checkpoint.direction?]? else $direction_ids[checkpoint.conn_direction?]? else 0
-drop checkpoint.direction?
-drop checkpoint.conn_direction?
+$event.ocsf.direction_id = $direction_ids[$event.checkpoint.direction?]? else $direction_ids[$event.checkpoint.conn_direction?]? else 0
+drop $event.checkpoint.direction?
+drop $event.checkpoint.conn_direction?
 
-ocsf.email = {
-  from: move checkpoint.sender?,
-  to: [move checkpoint.recipient?],
-  subject: move checkpoint.subject?,
-  size: move checkpoint.size?,
+$event.ocsf.email = {
+  from: move $event.checkpoint.sender?,
+  to: [move $event.checkpoint.recipient?],
+  subject: move $event.checkpoint.subject?,
+  size: move $event.checkpoint.size?,
 }
 
-if checkpoint.src? != null {
-  ocsf.src_endpoint.ip = move checkpoint.src
+if $event.checkpoint.src? != null {
+  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
 }
-if checkpoint.s_port? != null {
-  ocsf.src_endpoint.port = move checkpoint.s_port
+if $event.checkpoint.s_port? != null {
+  $event.ocsf.src_endpoint.port = move $event.checkpoint.s_port
 }
-if checkpoint.dst? != null {
-  ocsf.dst_endpoint.ip = move checkpoint.dst
+if $event.checkpoint.dst? != null {
+  $event.ocsf.dst_endpoint.ip = move $event.checkpoint.dst
 }
-if checkpoint.service_id? != null {
-  ocsf.protocol_name = move checkpoint.service_id
-} else if checkpoint.service? == 25 {
-  ocsf.protocol_name = "SMTP"
+if $event.checkpoint.service_id? != null {
+  $event.ocsf.protocol_name = move $event.checkpoint.service_id
+} else if $event.checkpoint.service? == 25 {
+  $event.ocsf.protocol_name = "SMTP"
 }
-if checkpoint.service? != null {
-  ocsf.dst_endpoint.port = move checkpoint.service
+if $event.checkpoint.service? != null {
+  $event.ocsf.dst_endpoint.port = move $event.checkpoint.service
 }
-if checkpoint.status? != null {
-  ocsf.status_detail = move checkpoint.status
+if $event.checkpoint.status? != null {
+  $event.ocsf.status_detail = move $event.checkpoint.status
 }

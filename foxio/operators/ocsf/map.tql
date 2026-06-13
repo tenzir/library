@@ -1,86 +1,92 @@
 ---
 description: FoxIO JA4+ fingerprints -> OCSF OSINT Inventory Info
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {foxio: this}
+$event = {...$event, foxio: $event, ocsf: {}}
 
-fingerprint = [
+$event.fingerprint = [
   {
     field: "ja4_fingerprint",
     type: "JA4",
-    value: foxio.ja4_fingerprint?,
+    value: $event.foxio.ja4_fingerprint?,
   },
   {
     field: "ja4h_fingerprint",
     type: "JA4HTTP",
-    value: foxio.ja4h_fingerprint?,
+    value: $event.foxio.ja4h_fingerprint?,
   },
   {
     field: "ja4s_fingerprint",
     type: "JA4Server",
-    value: foxio.ja4s_fingerprint?,
+    value: $event.foxio.ja4s_fingerprint?,
   },
   {
     field: "ja4t_fingerprint",
     type: "JA4TCP",
-    value: foxio.ja4t_fingerprint?,
+    value: $event.foxio.ja4t_fingerprint?,
   },
   {
     field: "ja4ts_fingerprint",
     type: "JA4TCPServer",
-    value: foxio.ja4ts_fingerprint?,
+    value: $event.foxio.ja4ts_fingerprint?,
   },
   {
     field: "ja4tscan_fingerprint",
     type: "JA4TCPScan",
-    value: foxio.ja4tscan_fingerprint?,
+    value: $event.foxio.ja4tscan_fingerprint?,
   },
   {
     field: "ja4x_fingerprint",
     type: "JA4X509",
-    value: foxio.ja4x_fingerprint?,
+    value: $event.foxio.ja4x_fingerprint?,
   },
 ]
-unroll fingerprint
-where fingerprint.value != null
+unroll $event.fingerprint
+where $event.fingerprint.value != null
 
-labels = [
-  foxio.application?,
-  foxio.os?,
-  foxio.device?,
-  foxio.library?,
-  foxio.user_agent?,
+$event.labels = [
+  $event.foxio.application?,
+  $event.foxio.os?,
+  $event.foxio.device?,
+  $event.foxio.library?,
+  $event.foxio.user_agent?,
 ].where(x => x != null)
 
-osint = {}
-osint.category = move fingerprint.type
-osint.confidence_id = 0
-osint.labels = labels if labels.length() > 0 else null
-osint.name = move fingerprint.field
-osint.src_url = "https://ja4db.com/"
-osint.type_id = 4
-osint.value = move fingerprint.value
-osint.vendor_name = "FoxIO"
+$event.osint = {}
+$event.osint.category = move $event.fingerprint.type
+$event.osint.confidence_id = 0
+$event.osint.labels = $event.labels if $event.labels.length() > 0 else null
+$event.osint.name = move $event.fingerprint.field
+$event.osint.src_url = "https://ja4db.com/"
+$event.osint.type_id = 4
+$event.osint.value = move $event.fingerprint.value
+$event.osint.vendor_name = "FoxIO"
 
-ocsf = {}
-ocsf.activity_id = 2
-ocsf.actor = {
+$event.ocsf = {}
+$event.ocsf.activity_id = 2
+$event.ocsf.actor = {
   app_name: "Tenzir",
 }
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.metadata = {
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.metadata = {
   product: {
     name: "JA4+ Database",
     vendor_name: "FoxIO",
   },
   version: "1.8.0",
 }
-ocsf.osint = [move osint]
-ocsf.severity_id = 1
-ocsf.time = now()
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.osint = [move $event.osint]
+$event.ocsf.severity_id = 1
+$event.ocsf.time = now()
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop labels
-this = {...ocsf, unmapped: foxio}
+drop $event.labels
+$event = {...$event.ocsf, unmapped: $event.foxio}
 @name = "ocsf.osint_inventory_info"

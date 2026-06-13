@@ -1,107 +1,114 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
-ocsf.category_uid = 2
+$event.ocsf.category_uid = 2
 
-ocsf.activity_id = 1 // Create
-ocsf.class_uid = 2004
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 1 // Create
+$event.ocsf.class_uid = 2004
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.metadata.profiles = ["security_control"]
+$event.ocsf.metadata.profiles = ["security_control"]
 
 let $severities = [0, 4, 3, 2, 1]
-ocsf.severity_id = $severities[suricata.alert.severity]? else 0
-drop suricata.alert.severity
+$event.ocsf.severity_id = $severities[$event.suricata.alert.severity]? else 0
+drop $event.suricata.alert.severity
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true
 
-if suricata.alert.action? != null {
-  match suricata.alert.action {
+if $event.suricata.alert.action? != null {
+  match $event.suricata.alert.action {
     "allowed" => {
-      ocsf.action_id = 1
-      ocsf.disposition_id = 1
-      drop suricata.alert.action
+      $event.ocsf.action_id = 1
+      $event.ocsf.disposition_id = 1
+      drop $event.suricata.alert.action
     }
     "blocked" => {
-      ocsf.action_id = 2
-      ocsf.disposition_id = 2
-      drop suricata.alert.action
+      $event.ocsf.action_id = 2
+      $event.ocsf.disposition_id = 2
+      drop $event.suricata.alert.action
     }
     _ => {
-      ocsf.action = move suricata.alert.action
-      ocsf.action_id = 99
-      ocsf.disposition = ocsf.action
-      ocsf.disposition_id = 99
+      $event.ocsf.action = move $event.suricata.alert.action
+      $event.ocsf.action_id = 99
+      $event.ocsf.disposition = $event.ocsf.action
+      $event.ocsf.disposition_id = 99
     }
   }
 }
 
-if suricata.alert.metadata?.confidence? != null {
+if $event.suricata.alert.metadata?.confidence? != null {
   let $confidence_ids = {
     low: 1,
     medium: 2,
     high: 3,
   }
-  suricata.alert._confidence = suricata.alert.metadata.confidence[0]
-  ocsf.confidence_id = $confidence_ids[suricata.alert._confidence.to_lower()]? else 99
-  if ocsf.confidence_id == 99 {
-    ocsf.confidence = suricata.alert._confidence
+  $event.suricata.alert._confidence = $event.suricata.alert.metadata.confidence[0]
+  $event.ocsf.confidence_id = $confidence_ids[$event.suricata.alert._confidence.to_lower()]? else 99
+  if $event.ocsf.confidence_id == 99 {
+    $event.ocsf.confidence = $event.suricata.alert._confidence
   }
-  drop suricata.alert._confidence
-  drop suricata.alert.metadata.confidence
+  drop $event.suricata.alert._confidence
+  drop $event.suricata.alert.metadata.confidence
 }
 
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
-if ocsf.has("src_endpoint") {
-  _evidence.src_endpoint = move ocsf.src_endpoint
+if $event.ocsf.has("src_endpoint") {
+  $event._evidence.src_endpoint = move $event.ocsf.src_endpoint
 }
-if ocsf.has("dst_endpoint") {
-  _evidence.dst_endpoint = move ocsf.dst_endpoint
+if $event.ocsf.has("dst_endpoint") {
+  $event._evidence.dst_endpoint = move $event.ocsf.dst_endpoint
 }
-if ocsf.has("connection_info") {
-  _evidence.connection_info = move ocsf.connection_info
+if $event.ocsf.has("connection_info") {
+  $event._evidence.connection_info = move $event.ocsf.connection_info
 }
-if suricata.dns?.queries? != null {
-  suricata::ocsf::map_dns_query
-  _evidence.query = move ocsf.query
+if $event.suricata.dns?.queries? != null {
+  suricata::ocsf::map_dns_query event=$event
+  $event._evidence.query = move $event.ocsf.query
 }
-if suricata.has("http") {
-  suricata::ocsf::map_http
-  if ocsf.has("http_request") {
-    _evidence.http_request = move ocsf.http_request
+if $event.suricata.has("http") {
+  suricata::ocsf::map_http event=$event
+  if $event.ocsf.has("http_request") {
+    $event._evidence.http_request = move $event.ocsf.http_request
   }
-  if ocsf.has("http_response") {
-    _evidence.http_response = move ocsf.http_response
+  if $event.ocsf.has("http_response") {
+    $event._evidence.http_response = move $event.ocsf.http_response
   }
 }
-if suricata.smb?.filename? != null {
-  suricata::ocsf::map_smb_file
-  _evidence.file = move ocsf.file
+if $event.suricata.smb?.filename? != null {
+  suricata::ocsf::map_smb_file event=$event
+  $event._evidence.file = move $event.ocsf.file
 }
-if this.has("_evidence") {
-  ocsf.evidences = [_evidence]
-  drop _evidence
+if $event.has("_evidence") {
+  $event.ocsf.evidences = [$event._evidence]
+  drop $event._evidence
 }
 
-ocsf.finding_info = {
+$event.ocsf.finding_info = {
   analytic: {
     type: "Rule",
     type_id: 1,
   },
 }
 // The generator ID is a reasonable field for algorithm.
-ocsf.finding_info.analytic.algorithm = suricata.alert.gid.string()
-ocsf.finding_info.analytic.category = move suricata.alert.category
-ocsf.finding_info.analytic.name = move suricata.alert.signature
-ocsf.finding_info.analytic.uid = suricata.alert.signature_id.string()
-ocsf.finding_info.analytic.version = suricata.alert.rev.string()
-drop suricata.alert.gid
-drop suricata.alert.signature_id
-drop suricata.alert.rev
-ocsf.finding_info.uid = ocsf.finding_info.analytic.uid
-ocsf.finding_info.title = ocsf.finding_info.analytic.name
+$event.ocsf.finding_info.analytic.algorithm = $event.suricata.alert.gid.string()
+$event.ocsf.finding_info.analytic.category = move $event.suricata.alert.category
+$event.ocsf.finding_info.analytic.name = move $event.suricata.alert.signature
+$event.ocsf.finding_info.analytic.uid = $event.suricata.alert.signature_id.string()
+$event.ocsf.finding_info.analytic.version = $event.suricata.alert.rev.string()
+drop $event.suricata.alert.gid
+drop $event.suricata.alert.signature_id
+drop $event.suricata.alert.rev
+$event.ocsf.finding_info.uid = $event.ocsf.finding_info.analytic.uid
+$event.ocsf.finding_info.title = $event.ocsf.finding_info.analytic.name
 
 // --- Finalize ---------------------------------
 

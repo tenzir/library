@@ -1,52 +1,57 @@
 ---
 description: OCSF File Hosting Activity (6006) → Splunk CIM Data Access
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 6006
+assert $event.ocsf.class_uid == 6006
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["data", "access"]
+$event.cim.tag = ["data", "access"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
-cim.app = actor?.app_name? else metadata.product.name?
+$event.cim._time = $event.ocsf.time
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+$event.cim.app = $event.ocsf.actor?.app_name? else $event.ocsf.metadata.product.name?
 
 // --- CIM: object attributes -------------------
 
-cim.object = file?.name?
-cim.object_id = file?.uid?
-cim.object_category = file?.type? else "file"
-cim.object_path = file?.path? else file?.uri?
-cim.object_size = file?.size?
-cim.parent_object = share?
-cim.parent_object_category = share_type?
-cim.signature = type_name? else class_name?
-cim.signature_id = metadata.event_code? else type_uid?.string()
+$event.cim.object = $event.ocsf.file?.name?
+$event.cim.object_id = $event.ocsf.file?.uid?
+$event.cim.object_category = $event.ocsf.file?.type? else "file"
+$event.cim.object_path = $event.ocsf.file?.path? else $event.ocsf.file?.uri?
+$event.cim.object_size = $event.ocsf.file?.size?
+$event.cim.parent_object = $event.ocsf.share?
+$event.cim.parent_object_category = $event.ocsf.share_type?
+$event.cim.signature = $event.ocsf.type_name? else $event.ocsf.class_name?
+$event.cim.signature_id = $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src = src_endpoint?.hostname? else src_endpoint?.ip? else src_endpoint?.name?
-cim.dest = dst_endpoint?.hostname? else dst_endpoint?.ip? else dst_endpoint?.name?
-cim.dest_url = http_request?.url?.url_string? else file?.url?.url_string?
-cim.dvc = device?.hostname? else device?.ip? else device?.name?
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name?
+$event.cim.dest_url = $event.ocsf.http_request?.url?.url_string? else $event.ocsf.file?.url?.url_string?
+$event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 
 // --- CIM: user and request attributes ---------
 
-cim.user = actor?.user?.name? else actor?.user?.uid?
-cim.user_id = actor?.user?.uid?
-cim.user_name = actor?.user?.name?
-cim.user_role = actor?.user?.type?
-cim.user_type = actor?.user?.type?
-cim.user_agent = http_request?.user_agent?
-cim.vendor_account = cloud?.account?.uid?
-cim.vendor_region = cloud?.region?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.user_id = $event.ocsf.actor?.user?.uid?
+$event.cim.user_name = $event.ocsf.actor?.user?.name?
+$event.cim.user_role = $event.ocsf.actor?.user?.type?
+$event.cim.user_type = $event.ocsf.actor?.user?.type?
+$event.cim.user_agent = $event.ocsf.http_request?.user_agent?
+$event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
+$event.cim.vendor_region = $event.ocsf.cloud?.region?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

@@ -1,41 +1,46 @@
 ---
 description: "Check Point firewall traffic → OCSF Network Activity (4001)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.network_activity"
 
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
-ocsf.activity_id = 6  // Traffic
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = 6  // Traffic
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-match checkpoint.action? {
+match $event.checkpoint.action? {
   "Accept" => {
-    ocsf.action_id = 1
-    ocsf.disposition_id = 1
-    ocsf.status_id = 1
+    $event.ocsf.action_id = 1
+    $event.ocsf.disposition_id = 1
+    $event.ocsf.status_id = 1
   }
   "Drop" => {
-    ocsf.action_id = 2
-    ocsf.disposition_id = 6
-    ocsf.status_id = 2
+    $event.ocsf.action_id = 2
+    $event.ocsf.disposition_id = 6
+    $event.ocsf.status_id = 2
   }
   "Reject" => {
-    ocsf.action_id = 2
-    ocsf.disposition_id = 25
-    ocsf.status_id = 2
+    $event.ocsf.action_id = 2
+    $event.ocsf.disposition_id = 25
+    $event.ocsf.status_id = 2
   }
   _ => {
-    ocsf.action_id = 0
-    ocsf.disposition_id = 0
-    ocsf.status_id = 0
+    $event.ocsf.action_id = 0
+    $event.ocsf.disposition_id = 0
+    $event.ocsf.status_id = 0
   }
 }
 
-if checkpoint.action? in ["Accept", "Drop", "Reject"] {
-  drop checkpoint.action
+if $event.checkpoint.action? in ["Accept", "Drop", "Reject"] {
+  drop $event.checkpoint.action
 }
 
-checkpoint::ocsf::traffic
+checkpoint::ocsf::traffic event=$event

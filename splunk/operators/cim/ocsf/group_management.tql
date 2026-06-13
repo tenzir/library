@@ -1,56 +1,61 @@
 ---
 description: OCSF Group Management (3006) → Splunk CIM Change Account Management
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 3006
+assert $event.ocsf.class_uid == 3006
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["change", "account"]
+$event.cim.tag = ["change", "account"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
-cim.change_type = "AAA"
-cim.status = status?.to_lower()
-match status_id? {
+$event.cim._time = $event.ocsf.time
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+$event.cim.change_type = "AAA"
+$event.cim.status = $event.ocsf.status?.to_lower()
+match $event.ocsf.status_id? {
   1 => {
-    cim.status = "success"
+    $event.cim.status = "success"
   }
   2 => {
-    cim.status = "failure"
+    $event.cim.status = "failure"
   }
   _ => {}
 }
-cim.result = status_detail? else status?
-cim.result_id = status_code? else status_id?.string()
+$event.cim.result = $event.ocsf.status_detail? else $event.ocsf.status?
+$event.cim.result_id = $event.ocsf.status_code? else $event.ocsf.status_id?.string()
 
 // --- CIM: object attributes -------------------
 
-cim.object = subgroup?.name? else group?.name? else user?.name? else group?.uid?
-cim.object_id = subgroup?.uid? else group?.uid? else user?.uid?
-cim.object_category = "group"
-cim.object_attrs = privileges?
+$event.cim.object = $event.ocsf.subgroup?.name? else $event.ocsf.group?.name? else $event.ocsf.user?.name? else $event.ocsf.group?.uid?
+$event.cim.object_id = $event.ocsf.subgroup?.uid? else $event.ocsf.group?.uid? else $event.ocsf.user?.uid?
+$event.cim.object_category = "group"
+$event.cim.object_attrs = $event.ocsf.privileges?
 
 // --- CIM: endpoint and user attributes --------
 
-cim.src = actor?.process?.device?.hostname? else actor?.process?.device?.ip? else actor?.process?.device?.name?
-cim.dest = device?.hostname? else device?.ip? else device?.name?
-cim.dvc = device?.hostname? else device?.ip? else device?.name?
-cim.user = user?.name? else user?.uid?
-cim.user_name = user?.name?
-cim.user_type = user?.type?
-cim.src_user = actor?.user?.name? else actor?.user?.uid?
-cim.src_user_name = actor?.user?.name?
-cim.src_user_type = actor?.user?.type?
-cim.user_agent = http_request?.user_agent?
-cim.vendor_account = cloud?.account?.uid?
-cim.vendor_region = cloud?.region?
-splunk::cim::ocsf::helpers::product
+$event.cim.src = $event.ocsf.actor?.process?.device?.hostname? else $event.ocsf.actor?.process?.device?.ip? else $event.ocsf.actor?.process?.device?.name?
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.user = $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+$event.cim.user_name = $event.ocsf.user?.name?
+$event.cim.user_type = $event.ocsf.user?.type?
+$event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.src_user_name = $event.ocsf.actor?.user?.name?
+$event.cim.src_user_type = $event.ocsf.actor?.user?.type?
+$event.cim.user_agent = $event.ocsf.http_request?.user_agent?
+$event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
+$event.cim.vendor_region = $event.ocsf.cloud?.region?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

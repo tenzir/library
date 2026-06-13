@@ -1,9 +1,14 @@
 ---
 description: |
   Zeek conn.log → OCSF Network Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
@@ -32,46 +37,46 @@ let $conn_states = {
   // Connections Zeek couldn't classify.
   OTH: 6,
 }
-ocsf.activity_id = $conn_states[zeek.conn_state]? else 6
-ocsf.class_uid = 4001
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $conn_states[$event.zeek.conn_state]? else 6
+$event.ocsf.class_uid = 4001
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "conn.log"
-ocsf.app_protocol_name = move zeek.service
+$event.ocsf.metadata.log_name = "conn.log"
+$event.ocsf.app_protocol_name = move $event.zeek.service
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.connection_info.flag_history = move zeek.history
-if zeek.local_orig? != null and zeek.local_resp? != null {
-  if zeek.local_orig and zeek.local_resp {
-    ocsf.connection_info.direction = "Lateral"
-    ocsf.connection_info.direction_id = 3
-  } else if zeek.local_orig {
-    ocsf.connection_info.direction = "Outbound"
-    ocsf.connection_info.direction_id = 2
-  } else if zeek.local_resp {
-    ocsf.connection_info.direction = "Inbound"
-    ocsf.connection_info.direction_id = 1
+$event.ocsf.connection_info.flag_history = move $event.zeek.history
+if $event.zeek.local_orig? != null and $event.zeek.local_resp? != null {
+  if $event.zeek.local_orig and $event.zeek.local_resp {
+    $event.ocsf.connection_info.direction = "Lateral"
+    $event.ocsf.connection_info.direction_id = 3
+  } else if $event.zeek.local_orig {
+    $event.ocsf.connection_info.direction = "Outbound"
+    $event.ocsf.connection_info.direction_id = 2
+  } else if $event.zeek.local_resp {
+    $event.ocsf.connection_info.direction = "Inbound"
+    $event.ocsf.connection_info.direction_id = 1
   } else {
-    ocsf.connection_info.direction = "Unknown"
-    ocsf.connection_info.direction_id = 0
+    $event.ocsf.connection_info.direction = "Unknown"
+    $event.ocsf.connection_info.direction_id = 0
   }
-  drop zeek.local_orig, zeek.local_resp
+  drop $event.zeek.local_orig, $event.zeek.local_resp
 }
-ocsf.status = "Other"
-ocsf.status_code = move zeek.conn_state
-ocsf.status_id = 99
-ocsf.traffic = {
-  bytes_in: move zeek.resp_bytes,
-  bytes_out: move zeek.orig_bytes,
-  bytes_missed: move zeek.missed_bytes,
-  packets_in: move zeek.resp_pkts,
-  packets_out: move zeek.orig_pkts,
+$event.ocsf.status = "Other"
+$event.ocsf.status_code = move $event.zeek.conn_state
+$event.ocsf.status_id = 99
+$event.ocsf.traffic = {
+  bytes_in: move $event.zeek.resp_bytes,
+  bytes_out: move $event.zeek.orig_bytes,
+  bytes_missed: move $event.zeek.missed_bytes,
+  packets_in: move $event.zeek.resp_pkts,
+  packets_out: move $event.zeek.orig_pkts,
 }
-ocsf.traffic.bytes = ocsf.traffic.bytes_in + ocsf.traffic.bytes_out
-ocsf.traffic.packets = ocsf.traffic.packets_in + ocsf.traffic.packets_out
+$event.ocsf.traffic.bytes = $event.ocsf.traffic.bytes_in + $event.ocsf.traffic.bytes_out
+$event.ocsf.traffic.packets = $event.ocsf.traffic.packets_in + $event.ocsf.traffic.packets_out
 
 @name = "ocsf.network_activity"

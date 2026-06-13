@@ -1,5 +1,11 @@
 ---
 description: MISP Event → OCSF OSINT Inventory Info (5021)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
 let $threat_level = {
@@ -39,18 +45,17 @@ let $type_ids = {
   vulnerability: 10,
   link: 5,
 }
-this = {misp: this}
-ocsf = {}
+$event = {...$event, misp: $event, ocsf: {}}
 // ------ OCSF Inventory Info --------
 // Classification
-ocsf.activity_id = 2
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.severity_id = $threat_level[move misp.threat_level_id]? else 1
+$event.ocsf.activity_id = 2
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.severity_id = $threat_level[move $event.misp.threat_level_id]? else 1
 // Context
-ocsf.actor = {
+$event.ocsf.actor = {
   app_name: "Tenzir",
   process: {
     name: "MISP",
@@ -58,52 +63,52 @@ ocsf.actor = {
   user: {
     // Creator org of the MISP event.
     org: {
-      name: move misp.Orgc.name?,
-      uid: move misp.Orgc.uuid?,
+      name: move $event.misp.Orgc.name?,
+      uid: move $event.misp.Orgc.uuid?,
     }
   }
 }
-if misp.Org? != null {
+if $event.misp.Org? != null {
   // Org currently owning the MISP event.
-  ocsf.actor.process.user = {
+  $event.ocsf.actor.process.user = {
     org: {
-      name: move misp.Org.name?,
-      uid: move misp.Org.uuid?,
+      name: move $event.misp.Org.name?,
+      uid: move $event.misp.Org.uuid?,
     },
   }
 }
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     name: "MISP",
     vendor_name: "CIRCL",
   },
-  uid: move misp.uuid,
+  uid: move $event.misp.uuid,
   version: "1.8.0",
 }
-ocsf.time = from_epoch(int(move misp.timestamp) * 1s)
-drop misp.date // implied in the timestamp
+$event.ocsf.time = from_epoch(int(move $event.misp.timestamp) * 1s)
+drop $event.misp.date // implied in the timestamp
 // Primary
-ocsf.message = move misp.info
-ocsf.osint = misp.Attribute.map(x => {
+$event.ocsf.message = move $event.misp.info
+$event.ocsf.osint = $event.misp.Attribute.map(x => {
   category: x.category,
   created_time: from_epoch(int(x.timestamp) * 1s),
   creator: {
-    org: ocsf.actor.user.org, // Orgc
+    org: $event.ocsf.actor.user.org, // Orgc
   },
   desc: x.comment,
   external_uid: x.uuid,
-  severity_id: ocsf.severity_id,
+  severity_id: $event.ocsf.severity_id,
   // TODO: Figure out how to assign `null` if no tlp tag in the source.
-  tlp: misp.Tag?.where(x => x.name.starts_with("tlp:"))[0]?.name?.slice(begin=4).to_upper(),
+  tlp: $event.misp.Tag?.where(x => x.name.starts_with("tlp:"))[0]?.name?.slice(begin=4).to_upper(),
   type_id: $type_ids[x.type]? else 99,
   type: x.type if $type_ids[x.type]? == null else null,
   value: x.value,
 })
-ocsf.status_id = $analysis_status[move misp.analysis]? else 0
-drop misp.Attribute?
+$event.ocsf.status_id = $analysis_status[move $event.misp.analysis]? else 0
+drop $event.misp.Attribute?
 // TODO: consider mapping the Galaxy in the future. For now, we drop
 // it because it is incredibly bulky.
-drop misp.Galaxy?
+drop $event.misp.Galaxy?
 // ------ Finalize --------
-this = {...ocsf, unmapped: misp}
+$event = {...$event.ocsf, unmapped: $event.misp}
 @name = "ocsf.osint_inventory_info"

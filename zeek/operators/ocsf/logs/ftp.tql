@@ -1,9 +1,14 @@
 ---
 description: |
   Zeek ftp.log → OCSF FTP Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
@@ -20,32 +25,32 @@ let $commands = {
   RNTO: 5,
   RMD: 4,
 }
-ocsf.activity_id = $commands[zeek.command]? else 0
-ocsf.class_uid = 4008
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $commands[$event.zeek.command]? else 0
+$event.ocsf.class_uid = 4008
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "ftp.log"
+$event.ocsf.metadata.log_name = "ftp.log"
 
-ocsf.file = {
-  name: move zeek.arg,
-  size: move zeek.file_size,
+$event.ocsf.file = {
+  name: move $event.zeek.arg,
+  size: move $event.zeek.file_size,
   type_id: 0,
 }
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.connection_info.protocol_name = "tcp"
-ocsf.connection_info.protocol_num = 6
+$event.ocsf.connection_info.protocol_name = "tcp"
+$event.ocsf.connection_info.protocol_num = 6
 
-ocsf.command = move zeek.command
-ocsf.codes = [move zeek.reply_code]
-ocsf.status_code = ocsf.codes[0].string()
-ocsf.status_detail = move zeek.reply_msg
-ocsf.type = "passive" if zeek.data_channel.passive else "active"
-ocsf.port = move zeek.data_channel.resp_p
-drop zeek.data_channel
+$event.ocsf.command = move $event.zeek.command
+$event.ocsf.codes = [move $event.zeek.reply_code]
+$event.ocsf.status_code = $event.ocsf.codes[0].string()
+$event.ocsf.status_detail = move $event.zeek.reply_msg
+$event.ocsf.type = "passive" if $event.zeek.data_channel.passive else "active"
+$event.ocsf.port = move $event.zeek.data_channel.resp_p
+drop $event.zeek.data_channel
 
 @name = "ocsf.ftp_activity"

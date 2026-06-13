@@ -1,5 +1,10 @@
 ---
 description: "Okta → OCSF API Activity (6003)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // --- OCSF: classification attributes ----------
@@ -24,32 +29,32 @@ let $activity_map = {
   "system.log_stream.lifecycle.update": 3,
   "system.log_stream.lifecycle.delete": 4,
 }
-ocsf.activity_id = $activity_map[ocsf.metadata.event_code]? else 99
-ocsf.category_uid = 6
-ocsf.class_uid = 6003
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activity_map[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6003
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $status_map = {
   SUCCESS: 1,
   FAILURE: 2,
 }
-ocsf.status_id = $status_map[okta.outcome.result?]? else 0
-ocsf.status_detail = move okta.outcome.reason?
-drop okta.outcome?
+$event.ocsf.status_id = $status_map[$event.okta.outcome.result?]? else 0
+$event.ocsf.status_detail = move $event.okta.outcome.reason?
+drop $event.okta.outcome?
 
-ocsf.api = {
+$event.ocsf.api = {
   request: {
-    uid: ocsf.http_request.uid?,
+    uid: $event.ocsf.http_request.uid?,
   },
 }
-if ocsf.metadata.event_code == "system.api_token.create" {
-  ocsf.api.operation = "PUT"
+if $event.ocsf.metadata.event_code == "system.api_token.create" {
+  $event.ocsf.api.operation = "PUT"
 }
 
 // --- OCSF: resources from target[] ------------
 
-if okta.target? != null {
-  ocsf.resources = okta.target.where(t => t.type == "access_token" or t.type == "Token" or t.type == "id_token" or t.type == "refresh_token").map(t => {
+if $event.okta.target? != null {
+  $event.ocsf.resources = $event.okta.target.where(t => t.type == "access_token" or t.type == "Token" or t.type == "id_token" or t.type == "refresh_token").map(t => {
     uid: t.id,
     name: t.displayName,
     type: t.type,

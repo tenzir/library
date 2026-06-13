@@ -1,9 +1,14 @@
 ---
 description: |
   Zeek ssh.log → OCSF SSH Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
@@ -11,34 +16,34 @@ zeek::ocsf::map_network
 // we have a ssh.log entry, it means we already have an established
 // connection and must assume data is being exchanged, even if it's just
 // the SSH handshake.
-ocsf.activity_id = 6
-ocsf.class_uid = 4007
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-if "ABP" in zeek.inferences or "BFS" in zeek.inferences {
+$event.ocsf.activity_id = 6
+$event.ocsf.class_uid = 4007
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+if "ABP" in $event.zeek.inferences or "BFS" in $event.zeek.inferences {
   // Client authentication bypass (ABP) or brute force success (BFS) are
   // worthwhile escalating.
-  ocsf.severity_id = 4
-} else if "BF" in zeek.inferences or "SV" in zeek.inferences or "SC" in zeek.inferences or "SP" in zeek.inferences {
+  $event.ocsf.severity_id = 4
+} else if "BF" in $event.zeek.inferences or "SV" in $event.zeek.inferences or "SC" in $event.zeek.inferences or "SP" in $event.zeek.inferences {
   // Noteworthy are brute force attempts (BF), version scanning (SV),
   // capability scanning (SC), or other scanning (SP).
-  ocsf.severity_id = 3
+  $event.ocsf.severity_id = 3
 } else {
   // Everything else is standard.
-  ocsf.severity_id = 1
+  $event.ocsf.severity_id = 1
 }
 
 // --- OCSF: occurence attributes ---------------
 
-ocsf.count = move zeek.auth_attempts
+$event.ocsf.count = move $event.zeek.auth_attempts
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "ssh.log"
+$event.ocsf.metadata.log_name = "ssh.log"
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.connection_info.protocol_name = "tcp"
-ocsf.connection_info.protocol_num = 6
+$event.ocsf.connection_info.protocol_name = "tcp"
+$event.ocsf.connection_info.protocol_num = 6
 
 // The Direction enum in Zeek can be INBOUND, OUTBOUND, BIDIRECTIONAL, or
 // NO_DIRECTION. NB: there is no equivalent to Lateral in Zeek, so we
@@ -68,44 +73,44 @@ let $direction = {
     name: "Unknown"
   },
 }
-ocsf.connection_info.direction = $direction[zeek.direction].name
-ocsf.connection_info.direction_id = $direction[zeek.direction].id
-drop zeek.direction
+$event.ocsf.connection_info.direction = $direction[$event.zeek.direction].name
+$event.ocsf.connection_info.direction_id = $direction[$event.zeek.direction].id
+drop $event.zeek.direction
 
-ocsf.src_endpoint.agent_list = [{
-  name: move zeek.client,
+$event.ocsf.src_endpoint.agent_list = [{
+  name: move $event.zeek.client,
   type: "Remote Access",
   type_id: 9,
 }]
-ocsf.dst_endpoint.agent_list = [{
-  name: move zeek.server,
+$event.ocsf.dst_endpoint.agent_list = [{
+  name: move $event.zeek.server,
   type: "Remote Access",
   type_id: 9,
 }]
 
-ocsf.server_hassh = {
-  algorithm: move zeek.hasshServerAlgorithms,
+$event.ocsf.server_hassh = {
+  algorithm: move $event.zeek.hasshServerAlgorithms,
   fingerprint: {
     algorithm_id: 20,
-    value: move zeek.hasshServer,
+    value: move $event.zeek.hasshServer,
   },
 }
-ocsf.client_hassh = {
-  algorithm: move zeek.hasshAlgorithms,
+$event.ocsf.client_hassh = {
+  algorithm: move $event.zeek.hasshAlgorithms,
   fingerprint: {
     algorithm_id: 20,
-    value: move zeek.hassh,
+    value: move $event.zeek.hassh,
   },
 }
 
 // The Authentication Type can be deduced if we have the `inferences`
 // package.
-if "KS" in zeek.inferences {
-  ocsf.auth_type_id = 4
-  ocsf.auth_type = "Keyboard Interactive"
+if "KS" in $event.zeek.inferences {
+  $event.ocsf.auth_type_id = 4
+  $event.ocsf.auth_type = "Keyboard Interactive"
 } else {
-  ocsf.auth_type_id = 0
-  ocsf.auth_type = "Unknown"
+  $event.ocsf.auth_type_id = 0
+  $event.ocsf.auth_type = "Unknown"
 }
 
 @name = "ocsf.ssh_activity"

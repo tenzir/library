@@ -1,84 +1,87 @@
 ---
 description: Splunk CIM Web → OCSF Web Resources Activity (6001)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "create" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "read" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "update" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "delete" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "search" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   "import" => {
-    ocsf.activity_id = 6
+    $event.ocsf.activity_id = 6
   }
   "export" => {
-    ocsf.activity_id = 7
+    $event.ocsf.activity_id = 7
   }
   "share" => {
-    ocsf.activity_id = 8
+    $event.ocsf.activity_id = 8
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 6
-ocsf.class_uid = 6001
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6001
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: web resource attributes ------------
 
-ocsf.http_request = {
-  http_method: move cim.http_method?,
-  referrer: move cim.http_referrer?,
-  user_agent: move cim.http_user_agent?,
+$event.ocsf.http_request = {
+  http_method: move $event.cim.http_method?,
+  referrer: move $event.cim.http_referrer?,
+  user_agent: move $event.cim.http_user_agent?,
   url: {
-    domain: move cim.url_domain?,
-    path: move cim.uri_path?,
-    query_string: move cim.uri_query?,
-    url_string: move cim.url?,
+    domain: move $event.cim.url_domain?,
+    path: move $event.cim.uri_path?,
+    query_string: move $event.cim.uri_query?,
+    url_string: move $event.cim.url?,
   },
 }
-ocsf.http_response = {
-  code: int(move cim.status?),
-  content_type: move cim.http_content_type?,
-  latency: move cim.response_time?,
+$event.ocsf.http_response = {
+  code: int(move $event.cim.status?),
+  content_type: move $event.cim.http_content_type?,
+  latency: move $event.cim.response_time?,
 }
-ocsf.web_resources = [
+$event.ocsf.web_resources = [
   {
-    url_string: ocsf.http_request.url.url_string?,
+    url_string: $event.ocsf.http_request.url.url_string?,
   },
 ]
-ocsf.src_endpoint = {
-  ip: move cim.src_ip?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.cim.src_ip?,
 }
-ocsf.dst_endpoint = {
-  ip: move cim.dest_ip?,
-  port: move cim.dest_port?,
+$event.ocsf.dst_endpoint = {
+  ip: move $event.cim.dest_ip?,
+  port: move $event.cim.dest_port?,
 }
-ocsf.metadata.profiles = [...ocsf.metadata.profiles?, "host"]
-ocsf.actor = {
-  app_name: move cim.app?,
+$event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
+$event.ocsf.actor = {
+  app_name: move $event.cim.app?,
   user: {
-    name: move cim.user?,
+    name: move $event.cim.user?,
   },
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.web_resources_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

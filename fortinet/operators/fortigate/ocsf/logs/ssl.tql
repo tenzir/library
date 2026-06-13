@@ -1,5 +1,10 @@
 ---
 description: "FortiGate SSL inspection logs → OCSF Network Activity (4001)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.network_activity"
@@ -11,26 +16,26 @@ let $activities = {
   "ssl-exempt": 6,     // Traffic
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
-ocsf.activity_id = $activities[move fortinet.eventtype]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = $activities[move $event.fortinet.eventtype]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-fortinet::fortigate::ocsf::network_endpoints
-fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::network_endpoints event=$event
+fortinet::fortigate::ocsf::connection_info event=$event
 
 // `reason` is the specific SSL inspection verdict (e.g. block-cert-invalid).
-if fortinet.reason? != null {
-  ocsf.status_detail = move fortinet.reason
+if $event.fortinet.reason? != null {
+  $event.ocsf.status_detail = move $event.fortinet.reason
 }
 
 // SSL inspection is a security control.
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     exempt: 1,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

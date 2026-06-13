@@ -1,59 +1,64 @@
 ---
 description: OCSF File System Activity (1001) → Splunk CIM Endpoint Filesystem
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 1001
+assert $event.ocsf.class_uid == 1001
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["endpoint", "filesystem"]
+$event.cim.tag = ["endpoint", "filesystem"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
+$event.cim._time = $event.ocsf.time
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
 
 // --- CIM: endpoint attributes -----------------
 
-cim.dest = device?.hostname? else device?.ip? else device?.name?
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 
 // --- CIM: file attributes ---------------------
 
-cim.file_access_time = file?.accessed_time?
-cim.file_acl = file?.security_descriptor?
-cim.file_create_time = file?.created_time?
-cim.file_hash = [...file?.hashes?.map(h => h.value)]
-cim.file_modify_time = file?.modified_time?
-cim.file_name = file?.name?
-cim.file_path = file?.path?
-if file?.size? != null {
-  cim.file_size = file.size / 1024
+$event.cim.file_access_time = $event.ocsf.file?.accessed_time?
+$event.cim.file_acl = $event.ocsf.file?.security_descriptor?
+$event.cim.file_create_time = $event.ocsf.file?.created_time?
+$event.cim.file_hash = [...$event.ocsf.file?.hashes?.map(h => h.value)]
+$event.cim.file_modify_time = $event.ocsf.file?.modified_time?
+$event.cim.file_name = $event.ocsf.file?.name?
+$event.cim.file_path = $event.ocsf.file?.path?
+if $event.ocsf.file?.size? != null {
+  $event.cim.file_size = $event.ocsf.file.size / 1024
 }
 
 // --- CIM: process attributes ------------------
 
-cim.process = actor?.process?.cmd_line? else actor?.process?.path? else actor?.process?.name?
-cim.process_exec = actor?.process?.file?.name? else actor?.process?.name?
-cim.process_guid = actor?.process?.uid?
-cim.process_hash = [...actor?.process?.file?.hashes?.map(h => h.value)]
-cim.process_id = actor?.process?.pid?
-cim.process_name = actor?.process?.name? else actor?.process?.file?.name?
-cim.process_path = actor?.process?.path? else actor?.process?.file?.path?
-cim.parent_process = actor?.process?.parent_process?.cmd_line?
-cim.parent_process_exec = actor?.process?.parent_process?.file?.name? else actor?.process?.parent_process?.name?
-cim.parent_process_guid = actor?.process?.parent_process?.uid?
-cim.parent_process_hash = [...actor?.process?.parent_process?.file?.hashes?.map(h => h.value)]
-cim.parent_process_id = actor?.process?.parent_process?.pid?
-cim.parent_process_name = actor?.process?.parent_process?.name? else actor?.process?.parent_process?.file?.name?
-cim.parent_process_path = actor?.process?.parent_process?.path? else actor?.process?.parent_process?.file?.path?
+$event.cim.process = $event.ocsf.actor?.process?.cmd_line? else $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.name?
+$event.cim.process_exec = $event.ocsf.actor?.process?.file?.name? else $event.ocsf.actor?.process?.name?
+$event.cim.process_guid = $event.ocsf.actor?.process?.uid?
+$event.cim.process_hash = [...$event.ocsf.actor?.process?.file?.hashes?.map(h => h.value)]
+$event.cim.process_id = $event.ocsf.actor?.process?.pid?
+$event.cim.process_name = $event.ocsf.actor?.process?.name? else $event.ocsf.actor?.process?.file?.name?
+$event.cim.process_path = $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.file?.path?
+$event.cim.parent_process = $event.ocsf.actor?.process?.parent_process?.cmd_line?
+$event.cim.parent_process_exec = $event.ocsf.actor?.process?.parent_process?.file?.name? else $event.ocsf.actor?.process?.parent_process?.name?
+$event.cim.parent_process_guid = $event.ocsf.actor?.process?.parent_process?.uid?
+$event.cim.parent_process_hash = [...$event.ocsf.actor?.process?.parent_process?.file?.hashes?.map(h => h.value)]
+$event.cim.parent_process_id = $event.ocsf.actor?.process?.parent_process?.pid?
+$event.cim.parent_process_name = $event.ocsf.actor?.process?.parent_process?.name? else $event.ocsf.actor?.process?.parent_process?.file?.name?
+$event.cim.parent_process_path = $event.ocsf.actor?.process?.parent_process?.path? else $event.ocsf.actor?.process?.parent_process?.file?.path?
 
 // --- CIM: user and product attributes ---------
 
-cim.user = actor?.user?.name? else actor?.user?.uid?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

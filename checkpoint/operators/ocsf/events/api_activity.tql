@@ -1,41 +1,46 @@
 ---
 description: "Check Point WEB_API → OCSF API Activity (6003)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.api_activity"
 
-ocsf.metadata.profiles = ["host"]
+$event.ocsf.metadata.profiles = ["host"]
 
-ocsf.category_uid = 6
-ocsf.class_uid = 6003
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6003
 let $activities = {
   Create: 1,
   Read: 2,
   Update: 3,
   Delete: 4,
 }
-ocsf.activity_id = $activities[checkpoint.action?]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activities[$event.checkpoint.action?]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.api = {
-  operation: checkpoint.action? else checkpoint.subject? else "unknown",
+$event.ocsf.api = {
+  operation: $event.checkpoint.action? else $event.checkpoint.subject? else "unknown",
 }
-drop checkpoint.action?
+drop $event.checkpoint.action?
 
-checkpoint::ocsf::status
+checkpoint::ocsf::status event=$event
 
-if checkpoint.user? != null {
-  ocsf.actor.user.name = move checkpoint.user
+if $event.checkpoint.user? != null {
+  $event.ocsf.actor.user.name = move $event.checkpoint.user
 }
-if checkpoint.src? != null {
-  ocsf.src_endpoint.ip = move checkpoint.src
+if $event.checkpoint.src? != null {
+  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
 }
-if checkpoint.object? != null or checkpoint.objecttype? != null {
-  ocsf.resources = [{
-    name: move checkpoint.object?,
-    type: move checkpoint.objecttype?,
+if $event.checkpoint.object? != null or $event.checkpoint.objecttype? != null {
+  $event.ocsf.resources = [{
+    name: move $event.checkpoint.object?,
+    type: move $event.checkpoint.objecttype?,
   }]
 }
-if checkpoint.subject? != null {
-  ocsf.api.request.uid = move checkpoint.subject
+if $event.checkpoint.subject? != null {
+  $event.ocsf.api.request.uid = move $event.checkpoint.subject
 }

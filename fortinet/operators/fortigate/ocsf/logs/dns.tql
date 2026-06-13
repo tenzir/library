@@ -1,5 +1,10 @@
 ---
 description: "FortiGate DNS filter logs → OCSF DNS Activity (4003)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.dns_activity"
@@ -10,46 +15,46 @@ let $activities = {
   "dns-response": 2,
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4003
-ocsf.activity_id = $activities[move fortinet.eventtype]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4003
+$event.ocsf.activity_id = $activities[move $event.fortinet.eventtype]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-fortinet::fortigate::ocsf::network_endpoints
-ocsf.src_endpoint.mac = move fortinet.srcmac
+fortinet::fortigate::ocsf::network_endpoints event=$event
+$event.ocsf.src_endpoint.mac = move $event.fortinet.srcmac
 
-fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::connection_info event=$event
 
-ocsf.query = {
-  hostname: move fortinet.qname,
-  class: move fortinet.qclass,
-  packet_uid: move fortinet.xid,
-  type: move fortinet.qtype,
+$event.ocsf.query = {
+  hostname: move $event.fortinet.qname,
+  class: move $event.fortinet.qclass,
+  packet_uid: move $event.fortinet.xid,
+  type: move $event.fortinet.qtype,
 }
 
 // DNS responses carry the resolved address(es).
-if fortinet.ipaddr? != null {
-  ocsf.answers = [{
-    rdata: (move fortinet.ipaddr).string(),
-    type: ocsf.query.type,
-    class: ocsf.query.class,
+if $event.fortinet.ipaddr? != null {
+  $event.ocsf.answers = [{
+    rdata: (move $event.fortinet.ipaddr).string(),
+    type: $event.ocsf.query.type,
+    class: $event.ocsf.query.class,
   }]
 }
 
 // Security-control profile
 
 // Only response events carry an action (pass/block); queries are observation-only.
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     pass: 1,
     block: 2,
     drop: 6,
     monitor: 17,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }
 
 // `profile` is the DNS filter profile (UTM security policy) applied to the session.
 // `policyid` is the firewall policy rule that matched the session, distinct from
 // the DNS filter profile above.
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event

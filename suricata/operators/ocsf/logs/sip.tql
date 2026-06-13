@@ -1,3 +1,10 @@
+---
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
 // --- OCSF: classification attributes ----------
 
 /*
@@ -6,45 +13,45 @@
  * - BYE: Network connection closed = activity_id 2
  * - Response codes 4xx/5xx/6xx: Connection failed = activity_id 4
  */
-if suricata.sip.has("method") and suricata.sip.method == "INVITE" {
-  ocsf.activity_id = 1
-} else if suricata.sip.has("method") and suricata.sip.method == "BYE" {
-  ocsf.activity_id = 2
-} else if suricata.sip.has("code") and int(suricata.sip.code) >= 400 and int(suricata.sip.code) < 700 {
-  ocsf.activity_id = 4
-} else if suricata.sip.has("method") or suricata.sip.has("code") {
-  ocsf.activity_id = 6
+if $event.suricata.sip.has("method") and $event.suricata.sip.method == "INVITE" {
+  $event.ocsf.activity_id = 1
+} else if $event.suricata.sip.has("method") and $event.suricata.sip.method == "BYE" {
+  $event.ocsf.activity_id = 2
+} else if $event.suricata.sip.has("code") and int($event.suricata.sip.code) >= 400 and int($event.suricata.sip.code) < 700 {
+  $event.ocsf.activity_id = 4
+} else if $event.suricata.sip.has("method") or $event.suricata.sip.has("code") {
+  $event.ocsf.activity_id = 6
 } else {
-  ocsf.activity_id = 0
+  $event.ocsf.activity_id = 0
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
 
 // Severity: informational for normal operations
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.app_protocol_name = "sip"
+$event.ocsf.app_protocol_name = "sip"
 
 // --- OCSF: primary attributes -----------------
 
-if suricata.sip.has("request_line") {
-  ocsf.message = move suricata.sip.request_line
-} else if suricata.sip.has("response_line") {
-  ocsf.message = move suricata.sip.response_line
+if $event.suricata.sip.has("request_line") {
+  $event.ocsf.message = move $event.suricata.sip.request_line
+} else if $event.suricata.sip.has("response_line") {
+  $event.ocsf.message = move $event.suricata.sip.response_line
 }
 
-ocsf.status_detail = move suricata.sip.reason?
+$event.ocsf.status_detail = move $event.suricata.sip.reason?
 
-if suricata.sip.has("code") {
-  ocsf.status_code = move suricata.sip.code?
-  ocsf.status_id = 2 if int(ocsf.status_code) >= 400 else 1
+if $event.suricata.sip.has("code") {
+  $event.ocsf.status_code = move $event.suricata.sip.code?
+  $event.ocsf.status_id = 2 if int($event.ocsf.status_code) >= 400 else 1
 } else {
-  ocsf.status_id = 0
+  $event.ocsf.status_id = 0
 }
 
 // --- Finalize ---------------------------------

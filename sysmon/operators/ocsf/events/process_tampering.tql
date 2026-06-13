@@ -1,5 +1,10 @@
 ---
 description: Sysmon ProcessTampering (EID 25) → OCSF Process Activity (1007, Inject)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // Process tampering (hollowing, herpaderping) is a form of process injection
@@ -8,50 +13,50 @@ description: Sysmon ProcessTampering (EID 25) → OCSF Process Activity (1007, I
 
 @name = "ocsf.process_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1007
-ocsf.activity_id = 4  // Inject
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 4  // Inject
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // injection_type_id 99 (Other) because hollowing/herpaderping are not
 // Remote Thread, Load Library, or Queue APC.
 // injection_type must be the enum caption "Other" when id=99; the Sysmon-specific
 // string (e.g. "Image is replaced") is preserved in unmapped for analysts.
-ocsf.injection_type_id = 99
-ocsf.injection_type = "Other"
-sysmon.EventData.TamperingType = move sysmon.EventData.Type
+$event.ocsf.injection_type_id = 99
+$event.ocsf.injection_type = "Other"
+$event.sysmon.EventData.TamperingType = move $event.sysmon.EventData.Type
 
 // The tampered process is both the actor and the target (Sysmon only reports it).
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.process = {
-  uid: move sysmon.EventData.ProcessGuid,
-  pid: (move sysmon.EventData.ProcessId).int(),
-  path: move sysmon.EventData.Image,
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.process = {
+  uid: move $event.sysmon.EventData.ProcessGuid,
+  pid: (move $event.sysmon.EventData.ProcessId).int(),
+  path: move $event.sysmon.EventData.Image,
   file: { type_id: 8 },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-ocsf.process.name = ocsf.process.path.split("\\")[-1]
-ocsf.process.file.name = ocsf.process.name
-ocsf.process.file.path = ocsf.process.path
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
 
-ocsf.actor = {
+$event.ocsf.actor = {
   process: {
-    uid: ocsf.process.uid,
-    pid: ocsf.process.pid,
-    path: ocsf.process.path,
-    name: ocsf.process.name,
+    uid: $event.ocsf.process.uid,
+    pid: $event.ocsf.process.pid,
+    path: $event.ocsf.process.path,
+    name: $event.ocsf.process.name,
     file: {
       type_id: 8,
-      name: ocsf.process.file.name,
-      path: ocsf.process.file.path,
+      name: $event.ocsf.process.file.name,
+      path: $event.ocsf.process.file.path,
     },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
+drop $event._user

@@ -1,62 +1,67 @@
 ---
 description: |
   Zeek events → OCSF Network Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // --- OCSF: classification attributes ----------
 
-ocsf.category_uid = 4
+$event.ocsf.category_uid = 4
 
 // --- OCSF: occurence & context attributes------
 
-if ocsf.metadata.original_event_uid? != null {
-  ocsf.connection_info.uid = ocsf.metadata.original_event_uid
+if $event.ocsf.metadata.original_event_uid? != null {
+  $event.ocsf.connection_info.uid = $event.ocsf.metadata.original_event_uid
 }
 
 // Implied in metadata.log_name.
-drop zeek._path?
+drop $event.zeek._path?
 
 // --- OCSF: primary attributes -----------------
 
 // Map source/destination endpoints.
-if zeek.has("id") {
-  ocsf.src_endpoint = {
-    ip: zeek.id.orig_h,
-    port: zeek.id.orig_p,
+if $event.zeek.has("id") {
+  $event.ocsf.src_endpoint = {
+    ip: $event.zeek.id.orig_h,
+    port: $event.zeek.id.orig_p,
   }
-  ocsf.dst_endpoint = {
-    ip: zeek.id.resp_h,
-    port: zeek.id.resp_p,
+  $event.ocsf.dst_endpoint = {
+    ip: $event.zeek.id.resp_h,
+    port: $event.zeek.id.resp_p,
   }
-  drop zeek.id
+  drop $event.zeek.id
   // Fill protocol version based on endpoints.
   // This could at some point go into `ocsf::derive`.
-  if ocsf.src_endpoint.ip.is_v6() or ocsf.dst_endpoint.ip.is_v6() {
-    ocsf.connection_info.protocol_ver_id = 6
+  if $event.ocsf.src_endpoint.ip.is_v6() or $event.ocsf.dst_endpoint.ip.is_v6() {
+    $event.ocsf.connection_info.protocol_ver_id = 6
   } else {
-    ocsf.connection_info.protocol_ver_id = 4
+    $event.ocsf.connection_info.protocol_ver_id = 4
   }
 }
-if zeek.has("orig_l2_addr") {
-  ocsf.src_endpoint.mac = move zeek.orig_l2_addr
+if $event.zeek.has("orig_l2_addr") {
+  $event.ocsf.src_endpoint.mac = move $event.zeek.orig_l2_addr
 }
-if zeek.has("resp_l2_addr") {
-  ocsf.dst_endpoint.mac = move zeek.resp_l2_addr
+if $event.zeek.has("resp_l2_addr") {
+  $event.ocsf.dst_endpoint.mac = move $event.zeek.resp_l2_addr
 }
-if zeek.has("orig_cc") {
-  ocsf.src_endpoint.location = {
-    country: move zeek.orig_cc,
+if $event.zeek.has("orig_cc") {
+  $event.ocsf.src_endpoint.location = {
+    country: move $event.zeek.orig_cc,
   }
 }
-if zeek.has("resp_cc") {
-  ocsf.dst_endpoint.location = {
-    country: move zeek.resp_cc,
+if $event.zeek.has("resp_cc") {
+  $event.ocsf.dst_endpoint.location = {
+    country: move $event.zeek.resp_cc,
   }
 }
 
 // Map Community ID.
-if zeek.has("community_id") {
-  ocsf.connection_info.community_uid = move zeek.community_id
+if $event.zeek.has("community_id") {
+  $event.ocsf.connection_info.community_uid = move $event.zeek.community_id
 }
 
 // Map transport-layer protocol details.
@@ -67,7 +72,7 @@ let $proto_nums = {
   icmpv6: 58,
   ipv6: 41,
 }
-if zeek.has("proto") {
-  ocsf.connection_info.protocol_num = $proto_nums[zeek.proto]? else -1
-  ocsf.connection_info.protocol_name = move zeek.proto
+if $event.zeek.has("proto") {
+  $event.ocsf.connection_info.protocol_num = $proto_nums[$event.zeek.proto]? else -1
+  $event.ocsf.connection_info.protocol_name = move $event.zeek.proto
 }

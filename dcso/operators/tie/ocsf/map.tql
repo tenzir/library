@@ -1,61 +1,67 @@
 ---
 description: |
   DCSO TIE IOC → OCSF OSINT Inventory Info
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
 // Official schema definition: https://docs.dcso.de/docs/tie/tiev3/ioc_schema_definition
 
 // ------ OSINT Object --------
 
-this = {tie: this}
-osint = {}
+$event = {...$event, tie: $event, ocsf: {}}
+$event.osint = {}
 
 // MITRE ATT&CK
-tactics = tie.mitreTactics.map(x => {
+$event.tactics = $event.tie.mitreTactics.map(x => {
   tactic: {
     uid: x
   }
 })
-techniques = tie.mitreTechniques.map(x => {
+$event.techniques = $event.tie.mitreTechniques.map(x => {
   technique: {
     uid: x
   }
 })
-osint.attacks = [...(move tactics), ...(move techniques)]
-drop tie.mitreTactics, tie.mitreTechniques
+$event.osint.attacks = [...(move $event.tactics), ...(move $event.techniques)]
+drop $event.tie.mitreTactics, $event.tie.mitreTechniques
 
 // The OCSF OSINT object has just one campaign per IOC. This is arguably
 // incorrect, as an IOC can certainly be part of multiple campaigns.
 // Our workaround is to join the provided campaigns with a comma.
-osint.campaign = {
-  name: tie.targetCampaigns?.join(", ")
+$event.osint.campaign = {
+  name: $event.tie.targetCampaigns?.join(", ")
 }
-drop tie.targetCampaigns
+drop $event.tie.targetCampaigns
 
 // The TIE confidence is in [0,100].
-if tie.confidence? != null {
-  if tie.confidence < 30 {
-    osint.confidence_id = 1 // Low
-  } else if tie.confidence < 70 {
-    osint.confidence_id = 2 // Medium
+if $event.tie.confidence? != null {
+  if $event.tie.confidence < 30 {
+    $event.osint.confidence_id = 1 // Low
+  } else if $event.tie.confidence < 70 {
+    $event.osint.confidence_id = 2 // Medium
   } else {
-    osint.confidence_id = 3 // High
+    $event.osint.confidence_id = 3 // High
   }
-  drop tie.confidence
+  drop $event.tie.confidence
 }
-osint.created_time = move tie.created
-osint.labels = move tie.tags
+$event.osint.created_time = move $event.tie.created
+$event.osint.labels = move $event.tie.tags
 
 // This is not the best place to put the MISP event IDs.
-osint.malware = tie.malpedia?.map(x => {
+$event.osint.malware = $event.tie.malpedia?.map(x => {
   name: x,
   classification_ids: [0], // unknown
 })
-drop tie.malpedia
+drop $event.tie.malpedia
 
-osint.modified_time = move tie.modified
-osint.references = move tie.eventIDs
-osint.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url(tie.ioc)
+$event.osint.modified_time = move $event.tie.modified
+$event.osint.references = move $event.tie.eventIDs
+$event.osint.src_url = "https://api.dcso.de/tie/v3/iocs/" + encode_url($event.tie.ioc)
 
 // Map threat actors.
 let $tlps = {
@@ -65,30 +71,30 @@ let $tlps = {
   "amber+strict": "AMBER STRICT",
   red: "RED",
 }
-osint.tlp = $tlps[move tie.tlpLevel]?
+$event.osint.tlp = $tlps[move $event.tie.tlpLevel]?
 // Same as above: our source has an array here but we must map it to a
 // singular object.
-osint.threat_actor = {
-  name: tie.threatActors?.join(", "),
+$event.osint.threat_actor = {
+  name: $event.tie.threatActors?.join(", "),
 }
-drop tie.threatActors
+drop $event.tie.threatActors
 
 // Map severity from [0,100].
-if tie.severity? != null {
-  if tie.severity < 20 {
-    osint.severity_id = 1 // Informational
-  } else if tie.severity < 40 {
-    osint.severity_id = 2 // Low
-  } else if tie.severity < 60 {
-    osint.severity_id = 3 // Medium
-  } else if tie.severity < 80 {
-    osint.severity_id = 4 // High
-  } else if tie.severity < 90 {
-    osint.severity_id = 5 // Critical
+if $event.tie.severity? != null {
+  if $event.tie.severity < 20 {
+    $event.osint.severity_id = 1 // Informational
+  } else if $event.tie.severity < 40 {
+    $event.osint.severity_id = 2 // Low
+  } else if $event.tie.severity < 60 {
+    $event.osint.severity_id = 3 // Medium
+  } else if $event.tie.severity < 80 {
+    $event.osint.severity_id = 4 // High
+  } else if $event.tie.severity < 90 {
+    $event.osint.severity_id = 5 // Critical
   } else {
-    osint.severity_id = 6 // Fatal
+    $event.osint.severity_id = 6 // Fatal
   }
-  drop tie.severity
+  drop $event.tie.severity
 }
 // Map IOC type.
 let $type_ids = {
@@ -111,25 +117,25 @@ let $type_ids = {
   url: 5,
   userAgent: 6,
 }
-osint.type_id = $type_ids[move tie.iocType]
-osint.value = move tie.ioc
+$event.osint.type_id = $type_ids[move $event.tie.iocType]
+$event.osint.value = move $event.tie.ioc
 
-osint.vendor_name = "DCSO"
+$event.osint.vendor_name = "DCSO"
 
 // ------ OSINT Inventory Info --------
 
-ocsf = {}
+$event.ocsf = {}
 // Classification
-ocsf.activity_id = 2
-ocsf.category_uid = 5
-ocsf.class_uid = 5021
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 2
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 // Context
-ocsf.actor = {
+$event.ocsf.actor = {
   app_name: "Tenzir"
 }
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     name: "TIE",
     vendor_name: "DCSO",
@@ -137,11 +143,11 @@ ocsf.metadata = {
   version: "1.8.0",
 }
 // Occurence
-ocsf.time = now()
+$event.ocsf.time = now()
 // Primary
-ocsf.osint = [move osint]
+$event.ocsf.osint = [move $event.osint]
 
 // ------ Epilogue --------
 
-this = {...ocsf, unmapped: tie}
+$event = {...$event.ocsf, unmapped: $event.tie}
 @name = "ocsf.osint_inventory_info"

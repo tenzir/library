@@ -1,39 +1,44 @@
 ---
 description: Sysmon RawAccessRead (EID 9) → OCSF File System Activity (1001, Read)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.file_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1001
-ocsf.activity_id = 2  // Read
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+$event.ocsf.activity_id = 2  // Read
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // RawAccessRead targets a raw disk device, not a regular file.
 // type_id 4 (Block Device) is the closest OCSF match.
-ocsf.file = {
-  path: move sysmon.EventData.Device,
+$event.ocsf.file = {
+  path: move $event.sysmon.EventData.Device,
   type_id: 4,  // Block Device
 }
-ocsf.file.name = ocsf.file.path.split("\\")[-1]
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
 
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.actor = {
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid: move sysmon.EventData.ProcessGuid,
-    pid: (move sysmon.EventData.ProcessId).int(),
-    path: move sysmon.EventData.Image,
+    uid: move $event.sysmon.EventData.ProcessGuid,
+    pid: (move $event.sysmon.EventData.ProcessId).int(),
+    path: move $event.sysmon.EventData.Image,
     file: {
       type_id: 8,
     },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
+drop $event._user
 
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path

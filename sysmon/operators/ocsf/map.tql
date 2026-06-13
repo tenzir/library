@@ -1,125 +1,121 @@
 ---
 description: Sysmon → OCSF
 args:
-  positional:
-    - name: log
-      description: The field that holds the raw Sysmon event as XML.
+  named:
+    - name: event
+      description: The field that holds the event to map.
       type: field
+      default: this
 ---
 
-ocsf = {}
+$event = {...$event, sysmon: $event, ocsf: {}}
 
-ocsf.raw_data = $log
-ocsf.raw_data_size = $log.length_bytes()
-
-sysmon = $log.parse_winlog()
-
-ocsf.metadata = {
-  event_code: (move sysmon.System.EventID).string(),
+$event.ocsf.metadata = {
+  event_code: (move $event.sysmon.System.EventID).string(),
   extensions: [{name: "win"}],
   log_format: "xml",
-  log_name: move sysmon.System.Channel,
-  log_level: (move sysmon.System.Level).string(),
-  log_version: (move sysmon.System.Version).string(),
-  logged_time: move sysmon.System.TimeCreated.SystemTime,
-  original_event_uid: (move sysmon.System.EventRecordID).string(),
+  log_name: move $event.sysmon.System.Channel,
+  log_level: (move $event.sysmon.System.Level).string(),
+  log_version: (move $event.sysmon.System.Version).string(),
+  logged_time: move $event.sysmon.System.TimeCreated.SystemTime,
+  original_event_uid: (move $event.sysmon.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move sysmon.System.Provider.Name,
-    uid: move sysmon.System.Provider.Guid,
+    name: move $event.sysmon.System.Provider.Name,
+    uid: move $event.sysmon.System.Provider.Guid,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
   version: "1.8.0",
 }
 
-ocsf.severity_id = 1
+$event.ocsf.severity_id = 1
 
-ocsf.time = move sysmon.EventData.UtcTime
+$event.ocsf.time = move $event.sysmon.EventData.UtcTime
 
-ocsf.device = {
-  hostname: move sysmon.System.Computer,
+$event.ocsf.device = {
+  hostname: move $event.sysmon.System.Computer,
 }
 
 // ProcessID and ThreadID identify the Sysmon service itself, not the target event.
-drop sysmon.System.Execution
-drop sysmon.System.Provider
-drop sysmon.System.TimeCreated
+drop $event.sysmon.System.Execution
+drop $event.sysmon.System.Provider
+drop $event.sysmon.System.TimeCreated
 
 // Security.UserID is the Sysmon service account SID (typically S-1-5-18 / SYSTEM),
 // not the device owner — leave it in unmapped.
-drop sysmon.System.Security
+drop $event.sysmon.System.Security
 
 // Correlation is always empty for Sysmon (it does not use ETW ActivityIDs),
 // and OCSF's metadata.correlation_uid is for linking OCSF events — a different
 // concept — so there is no valid mapping target.
-drop sysmon.System.Correlation
+drop $event.sysmon.System.Correlation
 
 // RuleName is a Sysmon filter-rule tag present on most EIDs. It is not a
 // property of any observed object, so it is dropped centrally here rather
 // than in every individual mapping operator.
-drop sysmon.EventData.RuleName?
+drop $event.sysmon.EventData.RuleName?
 
-if ocsf.metadata.event_code == "1" {
-  sysmon::ocsf::events::process_create
-} else if ocsf.metadata.event_code == "2" {
-  sysmon::ocsf::events::file_create_time
-} else if ocsf.metadata.event_code == "3" {
-  sysmon::ocsf::events::network_connect
-} else if ocsf.metadata.event_code == "4" {
-  sysmon::ocsf::events::service_state_change
-} else if ocsf.metadata.event_code == "5" {
-  sysmon::ocsf::events::process_terminate
-} else if ocsf.metadata.event_code == "6" {
-  sysmon::ocsf::events::driver_load
-} else if ocsf.metadata.event_code == "7" {
-  sysmon::ocsf::events::image_load
-} else if ocsf.metadata.event_code == "8" {
-  sysmon::ocsf::events::create_remote_thread
-} else if ocsf.metadata.event_code == "9" {
-  sysmon::ocsf::events::raw_access_read
-} else if ocsf.metadata.event_code == "10" {
-  sysmon::ocsf::events::process_access
-} else if ocsf.metadata.event_code == "11" {
-  sysmon::ocsf::events::file_create
-} else if ocsf.metadata.event_code == "12" {
-  sysmon::ocsf::events::registry_create_delete
-} else if ocsf.metadata.event_code == "13" {
-  sysmon::ocsf::events::registry_value_set
-} else if ocsf.metadata.event_code == "14" {
-  sysmon::ocsf::events::registry_rename
-} else if ocsf.metadata.event_code == "15" {
-  sysmon::ocsf::events::file_create_stream_hash
-} else if ocsf.metadata.event_code == "16" {
-  sysmon::ocsf::events::sysmon_config_change
-} else if ocsf.metadata.event_code == "17" {
-  sysmon::ocsf::events::pipe_created
-} else if ocsf.metadata.event_code == "18" {
-  sysmon::ocsf::events::pipe_connected
-} else if ocsf.metadata.event_code in ["19", "20", "21"] {
-  sysmon::ocsf::events::wmi_events
-} else if ocsf.metadata.event_code == "22" {
-  sysmon::ocsf::events::dns_query
-} else if ocsf.metadata.event_code == "23" {
-  sysmon::ocsf::events::file_delete
-} else if ocsf.metadata.event_code == "24" {
-  sysmon::ocsf::events::clipboard_change
-} else if ocsf.metadata.event_code == "25" {
-  sysmon::ocsf::events::process_tampering
-} else if ocsf.metadata.event_code == "26" {
-  sysmon::ocsf::events::file_delete
-} else if ocsf.metadata.event_code in ["27","28"] {
-  sysmon::ocsf::events::file_block
-} else if ocsf.metadata.event_code == "29" {
-  sysmon::ocsf::events::file_executable_detected
-} else if ocsf.metadata.event_code == "255" {
-  sysmon::ocsf::events::sysmon_error
+if $event.ocsf.metadata.event_code == "1" {
+  sysmon::ocsf::events::process_create event=$event
+} else if $event.ocsf.metadata.event_code == "2" {
+  sysmon::ocsf::events::file_create_time event=$event
+} else if $event.ocsf.metadata.event_code == "3" {
+  sysmon::ocsf::events::network_connect event=$event
+} else if $event.ocsf.metadata.event_code == "4" {
+  sysmon::ocsf::events::service_state_change event=$event
+} else if $event.ocsf.metadata.event_code == "5" {
+  sysmon::ocsf::events::process_terminate event=$event
+} else if $event.ocsf.metadata.event_code == "6" {
+  sysmon::ocsf::events::driver_load event=$event
+} else if $event.ocsf.metadata.event_code == "7" {
+  sysmon::ocsf::events::image_load event=$event
+} else if $event.ocsf.metadata.event_code == "8" {
+  sysmon::ocsf::events::create_remote_thread event=$event
+} else if $event.ocsf.metadata.event_code == "9" {
+  sysmon::ocsf::events::raw_access_read event=$event
+} else if $event.ocsf.metadata.event_code == "10" {
+  sysmon::ocsf::events::process_access event=$event
+} else if $event.ocsf.metadata.event_code == "11" {
+  sysmon::ocsf::events::file_create event=$event
+} else if $event.ocsf.metadata.event_code == "12" {
+  sysmon::ocsf::events::registry_create_delete event=$event
+} else if $event.ocsf.metadata.event_code == "13" {
+  sysmon::ocsf::events::registry_value_set event=$event
+} else if $event.ocsf.metadata.event_code == "14" {
+  sysmon::ocsf::events::registry_rename event=$event
+} else if $event.ocsf.metadata.event_code == "15" {
+  sysmon::ocsf::events::file_create_stream_hash event=$event
+} else if $event.ocsf.metadata.event_code == "16" {
+  sysmon::ocsf::events::sysmon_config_change event=$event
+} else if $event.ocsf.metadata.event_code == "17" {
+  sysmon::ocsf::events::pipe_created event=$event
+} else if $event.ocsf.metadata.event_code == "18" {
+  sysmon::ocsf::events::pipe_connected event=$event
+} else if $event.ocsf.metadata.event_code in ["19", "20", "21"] {
+  sysmon::ocsf::events::wmi_events event=$event
+} else if $event.ocsf.metadata.event_code == "22" {
+  sysmon::ocsf::events::dns_query event=$event
+} else if $event.ocsf.metadata.event_code == "23" {
+  sysmon::ocsf::events::file_delete event=$event
+} else if $event.ocsf.metadata.event_code == "24" {
+  sysmon::ocsf::events::clipboard_change event=$event
+} else if $event.ocsf.metadata.event_code == "25" {
+  sysmon::ocsf::events::process_tampering event=$event
+} else if $event.ocsf.metadata.event_code == "26" {
+  sysmon::ocsf::events::file_delete event=$event
+} else if $event.ocsf.metadata.event_code in ["27","28"] {
+  sysmon::ocsf::events::file_block event=$event
+} else if $event.ocsf.metadata.event_code == "29" {
+  sysmon::ocsf::events::file_executable_detected event=$event
+} else if $event.ocsf.metadata.event_code == "255" {
+  sysmon::ocsf::events::sysmon_error event=$event
 } else {
   // Base Event — unknown/future Sysmon EID
-  ocsf.category_uid = 0
-  ocsf.class_uid = 0
-  ocsf.activity_id = 0
-  ocsf.type_uid = 0
+  $event.ocsf.category_uid = 0
+  $event.ocsf.class_uid = 0
+  $event.ocsf.activity_id = 0
+  $event.ocsf.type_uid = 0
 }
 
-this = {...ocsf, unmapped: sysmon}
+$event = {...$event.ocsf, unmapped: $event.sysmon}

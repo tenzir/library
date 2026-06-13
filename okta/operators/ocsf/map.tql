@@ -1,9 +1,14 @@
 ---
 description: Okta → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {okta: this}
-ocsf = {}
+$event = {...$event, okta: $event, ocsf: {}}
 
 // Raw System Log input must pass through okta::read before OCSF mapping.
 
@@ -12,39 +17,39 @@ let $severity_map = {
   MEDIUM: 3,
   LOW: 2,
 }
-ocsf.severity_id = $severity_map[okta.debugContext.debugData.risk?]? else 1
-drop okta.debugContext.debugData.risk?
+$event.ocsf.severity_id = $severity_map[$event.okta.debugContext.debugData.risk?]? else 1
+drop $event.okta.debugContext.debugData.risk?
 
-ocsf.time = time(move okta.published)
-ocsf.message = move okta.displayMessage
+$event.ocsf.time = time(move $event.okta.published)
+$event.ocsf.message = move $event.okta.displayMessage
 
-ocsf.metadata = {
-  event_code: move okta.eventType,
+$event.ocsf.metadata = {
+  event_code: move $event.okta.eventType,
   log_provider: "Okta",
   product: {
     name: "Okta",
     vendor_name: "Okta",
-    version: move okta.version?,
+    version: move $event.okta.version?,
   },
   profiles: ["cloud"],
   version: "1.8.0",
-  loggers: [{event_uid: move okta.uuid?}],
+  loggers: [{event_uid: move $event.okta.uuid?}],
 }
 
-ocsf.http_request = {
-  uid: move okta.debugContext.debugData.requestId?,
+$event.ocsf.http_request = {
+  uid: move $event.okta.debugContext.debugData.requestId?,
   url: {
-    path: move okta.debugContext.debugData.url?,
-    hostname: move okta.debugContext.debugData.authnRequestId? else move okta.debugContext.debugData.origin?,
+    path: move $event.okta.debugContext.debugData.url?,
+    hostname: move $event.okta.debugContext.debugData.authnRequestId? else move $event.okta.debugContext.debugData.origin?,
   },
 }
-if okta.client.userAgent? != null {
-  ocsf.http_request.user_agent = move okta.client.userAgent.rawUserAgent?
+if $event.okta.client.userAgent? != null {
+  $event.ocsf.http_request.user_agent = move $event.okta.client.userAgent.rawUserAgent?
 }
 
-ocsf.cloud = {
-  provider: "AWS" if okta.source?.contains("aws.partner") else "Other",
-  region: move okta.region?,
+$event.ocsf.cloud = {
+  provider: "AWS" if $event.okta.source?.contains("aws.partner") else "Other",
+  region: move $event.okta.region?,
 }
 
 let $actor_type_id = {
@@ -52,48 +57,48 @@ let $actor_type_id = {
   SystemPrincipal: 2,
 }
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    uid: move okta.actor.id?,
-    name: okta.actor.alternateId?.split("@")[0]?,
-    domain: okta.actor.alternateId?.split("@")[1]?,
-    full_name: string(move okta.actor.displayName?),
-    email_addr: move okta.actor.alternateId?,
-    type_id: $actor_type_id[okta.actor.type?]? else 99,
+    uid: move $event.okta.actor.id?,
+    name: $event.okta.actor.alternateId?.split("@")[0]?,
+    domain: $event.okta.actor.alternateId?.split("@")[1]?,
+    full_name: string(move $event.okta.actor.displayName?),
+    email_addr: move $event.okta.actor.alternateId?,
+    type_id: $actor_type_id[$event.okta.actor.type?]? else 99,
   },
   session: {
-    uid: okta.authenticationContext.externalSessionId?,
-    uid_alt: move okta.authenticationContext.rootSessionId?,
+    uid: $event.okta.authenticationContext.externalSessionId?,
+    uid_alt: move $event.okta.authenticationContext.rootSessionId?,
   },
 }
-drop okta.actor?
+drop $event.okta.actor?
 
 let $device_type_map = {
   Computer: "Desktop",
   Mobile: "Mobile",
 }
 
-ocsf.src_endpoint = {
-  ip: move okta.client.ipAddress?,
-  uid: move okta.client.id?,
-  type: $device_type_map[move okta.client.device?]?,
-  domain: move okta.securityContext.domain?,
+$event.ocsf.src_endpoint = {
+  ip: move $event.okta.client.ipAddress?,
+  uid: move $event.okta.client.id?,
+  type: $device_type_map[move $event.okta.client.device?]?,
+  domain: move $event.okta.securityContext.domain?,
   autonomous_system: {
-    number: move okta.securityContext.asNumber?,
+    number: move $event.okta.securityContext.asNumber?,
   },
   owner: {
     org: {
-      name: move okta.securityContext.asOrg?,
+      name: move $event.okta.securityContext.asOrg?,
     },
   },
 }
-ocsf.src_endpoint.location.isp = move okta.securityContext.isp?
-if okta.client.geographicalContext? != null {
-  ocsf.src_endpoint.location.city = move okta.client.geographicalContext.city?
-  ocsf.src_endpoint.location.country = move okta.client.geographicalContext.country?
-  ocsf.src_endpoint.location.postal_code = move okta.client.geographicalContext.postalCode?
-  ocsf.src_endpoint.location.lat = move okta.client.geographicalContext.geolocation?.lat?
-  ocsf.src_endpoint.location.long = move okta.client.geographicalContext.geolocation?.lon?
+$event.ocsf.src_endpoint.location.isp = move $event.okta.securityContext.isp?
+if $event.okta.client.geographicalContext? != null {
+  $event.ocsf.src_endpoint.location.city = move $event.okta.client.geographicalContext.city?
+  $event.ocsf.src_endpoint.location.country = move $event.okta.client.geographicalContext.country?
+  $event.ocsf.src_endpoint.location.postal_code = move $event.okta.client.geographicalContext.postalCode?
+  $event.ocsf.src_endpoint.location.lat = move $event.okta.client.geographicalContext.geolocation?.lat?
+  $event.ocsf.src_endpoint.location.long = move $event.okta.client.geographicalContext.geolocation?.lon?
 }
 
 // Okta reports "Mac OS X (iPhone)" for iPhones, so check for mobile OS
@@ -107,76 +112,76 @@ let $os_type_map = {
   Linux: {name: "Linux", type_id: 200},
   ChromeOS: {name: "ChromeOS", type: "ChromeOS", type_id: 99},
 }
-if okta.client.userAgent?.os? != null {
-  if okta.client.userAgent.os.contains("iPhone") or okta.client.userAgent.os == "iOS" { ocsf.src_endpoint.os = $os_type_map["iOS"] }
-  else if okta.client.userAgent.os.contains("iPad") or okta.client.userAgent.os == "iPadOS" { ocsf.src_endpoint.os = $os_type_map["iPadOS"] }
-  else if okta.client.userAgent.os.contains("Android") { ocsf.src_endpoint.os = $os_type_map["Android"] }
-  else if okta.client.userAgent.os.contains("Windows") { ocsf.src_endpoint.os = $os_type_map["Windows"] }
-  else if okta.client.userAgent.os.contains("Mac") { ocsf.src_endpoint.os = $os_type_map["macOS"] }
-  else if okta.client.userAgent.os.contains("Linux") or okta.client.userAgent.os.contains("Ubuntu") { ocsf.src_endpoint.os = $os_type_map["Linux"] }
-  else if okta.client.userAgent.os.contains("ChromeOS") or okta.client.userAgent.os.contains("Chrome OS") or okta.client.userAgent.os.contains("CrOS") { ocsf.src_endpoint.os = $os_type_map["ChromeOS"] }
+if $event.okta.client.userAgent?.os? != null {
+  if $event.okta.client.userAgent.os.contains("iPhone") or $event.okta.client.userAgent.os == "iOS" { $event.ocsf.src_endpoint.os = $os_type_map["iOS"] }
+  else if $event.okta.client.userAgent.os.contains("iPad") or $event.okta.client.userAgent.os == "iPadOS" { $event.ocsf.src_endpoint.os = $os_type_map["iPadOS"] }
+  else if $event.okta.client.userAgent.os.contains("Android") { $event.ocsf.src_endpoint.os = $os_type_map["Android"] }
+  else if $event.okta.client.userAgent.os.contains("Windows") { $event.ocsf.src_endpoint.os = $os_type_map["Windows"] }
+  else if $event.okta.client.userAgent.os.contains("Mac") { $event.ocsf.src_endpoint.os = $os_type_map["macOS"] }
+  else if $event.okta.client.userAgent.os.contains("Linux") or $event.okta.client.userAgent.os.contains("Ubuntu") { $event.ocsf.src_endpoint.os = $os_type_map["Linux"] }
+  else if $event.okta.client.userAgent.os.contains("ChromeOS") or $event.okta.client.userAgent.os.contains("Chrome OS") or $event.okta.client.userAgent.os.contains("CrOS") { $event.ocsf.src_endpoint.os = $os_type_map["ChromeOS"] }
 }
 
-match ocsf.metadata.event_code {
-  _ if ocsf.metadata.event_code.starts_with("user.session.") or
-       ocsf.metadata.event_code.starts_with("user.authentication.") or
-       ocsf.metadata.event_code == "policy.evaluate_sign_on" or
-       ocsf.metadata.event_code == "system.push.send_factor_verify_push" or
-       ocsf.metadata.event_code == "application.policy.sign_on.deny_access" or
-       ocsf.metadata.event_code.starts_with("app.generic.unauth_app_access_attempt") or
-       ocsf.metadata.event_code.starts_with("app.oauth2.authorize") => {
-    okta::ocsf::event::authentication
+match $event.ocsf.metadata.event_code {
+  _ if $event.ocsf.metadata.event_code.starts_with("user.session.") or
+       $event.ocsf.metadata.event_code.starts_with("user.authentication.") or
+       $event.ocsf.metadata.event_code == "policy.evaluate_sign_on" or
+       $event.ocsf.metadata.event_code == "system.push.send_factor_verify_push" or
+       $event.ocsf.metadata.event_code == "application.policy.sign_on.deny_access" or
+       $event.ocsf.metadata.event_code.starts_with("app.generic.unauth_app_access_attempt") or
+       $event.ocsf.metadata.event_code.starts_with("app.oauth2.authorize") => {
+    okta::ocsf::event::authentication event=$event
   }
   "user.account.report_suspicious_activity_by_enduser" => {
-    okta::ocsf::event::detection_finding
+    okta::ocsf::event::detection_finding event=$event
   }
-  _ if ocsf.metadata.event_code.starts_with("user.lifecycle.") or
-       ocsf.metadata.event_code.starts_with("user.account.") or
-       ocsf.metadata.event_code.starts_with("user.mfa.factor.") => {
-    okta::ocsf::event::account_change
+  _ if $event.ocsf.metadata.event_code.starts_with("user.lifecycle.") or
+       $event.ocsf.metadata.event_code.starts_with("user.account.") or
+       $event.ocsf.metadata.event_code.starts_with("user.mfa.factor.") => {
+    okta::ocsf::event::account_change event=$event
   }
-  _ if ocsf.metadata.event_code.starts_with("group.") => {
-    okta::ocsf::event::group_management
+  _ if $event.ocsf.metadata.event_code.starts_with("group.") => {
+    okta::ocsf::event::group_management event=$event
   }
   "security.threat.detected" |
   "user.mfa.attempt_bypass" |
   "security.protected_action.attempt" => {
-    okta::ocsf::event::detection_finding
+    okta::ocsf::event::detection_finding event=$event
   }
-  _ if ocsf.metadata.event_code.starts_with("system.api_token.") or
-       ocsf.metadata.event_code.starts_with("app.oauth2.token.") or
-       ocsf.metadata.event_code.starts_with("app.oauth2.client.") or
-       ocsf.metadata.event_code.starts_with("app.oauth2.credentials.") or
-       ocsf.metadata.event_code == "application.configuration.read_client_secret" or
-       ocsf.metadata.event_code.starts_with("system.idp.lifecycle.") or
-       ocsf.metadata.event_code.starts_with("system.log_stream.") or
-       ocsf.metadata.event_code.starts_with("workflows.") => {
-    okta::ocsf::event::api_activity
+  _ if $event.ocsf.metadata.event_code.starts_with("system.api_token.") or
+       $event.ocsf.metadata.event_code.starts_with("app.oauth2.token.") or
+       $event.ocsf.metadata.event_code.starts_with("app.oauth2.client.") or
+       $event.ocsf.metadata.event_code.starts_with("app.oauth2.credentials.") or
+       $event.ocsf.metadata.event_code == "application.configuration.read_client_secret" or
+       $event.ocsf.metadata.event_code.starts_with("system.idp.lifecycle.") or
+       $event.ocsf.metadata.event_code.starts_with("system.log_stream.") or
+       $event.ocsf.metadata.event_code.starts_with("workflows.") => {
+    okta::ocsf::event::api_activity event=$event
   }
-  _ if ocsf.metadata.event_code.starts_with("application.") or
-       ocsf.metadata.event_code.starts_with("policy.") or
-       ocsf.metadata.event_code.starts_with("zone.") or
-       ocsf.metadata.event_code.starts_with("device.") or
-       ocsf.metadata.event_code.starts_with("directory.") or
-       ocsf.metadata.event_code.starts_with("security.trusted_origin.") => {
-    okta::ocsf::event::entity_management
+  _ if $event.ocsf.metadata.event_code.starts_with("application.") or
+       $event.ocsf.metadata.event_code.starts_with("policy.") or
+       $event.ocsf.metadata.event_code.starts_with("zone.") or
+       $event.ocsf.metadata.event_code.starts_with("device.") or
+       $event.ocsf.metadata.event_code.starts_with("directory.") or
+       $event.ocsf.metadata.event_code.starts_with("security.trusted_origin.") => {
+    okta::ocsf::event::entity_management event=$event
   }
   _ => {
-    okta::ocsf::base
+    okta::ocsf::base event=$event
   }
 }
 
-drop okta.severity?
-drop okta.legacyEventType?
-if okta.debugContext? != null {
-  drop okta.debugContext.debugData.threatSuspected?
-  drop okta.debugContext.debugData.responseTime?
+drop $event.okta.severity?
+drop $event.okta.legacyEventType?
+if $event.okta.debugContext? != null {
+  drop $event.okta.debugContext.debugData.threatSuspected?
+  drop $event.okta.debugContext.debugData.responseTime?
 }
-drop okta.target?
-drop okta.client?
-drop okta.securityContext?
-drop okta.request?
-drop okta.transaction?
-drop okta.authenticationContext?
+drop $event.okta.target?
+drop $event.okta.client?
+drop $event.okta.securityContext?
+drop $event.okta.request?
+drop $event.okta.transaction?
+drop $event.okta.authenticationContext?
 
-this = {...ocsf, unmapped: okta}
+$event = {...$event.ocsf, unmapped: $event.okta}

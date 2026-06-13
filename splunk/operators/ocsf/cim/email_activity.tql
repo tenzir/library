@@ -1,74 +1,77 @@
 ---
 description: Splunk CIM Email → OCSF Email Activity (4009)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-match cim.action? {
+match $event.cim.action? {
   "send" => {
-    ocsf.activity_id = 1
+    $event.ocsf.activity_id = 1
   }
   "receive" => {
-    ocsf.activity_id = 2
+    $event.ocsf.activity_id = 2
   }
   "scan" => {
-    ocsf.activity_id = 3
+    $event.ocsf.activity_id = 3
   }
   "trace" => {
-    ocsf.activity_id = 4
+    $event.ocsf.activity_id = 4
   }
   "mta_relay" => {
-    ocsf.activity_id = 5
+    $event.ocsf.activity_id = 5
   }
   _ => {
-    ocsf.activity_id = 99
+    $event.ocsf.activity_id = 99
   }
 }
-ocsf.category_uid = 4
-ocsf.class_uid = 4009
-splunk::ocsf::cim::helpers::common
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4009
+splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: occurrence and email attributes ----
 
-if cim.duration? != null {
-  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+if $event.cim.duration? != null {
+  $event.ocsf.duration = (move $event.cim.duration).seconds().count_milliseconds().round()
 }
-ocsf.email = {
+$event.ocsf.email = {
   files: [],
-  from: move cim.src_user?,
-  message_uid: move cim.message_id?,
-  return_path: move cim.return_addr?,
-  size: move cim.size?,
-  subject: move cim.subject?,
-  to: move cim.recipient?,
-  uid: move cim.xref?,
+  from: move $event.cim.src_user?,
+  message_uid: move $event.cim.message_id?,
+  return_path: move $event.cim.return_addr?,
+  size: move $event.cim.size?,
+  subject: move $event.cim.subject?,
+  to: move $event.cim.recipient?,
+  uid: move $event.cim.xref?,
 }
-ocsf.message = move cim.message_info?
-ocsf.message_trace_uid = move cim.internal_message_id?
-ocsf.protocol_name = move cim.protocol?
-ocsf.status_code = move cim.status_code?
-if cim.url? != null {
-  ocsf.email.urls = (move cim.url).map(u => {
+$event.ocsf.message = move $event.cim.message_info?
+$event.ocsf.message_trace_uid = move $event.cim.internal_message_id?
+$event.ocsf.protocol_name = move $event.cim.protocol?
+$event.ocsf.status_code = move $event.cim.status_code?
+if $event.cim.url? != null {
+  $event.ocsf.email.urls = (move $event.cim.url).map(u => {
     url_string: u,
   })
 }
-if cim.file_name? != null {
-  ocsf.email.files = zip(move cim.file_name, [...move cim.file_size?]).map(x => {
+if $event.cim.file_name? != null {
+  $event.ocsf.email.files = zip(move $event.cim.file_name, [...move $event.cim.file_size?]).map(x => {
     name: x.left,
     size: x.right,
   })
 }
-ocsf.src_endpoint = {
-  hostname: move cim.src?,
+$event.ocsf.src_endpoint = {
+  hostname: move $event.cim.src?,
 }
-ocsf.dst_endpoint = {
-  hostname: move cim.dest?,
+$event.ocsf.dst_endpoint = {
+  hostname: move $event.cim.dest?,
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.email_activity"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

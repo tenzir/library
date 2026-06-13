@@ -1,13 +1,18 @@
 ---
 description: "Check Point VPN/Mobile Access → OCSF Tunnel Activity (4014)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.tunnel_activity"
 
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4014
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4014
 let $activities = {
   Connect: 1,
   Login: 1,
@@ -17,37 +22,37 @@ let $activities = {
   "Log Out": 2,
   Renew: 3,
 }
-ocsf.activity_id = $activities[checkpoint.action?]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-drop checkpoint.action?
+$event.ocsf.activity_id = $activities[$event.checkpoint.action?]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+drop $event.checkpoint.action?
 
-checkpoint::ocsf::status
+checkpoint::ocsf::status event=$event
 
-if checkpoint.src? != null {
-  ocsf.src_endpoint.ip = move checkpoint.src
+if $event.checkpoint.src? != null {
+  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
 }
-if checkpoint.s_port? != null {
-  ocsf.src_endpoint.port = move checkpoint.s_port
+if $event.checkpoint.s_port? != null {
+  $event.ocsf.src_endpoint.port = move $event.checkpoint.s_port
 }
-if checkpoint.dst? != null {
-  ocsf.dst_endpoint.ip = move checkpoint.dst
+if $event.checkpoint.dst? != null {
+  $event.ocsf.dst_endpoint.ip = move $event.checkpoint.dst
 }
-if checkpoint.service? != null {
-  ocsf.dst_endpoint.port = move checkpoint.service
+if $event.checkpoint.service? != null {
+  $event.ocsf.dst_endpoint.port = move $event.checkpoint.service
 }
-if checkpoint.user? != null {
-  ocsf.user.name = move checkpoint.user
+if $event.checkpoint.user? != null {
+  $event.ocsf.user.name = move $event.checkpoint.user
 }
-if checkpoint.session? != null {
-  ocsf.session.uid = move checkpoint.session
+if $event.checkpoint.session? != null {
+  $event.ocsf.session.uid = move $event.checkpoint.session
 }
-if checkpoint.vpn_feature? != null {
-  ocsf.tunnel_type_id = 99
-  ocsf.tunnel_type = move checkpoint.vpn_feature
+if $event.checkpoint.vpn_feature? != null {
+  $event.ocsf.tunnel_type_id = 99
+  $event.ocsf.tunnel_type = move $event.checkpoint.vpn_feature
 }
-if checkpoint.proto? != null {
-  ocsf.connection_info.protocol_num = move checkpoint.proto
+if $event.checkpoint.proto? != null {
+  $event.ocsf.connection_info.protocol_num = move $event.checkpoint.proto
 }
-ocsf.protocol_name = "VPN"
+$event.ocsf.protocol_name = "VPN"
 
-checkpoint::ocsf::traffic
+checkpoint::ocsf::traffic event=$event

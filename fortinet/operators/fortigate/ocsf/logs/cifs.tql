@@ -1,34 +1,39 @@
 ---
 description: "FortiGate CIFS/SMB inspection logs → OCSF SMB Activity (4006)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.smb_activity"
 
 // CIFS file filter: a file was blocked or allowed during a file transfer.
 // Map to File Open since the activity is a client trying to access a file.
-ocsf.category_uid = 4
-ocsf.class_uid = 4006
-ocsf.activity_id = 2  // File Open
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4006
+$event.ocsf.activity_id = 2  // File Open
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
-fortinet::fortigate::ocsf::network_endpoints
-fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::network_endpoints event=$event
+fortinet::fortigate::ocsf::connection_info event=$event
 
 // `filename` and `filesize` describe the file being transferred.
 // `filetype` stays in unmapped: type_name requires type_id sibling.
-ocsf.file = {
-  name: move fortinet.filename,
-  size: move fortinet.filesize,
+$event.ocsf.file = {
+  name: move $event.fortinet.filename,
+  size: move $event.fortinet.filesize,
 }
 
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     blocked: 2,
     allowed: 1,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

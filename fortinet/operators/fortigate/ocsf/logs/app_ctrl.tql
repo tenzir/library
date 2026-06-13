@@ -1,5 +1,10 @@
 ---
 description: "FortiGate application control logs → OCSF Network Activity (4001)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.network_activity"
@@ -12,36 +17,36 @@ let $actions = {
   reset: 3,   // Reset
 }
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4001
-ocsf.activity_id = $actions[fortinet.action?]? else 0
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = $actions[$event.fortinet.action?]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
-fortinet::fortigate::ocsf::network_endpoints
-ocsf.dst_endpoint.hostname = move fortinet.hostname
+fortinet::fortigate::ocsf::network_endpoints event=$event
+$event.ocsf.dst_endpoint.hostname = move $event.fortinet.hostname
 
-fortinet::fortigate::ocsf::connection_info
+fortinet::fortigate::ocsf::connection_info event=$event
 
 // `app` is the identified application; `appcat` is its category.
-if fortinet.app? != null {
-  ocsf.app_name = move fortinet.app
+if $event.fortinet.app? != null {
+  $event.ocsf.app_name = move $event.fortinet.app
 }
 
 // `applist` is the application control profile; used as policy.name instead
 // of `profile` since app-ctrl logs use applist for the applied rule set.
-fortinet::fortigate::ocsf::security_control
-if fortinet.applist? != null {
-  ocsf.policy = { name: move fortinet.applist }
+fortinet::fortigate::ocsf::security_control event=$event
+if $event.fortinet.applist? != null {
+  $event.ocsf.policy = { name: move $event.fortinet.applist }
 }
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     pass: 1,
     block: 2,
     drop: 6,
     reset: 21,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

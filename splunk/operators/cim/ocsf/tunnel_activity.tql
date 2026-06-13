@@ -1,59 +1,64 @@
 ---
 description: OCSF Tunnel Activity (4014) → Splunk CIM Network Sessions VPN
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-assert class_uid == 4014
+assert $event.ocsf.class_uid == 4014
 
-cim = {}
+$event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-cim.tag = ["network", "session", "vpn"]
+$event.cim.tag = ["network", "session", "vpn"]
 
 // --- CIM: occurrence and action attributes ----
 
-cim._time = time
-if duration? != null {
-  cim.duration = duration.milliseconds().count_seconds()
+$event.cim._time = $event.ocsf.time
+if $event.ocsf.duration? != null {
+  $event.cim.duration = $event.ocsf.duration.milliseconds().count_seconds()
 }
-cim.action = activity_name?.to_lower().replace(" ", "_") else "unknown"
-match activity_id {
+$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+match $event.ocsf.activity_id {
   1 => {
-    cim.action = "started"
+    $event.cim.action = "started"
   }
   2 => {
-    cim.action = "ended"
+    $event.cim.action = "ended"
   }
   3 => {
-    cim.action = "renewed"
+    $event.cim.action = "renewed"
   }
   _ => {}
 }
 
 // --- CIM: session attributes ------------------
 
-cim.signature = tunnel_type? else protocol_name? else type_name?
-cim.signature_id = tunnel_type_id?.string() else type_uid?.string()
+$event.cim.signature = $event.ocsf.tunnel_type? else $event.ocsf.protocol_name? else $event.ocsf.type_name?
+$event.cim.signature_id = $event.ocsf.tunnel_type_id?.string() else $event.ocsf.type_uid?.string()
 
 // --- CIM: endpoint attributes -----------------
 
-cim.src_ip = src_endpoint?.ip?
-cim.src_dns = src_endpoint?.hostname? else src_endpoint?.name?
-cim.src_mac = src_endpoint?.mac?
-cim.src_nt_host = src_endpoint?.hostname? else src_endpoint?.name?
+$event.cim.src_ip = $event.ocsf.src_endpoint?.ip?
+$event.cim.src_dns = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.name?
+$event.cim.src_mac = $event.ocsf.src_endpoint?.mac?
+$event.cim.src_nt_host = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.name?
 
-cim.dest_ip = dst_endpoint?.ip? else tunnel_interface?.ip?
-cim.dest_dns = dst_endpoint?.hostname? else dst_endpoint?.name? else tunnel_interface?.name?
-cim.dest_mac = dst_endpoint?.mac? else tunnel_interface?.mac?
-cim.dest_nt_host = dst_endpoint?.hostname? else dst_endpoint?.name?
+$event.cim.dest_ip = $event.ocsf.dst_endpoint?.ip? else $event.ocsf.tunnel_interface?.ip?
+$event.cim.dest_dns = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.name? else $event.ocsf.tunnel_interface?.name?
+$event.cim.dest_mac = $event.ocsf.dst_endpoint?.mac? else $event.ocsf.tunnel_interface?.mac?
+$event.cim.dest_nt_host = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.name?
 
-cim.dvc = device?.hostname? else device?.ip? else device?.name?
+$event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 
 // --- CIM: user and product attributes ---------
 
-cim.user = user?.name? else user?.uid? else session?.user?.name? else session?.user?.uid?
-splunk::cim::ocsf::helpers::product
+$event.cim.user = $event.ocsf.user?.name? else $event.ocsf.user?.uid? else $event.ocsf.session?.user?.name? else $event.ocsf.session?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------
 
-this = cim
+$event = $event.cim

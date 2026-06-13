@@ -1,22 +1,27 @@
 ---
 description: Sophos Endpoint → OCSF Device Inventory Info (5001)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.inventory_info"
 
-ocsf.metadata.product.name = "Sophos Endpoint"
-ocsf.metadata.log_name = "endpoints"
-ocsf.metadata.profiles = ["host", "security_control"]
+$event.ocsf.metadata.product.name = "Sophos Endpoint"
+$event.ocsf.metadata.log_name = "endpoints"
+$event.ocsf.metadata.profiles = ["host", "security_control"]
 
-ocsf.category_uid = 5
-ocsf.class_uid = 5001
-ocsf.activity_id = 2  // Collect
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
-ocsf.time = now()
-if sophos.lastSeenAt? != null {
-  ocsf.time = time(move sophos.lastSeenAt)
-} else if sophos.registeredAt? != null {
-  ocsf.time = time(move sophos.registeredAt)
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5001
+$event.ocsf.activity_id = 2  // Collect
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.time = now()
+if $event.sophos.lastSeenAt? != null {
+  $event.ocsf.time = time(move $event.sophos.lastSeenAt)
+} else if $event.sophos.registeredAt? != null {
+  $event.ocsf.time = time(move $event.sophos.registeredAt)
 }
 
 let $os_type_ids = {
@@ -29,35 +34,35 @@ let $device_type_ids = {
   server: 1,
 }
 
-ocsf.device = {
-  uid: ocsf.metadata.original_event_uid,
-  name: sophos.hostname?,
-  hostname: sophos.hostname?,
-  type_id: $device_type_ids[sophos.type]? else 0,
-  ip: sophos.ipv4Addresses[0]?,
+$event.ocsf.device = {
+  uid: $event.ocsf.metadata.original_event_uid,
+  name: $event.sophos.hostname?,
+  hostname: $event.sophos.hostname?,
+  type_id: $device_type_ids[$event.sophos.type]? else 0,
+  ip: $event.sophos.ipv4Addresses[0]?,
   os: {
-    name: move sophos.os.name?,
-    type_id: $os_type_ids[sophos.os.platform]? else 0,
-    build: string(move sophos.os.build?),
+    name: move $event.sophos.os.name?,
+    type_id: $os_type_ids[$event.sophos.os.platform]? else 0,
+    build: string(move $event.sophos.os.build?),
   },
   hw_info: {
-    serial_number: move sophos.serialNumber?,
+    serial_number: move $event.sophos.serialNumber?,
   },
   owner: {
-    uid: move sophos.associatedPerson.id?,
-    name: sophos.associatedPerson.name?.split("\\")[-1]?,
-    domain: sophos.associatedPerson.name?.split("\\")[0]?,
-    full_name: move sophos.associatedPerson.name?,
+    uid: move $event.sophos.associatedPerson.id?,
+    name: $event.sophos.associatedPerson.name?.split("\\")[-1]?,
+    domain: $event.sophos.associatedPerson.name?.split("\\")[0]?,
+    full_name: move $event.sophos.associatedPerson.name?,
     type_id: 1,
   },
   groups: [{
-    uid: move sophos.group.id?,
-    name: move sophos.group.name?,
+    uid: move $event.sophos.group.id?,
+    name: move $event.sophos.group.name?,
   }],
-  first_seen_time: time(move sophos.registeredAt?),
-  last_seen_time: ocsf.time,
+  first_seen_time: time(move $event.sophos.registeredAt?),
+  last_seen_time: $event.ocsf.time,
   is_managed: true,
-  is_trusted: move sophos.tamperProtectionEnabled?,
+  is_trusted: move $event.sophos.tamperProtectionEnabled?,
 }
 
-ocsf.status_detail = move sophos.health.overall?
+$event.ocsf.status_detail = move $event.sophos.health.overall?

@@ -1,5 +1,10 @@
 ---
 description: "ZIA NSS: Proxy → OCSF HTTP Activity"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.http_activity"
@@ -17,11 +22,11 @@ let $activity_map = {
   TRACE: 8,
   PATCH: 9,
 }
-ocsf.activity_id = $activity_map[zia.requestmethod]? else 0
+$event.ocsf.activity_id = $activity_map[$event.zia.requestmethod]? else 0
 
-ocsf.category_uid = 4
-ocsf.class_uid = 4002
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4002
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $severities = {
   None: 0,
@@ -30,92 +35,92 @@ let $severities = {
   high: 4,
   critical: 5,
 }
-ocsf.severity_id = $severities[move zia.threatseverity]? else 0
+$event.ocsf.severity_id = $severities[move $event.zia.threatseverity]? else 0
 
 // --- OCSF: context attributes -----------------
 
-ocsf.app_name = move zia.appname
+$event.ocsf.app_name = move $event.zia.appname
 
-ocsf.metadata.profiles = ["host", "network_proxy", "security_control"]
+$event.ocsf.metadata.profiles = ["host", "network_proxy", "security_control"]
 
-ocsf.time = parse_time(move zia.datetime, "%a %b %d %H:%M:%S %Y")
+$event.ocsf.time = parse_time(move $event.zia.datetime, "%a %b %d %H:%M:%S %Y")
 
 // --- OCSF: primary attributes -----------------
 
-if zia.status != null {
+if $event.zia.status != null {
   // Only when raw=true
-  zia.status = zia.status.int()
-  if zia.status >= 200 and zia.status < 400 {
-    ocsf.status_id = 1
-  } else if zia.status >= 400 {
-    ocsf.status_id = 2
+  $event.zia.status = $event.zia.status.int()
+  if $event.zia.status >= 200 and $event.zia.status < 400 {
+    $event.ocsf.status_id = 1
+  } else if $event.zia.status >= 400 {
+    $event.ocsf.status_id = 2
   } else {
-    ocsf.status_id = 0
+    $event.ocsf.status_id = 0
   }
-  ocsf.status_code = zia.status.string()
+  $event.ocsf.status_code = $event.zia.status.string()
 }
 
-ocsf.status_detail = move zia.reason
+$event.ocsf.status_detail = move $event.zia.reason
 
 // Source Endpoint (The client machine)
-ocsf.src_endpoint = {
-  ip: ip(move zia.ClientIP)
+$event.ocsf.src_endpoint = {
+  ip: ip(move $event.zia.ClientIP)
 }
 
 // Destination Endpoint (The web server)
-ocsf.dst_endpoint = {
-  ip: ip(move zia.serverip),
-  domain: move zia.hostname,
+$event.ocsf.dst_endpoint = {
+  ip: ip(move $event.zia.serverip),
+  domain: move $event.zia.hostname,
 }
 
-ocsf.traffic = {
-  bytes_in: int(move zia.responsesize),
-  bytes_out: int(move zia.requestsize),
-  bytes: int(move zia.transactionsize)
+$event.ocsf.traffic = {
+  bytes_in: int(move $event.zia.responsesize),
+  bytes_out: int(move $event.zia.requestsize),
+  bytes: int(move $event.zia.transactionsize)
 }
 
-ocsf.http_request = {
-  http_method: move zia.requestmethod,
-  referrer: move zia.refererURL,
-  user_agent: move zia.useragent,
+$event.ocsf.http_request = {
+  http_method: move $event.zia.requestmethod,
+  referrer: move $event.zia.refererURL,
+  user_agent: move $event.zia.useragent,
   url: {
-    url_string: move zia.url,
-    scheme: to_lower(move zia.protocol),
+    url_string: move $event.zia.url,
+    scheme: to_lower(move $event.zia.protocol),
     category_ids: [99, 99, 99, 99],
-    categories: [move zia.urlcategory, move zia.urlsupercategory, move zia.appclass, move zia.urlclass]
+    categories: [move $event.zia.urlcategory, move $event.zia.urlsupercategory, move $event.zia.appclass, move $event.zia.urlclass]
   }
 }
 
-ocsf.http_response = {
-  code: move zia.status,
-  content_type: move zia.contenttype
+$event.ocsf.http_response = {
+  code: move $event.zia.status,
+  content_type: move $event.zia.contenttype
 }
 
 // --- OCSF: Host profile -----------
 
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    name: move zia.user,
+    name: move $event.zia.user,
     org: {
       // ou: org unit
-      ou_name: move zia.department?,
+      ou_name: move $event.zia.department?,
     },
   },
 }
 
-ocsf.device = {
-  hostname: move zia.devicehostname?,
+$event.ocsf.device = {
+  hostname: move $event.zia.devicehostname?,
   owner: {
-    name: move zia.deviceowner?,
+    name: move $event.zia.deviceowner?,
   },
 }
 
 // --- OCSF: Network Proxy profile -----------
 
 // The ZIA node
-ocsf.proxy_endpoint = {
-  ip: ip(move zia.clientpublicIP),
-  name: move zia.location
+$event.ocsf.proxy_endpoint = {
+  ip: ip(move $event.zia.clientpublicIP),
+  name: move $event.zia.location
 }
 
 // --- OCSF: Security Control profile -----------
@@ -126,13 +131,13 @@ let $actions = {
   "Quarantined": 3,
   "Isolated": 5
 }
-ocsf.action_id = $actions[zia.action]? else 0
-drop zia.action
+$event.ocsf.action_id = $actions[$event.zia.action]? else 0
+drop $event.zia.action
 
-if zia.threatname != null {
-  ocsf.malware = [{
+if $event.zia.threatname != null {
+  $event.ocsf.malware = [{
     classification_ids: [0],
-    name: move zia.threatname,
+    name: move $event.zia.threatname,
   }]
 }
 
@@ -140,6 +145,6 @@ if zia.threatname != null {
 // - zia.threatclass
 // - zia.threatcategory
 
-ocsf.risk_score = int(move zia.pagerisk)
+$event.ocsf.risk_score = int(move $event.zia.pagerisk)
 
 // --- Finalize ---------------------------------

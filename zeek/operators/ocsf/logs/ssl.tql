@@ -1,20 +1,25 @@
 ---
 description: |
   Zeek ssl.log → OCSF Network Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 6
-ocsf.class_uid = 4001
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 6
+$event.ocsf.class_uid = 4001
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "ssl.log"
+$event.ocsf.metadata.log_name = "ssl.log"
 
 // Converted from:
 // https://github.com/zeek/zeek/blob/fdf887ce3bd80e0b466a973d5063c5882303d282/scripts/base/protocols/ssl/consts.zeek#L113
@@ -55,51 +60,51 @@ let $alert_codes = {
   ech_required: 121, // draft-ietf-tls-esni-17
 }
 
-ocsf.tls = {
+$event.ocsf.tls = {
   certificate: {
-    issuer: move zeek.issuer,
-    subject: move zeek.subject,
+    issuer: move $event.zeek.issuer,
+    subject: move $event.zeek.subject,
   },
-  cipher: move zeek.cipher,
+  cipher: move $event.zeek.cipher,
   ja3_hash: {
     algorithm_id: 1,
-    value: move zeek.ja3?,
+    value: move $event.zeek.ja3?,
   },
   ja3s_hash: {
     algorithm_id: 1,
-    value: move zeek.ja3s?,
+    value: move $event.zeek.ja3s?,
   },
-  sni: move zeek.server_name,
-  version: move zeek.version,
+  sni: move $event.zeek.server_name,
+  version: move $event.zeek.version,
 }
 // NB: If we have an alert, `ssl_history` also contains [lL].
-if zeek.last_alert != null {
-  ocsf.tls.alert = $alert_codes[zeek.last_alert]
+if $event.zeek.last_alert != null {
+  $event.ocsf.tls.alert = $alert_codes[$event.zeek.last_alert]
 }
 
 // --- OCSF: primary attributes -----------------
 
-ocsf.connection_info.protocol_name = "tcp"
-ocsf.connection_info.protocol_num = 6
+$event.ocsf.connection_info.protocol_name = "tcp"
+$event.ocsf.connection_info.protocol_num = 6
 
-if not zeek.established or zeek.last_alert != null {
-  ocsf.status_id = 2
-  ocsf.status = "Failure"
-  ocsf.status_detail = move zeek.last_alert
-} else if zeek.validation_status? == "ok" {
+if not $event.zeek.established or $event.zeek.last_alert != null {
+  $event.ocsf.status_id = 2
+  $event.ocsf.status = "Failure"
+  $event.ocsf.status_detail = move $event.zeek.last_alert
+} else if $event.zeek.validation_status? == "ok" {
   // There could be more `validation_status` values that mean success,
   // but it's difficult to find them. In Zeek, we'd need to grep through
   // all invocations of `x509_result_record` and trace the arguments.
   //
   // Going with just "ok" here is simply going off empirical data.
-  ocsf.status_id = 1
-  ocsf.status = "Success"
-  ocsf.status_detail = move zeek.validation_status
+  $event.ocsf.status_id = 1
+  $event.ocsf.status = "Success"
+  $event.ocsf.status_detail = move $event.zeek.validation_status
 } else {
-  ocsf.status_id = 0
-  ocsf.status = "Unknown"
-  ocsf.status_detail = move zeek.validation_status
+  $event.ocsf.status_id = 0
+  $event.ocsf.status = "Unknown"
+  $event.ocsf.status_detail = move $event.zeek.validation_status
 }
-drop zeek.established
+drop $event.zeek.established
 
 @name = "ocsf.network_activity"

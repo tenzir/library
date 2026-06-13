@@ -1,9 +1,14 @@
 ---
 description: Check Point → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {checkpoint: this}
-ocsf = {}
+$event = {...$event, checkpoint: $event, ocsf: {}}
 
 let $severities = {
   Accept: 1,
@@ -12,8 +17,8 @@ let $severities = {
   Prevent: 2,
   Reject: 2,
 }
-ocsf.severity_id = $severities[checkpoint.action?]? else 0
-if checkpoint.severity? != null {
+$event.ocsf.severity_id = $severities[$event.checkpoint.action?]? else 0
+if $event.checkpoint.severity? != null {
   let $severity_names = {
     informational: 1,
     info: 1,
@@ -23,11 +28,11 @@ if checkpoint.severity? != null {
     critical: 5,
     fatal: 6,
   }
-  ocsf.severity_id = $severity_names[checkpoint.severity.string().to_lower()]? else ocsf.severity_id
-  drop checkpoint.severity
+  $event.ocsf.severity_id = $severity_names[$event.checkpoint.severity.string().to_lower()]? else $event.ocsf.severity_id
+  drop $event.checkpoint.severity
 }
 
-ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     vendor_name: "Check Point",
     name: "Check Point Firewall",
@@ -35,91 +40,91 @@ ocsf.metadata = {
   profiles: ["host"],
   version: "1.8.0",
 }
-if checkpoint.product? != null {
-  ocsf.metadata.product.name = move checkpoint.product
+if $event.checkpoint.product? != null {
+  $event.ocsf.metadata.product.name = move $event.checkpoint.product
 }
-if checkpoint.loguid? != null {
-  ocsf.metadata.uid = move checkpoint.loguid
+if $event.checkpoint.loguid? != null {
+  $event.ocsf.metadata.uid = move $event.checkpoint.loguid
 }
-if checkpoint.logid? != null {
-  ocsf.metadata.event_code = (move checkpoint.logid).string()
+if $event.checkpoint.logid? != null {
+  $event.ocsf.metadata.event_code = (move $event.checkpoint.logid).string()
 }
-if checkpoint.h_version? != null {
-  ocsf.metadata.log_version = (move checkpoint.h_version).string()
+if $event.checkpoint.h_version? != null {
+  $event.ocsf.metadata.log_version = (move $event.checkpoint.h_version).string()
 }
-if checkpoint.sequencenum? != null {
-  ocsf.metadata.original_event_uid = (move checkpoint.sequencenum).string()
+if $event.checkpoint.sequencenum? != null {
+  $event.ocsf.metadata.original_event_uid = (move $event.checkpoint.sequencenum).string()
 }
-if checkpoint.syslog? != null {
-  ocsf.metadata.log_format = "syslog"
+if $event.checkpoint.syslog? != null {
+  $event.ocsf.metadata.log_format = "syslog"
 }
-if checkpoint.action? != null {
-  ocsf.metadata.log_name = checkpoint.action
+if $event.checkpoint.action? != null {
+  $event.ocsf.metadata.log_name = $event.checkpoint.action
 }
 
-if checkpoint.time? == null and checkpoint.syslog?.timestamp? != null {
-  ocsf.time = move checkpoint.syslog.timestamp
+if $event.checkpoint.time? == null and $event.checkpoint.syslog?.timestamp? != null {
+  $event.ocsf.time = move $event.checkpoint.syslog.timestamp
 }
-if checkpoint.time? != null {
-  ocsf.time = move checkpoint.time
+if $event.checkpoint.time? != null {
+  $event.ocsf.time = move $event.checkpoint.time
 }
-if checkpoint.action? != null {
-  ocsf.message = checkpoint.action
+if $event.checkpoint.action? != null {
+  $event.ocsf.message = $event.checkpoint.action
 }
-if checkpoint.message_info? != null {
-  ocsf.message = move checkpoint.message_info
+if $event.checkpoint.message_info? != null {
+  $event.ocsf.message = move $event.checkpoint.message_info
 }
 
 // Prefer the Check Point payload hostname over the syslog header hostname,
 // because forwarded syslog headers often identify a relay.
-if checkpoint.hostname? == null and checkpoint.syslog?.hostname? != null {
-  ocsf.device.hostname = (move checkpoint.syslog.hostname).string()
+if $event.checkpoint.hostname? == null and $event.checkpoint.syslog?.hostname? != null {
+  $event.ocsf.device.hostname = (move $event.checkpoint.syslog.hostname).string()
 }
-if checkpoint.hostname? != null {
-  ocsf.device.hostname = (move checkpoint.hostname).string()
+if $event.checkpoint.hostname? != null {
+  $event.ocsf.device.hostname = (move $event.checkpoint.hostname).string()
 }
-if checkpoint.origin? != null {
-  ocsf.device.ip = move checkpoint.origin
+if $event.checkpoint.origin? != null {
+  $event.ocsf.device.ip = move $event.checkpoint.origin
 }
 
 match @name {
   "checkpoint.firewall.threat" | "checkpoint.firewall.detection" => {
-    checkpoint::ocsf::security_context
-    checkpoint::ocsf::events::detection_finding
+    checkpoint::ocsf::security_context event=$event
+    checkpoint::ocsf::events::detection_finding event=$event
   }
   "checkpoint.firewall.network" => {
-    checkpoint::ocsf::security_context
-    checkpoint::ocsf::events::network_activity
+    checkpoint::ocsf::security_context event=$event
+    checkpoint::ocsf::events::network_activity event=$event
   }
   "checkpoint.firewall.web_resource" => {
-    checkpoint::ocsf::events::web_resource_access_activity
+    checkpoint::ocsf::events::web_resource_access_activity event=$event
   }
   "checkpoint.firewall.dlp" => {
-    checkpoint::ocsf::events::data_security_finding
+    checkpoint::ocsf::events::data_security_finding event=$event
   }
   "checkpoint.firewall.email" => {
-    checkpoint::ocsf::events::email_activity
+    checkpoint::ocsf::events::email_activity event=$event
   }
   "checkpoint.firewall.vpn" => {
-    checkpoint::ocsf::events::tunnel_activity
+    checkpoint::ocsf::events::tunnel_activity event=$event
   }
   "checkpoint.management.api" => {
-    checkpoint::ocsf::events::api_activity
+    checkpoint::ocsf::events::api_activity event=$event
   }
   "checkpoint.management.audit" => {
-    checkpoint::ocsf::events::entity_management
+    checkpoint::ocsf::events::entity_management event=$event
   }
-  _ if checkpoint.action? == "Detect" or checkpoint.message_info? != null => {
-    checkpoint::ocsf::security_context
-    checkpoint::ocsf::events::detection_finding
+  _ if $event.checkpoint.action? == "Detect" or $event.checkpoint.message_info? != null => {
+    checkpoint::ocsf::security_context event=$event
+    checkpoint::ocsf::events::detection_finding event=$event
   }
-  _ if checkpoint.action? != null => {
-    checkpoint::ocsf::security_context
-    checkpoint::ocsf::events::network_activity
+  _ if $event.checkpoint.action? != null => {
+    checkpoint::ocsf::security_context event=$event
+    checkpoint::ocsf::events::network_activity event=$event
   }
   _ => {
-    checkpoint::ocsf::base
+    checkpoint::ocsf::base event=$event
   }
 }
 
-this = {...ocsf, unmapped: checkpoint}
+$event = {...$event.ocsf, unmapped: $event.checkpoint}

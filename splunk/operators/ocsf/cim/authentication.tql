@@ -1,119 +1,122 @@
 ---
 description: Splunk CIM Authentication → OCSF Authentication (3002)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-cim = this
-ocsf = {}
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 1
-ocsf.category_uid = 3
-ocsf.class_uid = 3002
-if cim.action? != null {
-  match cim.action.to_lower() {
+$event.ocsf.activity_id = 1
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+if $event.cim.action? != null {
+  match $event.cim.action.to_lower() {
     "success" => {
-      ocsf.status_id = 1
+      $event.ocsf.status_id = 1
     }
     "failure" => {
-      ocsf.status_id = 2
+      $event.ocsf.status_id = 2
     }
     "unknown" => {
-      ocsf.status_id = 0
+      $event.ocsf.status_id = 0
     }
     _ => {}
   }
 }
-splunk::ocsf::cim::helpers::common
-splunk::ocsf::cim::helpers::status
+splunk::ocsf::cim::helpers::common event=$event
+splunk::ocsf::cim::helpers::status event=$event
 
 // --- OCSF: occurrence attributes --------------
 
-if cim.duration? != null {
-  ocsf.duration = (move cim.duration).seconds().count_milliseconds().round()
+if $event.cim.duration? != null {
+  $event.ocsf.duration = (move $event.cim.duration).seconds().count_milliseconds().round()
 }
 
 // --- OCSF: authentication attributes ----------
 
-if cim.authentication_method? != null {
-  ocsf.auth_protocol = move cim.authentication_method
-  match ocsf.auth_protocol.to_lower() {
+if $event.cim.authentication_method? != null {
+  $event.ocsf.auth_protocol = move $event.cim.authentication_method
+  match $event.ocsf.auth_protocol.to_lower() {
     "ntlm" => {
-      ocsf.auth_protocol_id = 1
+      $event.ocsf.auth_protocol_id = 1
     }
     "kerberos" => {
-      ocsf.auth_protocol_id = 2
+      $event.ocsf.auth_protocol_id = 2
     }
     "digest" => {
-      ocsf.auth_protocol_id = 3
+      $event.ocsf.auth_protocol_id = 3
     }
     "openid" => {
-      ocsf.auth_protocol_id = 4
+      $event.ocsf.auth_protocol_id = 4
     }
     "saml" => {
-      ocsf.auth_protocol_id = 5
+      $event.ocsf.auth_protocol_id = 5
     }
     "oauth 2.0" | "oauth2" => {
-      ocsf.auth_protocol_id = 6
+      $event.ocsf.auth_protocol_id = 6
     }
     "pap" => {
-      ocsf.auth_protocol_id = 7
+      $event.ocsf.auth_protocol_id = 7
     }
     "chap" => {
-      ocsf.auth_protocol_id = 8
+      $event.ocsf.auth_protocol_id = 8
     }
     "eap" => {
-      ocsf.auth_protocol_id = 9
+      $event.ocsf.auth_protocol_id = 9
     }
     "radius" => {
-      ocsf.auth_protocol_id = 10
+      $event.ocsf.auth_protocol_id = 10
     }
     "basic authentication" | "basic" => {
-      ocsf.auth_protocol_id = 11
+      $event.ocsf.auth_protocol_id = 11
     }
     "ldap" => {
-      ocsf.auth_protocol_id = 12
+      $event.ocsf.auth_protocol_id = 12
     }
     _ => {
-      ocsf.auth_protocol_id = 99
+      $event.ocsf.auth_protocol_id = 99
     }
   }
 }
-ocsf.service = {
-  name: move cim.authentication_service? else move cim.app?,
+$event.ocsf.service = {
+  name: move $event.cim.authentication_service? else move $event.cim.app?,
 }
-ocsf.session = {
-  uid: move cim.session_id?,
+$event.ocsf.session = {
+  uid: move $event.cim.session_id?,
 }
-ocsf.user = {
-  name: move cim.user?,
-  uid: move cim.user_id?,
-  type: move cim.user_type? else move cim.user_role?,
+$event.ocsf.user = {
+  name: move $event.cim.user?,
+  uid: move $event.cim.user_id?,
+  type: move $event.cim.user_type? else move $event.cim.user_role?,
 }
-ocsf.actor = {
+$event.ocsf.actor = {
   user: {
-    name: move cim.src_user?,
-    uid: move cim.src_user_id?,
-    type: move cim.src_user_type? else move cim.src_user_role?,
+    name: move $event.cim.src_user?,
+    uid: move $event.cim.src_user_id?,
+    type: move $event.cim.src_user_type? else move $event.cim.src_user_role?,
   },
   process: {
-    cmd_line: move cim.process?,
+    cmd_line: move $event.cim.process?,
   },
 }
-ocsf.src_endpoint = {
-  hostname: move cim.src?,
+$event.ocsf.src_endpoint = {
+  hostname: move $event.cim.src?,
 }
-ocsf.dst_endpoint = {
-  hostname: move cim.dest?,
+$event.ocsf.dst_endpoint = {
+  hostname: move $event.cim.dest?,
 }
-ocsf.http_request = {
-  user_agent: move cim.user_agent?,
+$event.ocsf.http_request = {
+  user_agent: move $event.cim.user_agent?,
 }
-if cim.vendor_account? != null {
-  ocsf.metadata.profiles = ["cloud"]
-  ocsf.cloud = {
+if $event.cim.vendor_account? != null {
+  $event.ocsf.metadata.profiles = ["cloud"]
+  $event.ocsf.cloud = {
     account: {
-      uid: move cim.vendor_account,
+      uid: move $event.cim.vendor_account,
     },
   }
 }
@@ -121,4 +124,4 @@ if cim.vendor_account? != null {
 // --- Finalize ---------------------------------
 
 @name = "ocsf.authentication"
-this = {...ocsf, unmapped: cim}
+$event = {...$event.ocsf, unmapped: $event.cim}

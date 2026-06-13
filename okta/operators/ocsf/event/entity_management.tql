@@ -1,5 +1,10 @@
 ---
 description: "Okta → OCSF Entity Management (3004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 // --- OCSF: classification attributes ----------
@@ -55,64 +60,64 @@ let $activity_map = {
   "security.trusted_origin.create": 1,
   "security.trusted_origin.activate": 10,
 }
-ocsf.activity_id = $activity_map[ocsf.metadata.event_code]? else 99
-ocsf.category_uid = 3
-ocsf.class_uid = 3004
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = $activity_map[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3004
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 let $status_map = {
   SUCCESS: 1,
   FAILURE: 2,
 }
-ocsf.status_id = $status_map[okta.outcome.result?]? else 0
-ocsf.status_detail = move okta.outcome.reason?
-drop okta.outcome?
+$event.ocsf.status_id = $status_map[$event.okta.outcome.result?]? else 0
+$event.ocsf.status_detail = move $event.okta.outcome.reason?
+drop $event.okta.outcome?
 
 // --- OCSF: entity from target[] ---------------
 
 // Route entity extraction by event type prefix since target[] contains
 // different object types depending on the Okta event category.
-if okta.target? != null {
-  if ocsf.metadata.event_code.starts_with("policy.") {
-    ocsf.entity = okta.target.where(t => t.type == "PolicyEntity").map(t => {
+if $event.okta.target? != null {
+  if $event.ocsf.metadata.event_code.starts_with("policy.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "PolicyEntity").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 5
-    ocsf.entity.policy = {
-      desc: move okta.debugContext.debugData.policyType?,
+    $event.ocsf.entity.type_id = 5
+    $event.ocsf.entity.policy = {
+      desc: move $event.okta.debugContext.debugData.policyType?,
     }
-  } else if ocsf.metadata.event_code.starts_with("application.") {
-    ocsf.entity = okta.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
+  } else if $event.ocsf.metadata.event_code.starts_with("application.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 6
-  } else if ocsf.metadata.event_code.starts_with("device.") {
-    ocsf.entity = okta.target.where(t => t.type == "UDDevice").map(t => {
+    $event.ocsf.entity.type_id = 6
+  } else if $event.ocsf.metadata.event_code.starts_with("device.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "UDDevice").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 1
-  } else if ocsf.metadata.event_code.starts_with("zone.") {
-    ocsf.entity = okta.target.where(t => t.type == "NetworkZoneEntity").map(t => {
+    $event.ocsf.entity.type_id = 1
+  } else if $event.ocsf.metadata.event_code.starts_with("zone.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "NetworkZoneEntity").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 9
-    ocsf.entity.data = move okta.debugContext.debugData.zoneData?
-  } else if ocsf.metadata.event_code.starts_with("directory.") {
-    ocsf.entity = okta.target.where(t => t.type == "AppUser").map(t => {
+    $event.ocsf.entity.type_id = 9
+    $event.ocsf.entity.data = move $event.okta.debugContext.debugData.zoneData?
+  } else if $event.ocsf.metadata.event_code.starts_with("directory.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "AppUser").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 99
-  } else if ocsf.metadata.event_code.starts_with("security.trusted_origin.") {
-    ocsf.entity = okta.target.where(t => t.type == "TrustedOrigin").map(t => {
+    $event.ocsf.entity.type_id = 99
+  } else if $event.ocsf.metadata.event_code.starts_with("security.trusted_origin.") {
+    $event.ocsf.entity = $event.okta.target.where(t => t.type == "TrustedOrigin").map(t => {
       uid: t.id,
       name: t.displayName,
     })[0]?
-    ocsf.entity.type_id = 7
+    $event.ocsf.entity.type_id = 7
   }
 }
 

@@ -1,71 +1,76 @@
 ---
 description: Sysmon CreateRemoteThread (EID 8) → OCSF Process Activity (1007, Inject)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.process_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 1007
-ocsf.activity_id = 4  // Inject
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 4  // Inject
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.injection_type_id = 1  // Remote Thread
+$event.ocsf.injection_type_id = 1  // Remote Thread
 
 // The process that injected the thread is the actor.
-_src_user = (move sysmon.EventData.SourceUser).split("\\")
-ocsf.actor = {
+$event._src_user = (move $event.sysmon.EventData.SourceUser).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid:  move sysmon.EventData.SourceProcessGuid,
-    pid:  (move sysmon.EventData.SourceProcessId).int(),
-    path: move sysmon.EventData.SourceImage,
+    uid:  move $event.sysmon.EventData.SourceProcessGuid,
+    pid:  (move $event.sysmon.EventData.SourceProcessId).int(),
+    path: move $event.sysmon.EventData.SourceImage,
     file: { type_id: 8 },
   },
   user: {
-    name:   _src_user[-1],
-    domain: _src_user[0] if _src_user.length() > 1 else null,
+    name:   $event._src_user[-1],
+    domain: $event._src_user[0] if $event._src_user.length() > 1 else null,
   },
 }
-drop _src_user
+drop $event._src_user
 
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
 
 // The target process that received the injected thread.
-_tgt_user = (move sysmon.EventData.TargetUser).split("\\")
-ocsf.process = {
-  uid:  move sysmon.EventData.TargetProcessGuid,
-  pid:  (move sysmon.EventData.TargetProcessId).int(),
-  path: move sysmon.EventData.TargetImage,
+$event._tgt_user = (move $event.sysmon.EventData.TargetUser).split("\\")
+$event.ocsf.process = {
+  uid:  move $event.sysmon.EventData.TargetProcessGuid,
+  pid:  (move $event.sysmon.EventData.TargetProcessId).int(),
+  path: move $event.sysmon.EventData.TargetImage,
   file: { type_id: 8 },
   user: {
-    name:   _tgt_user[-1],
-    domain: _tgt_user[0] if _tgt_user.length() > 1 else null,
+    name:   $event._tgt_user[-1],
+    domain: $event._tgt_user[0] if $event._tgt_user.length() > 1 else null,
   },
 }
-drop _tgt_user
+drop $event._tgt_user
 
-ocsf.process.name = ocsf.process.path.split("\\")[-1]
-ocsf.process.file.name = ocsf.process.name
-ocsf.process.file.path = ocsf.process.path
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
 
 
 // The injected module carries the thread's start address and optional module/function.
 // Replace "-" sentinels so absent fields can be handled without branching on strings.
-replace sysmon.EventData.StartModule,   what="-", with=null
-replace sysmon.EventData.StartFunction, what="-", with=null
+replace $event.sysmon.EventData.StartModule,   what="-", with=null
+replace $event.sysmon.EventData.StartFunction, what="-", with=null
 
-ocsf.module = {
-  base_address: move sysmon.EventData.StartAddress,
+$event.ocsf.module = {
+  base_address: move $event.sysmon.EventData.StartAddress,
 }
-if sysmon.EventData.StartModule != null {
-  ocsf.module.file = { name: move sysmon.EventData.StartModule }
+if $event.sysmon.EventData.StartModule != null {
+  $event.ocsf.module.file = { name: move $event.sysmon.EventData.StartModule }
 }
-if sysmon.EventData.StartFunction != null {
-  ocsf.module.function_name = move sysmon.EventData.StartFunction
+if $event.sysmon.EventData.StartFunction != null {
+  $event.ocsf.module.function_name = move $event.sysmon.EventData.StartFunction
 }
-drop sysmon.EventData.StartModule
-drop sysmon.EventData.StartFunction
+drop $event.sysmon.EventData.StartModule
+drop $event.sysmon.EventData.StartFunction
 
 // Map the new thread's ID to process.ptid (the canonical OCSF thread identifier).
-ocsf.process.ptid = (move sysmon.EventData.NewThreadId).int()
+$event.ocsf.process.ptid = (move $event.sysmon.EventData.NewThreadId).int()

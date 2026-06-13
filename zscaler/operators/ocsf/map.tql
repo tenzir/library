@@ -1,24 +1,29 @@
 ---
 description: Zscaler → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
 ---
 
-this = {zia: this}
-ocsf = {}
+$event = {...$event, zia: $event, ocsf: {}}
 
 // Clean up the original data.
-replace zia.bwthrottle, what="NO", with=false
-replace zia.bwthrottle, what="YES", with=true
-replace what="None", with=null
-replace what="N/A", with=null
-replace what="NA", with=null
-if zia.refererURL? != null {
-  zia.refererURL = zia.refererURL.trim("\"")
+replace $event.zia.bwthrottle, what="NO", with=false
+replace $event.zia.bwthrottle, what="YES", with=true
+replace $event.zia, what="None", with=null
+replace $event.zia, what="N/A", with=null
+replace $event.zia, what="NA", with=null
+if $event.zia.refererURL? != null {
+  $event.zia.refererURL = $event.zia.refererURL.trim("\"")
 }
-if zia.filetype? != null {
-  zia.filetype = zia.filetype.trim("\"")
+if $event.zia.filetype? != null {
+  $event.zia.filetype = $event.zia.filetype.trim("\"")
 }
 
-ocsf.metadata = {
+$event.ocsf.metadata = {
   log_name: "NSS",
   product: {
     name: "Unknown",
@@ -26,24 +31,24 @@ ocsf.metadata = {
   },
   version: "1.8.0",
 }
-if zia.product? != null {
-  ocsf.metadata.product.name = move zia.product
+if $event.zia.product? != null {
+  $event.ocsf.metadata.product.name = move $event.zia.product
 }
-if zia.vendor? != null {
-  ocsf.metadata.product.vendor_name = move zia.vendor
+if $event.zia.vendor? != null {
+  $event.ocsf.metadata.product.vendor_name = move $event.zia.vendor
 }
-if zia.event_id? != null {
-  ocsf.metadata.original_event_uid = string(move zia.event_id)
+if $event.zia.event_id? != null {
+  $event.ocsf.metadata.original_event_uid = string(move $event.zia.event_id)
 }
 
-ocsf.severity_id = 0
-ocsf.time = now()
+$event.ocsf.severity_id = 0
+$event.ocsf.time = now()
 
 // Poor man's proxy log detection.
-if zia.has("requestmethod") {
-  zscaler::ocsf::zia::proxy
+if $event.zia.has("requestmethod") {
+  zscaler::ocsf::zia::proxy event=$event
 } else {
-  zscaler::ocsf::base
+  zscaler::ocsf::base event=$event
 }
 
-this = {...ocsf, unmapped: zia}
+$event = {...$event.ocsf, unmapped: $event.zia}

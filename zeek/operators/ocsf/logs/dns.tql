@@ -1,20 +1,25 @@
 ---
 description: |
   Zeek dns.log → OCSF DNS Activity.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
-zeek::ocsf::map_network
+zeek::ocsf::map_network event=$event
 
 // --- OCSF: classification attributes ----------
 
-ocsf.activity_id = 6
-ocsf.class_uid = 4003
-ocsf.severity_id = 1
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.activity_id = 6
+$event.ocsf.class_uid = 4003
+$event.ocsf.severity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-ocsf.metadata.log_name = "dns.log"
+$event.ocsf.metadata.log_name = "dns.log"
 
 // --- OCSF: primary attributes -----------------
 
@@ -41,28 +46,28 @@ let $rcode_names = {
   BADCOOKIE: "BADCOOKIE",
   BADSIG: "BADSIG_VERS",
 }
-ocsf.answers = zip(move zeek.answers, move zeek.TTLs).map(x => {
+$event.ocsf.answers = zip(move $event.zeek.answers, move $event.zeek.TTLs).map(x => {
   rdata: x.left,
   ttl: int(x.right),
 })
-ocsf.query = {
-  class: move zeek.qclass_name,
-  hostname: move zeek.query,
+$event.ocsf.query = {
+  class: move $event.zeek.qclass_name,
+  hostname: move $event.zeek.query,
   // TODO: go deeper and extract the log semantics.
   //opcode_id: 0,
-  type: move zeek.qtype_name,
+  type: move $event.zeek.qtype_name,
 }
-ocsf.query_time = ocsf.time
-ocsf.response_time = ocsf.time
-ocsf.rcode = $rcode_names[zeek.rcode_name]? else zeek.rcode_name
-drop zeek.rcode_name
-ocsf.rcode_id = move zeek.rcode
+$event.ocsf.query_time = $event.ocsf.time
+$event.ocsf.response_time = $event.ocsf.time
+$event.ocsf.rcode = $rcode_names[$event.zeek.rcode_name]? else $event.zeek.rcode_name
+drop $event.zeek.rcode_name
+$event.ocsf.rcode_id = move $event.zeek.rcode
 
-ocsf.connection_info = {
+$event.ocsf.connection_info = {
   direction: "Other",
   direction_id: 99,
 }
-ocsf.status = "Unknown"
-ocsf.status_id = 0
+$event.ocsf.status = "Unknown"
+$event.ocsf.status_id = 0
 
 @name = "ocsf.dns_activity"

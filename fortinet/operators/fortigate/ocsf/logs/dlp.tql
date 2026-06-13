@@ -1,40 +1,45 @@
 ---
 description: "FortiGate DLP logs → OCSF Detection Finding (2004)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-ocsf.category_uid = 2
-ocsf.class_uid = 2004
-ocsf.activity_id = 1  // Create
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-ocsf.is_alert = true
+$event.ocsf.is_alert = true
 
-drop fortinet.eventtype
+drop $event.fortinet.eventtype
 
 // `dlpextra` is the matched DLP rule/filter name; `filteridx` its index.
-ocsf.finding_info = {
-  uid: (move fortinet.filteridx).string(),
-  title: move fortinet.dlpextra,
+$event.ocsf.finding_info = {
+  uid: (move $event.fortinet.filteridx).string(),
+  title: move $event.fortinet.dlpextra,
   analytic: {
     type_id: 1,  // Rule
-    category: move fortinet.filtertype,
+    category: move $event.fortinet.filtertype,
   },
 }
 
 // Network context goes into evidences for Detection Finding.
 // `hostname` is consumed by the network_evidence UDO.
-fortinet::fortigate::ocsf::network_evidence
+fortinet::fortigate::ocsf::network_evidence event=$event
 
-fortinet::fortigate::ocsf::security_control
+fortinet::fortigate::ocsf::security_control event=$event
 
-if fortinet.action? != null {
+if $event.fortinet.action? != null {
   let $dispositions = {
     block: 2,
     allow: 1,
     log_only: 17,
     quarantine: 3,
   }
-  ocsf.disposition_id = $dispositions[move fortinet.action]? else 0
+  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.action]? else 0
 }

@@ -1,39 +1,44 @@
 ---
 description: Sysmon RegistryValueSet (EID 13) → OCSF Registry Value Activity (201002, Set)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
 ---
 
 @name = "ocsf.registry_value_activity"
 
-ocsf.category_uid = 1
-ocsf.class_uid = 201002
-ocsf.activity_id = 2  // Set
-ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 201002
+$event.ocsf.activity_id = 2  // Set
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-_parts = (move sysmon.EventData.TargetObject).split("\\")
-ocsf.reg_value = {
-  path:            _parts.slice(end=-1).join("\\"),
-  name:            _parts[-1],
-  reg_string_data: move sysmon.EventData.Details,
+$event._parts = (move $event.sysmon.EventData.TargetObject).split("\\")
+$event.ocsf.reg_value = {
+  path:            $event._parts.slice(end=-1).join("\\"),
+  name:            $event._parts[-1],
+  reg_string_data: move $event.sysmon.EventData.Details,
 }
-drop _parts
+drop $event._parts
 
 // EventType "SetValue" is redundant with activity_id — drop it.
-drop sysmon.EventData.EventType
+drop $event.sysmon.EventData.EventType
 
-_user = (move sysmon.EventData.User).split("\\")
-ocsf.actor = {
+$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.ocsf.actor = {
   process: {
-    uid: move sysmon.EventData.ProcessGuid,
-    pid: (move sysmon.EventData.ProcessId).int(),
-    path: move sysmon.EventData.Image,
+    uid: move $event.sysmon.EventData.ProcessGuid,
+    pid: (move $event.sysmon.EventData.ProcessId).int(),
+    path: move $event.sysmon.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: _user[-1],
-    domain: _user[0] if _user.length() > 1 else null,
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1 else null,
   },
 }
-drop _user
-ocsf.actor.process.name = ocsf.actor.process.path.split("\\")[-1]
-ocsf.actor.process.file.name = ocsf.actor.process.name
-ocsf.actor.process.file.path = ocsf.actor.process.path
+drop $event._user
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
