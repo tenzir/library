@@ -25,7 +25,7 @@ let $entity_types = {
   "5018": "USER",
   "5019": "ASSET",
   "5020": "RESOURCE",
-  "5021": "DOMAIN_NAME",
+  "5021": "UNKNOWN_ENTITYTYPE",
   "5023": "RESOURCE",
   "5040": "ASSET",
 }
@@ -100,15 +100,73 @@ if $event.ocsf.kernel? != null {
 }
 
 if $event.ocsf.resources? != null {
+  let $resource_types = {
+    "access-policy": "ACCESS_POLICY",
+    "access_policy": "ACCESS_POLICY",
+    "backend-service": "BACKEND_SERVICE",
+    "backend_service": "BACKEND_SERVICE",
+    "bucket": "STORAGE_BUCKET",
+    "cloud-organization": "CLOUD_ORGANIZATION",
+    "cloud-project": "CLOUD_PROJECT",
+    "cloud_organization": "CLOUD_ORGANIZATION",
+    "cloud_project": "CLOUD_PROJECT",
+    "cluster": "CLUSTER",
+    "container": "CONTAINER",
+    "credential": "CREDENTIAL",
+    "database": "DATABASE",
+    "dataset": "DATASET",
+    "disk": "DISK",
+    "function": "FUNCTION",
+    "gateway": "GATEWAY",
+    "image": "IMAGE",
+    "ip-address": "IP_ADDRESS",
+    "ip_address": "IP_ADDRESS",
+    "load-balancer": "LOAD_BALANCER",
+    "load_balancer": "LOAD_BALANCER",
+    "repository": "REPOSITORY",
+    "runtime": "RUNTIME",
+    "service": "SERVICE",
+    "service-account": "SERVICE_ACCOUNT",
+    "service_account": "SERVICE_ACCOUNT",
+    "setting": "SETTING",
+    "snapshot": "SNAPSHOT",
+    "storage-bucket": "STORAGE_BUCKET",
+    "storage-object": "STORAGE_OBJECT",
+    "storage_bucket": "STORAGE_BUCKET",
+    "storage_object": "STORAGE_OBJECT",
+    "subnet": "SUBNET",
+    "table": "TABLE",
+    "user": "USER",
+    "virtual-machine": "VIRTUAL_MACHINE",
+    "virtual_machine": "VIRTUAL_MACHINE",
+    "volume": "VOLUME",
+  }
   $event.udm.metadata.entityType = "RESOURCE"
   $event.udm.entity.resource.name = $event.ocsf.resources[0]?.name?
   $event.udm.entity.resource.productObjectId = $event.ocsf.resources[0]?.uid?
+  $event.udm.entity.resource.resourceType = $resource_types[$event.ocsf.resources[0]?.type?.to_lower()]? else "UNSPECIFIED"
   $event.udm.entity.resource.resourceSubtype = $event.ocsf.resources[0]?.type?
 }
 
 if $event._google_class_uid == 5021 {
-  if $event.ocsf.observable.value? != null {
-    $event.udm.entity.hostname = $event.ocsf.observable.value
+  $event._google_osint = $event.ocsf.osint[0]?
+  match $event._google_osint.type_id? {
+    1 => {
+      $event.udm.metadata.entityType = "IP_ADDRESS"
+      if $event._google_osint.value? != null {
+        $event.udm.entity.ip = [$event._google_osint.value]
+      }
+    }
+    2 | 3 => {
+      $event.udm.metadata.entityType = "DOMAIN_NAME"
+      $event.udm.entity.hostname = $event._google_osint.value?
+      $event.udm.entity.domain.name = $event._google_osint.value?
+    }
+    5 => {
+      $event.udm.metadata.entityType = "URL"
+      $event.udm.entity.url = $event._google_osint.value?
+    }
+    _ => {}
   }
 }
 
