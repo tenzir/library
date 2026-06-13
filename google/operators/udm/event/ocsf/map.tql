@@ -70,13 +70,13 @@ let $default_event_types = {
 
 $event.udm.metadata = {
   eventTimestamp: $event.ocsf.time?,
-  collectedTimestamp: $event.ocsf.time?,
+  collectedTimestamp: $event.ocsf.metadata?.logged_time? else $event.ocsf.time?,
   eventType: $default_event_types[$event._google_class_uid.string()]? else "GENERIC_EVENT",
-  vendorName: $event.ocsf.metadata.product.vendor_name? else "OCSF",
-  productName: $event.ocsf.metadata.product.name? else "OCSF",
-  productVersion: $event.ocsf.metadata.product.version? else $event.ocsf.metadata.version?,
+  vendorName: $event.ocsf.metadata?.product?.vendor_name? else "OCSF",
+  productName: $event.ocsf.metadata?.product?.name? else "OCSF",
+  productVersion: $event.ocsf.metadata?.product?.version? else $event.ocsf.metadata?.version?,
   productEventType: $event.ocsf.class_name? else $event.ocsf.type_name?,
-  productLogId: $event.ocsf.metadata.original_event_uid?,
+  productLogId: $event.ocsf.metadata?.original_event_uid?,
   description: $event.ocsf.message?,
 }
 
@@ -158,6 +158,7 @@ match $event._google_class_uid {
         $event.udm.metadata.eventType = "USER_LOGIN"
       }
     }
+    $event.udm.target.application = $event.ocsf.service?.name?
   }
   3006 => {
     match $event._google_activity_id {
@@ -371,14 +372,14 @@ if $event.ocsf.traffic? != null {
 
 if $event._google_class_uid == 4002 {
   $event.udm.network.applicationProtocol = "HTTP"
-  $event.udm.network.http.method = $event.ocsf.http_request.http_method?
-  $event.udm.network.http.userAgent = $event.ocsf.http_request.user_agent?
-  $event.udm.network.http.responseCode = $event.ocsf.http_response.code?
-  $event.udm.target.url = $event.ocsf.http_request.url.url_string?
+  $event.udm.network.http.method = $event.ocsf.http_request?.http_method?
+  $event.udm.network.http.userAgent = $event.ocsf.http_request?.user_agent?
+  $event.udm.network.http.responseCode = $event.ocsf.http_response?.code?
+  $event.udm.target.url = $event.ocsf.http_request?.url?.url_string?
 }
 if $event._google_class_uid == 4003 {
   $event.udm.network.applicationProtocol = "DNS"
-  if $event.ocsf.query.hostname? != null {
+  if $event.ocsf.query?.hostname? != null {
     $event.udm.network.dns.questions = [drop_null_fields({
       name: $event.ocsf.query.hostname,
       type: $event.ocsf.query.type?,
@@ -395,8 +396,10 @@ if $event._google_class_uid == 4008 {
 }
 if $event._google_class_uid == 4009 or $event._google_class_uid == 4011 or $event._google_class_uid == 4012 {
   $event.udm.network.applicationProtocol = "SMTP"
-  $event.udm.network.email.to = $event.ocsf.email.to?
-  if $event.ocsf.email.subject? != null {
+  $event.udm.network.email.from = $event.ocsf.email?.from? else $event.ocsf.from?
+  $event.udm.network.email.mailId = $event.ocsf.email?.message_uid?
+  $event.udm.network.email.to = $event.ocsf.email?.to? else $event.ocsf.to?
+  if $event.ocsf.email?.subject? != null {
     $event.udm.network.email.subject = [$event.ocsf.email.subject]
   }
 }
@@ -416,7 +419,7 @@ if $event.ocsf.web_resources? != null {
   $event.udm.target.resource.productObjectId = $event.ocsf.web_resources[0]?.uid?
   $event.udm.target.resource.resourceSubtype = $event.ocsf.web_resources[0]?.type?
 }
-if $event.ocsf.web_resources_result? != null and $event.udm.target.resource? == null {
+if $event.ocsf.web_resources_result? != null and $event.udm.target?.resource? == null {
   $event.udm.target.resource.name = $event.ocsf.web_resources_result[0]?.name?
   $event.udm.target.resource.productObjectId = $event.ocsf.web_resources_result[0]?.uid?
   $event.udm.target.resource.resourceSubtype = $event.ocsf.web_resources_result[0]?.type?
@@ -434,14 +437,38 @@ if ($event._google_class_uid >= 2001 and $event._google_class_uid <= 2008) or $e
     "6": "CRITICAL",
   }
   $event.udm.securityResult = [drop_null_fields({
-    ruleId: $event.ocsf.finding_info.uid?,
-    ruleName: $event.ocsf.finding_info.title?,
-    summary: $event.ocsf.finding_info.title? else $event.ocsf.message?,
-    description: $event.ocsf.finding_info.desc? else $event.ocsf.message?,
+    ruleId: $event.ocsf.finding_info?.uid?,
+    ruleName: $event.ocsf.finding_info?.title?,
+    summary: $event.ocsf.finding_info?.title? else $event.ocsf.message?,
+    description: $event.ocsf.finding_info?.desc? else $event.ocsf.message?,
     severity: $severities[$event._google_severity_id.string()]? else "INFORMATIONAL",
     actionDetails: $event.ocsf.action? else $event.ocsf.disposition?,
   })]
 }
 
-$event = {...$event.udm, additional: $event.ocsf}
+if $event.ocsf.vulnerabilities? != null {
+  let $vulnerability_severities = {
+    CRITICAL: "CRITICAL",
+    HIGH: "HIGH",
+    LOW: "LOW",
+    MEDIUM: "MEDIUM",
+  }
+  $event.udm.extensions.vulns.vulnerabilities = $event.ocsf.vulnerabilities.map(v => drop_null_fields({
+    cveDescription: v.cve?.desc? else v.desc?,
+    cveId: v.cve?.uid?,
+    cvssBaseScore: v.cve?.cvss?.base_score?,
+    cvssVector: v.cve?.cvss?.vector_string?,
+    cvssVersion: v.cve?.cvss?.version?,
+    description: v.desc? else v.cve?.desc?,
+    name: v.title? else v.cve?.title? else v.cve?.uid?,
+    severity: $vulnerability_severities[(v.severity? else "").to_upper()]? else "UNKNOWN_SEVERITY",
+    severityDetails: v.severity?,
+    vendor: v.vendor_name?,
+  }))
+}
+
+if $event.udm.metadata.eventType == "GENERIC_EVENT" {
+  $event.udm.additional = $event.ocsf
+}
+$event = $event.udm
 drop_null_fields

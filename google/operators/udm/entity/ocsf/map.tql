@@ -31,13 +31,13 @@ let $entity_types = {
 }
 
 $event.udm.metadata = {
-  collectedTimestamp: $event.ocsf.time?,
+  collectedTimestamp: $event.ocsf.metadata?.logged_time? else $event.ocsf.time?,
   creationTimestamp: $event.ocsf.created_time?,
   entityType: $entity_types[$event._google_class_uid.string()]? else "UNKNOWN_ENTITYTYPE",
-  vendorName: $event.ocsf.metadata.product.vendor_name? else "OCSF",
-  productName: $event.ocsf.metadata.product.name? else "OCSF",
-  productVersion: $event.ocsf.metadata.product.version? else $event.ocsf.metadata.version?,
-  productEntityId: $event.ocsf.uid? else $event.ocsf.metadata.original_event_uid?,
+  vendorName: $event.ocsf.metadata?.product?.vendor_name? else "OCSF",
+  productName: $event.ocsf.metadata?.product?.name? else "OCSF",
+  productVersion: $event.ocsf.metadata?.product?.version? else $event.ocsf.metadata?.version?,
+  productEntityId: $event.ocsf.uid? else $event.ocsf.metadata?.original_event_uid?,
   description: $event.ocsf.message?,
   sourceType: "ENTITY_CONTEXT",
 }
@@ -170,5 +170,8 @@ if $event._google_class_uid == 5021 {
   }
 }
 
-$event = {...$event.udm, additional: $event.ocsf}
+if $event.udm.metadata.entityType == "UNKNOWN_ENTITYTYPE" {
+  $event.udm.additional = $event.ocsf
+}
+$event = $event.udm
 drop_null_fields

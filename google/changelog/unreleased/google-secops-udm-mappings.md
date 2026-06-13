@@ -18,4 +18,4 @@ google::udm::map
 google::ocsf::map
 ```
 
-The package preserves source-specific fields under `additional` for UDM output and `unmapped` for OCSF output, and includes examples and tests for representative event and entity mappings.
+The mappings keep first-class schema fields and only attach the source record for generic fallback cases. The package includes examples and tests for representative event and entity mappings.
