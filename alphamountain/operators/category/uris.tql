@@ -1,0 +1,45 @@
+---
+description: Gets categories for multiple URIs.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: uris
+      description: URI or URL list to categorize.
+    - name: request_type
+      type: string
+      default: "partner.info"
+      description: API request type.
+    - name: mapping
+      type: int
+      default: null
+      description: Optional category mapping version.
+---
+
+let $body = {
+  license: $license,
+  version: 1,
+  type: $request_type,
+  uris: $uris,
+  mapping: $mapping,
+}
+
+alphamountain::api::post url="https://api.alphamountain.ai/category/uris", body=$body
+_events = [
+  ...categories.keys().map(uri => {
+    ...categories[uri],
+    uri: uri,
+    status: status["category/uris"],
+    version: version,
+  }),
+  ...errors.keys().map(uri => {
+    uri: uri,
+    error: errors[uri],
+    status: status["category/uris"],
+    version: version,
+  }),
+]
+unroll _events
+this = _events.drop_null_fields()
+@name = "alphamountain.category"
