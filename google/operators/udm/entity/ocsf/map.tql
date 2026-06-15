@@ -1,0 +1,172 @@
+---
+description: Maps OCSF 1.8.0 discovery events to Google SecOps UDM entity records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF discovery event to map.
+      type: field
+      default: this
+---
+
+$event = {ocsf: $event, udm: {}}
+@name = "google.udm.entity"
+
+let $entity_types = {
+  "5001": "ASSET",
+  "5002": "ASSET",
+  "5003": "USER",
+  "5004": "ASSET",
+  "5006": "MUTEX",
+  "5007": "FILE",
+  "5008": "FILE",
+  "5009": "GROUP",
+  "5013": "ASSET",
+  "5018": "USER",
+  "5019": "ASSET",
+  "5020": "RESOURCE",
+  "5021": "UNKNOWN_ENTITYTYPE",
+  "5023": "RESOURCE",
+  "5040": "ASSET",
+}
+
+$event.udm.metadata = {
+  collectedTimestamp: $event.ocsf.metadata?.logged_time? else $event.ocsf.time?,
+  creationTimestamp: $event.ocsf.created_time?,
+  entityType: $entity_types[$event.ocsf.class_uid?.string()]? else "UNKNOWN_ENTITYTYPE",
+  vendorName: $event.ocsf.metadata?.product?.vendor_name? else "OCSF",
+  productName: $event.ocsf.metadata?.product?.name? else "OCSF",
+  productVersion: $event.ocsf.metadata?.product?.version? else $event.ocsf.metadata?.version?,
+  productEntityId: $event.ocsf.uid? else $event.ocsf.metadata?.original_event_uid?,
+  description: $event.ocsf.message?,
+  sourceType: "ENTITY_CONTEXT",
+}
+
+if $event.ocsf.device? != null {
+  $event.udm.metadata.entityType = "ASSET"
+  $event.udm.entity.hostname = $event.ocsf.device.hostname?
+  $event.udm.entity.asset.hostname = $event.ocsf.device.hostname?
+  $event.udm.entity.asset.productObjectId = $event.ocsf.device.uid?
+  $event.udm.entity.asset.networkDomain = $event.ocsf.device.domain?
+  if $event.ocsf.device.ip? != null {
+    $event.udm.entity.ip = [$event.ocsf.device.ip]
+    $event.udm.entity.asset.ip = [$event.ocsf.device.ip]
+  }
+  if $event.ocsf.device.mac? != null {
+    $event.udm.entity.mac = [$event.ocsf.device.mac]
+    $event.udm.entity.asset.mac = [$event.ocsf.device.mac]
+  }
+}
+
+if $event.ocsf.user? != null {
+  $event.udm.metadata.entityType = "USER"
+  $event.udm.entity.user.userid = $event.ocsf.user.uid?
+  $event.udm.entity.user.productObjectId = $event.ocsf.user.uid?
+  $event.udm.entity.user.userDisplayName = $event.ocsf.user.name?
+  if $event.ocsf.user.email_addr? != null {
+    $event.udm.entity.user.emailAddresses = [$event.ocsf.user.email_addr]
+  }
+}
+
+if $event.ocsf.group? != null {
+  $event.udm.metadata.entityType = "GROUP"
+  $event.udm.entity.group.productObjectId = $event.ocsf.group.uid?
+  $event.udm.entity.group.groupDisplayName = $event.ocsf.group.name?
+  if $event.ocsf.group.email_addr? != null {
+    $event.udm.entity.group.emailAddresses = [$event.ocsf.group.email_addr]
+  }
+}
+
+if $event.ocsf.file? != null {
+  $event.udm.metadata.entityType = "FILE"
+  $event.udm.entity.file.fullPath = $event.ocsf.file.path?
+  $event.udm.entity.file.size = $event.ocsf.file.size?
+  if $event.ocsf.file.name? != null {
+    $event.udm.entity.file.names = [$event.ocsf.file.name]
+  }
+  if $event.ocsf.file.hashes.where(hash => hash.algorithm_id? == 3)[0]?.value? != null {
+    $event.udm.entity.file.sha256 = $event.ocsf.file.hashes.where(hash => hash.algorithm_id? == 3)[0].value
+  }
+}
+
+if $event.ocsf.kernel? != null {
+  $event.udm.metadata.entityType = "MUTEX"
+  $event.udm.entity.resource.name = $event.ocsf.kernel.name?
+  $event.udm.entity.resource.resourceType = "MUTEX"
+  $event.udm.entity.resource.resourceSubtype = $event.ocsf.kernel.type?
+}
+
+if $event.ocsf.resources? != null {
+  let $resource_types = {
+    "access-policy": "ACCESS_POLICY",
+    "access_policy": "ACCESS_POLICY",
+    "backend-service": "BACKEND_SERVICE",
+    "backend_service": "BACKEND_SERVICE",
+    "bucket": "STORAGE_BUCKET",
+    "cloud-organization": "CLOUD_ORGANIZATION",
+    "cloud-project": "CLOUD_PROJECT",
+    "cloud_organization": "CLOUD_ORGANIZATION",
+    "cloud_project": "CLOUD_PROJECT",
+    "cluster": "CLUSTER",
+    "container": "CONTAINER",
+    "credential": "CREDENTIAL",
+    "database": "DATABASE",
+    "dataset": "DATASET",
+    "disk": "DISK",
+    "function": "FUNCTION",
+    "gateway": "GATEWAY",
+    "image": "IMAGE",
+    "ip-address": "IP_ADDRESS",
+    "ip_address": "IP_ADDRESS",
+    "load-balancer": "LOAD_BALANCER",
+    "load_balancer": "LOAD_BALANCER",
+    "repository": "REPOSITORY",
+    "runtime": "RUNTIME",
+    "service": "SERVICE",
+    "service-account": "SERVICE_ACCOUNT",
+    "service_account": "SERVICE_ACCOUNT",
+    "setting": "SETTING",
+    "snapshot": "SNAPSHOT",
+    "storage-bucket": "STORAGE_BUCKET",
+    "storage-object": "STORAGE_OBJECT",
+    "storage_bucket": "STORAGE_BUCKET",
+    "storage_object": "STORAGE_OBJECT",
+    "subnet": "SUBNET",
+    "table": "TABLE",
+    "user": "USER",
+    "virtual-machine": "VIRTUAL_MACHINE",
+    "virtual_machine": "VIRTUAL_MACHINE",
+    "volume": "VOLUME",
+  }
+  $event.udm.metadata.entityType = "RESOURCE"
+  $event.udm.entity.resource.name = $event.ocsf.resources[0]?.name?
+  $event.udm.entity.resource.productObjectId = $event.ocsf.resources[0]?.uid?
+  $event.udm.entity.resource.resourceType = $resource_types[$event.ocsf.resources[0]?.type?.to_lower()]? else "UNSPECIFIED"
+  $event.udm.entity.resource.resourceSubtype = $event.ocsf.resources[0]?.type?
+}
+
+if ($event.ocsf.class_uid? else 0) == 5021 {
+  match $event.ocsf.osint[0]?.type_id? {
+    1 => {
+      $event.udm.metadata.entityType = "IP_ADDRESS"
+      if $event.ocsf.osint[0]?.value? != null {
+        $event.udm.entity.ip = [$event.ocsf.osint[0].value]
+      }
+    }
+    2 | 3 => {
+      $event.udm.metadata.entityType = "DOMAIN_NAME"
+      $event.udm.entity.hostname = $event.ocsf.osint[0]?.value?
+      $event.udm.entity.domain.name = $event.ocsf.osint[0]?.value?
+    }
+    5 => {
+      $event.udm.metadata.entityType = "URL"
+      $event.udm.entity.url = $event.ocsf.osint[0]?.value?
+    }
+    _ => {}
+  }
+}
+
+if $event.udm.metadata.entityType == "UNKNOWN_ENTITYTYPE" {
+  $event.udm.additional = $event.ocsf
+}
+$event = $event.udm
+drop_null_fields

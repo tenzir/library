@@ -1,0 +1,22 @@
+---
+description: Maps OCSF 1.8.0 events to Google SecOps UDM event or entity records.
+args:
+  named:
+    - name: event
+      description: The field that holds the OCSF event to map.
+      type: field
+      default: this
+---
+
+// Route all OCSF Discovery classes to the entity mapper. Classes without a
+// first-class UDM entity mapping intentionally keep their source record under
+// `additional` with `UNKNOWN_ENTITYTYPE` so the dispatcher stays complete as
+// more discovery mappings are added.
+match $event.class_uid? {
+  5000..5005 | 5005..5024 | 5040 => {
+    google::udm::entity::ocsf::map event=$event
+  }
+  _ => {
+    google::udm::event::ocsf::map event=$event
+  }
+}
