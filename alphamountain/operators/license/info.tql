@@ -1,0 +1,27 @@
+---
+description: Gets license and service quota information.
+args:
+  named:
+    - name: license
+      type: secret
+      description: alphaMountain API license key.
+    - name: flags
+      default: null
+      description: Optional license info flags.
+---
+
+let $body = {
+  license: $license,
+  flags: $flags,
+}
+
+alphamountain::api::post url="https://api.alphamountain.ai/license/info", body=$body
+_response = this
+_services = _response.keys().map(service_key => {
+  ..._response[service_key],
+  service_key: service_key,
+  service: _response[service_key].service? else service_key,
+})
+unroll _services
+this = _services.drop_null_fields()
+@name = "alphamountain.license_info"
