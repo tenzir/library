@@ -1,0 +1,40 @@
+---
+description: Parse BIND named service and fallback messages.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+---
+
+let $message_prefix_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?%{GREEDYDATA:message_body}$"
+let $message_category_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?"
+let $zone_message_pattern = f"{$message_category_prefix_pattern}zone "
+let $resolver_message_pattern = f"{$message_category_prefix_pattern}(resolver |.* resolving |.* resolver )"
+let $dnssec_message_pattern = f"{$message_category_prefix_pattern}(validating |managed-keys-zone)"
+let $daemon_message_pattern = f"{$message_category_prefix_pattern}(starting BIND|running on|built with|adjusted limit|found [0-9]+ CPU|using .* UDP listeners|listening on|generating session key|sizing zone task pool|set up managed keys zone|all zones loaded|running|loading configuration|command channel listening|shutting down|exiting)"
+
+$event._parsed = $event.raw_data.parse_grok($message_prefix_grok_pattern)
+if $event._parsed? == null {
+  named::parsers::parse_error event=$event
+} else {
+  $event = {
+    ...$event,
+    ...$event._parsed,
+    category: "unknown",
+  }
+  drop $event._parsed?
+
+  if $event.raw_data.match_regex($zone_message_pattern) {
+    $event.category = "zone"
+  } else if $event.raw_data.match_regex($resolver_message_pattern) {
+    $event.category = "resolver"
+  } else if $event.raw_data.match_regex($dnssec_message_pattern) {
+    $event.category = "dnssec"
+  } else if $event.raw_data.match_regex($daemon_message_pattern) {
+    $event.category = "daemon"
+  }
+
+  @name = "named.service"
+  $event.template = $event.category
+}

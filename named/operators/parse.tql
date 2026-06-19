@@ -1,0 +1,42 @@
+---
+description: |
+  Parse an ISC BIND `named` message record.
+
+  The operator expects an input record with required `time` and `message`
+  fields. The `message` field must contain the raw `named` message body, not the
+  full syslog envelope. The selected input event field is replaced with a
+  normalized BIND named record that stores the original body in `raw_data`.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+      default: this
+---
+
+// Only write inside the selected input event. Bare field assignments can
+// overwrite sibling fields in the caller's record.
+$event.raw_data = null
+if $event.message? != null {
+  $event.raw_data = $event.message.string()
+}
+if $event.raw_data == null {
+  @name = "named.parser_error"
+  $event = {
+    ...$event,
+    category: "parser",
+    template: "missing_message",
+    parser: {
+      warning: "missing required input field",
+      field: "message",
+    },
+  }
+} else {
+  // Parsers are probes: each leaves $event unchanged on no match.
+  named::parsers::client event=$event
+  if $event.category? == null {
+    named::parsers::fallback event=$event
+  }
+}
+
+drop $event.message?

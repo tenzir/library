@@ -1,0 +1,85 @@
+---
+description: Parse BIND named client and DNS policy messages.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+---
+
+let $client_dns_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?client "
+let $client_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?client (?:(?:@%{NOTSPACE:client_object} )?%{IP:client_ip}#%{INT:client_port}(?:/key %{NOTSPACE:signer})? \(%{NOTSPACE:client_query}\): (?:(?:view %{NOTSPACE:view}: )?(?:%{BIND9_QUERY}|%{BIND9_RPZ})|%{BIND9_QUERY_FAILED}|%{BIND9_QUERY_DENIED})|%{GREEDYDATA:client_body})$"
+let $bind9_query_grok = r"query: %{NOTSPACE:query_name} %{WORD:query_class} %{WORD:query_type}(?: %{NOTSPACE:flags})? \(%{IP:server_ip}\)(?: \[ECS %{DATA:ecs}\])?"
+let $bind9_query_failed_grok = r"query failed \(%{NOTSPACE:rcode}\) for %{NOTSPACE:query_name}/%{WORD:query_class}/%{WORD:query_type} at %{GREEDYDATA:location}"
+let $bind9_query_denied_grok = r"query \(%{DATA:query_context}\) '%{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class}' %{GREEDYDATA:decision}"
+let $bind9_rpz_grok = "(?:(?<rpz_disabled>disabled) )?rpz %{NOTSPACE:rpz_trigger} %{NOTSPACE:rpz_policy} %{WORD:rpz_action} %{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class} via %{GREEDYDATA:rpz_zone}"
+let $bind9_pattern_definitions = {
+  BIND9_QUERY: $bind9_query_grok,
+  BIND9_QUERY_FAILED: $bind9_query_failed_grok,
+  BIND9_QUERY_DENIED: $bind9_query_denied_grok,
+  BIND9_RPZ: $bind9_rpz_grok,
+}
+let $client_dns_parse_error_pattern = r": (?:query(?:: | failed \(| \()|(?:disabled )?rpz )"
+
+if $event.raw_data.match_regex($client_dns_prefix_pattern) {
+  $event._parsed = $event.raw_data.parse_grok(
+    $client_grok_pattern,
+    pattern_definitions=$bind9_pattern_definitions,
+  )
+  if $event._parsed? == null {
+    named::parsers::parse_error event=$event
+  } else {
+    $event = {
+      ...$event,
+      ...$event._parsed,
+    }
+    if $event.server_ip? != null {
+      @name = "named.query"
+      $event.category = "query"
+      $event.template = "query"
+      $event.feature = "query logging"
+    } else if $event.rcode? != null {
+      @name = "named.query_failed"
+      $event.category = "query-error"
+      $event.template = "query_failed"
+      $event.feature = "query-errors logging"
+    } else if $event.decision? != null {
+      @name = "named.query_denied"
+      $event.category = "query-policy"
+      $event.template = "query_denied"
+      $event.feature = "query logging"
+    } else if $event.rpz_zone? != null {
+      @name = "named.rpz"
+      $event.category = "rpz"
+      $event.template = "rpz"
+      $event.feature = "response policy zone logging"
+      $event.rpz = {
+        disabled: false,
+      }
+      if $event.rpz_disabled? == "disabled" {
+        $event.rpz.disabled = true
+      }
+      $event.rpz.trigger = move $event.rpz_trigger
+      $event.rpz.policy = move $event.rpz_policy
+      $event.rpz.action = move $event.rpz_action
+      $event.rpz.zone = move $event.rpz_zone
+      drop $event.rpz_disabled?
+    } else if $event.client_body? != null and $event.client_body.match_regex($client_dns_parse_error_pattern) {
+      @name = "named.parser_error"
+      $event.message_body = move $event.client_body
+      $event.category = "client"
+      $event.template = "client_dns_parse_error"
+      $event.parser = {
+        warning: "failed to parse named client DNS message",
+        reason: "required fields are missing or malformed",
+      }
+    } else {
+      @name = "named.client"
+      $event.message_body = move $event.client_body
+      $event.category = "client"
+      $event.template = "client"
+    }
+    drop $event.client_body?
+  }
+  drop $event._parsed?
+}
