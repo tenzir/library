@@ -27,7 +27,7 @@ args:
 let $patterns = {
   HOST: r#"[^/ ]+"#,
 }
-let $header = r#" *%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GREEDYDATA:text}"#
+let $header = r#"%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GREEDYDATA:text}"#
 
 // Built/Teardown share the `interface:host/port` endpoint shape. Built also
 // carries the post-NAT (translated) address in parentheses, which can be an IP
@@ -70,10 +70,16 @@ let $vpn_disconnect = r#"Group = %{DATA:vpn_group}, Username = %{DATA:vpn_user},
 // 746013: user-identity IP↔user mapping deleted (e.g. on VPN logout).
 let $identity_delete = r#"user-identity: Delete IP-User mapping %{IP:src_ip} - %{DATA:domain}\\%{DATA:vpn_user} %{WORD:status} - %{GREEDYDATA:reason}"#
 
-this = {...this, ...this[$message]?.parse_grok($header, pattern_definitions=$patterns)}
+// Parse the %ASA frame only on messages that carry one; this keeps the grok
+// parser from emitting a generic match-failure warning on unrelated input.
+if this[$message]?.starts_with("%ASA-") == true {
+  this = {...this, ...this[$message].parse_grok($header, pattern_definitions=$patterns)}
+}
 
-// Drop lines that do not carry an ASA message frame.
-where message_id? != null
+// Warn on and drop anything without an ASA frame so the user notices misrouted
+// input (e.g. a wrong `message` field, or non-ASA logs) instead of losing it
+// silently.
+assert message_id? != null, message="cisco::asa::parse: no %ASA-<severity>-<id> frame in the message field"
 
 @name = "cisco.asa"
 
