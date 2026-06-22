@@ -88,4 +88,7 @@ match $event.asa.message_id {
 // The message ID is recorded in metadata.event_code, so drop it from unmapped.
 drop $event.asa.message_id?
 
-$event = {...$event.ocsf, unmapped: $event.asa}
+// read_syslog always emits app_name/process_id (empty for ASA), and the ASA
+// subsystem context is usually absent. Drop such null fields so unmapped holds
+// only values that are actually present.
+$event = {...$event.ocsf, unmapped: $event.asa.drop_null_fields()}
