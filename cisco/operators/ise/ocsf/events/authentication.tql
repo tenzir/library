@@ -32,9 +32,10 @@ if $event.ise.attributes.FailureReason? != null {
 }
 
 // The authenticated subject.
-if ($event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?) != null {
+user_name = $event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?
+if user_name != null {
   $event.ocsf.user = {
-    name: $event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?,
+    name: user_name,
   }
 }
 // ISE `UserType` is `User` (a person) or `Host` (a device identity, e.g. MAB).
@@ -61,16 +62,19 @@ if $event.ise.attributes.DestinationPort? != null {
 }
 
 // The connecting endpoint.
-if ($event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?) != null {
-  $event.ocsf.src_endpoint.ip = ip($event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?)
+src_ip = $event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?
+if src_ip != null {
+  $event.ocsf.src_endpoint.ip = ip(src_ip)
 }
-if ($event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?) != null {
-  $event.ocsf.src_endpoint.mac = $event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?
+src_mac = $event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?
+if src_mac != null {
+  $event.ocsf.src_endpoint.mac = src_mac
 }
 
 // The network access device (NAD) that relayed the request.
-if ($event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?) != null {
-  $event.ocsf.device.ip = ip($event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?)
+device_ip = $event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?
+if device_ip != null {
+  $event.ocsf.device.ip = ip(device_ip)
 }
 if $event.ise.attributes.NetworkDeviceName? != null {
   $event.ocsf.device.hostname = $event.ise.attributes.NetworkDeviceName
@@ -135,4 +139,5 @@ if $event.ise.attributes.SelectedAuthorizationProfiles? != null {
 }
 
 // Remove the source fields consumed above so `unmapped` keeps only residue.
+drop user_name, src_ip, src_mac, device_ip
 drop $event.ise.timestamp?, $event.ise.attributes["Event-Timestamp"]?, $event.ise.message_text?, $event.ise.attributes.FailureReason?, $event.ise.attributes.UserName?, $event.ise.attributes["User-Name"]?, $event.ise.attributes.UserType?, $event.ise.attributes.SelectedAuthorizationProfiles?, $event.ise.attributes.AuthorizationPolicyMatchedRule?, $event.ise.attributes.ISEPolicySetName?, $event.ise.attributes.AcsSessionID?, $event.ise.attributes.DestinationIPAddress?, $event.ise.attributes.DestinationPort?, $event.ise.attributes["Framed-IP-Address"]?, $event.ise.attributes.IpAddress?, $event.ise.attributes["Calling-Station-ID"]?, $event.ise.attributes["Device IP Address"]?, $event.ise.attributes["NAS-IP-Address"]?, $event.ise.attributes.NetworkDeviceName?, $event.ise.attributes.IdentityGroup?, $event.ise.attributes.HostIdentityGroup?, $event.ise.attributes.Name?, $event.ise.attributes.CPMSessionID?, $event.ise.attributes["Model Name"]?, $event.ise.attributes.EndPointMACAddress?, $event.ise.attributes.Protocol?

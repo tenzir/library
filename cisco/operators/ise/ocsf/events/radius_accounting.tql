@@ -15,14 +15,19 @@ $event.ocsf.class_uid = 4001
 // maps to Network Activity. The Acct-Status-Type drives the connection
 // lifecycle: a Start opens the session, a Stop closes it, and an Interim-Update
 // (watchdog) is a periodic traffic report.
-if $event.ise.attributes["Acct-Status-Type"]? == "Start" {
-  $event.ocsf.activity_id = 1
-} else if $event.ise.attributes["Acct-Status-Type"]? == "Stop" {
-  $event.ocsf.activity_id = 2
-} else if $event.ise.attributes["Acct-Status-Type"]? == "Interim-Update" {
-  $event.ocsf.activity_id = 6
-} else {
-  $event.ocsf.activity_id = 0
+match $event.ise.attributes["Acct-Status-Type"]? {
+  "Start" => {
+    $event.ocsf.activity_id = 1
+  }
+  "Stop" => {
+    $event.ocsf.activity_id = 2
+  }
+  "Interim-Update" => {
+    $event.ocsf.activity_id = 6
+  }
+  _ => {
+    $event.ocsf.activity_id = 0
+  }
 }
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
@@ -34,10 +39,11 @@ $event.ocsf.status_id = 1
 $event.ocsf.status = "Success"
 
 // The accounted subject (carried via the host profile's `actor`).
-if ($event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?) != null {
+user_name = $event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?
+if user_name != null {
   $event.ocsf.actor = {
     user: {
-      name: $event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?,
+      name: user_name,
     },
   }
 }
@@ -52,16 +58,19 @@ if $event.ise.attributes.UserType? == "User" {
 }
 
 // The connecting endpoint, including the IP address the NAD assigned to it.
-if ($event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?) != null {
-  $event.ocsf.src_endpoint.ip = ip($event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?)
+src_ip = $event.ise.attributes["Framed-IP-Address"]? else $event.ise.attributes.IpAddress?
+if src_ip != null {
+  $event.ocsf.src_endpoint.ip = ip(src_ip)
 }
-if ($event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?) != null {
-  $event.ocsf.src_endpoint.mac = $event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?
+src_mac = $event.ise.attributes["Calling-Station-ID"]? else $event.ise.attributes.EndPointMACAddress?
+if src_mac != null {
+  $event.ocsf.src_endpoint.mac = src_mac
 }
 
 // The network access device (NAD) that relayed the session (host profile).
-if ($event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?) != null {
-  $event.ocsf.device.ip = ip($event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?)
+device_ip = $event.ise.attributes["Device IP Address"]? else $event.ise.attributes["NAS-IP-Address"]?
+if device_ip != null {
+  $event.ocsf.device.ip = ip(device_ip)
 }
 if $event.ise.attributes.NetworkDeviceName? != null {
   $event.ocsf.device.hostname = $event.ise.attributes.NetworkDeviceName
@@ -118,4 +127,5 @@ if $event.ise.attributes["Acct-Session-Time"]? != null {
 }
 
 // Remove the source fields consumed above so `unmapped` keeps only residue.
+drop user_name, src_ip, src_mac, device_ip
 drop $event.ise.timestamp?, $event.ise.attributes["Event-Timestamp"]?, $event.ise.message_text?, $event.ise.attributes["Acct-Status-Type"]?, $event.ise.attributes.UserName?, $event.ise.attributes["User-Name"]?, $event.ise.attributes.UserType?, $event.ise.attributes["Framed-IP-Address"]?, $event.ise.attributes.IpAddress?, $event.ise.attributes["Calling-Station-ID"]?, $event.ise.attributes["Device IP Address"]?, $event.ise.attributes["NAS-IP-Address"]?, $event.ise.attributes.NetworkDeviceName?, $event.ise.attributes.IdentityGroup?, $event.ise.attributes.HostIdentityGroup?, $event.ise.attributes.Name?, $event.ise.attributes["Model Name"]?, $event.ise.attributes.EndPointMACAddress?, $event.ise.attributes["Acct-Session-Id"]?, $event.ise.attributes.AcsSessionID?, $event.ise.attributes.CPMSessionID?, $event.ise.attributes["Acct-Input-Octets"]?, $event.ise.attributes["Acct-Input-Gigawords"]?, $event.ise.attributes["Acct-Output-Octets"]?, $event.ise.attributes["Acct-Output-Gigawords"]?, $event.ise.attributes["Acct-Input-Packets"]?, $event.ise.attributes["Acct-Output-Packets"]?, $event.ise.attributes["Acct-Session-Time"]?

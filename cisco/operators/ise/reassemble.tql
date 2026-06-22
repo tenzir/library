@@ -57,10 +57,14 @@ payload = segment.payload.trim_end(", ")
 group segment_message_id {
   window size=$window, on=$on, idle_timeout=$window {
     sort segment_number
-    summarize context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), payloads=collect(payload)
+    summarize context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), segment_numbers=collect(segment_number), payloads=collect(payload)
   }
 }
 
+expected_segment_count = int(segment_total)
+received_segment_count = segment_numbers.distinct().where(n => n >= 0 and n < expected_segment_count).length()
+reassembly_complete = received_segment_count == expected_segment_count
+missing_segments = expected_segment_count - received_segment_count
 reassembled = message_id + " " + segment_total + " 0 " + payloads.join(", ")
 if category != null {
   reassembled = category + " " + reassembled
@@ -70,7 +74,7 @@ if category != null {
 // source body field first—it still holds the stale segment-0 partial—then write
 // the complete body to `message`. The counters are emitted as integers (the body
 // keeps the original zero-padded form) so they can be aggregated directly.
-this = {...context, message_id: int(message_id), segment_total: int(segment_total), reassembled: reassembled}
+this = {...context, message_id: int(message_id), segment_total: expected_segment_count, reassembly_complete: reassembly_complete, missing_segments: missing_segments, reassembled: reassembled}
 drop $message
 message = reassembled
 drop reassembled

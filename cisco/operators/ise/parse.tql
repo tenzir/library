@@ -8,14 +8,14 @@ args:
       default: message
     - name: category
       description: |
-        The name of a field that carries the `CISE_<Category>` tag separately
-        from the message body, for shippers that split it out (for example a
-        field holding an application name). When the message body itself begins
-        with the `CISE_<Category>` tag—as it does in the `content` produced by
+        A field that carries the `CISE_<Category>` tag separately from the
+        message body, for shippers that split it out (for example a field
+        holding an application name). When the message body itself begins with
+        the `CISE_<Category>` tag—as it does in the `content` produced by
         `read_syslog` for the ISE remote-target format—the tag is read from
         there and this field is not needed.
-      type: string
-      default: "category"
+      type: field
+      default: null
 ---
 
 // Parses the Cisco ISE message body, that is, everything after the syslog
@@ -69,14 +69,14 @@ if segment.remainder.match_regex(r"^\d{4}-\d{2}-\d{2} ") {
   message_code = int(header.message_code)
   severity = header.severity
   message_text = header.message_text
-  if header.detail_timestamp != null and header.timezone != null {
+  if header.detail_timestamp? != null and header.timezone? != null {
     timestamp = time(header.detail_timestamp.replace(" ", "T") + header.timezone)
   }
-  if header.attribute_string != null {
+  if header.attribute_string? != null {
     attributes = header.attribute_string.trim_end(", ").parse_kv(field_split=", ", value_split="=", raw=true)
   }
-  category_tag = this[$category]? else header.message_category?
-  incomplete = false
+  category_tag = $category else header.message_category?
+  incomplete = not (reassembly_complete? else true)
   drop header
 } else {
   // Orphan fragment: no header, so no code/severity/timestamp. Keep the
@@ -111,16 +111,24 @@ if incomplete {
   @name = "cisco.ise.incomplete"
 } else if category_tag != null and category_tag.starts_with("CISE_") {
   @name = "cisco.ise." + category_tag.replace("CISE_", "").to_lower()
-} else if message_code != null and message_code >= 5200 and message_code < 5300 {
-  @name = "cisco.ise.passed_authentications"
-} else if message_code != null and message_code >= 5400 and message_code < 5500 {
-  @name = "cisco.ise.failed_attempts"
-} else if message_code != null and message_code >= 3000 and message_code < 3100 {
-  @name = "cisco.ise.radius_accounting"
-} else if message_code != null and message_code >= 3300 and message_code < 3400 {
-  @name = "cisco.ise.tacacs_accounting"
 } else {
-  @name = "cisco.ise.event"
+  match message_code {
+    5200..5299 => {
+      @name = "cisco.ise.passed_authentications"
+    }
+    5400..5499 => {
+      @name = "cisco.ise.failed_attempts"
+    }
+    3000..3099 => {
+      @name = "cisco.ise.radius_accounting"
+    }
+    3300..3399 => {
+      @name = "cisco.ise.tacacs_accounting"
+    }
+    _ => {
+      @name = "cisco.ise.event"
+    }
+  }
 }
 
-drop incomplete, category_tag
+drop incomplete, category_tag, reassembly_complete?

@@ -24,10 +24,12 @@ it into the new operators.
   event-time field, concatenates their payloads in segment order, and preserves
   the `CISE_<Category>` tag so the parser can recover the category. Because BSD
   syslog timestamps carry no year, the syslog example shows how to assign the
-  current year (with year-boundary rollover) before windowing. Fragments
-  whose header segment never arrives are kept rather than dropped: the parser
-  tags them `cisco.ise.incomplete` and the mapper labels them
-  (`metadata.labels`) as an OCSF Base Event, preserving their attributes.
+  current year (with year-boundary rollover) before windowing. Incomplete
+  messages, including fragments whose header segment never arrives and messages
+  whose continuation segments are missing when the reassembly window closes, are
+  kept rather than dropped: the parser tags them `cisco.ise.incomplete` and the
+  mapper labels them (`metadata.labels`) as an OCSF Base Event, preserving their
+  attributes.
 
 The `cisco::ise::ocsf::map` operator maps Passed Authentications and Failed
 Attempts to OCSF Authentication (3002) logon attempts. RADIUS Accounting maps to

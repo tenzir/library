@@ -57,22 +57,33 @@ if @name == "cisco.ise.incomplete" {
   // Segments are missing, so mark the OCSF data as truncated and record the
   // reason in the metadata debug information (a non-fatal processing issue).
   $event.ocsf.metadata.is_truncated = true
-  $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): header segment not reassembled"]
+  if $event.ise.missing_segments? != null {
+    $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): missing " + $event.ise.missing_segments.string() + " segment(s) during reassembly"]
+  } else {
+    $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): header segment not reassembled"]
+  }
 }
 
 // Map the ISE syslog severity keyword to an OCSF severity identifier.
-if $event.ise.severity in ["DEBUG", "INFO", "NOTICE"] {
-  $event.ocsf.severity_id = 1
-} else if $event.ise.severity in ["WARN", "WARNING"] {
-  $event.ocsf.severity_id = 3
-} else if $event.ise.severity == "ERROR" {
-  $event.ocsf.severity_id = 4
-} else if $event.ise.severity in ["CRITICAL", "ALERT"] {
-  $event.ocsf.severity_id = 5
-} else if $event.ise.severity in ["EMERGENCY", "FATAL"] {
-  $event.ocsf.severity_id = 6
-} else {
-  $event.ocsf.severity_id = 0
+match $event.ise.severity {
+  "DEBUG" | "INFO" | "NOTICE" => {
+    $event.ocsf.severity_id = 1
+  }
+  "WARN" | "WARNING" => {
+    $event.ocsf.severity_id = 3
+  }
+  "ERROR" => {
+    $event.ocsf.severity_id = 4
+  }
+  "CRITICAL" | "ALERT" => {
+    $event.ocsf.severity_id = 5
+  }
+  "EMERGENCY" | "FATAL" => {
+    $event.ocsf.severity_id = 6
+  }
+  _ => {
+    $event.ocsf.severity_id = 0
+  }
 }
 drop $event.ise.severity?
 
@@ -102,7 +113,7 @@ drop $event.ise.network_device_groups?, $event.ise.attributes.NetworkDeviceGroup
 // `message_code`/`sequence_number` are now in `metadata`; the segment counters
 // are transport artifacts with no OCSF home (and `segment_number` is always 0
 // after reassembly). Drop them so `unmapped` keeps only genuine residue.
-drop $event.ise.raw?, $event.ise.message_id?, $event.ise.message_code?, $event.ise.sequence_number?, $event.ise.segment_total?, $event.ise.segment_number?
+drop $event.ise.raw?, $event.ise.message_id?, $event.ise.message_code?, $event.ise.sequence_number?, $event.ise.segment_total?, $event.ise.segment_number?, $event.ise.missing_segments?
 
 // Lift the residual ISE attributes to the top of `unmapped`, so they appear as
 // `unmapped.<Attribute>` instead of `unmapped.attributes.<Attribute>`.
