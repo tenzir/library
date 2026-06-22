@@ -1,0 +1,76 @@
+---
+description: Reassembles multi-segment Cisco ISE messages into a single message body.
+args:
+  named:
+    - name: message
+      description: The field holding the (possibly partial) ISE message body.
+      type: field
+      default: message
+    - name: on
+      description: |
+        The event-time field used to window together the segments of one
+        message, for example the syslog timestamp. BSD syslog timestamps carry
+        no year, so convert them to a full timestamp before this operator (see
+        the multi-segment example).
+      type: field
+      default: timestamp
+    - name: window
+      description: |
+        How long to gather a message's segments before emitting it. This bounds
+        both how far apart segments may arrive and the emit latency on a live
+        source (the reassembled message is flushed this long after its last
+        segment). ISE sends a message's segments back-to-back, so the default
+        leaves wide margin while keeping latency low; raise it if segments are
+        delayed in transit, lower it for faster output.
+      type: duration
+      default: 30s
+---
+
+// Cisco ISE splits one logical message (a shared message id) into `total_seg`
+// segments numbered `0..total_seg-1`. Only segment 0 carries the message header
+// (timestamp, code, severity, label); the remaining segments continue the
+// comma-separated attribute list. This operator gathers all segments of a
+// message and concatenates their payloads, in segment order, into a single
+// `message` field that `cisco::ise::parse` can parse. The leading
+// `CISE_<Category>` tag (present on every segment in the syslog remote-target
+// format) is preserved and re-prepended so the parser can still recover the
+// category. All other fields of the first segment—host, shipper metadata, and so
+// on—are carried through; later segments' copies are dropped.
+let $header = r"^(?:(?<category>CISE_\S+)\s+)?(?<message_id>\d+)\s+(?<segment_total>\d+)\s+(?<segment_number>\d+)\s+(?<payload>.*)$"
+
+// Snapshot the caller's fields before we add our own, so we can restore them
+// after the windowed aggregation (which otherwise keeps only its outputs).
+context = {...this}
+
+segment = $message.parse_grok($header, raw=true)
+where segment.message_id? != null
+
+segment_category = segment.category
+segment_message_id = segment.message_id
+segment_total = segment.segment_total
+segment_number = int(segment.segment_number)
+payload = segment.payload.trim_end(", ")
+
+// Route all segments of one message through the same subpipeline, then bound
+// reassembly to a time window so a reused message id in a later window starts a
+// fresh message. Keep the first segment's full record via `context`.
+group segment_message_id {
+  window size=$window, on=$on, idle_timeout=$window {
+    sort segment_number
+    summarize context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), payloads=collect(payload)
+  }
+}
+
+reassembled = message_id + " " + segment_total + " 0 " + payloads.join(", ")
+if category != null {
+  reassembled = category + " " + reassembled
+}
+
+// Restore the first segment's fields alongside the reassembled message. Drop the
+// source body field first—it still holds the stale segment-0 partial—then write
+// the complete body to `message`. The counters are emitted as integers (the body
+// keeps the original zero-padded form) so they can be aggregated directly.
+this = {...context, message_id: int(message_id), segment_total: int(segment_total), reassembled: reassembled}
+drop $message
+message = reassembled
+drop reassembled

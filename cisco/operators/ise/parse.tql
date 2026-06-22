@@ -1,0 +1,126 @@
+---
+description: Parses a Cisco ISE message body into a normalized Cisco ISE event.
+args:
+  named:
+    - name: message
+      description: The field holding the ISE message body to parse.
+      type: field
+      default: message
+    - name: category
+      description: |
+        The name of a field that carries the `CISE_<Category>` tag separately
+        from the message body, for shippers that split it out (for example a
+        field holding an application name). When the message body itself begins
+        with the `CISE_<Category>` tag—as it does in the `content` produced by
+        `read_syslog` for the ISE remote-target format—the tag is read from
+        there and this field is not needed.
+      type: string
+      default: "category"
+---
+
+// Parses the Cisco ISE message body, that is, everything after the syslog
+// priority, timestamp, and host:
+//
+//   [CISE_<Category>] <msg_id> <total_seg> <seg_num> <detail_ts> <tz> <seq_num>
+//   <code> <SEVERITY> <Label>: <text>, key=value, key=value, ...
+//
+// The leading `CISE_<Category>` tag is optional: `read_syslog` leaves it at the
+// start of `content` for the ISE remote-target format, whereas shippers that
+// split it into a separate field do not. The body field is configurable, so the
+// operator runs on the output of `read_syslog` (`message=content`) or directly
+// on records from a shipper (`message=<body field>, category=<tag field>`). Any
+// other fields on the event are preserved. The `<detail_ts> <tz>` pair carries
+// the authoritative event time with an explicit UTC offset, which we
+// reconstruct below and write to the `timestamp` field.
+let $segment = r"^(?:CISE_\S+\s+)?%{NONNEGINT:message_id}\s+%{NONNEGINT:segment_total}\s+%{NONNEGINT:segment_number}\s+%{GREEDYDATA:remainder}$"
+let $pattern = r"^(?:(?<message_category>CISE_\S+)\s+)?%{NONNEGINT:message_id}\s+%{NONNEGINT:segment_total}\s+%{NONNEGINT:segment_number}\s+(?<detail_timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+%{ISO8601_TIMEZONE:timezone}\s+%{NONNEGINT:sequence_number}\s+%{NONNEGINT:message_code}\s+%{WORD:severity}\s+%{DATA:message_text}(?:,\s+%{GREEDYDATA:attribute_string})?$"
+
+// Every ISE segment begins with `<msg_id> <total_seg> <seg_num>`, but only
+// segment 0 carries the message header. Select segment 0 here; the continuation
+// fragments of a multi-segment message belong to `cisco::ise::reassemble`.
+segment = $message.parse_grok($segment, raw=true)
+
+// Warn (rather than silently drop) when an un-reassembled continuation segment
+// (segment_number > 0) reaches the parser. These belong to
+// `cisco::ise::reassemble`; a malformed line that matches no segment header is
+// already reported by the grok parser above.
+is_continuation = segment.segment_number? != null and segment.segment_number? != "0"
+assert not is_continuation, message="cisco::ise::parse received an un-reassembled continuation segment (segment_number > 0); reassemble multi-segment messages with cisco::ise::reassemble first"
+drop is_continuation
+where segment.segment_number? == "0"
+
+// A complete body carries the message header—a date right after the
+// `<id> <total> <seg>` prefix. An orphan fragment (whose header segment never
+// arrived to be reassembled) starts with attributes instead. We branch on this
+// so the full grok only runs on bodies that have a header (avoiding a warning),
+// and we keep orphan fragments—tagged as `cisco.ise.incomplete`—rather than
+// dropping the data.
+//
+// Attribute values are kept verbatim (`raw=true`): ISE values are identifiers
+// and free text—MAC addresses, session IDs, policy names—where type inference
+// would corrupt them (dropping leading zeros from a MAC, turning a session ID
+// into a duration). The OCSF mappers cast the few fields that need a type.
+if segment.remainder.match_regex(r"^\d{4}-\d{2}-\d{2} ") {
+  header = $message.parse_grok($pattern, raw=true)
+  message_id = int(header.message_id)
+  segment_total = int(header.segment_total)
+  segment_number = int(header.segment_number)
+  sequence_number = int(header.sequence_number)
+  message_code = int(header.message_code)
+  severity = header.severity
+  message_text = header.message_text
+  if header.detail_timestamp != null and header.timezone != null {
+    timestamp = time(header.detail_timestamp.replace(" ", "T") + header.timezone)
+  }
+  if header.attribute_string != null {
+    attributes = header.attribute_string.trim_end(", ").parse_kv(field_split=", ", value_split="=", raw=true)
+  }
+  category_tag = this[$category]? else header.message_category?
+  incomplete = false
+  drop header
+} else {
+  // Orphan fragment: no header, so no code/severity/timestamp. Keep the
+  // counters and whatever attributes the fragment carries.
+  message_id = int(segment.message_id)
+  segment_total = int(segment.segment_total)
+  segment_number = int(segment.segment_number)
+  severity = null
+  // Keep the raw fragment body as the message text so the actual content that
+  // arrived is visible, even though the header (with the real label) is missing.
+  message_text = segment.remainder.trim_end(", ")
+  // Own the timestamp field so a stray upstream `timestamp` (e.g. a shipper's
+  // epoch field) cannot leak in as the event time for a headerless fragment.
+  timestamp = null
+  attributes = segment.remainder.trim_end(", ").parse_kv(field_split=", ", value_split="=", raw=true)
+  category_tag = null
+  incomplete = true
+}
+
+// Preserve the raw message body (for reassembled messages this is the complete,
+// concatenated body) so the OCSF mapper can record it as `raw_data`.
+raw = $message
+// Collect every `NetworkDeviceGroups` value (all NDG roots) from the raw body;
+// `parse_kv` keeps only the last, so extract them here before that happens.
+network_device_groups = $message.split(", ").where(p => p.starts_with("NetworkDeviceGroups=")).map(p => p.replace("NetworkDeviceGroups=", ""))
+drop $message, segment
+
+// Classify the event. Orphan fragments are tagged `cisco.ise.incomplete` so the
+// mapper can label them; otherwise use the `CISE_<Category>` tag when available,
+// falling back to the message code range.
+if incomplete {
+  @name = "cisco.ise.incomplete"
+} else if category_tag != null and category_tag.starts_with("CISE_") {
+  @name = "cisco.ise." + category_tag.replace("CISE_", "").to_lower()
+} else if message_code != null and message_code >= 5200 and message_code < 5300 {
+  @name = "cisco.ise.passed_authentications"
+} else if message_code != null and message_code >= 5400 and message_code < 5500 {
+  @name = "cisco.ise.failed_attempts"
+} else if message_code != null and message_code >= 3000 and message_code < 3100 {
+  @name = "cisco.ise.radius_accounting"
+} else if message_code != null and message_code >= 3300 and message_code < 3400 {
+  @name = "cisco.ise.tacacs_accounting"
+} else {
+  @name = "cisco.ise.event"
+}
+
+drop incomplete, category_tag

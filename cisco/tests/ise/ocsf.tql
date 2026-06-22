@@ -1,0 +1,13 @@
+// Read Cisco ISE remote-target syslog and map every category to OCSF. The ISE
+// `CISE_<Category>` tag stays at the start of the syslog `content`, so the
+// parser recovers it from the message body itself.
+from_file env("TENZIR_INPUT") {
+  read_syslog
+}
+cisco::ise::parse message=content
+cisco::ise::ocsf::map
+ocsf::derive
+ocsf::cast
+// Mapping routes events through per-class sub-pipelines, which does not preserve
+// input order; sort for a stable baseline.
+sort metadata.sequence
