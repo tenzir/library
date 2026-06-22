@@ -2,8 +2,8 @@
 description: >-
   Parses a Cisco Secure Firewall ASA message into a normalized ASA event.
 
-  Reads the `%ASA-<severity>-<message_id>: <text>` frame from the field named by
-  `message` (default `content`, the message body that the built-in `read_syslog`
+  Reads the `%ASA-<severity>-<message_id>: <text>` frame from the `message`
+  field (default `content`, the message body that the built-in `read_syslog`
   produces after stripping the syslog envelope) and parses the body of supported
   message IDs into structured fields. Unsupported messages keep their free-form
   `text`. The event time is taken from a sibling `timestamp` field if present.
@@ -15,8 +15,8 @@ args:
   named:
     - name: message
       description: The field that holds the ASA message body (starting at `%ASA`).
-      type: string
-      default: "content"
+      type: field
+      default: content
 ---
 
 // ASA messages are framed as `%ASA-<severity>-<id>: <text>`, with an optional
@@ -72,8 +72,8 @@ let $identity_delete = r#"user-identity: Delete IP-User mapping %{IP:src_ip} - %
 
 // Parse the %ASA frame only on messages that carry one; this keeps the grok
 // parser from emitting a generic match-failure warning on unrelated input.
-if this[$message]?.starts_with("%ASA-") == true {
-  this = {...this, ...this[$message].parse_grok($header, pattern_definitions=$patterns)}
+if $message != null and $message.starts_with("%ASA-") {
+  this = {...this, ...$message.parse_grok($header, pattern_definitions=$patterns)}
 }
 
 // Warn on and drop anything without an ASA frame so the user notices misrouted
