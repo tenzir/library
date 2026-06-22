@@ -3,6 +3,8 @@ title: Add Cisco Secure Firewall ASA support
 type: feature
 authors:
   - zedoraps
+prs:
+  - 162
 created: 2026-06-18T00:00:00Z
 ---
 
