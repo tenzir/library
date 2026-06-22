@@ -11,11 +11,12 @@ args:
 
 $event.ocsf.category_uid = 3
 $event.ocsf.class_uid = 3002
-// 722051 establishes a session; 113019 and 746013 end one.
-if $event.asa.message_id == 722051 {
-  $event.ocsf.activity_id = 1  // Logon
-} else {
-  $event.ocsf.activity_id = 2  // Logoff
+// 722051 establishes a session; 113019 and 746013 end one. Match the known IDs
+// explicitly so an unexpected message routed here is not mislabeled.
+match $event.asa.message_id {
+  722051 => { $event.ocsf.activity_id = 1 }            // Logon
+  113019 | 746013 => { $event.ocsf.activity_id = 2 }   // Logoff
+  _ => { $event.ocsf.activity_id = 0 }                 // Unknown
 }
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
@@ -42,10 +43,11 @@ if $event.asa.reason? != null {
   $event.ocsf.status_detail = move $event.asa.reason
 }
 
-// 746013 reports an explicit result, either "Succeeded" or "Failed". The
-// session logon/logoff messages carry no status and always describe a
-// completed action. An unexpected value maps to Other (99) with the source
-// string preserved in the `status` sibling, per OCSF conventions.
+// 746013 reports an explicit result, either "Succeeded" or "Failed", which maps
+// to Success/Failure (an unexpected value maps to Other (99) with the source
+// string preserved in `status`, per OCSF conventions). The session logon
+// (722051) and logoff (113019) messages carry no status but always describe a
+// completed action, so they map to Success. Anything else stays Unknown.
 if $event.asa.status? == "Succeeded" {
   $event.ocsf.status_id = 1  // Success
   drop $event.asa.status?
@@ -55,6 +57,8 @@ if $event.asa.status? == "Succeeded" {
 } else if $event.asa.status? != null {
   $event.ocsf.status_id = 99  // Other
   $event.ocsf.status = move $event.asa.status
-} else {
+} else if $event.asa.message_id == 722051 or $event.asa.message_id == 113019 {
   $event.ocsf.status_id = 1  // Success
+} else {
+  $event.ocsf.status_id = 0  // Unknown
 }

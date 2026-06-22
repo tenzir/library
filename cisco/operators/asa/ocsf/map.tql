@@ -21,8 +21,20 @@ $event.ocsf.metadata = {
     name: "Secure Firewall ASA",
     vendor_name: "Cisco",
   },
-  profiles: ["host", "security_control"],
+  // security_control is added by the event mappers that set firewall fields.
+  profiles: [],
   version: "1.8.0",
+}
+
+// The syslog hostname is the ASA that reported the event. OCSF models the
+// reporting system as a logger, not the event's subject device.
+if $event.asa.hostname? != null {
+  $event.ocsf.metadata.loggers = [{
+    device: {
+      hostname: move $event.asa.hostname,
+    },
+    log_format: "syslog",
+  }]
 }
 
 // ASA stamps each message with the syslog timestamp when configured to do so.
