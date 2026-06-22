@@ -1,0 +1,34 @@
+---
+description: "Cisco ASA connection-teardown messages (302014/302016) → OCSF Network Activity (4001)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.network_activity"
+
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = 2  // Close
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+cisco::asa::ocsf::network_endpoints event=$event
+
+if $event.asa.connection_id? != null {
+  $event.ocsf.connection_info.uid = (move $event.asa.connection_id).string()
+}
+
+// Teardown messages summarize the closed session: total bytes and the reason
+// the firewall tore the connection down.
+if $event.asa.bytes? != null {
+  $event.ocsf.traffic = {
+    bytes: move $event.asa.bytes,
+  }
+}
+if $event.asa.reason? != null {
+  $event.ocsf.status_detail = move $event.asa.reason
+}
+
+$event.ocsf.disposition_id = 1  // Allowed

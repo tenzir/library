@@ -1,0 +1,96 @@
+---
+description: >-
+  Common Cisco ASA src/dst endpoint fields → OCSF network endpoints.
+  Sets port and interface_name on both endpoints, classifies each logged
+  address as either an `ip` or a `hostname`, records any post-NAT (translated)
+  address as a proxy endpoint, and populates connection_info with the protocol
+  number and name.
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+// ASA logs an endpoint address as either an IP or a resolved hostname/label.
+let $ipv4 = r"^\d{1,3}(\.\d{1,3}){3}$"
+let $ipv6 = r"^[0-9A-Fa-f:]*:[0-9A-Fa-f:]+$"
+
+$event.ocsf.connection_info = {}
+
+// --- Source endpoint ---
+$event.ocsf.src_endpoint = {
+  port: move $event.asa.src_port?,
+  interface_name: move $event.asa.src_interface?,
+}
+if $event.asa.src_host? != null {
+  if $event.asa.src_host.match_regex($ipv4) or $event.asa.src_host.match_regex($ipv6) {
+    $event.ocsf.src_endpoint.ip = $event.asa.src_host.ip()
+  } else {
+    $event.ocsf.src_endpoint.hostname = $event.asa.src_host
+  }
+}
+// Source NAT: the post-translation address on connection-built messages.
+// Record it as a proxy endpoint when it differs from the real source.
+if $event.asa.src_xlate_host? != null and $event.asa.src_xlate_host != $event.asa.src_host? {
+  $event.ocsf.src_endpoint.proxy_endpoint = {
+    port: move $event.asa.src_xlate_port?,
+  }
+  if $event.asa.src_xlate_host.match_regex($ipv4) or $event.asa.src_xlate_host.match_regex($ipv6) {
+    $event.ocsf.src_endpoint.proxy_endpoint.ip = $event.asa.src_xlate_host.ip()
+  } else {
+    $event.ocsf.src_endpoint.proxy_endpoint.hostname = $event.asa.src_xlate_host
+  }
+}
+drop $event.asa.src_host?, $event.asa.src_xlate_host?, $event.asa.src_xlate_port?
+
+// --- Destination endpoint ---
+$event.ocsf.dst_endpoint = {
+  port: move $event.asa.dst_port?,
+  interface_name: move $event.asa.dst_interface?,
+}
+if $event.asa.dst_host? != null {
+  if $event.asa.dst_host.match_regex($ipv4) or $event.asa.dst_host.match_regex($ipv6) {
+    $event.ocsf.dst_endpoint.ip = $event.asa.dst_host.ip()
+  } else {
+    $event.ocsf.dst_endpoint.hostname = $event.asa.dst_host
+  }
+}
+if $event.asa.dst_xlate_host? != null and $event.asa.dst_xlate_host != $event.asa.dst_host? {
+  $event.ocsf.dst_endpoint.proxy_endpoint = {
+    port: move $event.asa.dst_xlate_port?,
+  }
+  if $event.asa.dst_xlate_host.match_regex($ipv4) or $event.asa.dst_xlate_host.match_regex($ipv6) {
+    $event.ocsf.dst_endpoint.proxy_endpoint.ip = $event.asa.dst_xlate_host.ip()
+  } else {
+    $event.ocsf.dst_endpoint.proxy_endpoint.hostname = $event.asa.dst_xlate_host
+  }
+}
+drop $event.asa.dst_host?, $event.asa.dst_xlate_host?, $event.asa.dst_xlate_port?
+
+// --- Protocol ---
+// ASA spells the protocol either as a name (`tcp`, `udp`, `icmp`) or, for
+// protocols without ports, as the literal `protocol` followed by its IANA
+// number (e.g. `protocol 47` for GRE).
+let $protocols = {
+  icmp: 1,
+  tcp: 6,
+  udp: 17,
+  gre: 47,
+  esp: 50,
+  ah: 51,
+  icmpv6: 58,
+}
+if $event.asa.protocol_num? != null {
+  $event.ocsf.connection_info.protocol_num = move $event.asa.protocol_num
+  // Keep a real protocol name, but not the `protocol` placeholder word.
+  if $event.asa.protocol? != null and $event.asa.protocol != "protocol" {
+    $event.ocsf.connection_info.protocol_name = $event.asa.protocol.to_lower()
+  }
+  drop $event.asa.protocol?
+} else if $event.asa.protocol? != null {
+  $event.asa.protocol = $event.asa.protocol.to_lower()
+  $event.ocsf.connection_info.protocol_name = $event.asa.protocol
+  $event.ocsf.connection_info.protocol_num = $protocols[$event.asa.protocol]? else -1
+  drop $event.asa.protocol
+}

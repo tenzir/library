@@ -1,0 +1,61 @@
+---
+description: Cisco ASA → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
+---
+
+$event = {...$event, asa: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  log_name: "cisco.asa",
+  // The ASA syslog message ID identifies the event type in Cisco's taxonomy,
+  // which OCSF models as metadata.event_code (its example is "Cisco syslog
+  // code"). ASA provides no unique per-event identifier for original_event_uid.
+  event_code: $event.asa.message_id.string(),
+  processed_time: now(),
+  product: {
+    name: "Secure Firewall ASA",
+    vendor_name: "Cisco",
+  },
+  profiles: ["host", "security_control"],
+  version: "1.8.0",
+}
+
+// ASA stamps each message with the syslog timestamp when configured to do so.
+$event.ocsf.time = move $event.asa.time? else $event.ocsf.metadata.processed_time
+
+if $event.asa.text? != null {
+  $event.ocsf.message = move $event.asa.text
+}
+
+// Map the ASA severity level (0 = emergency … 7 = debug) to the OCSF severity.
+let $severities = {
+  "0": 6,  // Emergency  → Fatal
+  "1": 5,  // Alert      → Critical
+  "2": 5,  // Critical   → Critical
+  "3": 4,  // Error      → High
+  "4": 3,  // Warning    → Medium
+  "5": 2,  // Notice     → Low
+  "6": 1,  // Info       → Informational
+  "7": 1,  // Debug      → Informational
+}
+if $event.asa.severity? != null {
+  $event.ocsf.severity_id = $severities[(move $event.asa.severity).string()]? else 0
+} else {
+  $event.ocsf.severity_id = 0
+}
+
+match $event.asa.message_id {
+  302013 | 302015 => { cisco::asa::ocsf::events::built event=$event }
+  302014 | 302016 | 302021 => { cisco::asa::ocsf::events::teardown event=$event }
+  106023 | 106001 | 106006 | 106007 | 106010 | 106014 | 106100 | 313004 | 313008 | 710003 | 710005 => { cisco::asa::ocsf::events::deny event=$event }
+  419002 => { cisco::asa::ocsf::events::network event=$event }
+  722051 | 113019 | 746013 => { cisco::asa::ocsf::events::authentication event=$event }
+  _ => { cisco::asa::ocsf::base event=$event }
+}
+
+$event = {...$event.ocsf, unmapped: $event.asa}

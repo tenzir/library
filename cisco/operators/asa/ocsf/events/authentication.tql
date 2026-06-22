@@ -1,0 +1,60 @@
+---
+description: "Cisco ASA VPN session / identity messages (722051 logon, 113019 & 746013 logoff) → OCSF Authentication (3002)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.authentication"
+
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+// 722051 establishes a session; 113019 and 746013 end one.
+if $event.asa.message_id == 722051 {
+  $event.ocsf.activity_id = 1  // Logon
+} else {
+  $event.ocsf.activity_id = 2  // Logoff
+}
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+if $event.asa.vpn_user? != null {
+  $event.ocsf.user = {
+    name: move $event.asa.vpn_user,
+  }
+}
+if $event.asa.domain? != null {
+  $event.ocsf.user.domain = move $event.asa.domain
+}
+if $event.asa.vpn_group? != null {
+  $event.ocsf.user.groups = [{name: move $event.asa.vpn_group}]
+}
+
+// The client's public address is the source of the session.
+if $event.asa.src_ip? != null {
+  $event.ocsf.src_endpoint = {
+    ip: move $event.asa.src_ip,
+  }
+}
+
+if $event.asa.reason? != null {
+  $event.ocsf.status_detail = move $event.asa.reason
+}
+
+// 746013 reports an explicit result, either "Succeeded" or "Failed". The
+// session logon/logoff messages carry no status and always describe a
+// completed action. An unexpected value maps to Other (99) with the source
+// string preserved in the `status` sibling, per OCSF conventions.
+if $event.asa.status? == "Succeeded" {
+  $event.ocsf.status_id = 1  // Success
+  drop $event.asa.status?
+} else if $event.asa.status? == "Failed" {
+  $event.ocsf.status_id = 2  // Failure
+  drop $event.asa.status?
+} else if $event.asa.status? != null {
+  $event.ocsf.status_id = 99  // Other
+  $event.ocsf.status = move $event.asa.status
+} else {
+  $event.ocsf.status_id = 1  // Success
+}
