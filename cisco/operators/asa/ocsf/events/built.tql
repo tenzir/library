@@ -18,13 +18,11 @@ cisco::asa::ocsf::network_endpoints event=$event
 
 // `direction` is relative to the firewall: an inbound connection is initiated
 // from the outside, an outbound one from the inside.
-if $event.asa.direction? == "inbound" {
-  $event.ocsf.connection_info.direction_id = 1
-} else if $event.asa.direction? == "outbound" {
-  $event.ocsf.connection_info.direction_id = 2
-} else {
-  $event.ocsf.connection_info.direction_id = 0
+let $directions = {
+  inbound: 1,
+  outbound: 2,
 }
+$event.ocsf.connection_info.direction_id = $directions[$event.asa.direction?]? else 0
 drop $event.asa.direction?
 
 // Connection decisions populate the security_control profile.

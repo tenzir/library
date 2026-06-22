@@ -51,7 +51,17 @@ if $event.asa.timestamp? != null {
   } else if $event.asa.timestamp.string().match_regex($dated) {
     $event.ocsf.time = (move $event.asa.timestamp).parse_time("%b %d %Y %H:%M:%S")
   } else if $event.asa.timestamp.string().match_regex($undated) {
-    $event.ocsf.time = (move $event.asa.timestamp).parse_time("%b %e %H:%M:%S")
+    // ASA may omit the year. Use the processing year, with a one-year
+    // correction around New Year for delayed December or early January logs.
+    $event.asa.event_month = $event.asa.timestamp.parse_time("%b %e %H:%M:%S").month()
+    $event.asa.event_year = $event.ocsf.metadata.processed_time.year()
+    if $event.asa.event_month == 12 and $event.ocsf.metadata.processed_time.month() == 1 {
+      $event.asa.event_year = $event.asa.event_year - 1
+    } else if $event.asa.event_month == 1 and $event.ocsf.metadata.processed_time.month() == 12 {
+      $event.asa.event_year = $event.asa.event_year + 1
+    }
+    $event.ocsf.time = ($event.asa.event_year.string() + " " + move $event.asa.timestamp).parse_time("%Y %b %e %H:%M:%S")
+    drop $event.asa.event_month, $event.asa.event_year
   }
 }
 

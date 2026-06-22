@@ -25,6 +25,7 @@ args:
 // as a string and let the OCSF mapper decide whether it is an `ip` or a
 // `hostname`.
 let $patterns = {
+  DIRECTION: r#"(inbound|outbound)"#,
   HOST: r#"[^/ ]+"#,
 }
 let $header = r#"%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GREEDYDATA:text}"#
@@ -42,7 +43,7 @@ let $teardown = r#"Teardown %{WORD:protocol} connection %{INT:connection_id} for
 // [type/code] [by access-group "acl"]` form, covering 106023, 106010, and
 // 106014. The optional direction, ports, ICMP type/code (square brackets or
 // round parens), and access-group absorb the per-message-ID differences.
-let $deny = r#"Deny( %{WORD:direction})? %{WORD:protocol}( %{INT:protocol_num})? src %{NOTSPACE:src_interface}:%{HOST:src_host:string}(/%{INT:src_port})? dst %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}(/%{INT:dst_port})?( [\[(]type %{INT:icmp_type}, code %{INT:icmp_code}[\])])?( by access-group "%{DATA:acl_id}")?.*"#
+let $deny = r#"Deny( %{DIRECTION:direction})? %{WORD:protocol}( %{INT:protocol_num})? src %{NOTSPACE:src_interface}:%{HOST:src_host:string}(/%{INT:src_port})? dst %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}(/%{INT:dst_port})?( [\[(]type %{INT:icmp_type}, code %{INT:icmp_code}[\])])?( by access-group "%{DATA:acl_id}")?.*"#
 // 106001: `<direction> <proto> connection denied from ip/port to ip/port
 // [flags F] on interface IF`.
 let $conn_denied = r#"%{WORD:direction} %{WORD:protocol} connection denied from %{HOST:src_host:string}/%{INT:src_port} to %{HOST:dst_host:string}/%{INT:dst_port}( flags %{DATA:tcp_flags})? +on interface %{NOTSPACE:src_interface}"#
@@ -117,6 +118,8 @@ if protocol? != null {
   protocol = protocol.string()
   if protocol.match_regex(r"^[0-9]+$") {
     protocol_num = int(protocol)
+    drop protocol
+  } else if protocol == "protocol" and protocol_num? != null {
     drop protocol
   }
 }
