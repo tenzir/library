@@ -26,6 +26,7 @@ args:
 // `hostname`.
 let $patterns = {
   DIRECTION: r#"(inbound|outbound)"#,
+  ENDPOINT_TAG: r#"(?:\([^)]*\))*"#,
   HOST: r#"[^/ ]+"#,
 }
 let $header = r#"%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GREEDYDATA:text}"#
@@ -34,8 +35,8 @@ let $header = r#"%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GR
 // carries the post-NAT (translated) address in parentheses, which can be an IP
 // or a label (e.g. Umbrella SIG writes `(UMBRELLA-DOMAIN-BLOCK-HIT/443)`). The
 // trailing `.*` tolerates extra fields some platforms append after the line.
-let $built = r#"Built %{WORD:direction} %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} \(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port}\) to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} \(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port}\).*"#
-let $teardown = r#"Teardown %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} duration %{NOTSPACE:duration} bytes %{INT:bytes}( %{GREEDYDATA:reason})?"#
+let $built = r#"Built %{WORD:direction} %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} \(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port}\)%{ENDPOINT_TAG} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} \(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port}\)%{ENDPOINT_TAG}.*"#
+let $teardown = r#"Teardown %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port}%{ENDPOINT_TAG} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port}%{ENDPOINT_TAG} duration %{NOTSPACE:duration} bytes %{INT:bytes}( %{GREEDYDATA:reason})?"#
 // Deny covers both the port-based form (`Deny tcp src IF:host/port …`) and the
 // protocol-number form for protocols without ports (`Deny protocol 47 src
 // IF:host …`, e.g. GRE/ESP). Ports and the ICMP type/code are optional.
@@ -43,18 +44,23 @@ let $teardown = r#"Teardown %{WORD:protocol} connection %{INT:connection_id} for
 // [type/code] [by access-group "acl"]` form, covering 106023, 106010, and
 // 106014. The optional direction, ports, ICMP type/code (square brackets or
 // round parens), and access-group absorb the per-message-ID differences.
-let $deny = r#"Deny( %{DIRECTION:direction})? %{WORD:protocol}( %{INT:protocol_num})? src %{NOTSPACE:src_interface}:%{HOST:src_host:string}(/%{INT:src_port})? dst %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}(/%{INT:dst_port})?( [\[(]type %{INT:icmp_type}, code %{INT:icmp_code}[\])])?( by access-group "%{DATA:acl_id}")?.*"#
+let $deny = r#"Deny( %{DIRECTION:direction})? %{WORD:protocol}( %{INT:protocol_num})? src %{NOTSPACE:src_interface}:%{HOST:src_host:string}(/%{INT:src_port})?%{ENDPOINT_TAG} dst %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}(/%{INT:dst_port})?%{ENDPOINT_TAG}( (?:[\[(])?type %{INT:icmp_type}, code %{INT:icmp_code}(?:[\])])?,?)?(,? by access-group "%{DATA:acl_id}")?.*"#
+// 106017: `Deny IP due to Land Attack from ip to ip`.
+let $land_attack = r#"Deny %{WORD:protocol} due to %{DATA:reason} from %{HOST:src_host:string} to %{HOST:dst_host:string}"#
 // 106001: `<direction> <proto> connection denied from ip/port to ip/port
 // [flags F] on interface IF`.
 let $conn_denied = r#"%{WORD:direction} %{WORD:protocol} connection denied from %{HOST:src_host:string}/%{INT:src_port} to %{HOST:dst_host:string}/%{INT:dst_port}( flags %{DATA:tcp_flags})? +on interface %{NOTSPACE:src_interface}"#
 // 106006/106007: `Deny <direction> <proto> from ip/port to ip/port on interface IF`.
 let $deny_from = r#"Deny %{WORD:direction} %{WORD:protocol} from %{HOST:src_host:string}/%{INT:src_port} to %{HOST:dst_host:string}/%{INT:dst_port} on interface %{NOTSPACE:src_interface}.*"#
 // 106100: `access-list acl <permitted|denied> <proto> IF/host(port) -> IF/host(port) hit-cnt N …`.
-let $acl = r#"access-list %{NOTSPACE:acl_id} %{WORD:action} %{WORD:protocol:string} %{NOTSPACE:src_interface}/%{HOST:src_host:string}\(%{INT:src_port}\) -> %{NOTSPACE:dst_interface}/%{HOST:dst_host:string}\(%{INT:dst_port}\) hit-cnt %{INT:hit_count}.*"#
+let $acl = r#"access-list %{NOTSPACE:acl_id} %{WORD:action} %{WORD:protocol:string} %{NOTSPACE:src_interface}/%{HOST:src_host:string}\(%{INT:src_port}\)%{ENDPOINT_TAG} -> %{NOTSPACE:dst_interface}/%{HOST:dst_host:string}\(%{INT:dst_port}\)%{ENDPOINT_TAG} hit-cnt %{INT:hit_count}.*"#
+let $acl_user = r#"access-list %{NOTSPACE:acl_id} %{WORD:action} %{WORD:protocol:string} for user '?%{DATA:user}'? %{NOTSPACE:src_interface}/%{HOST:src_host:string}\(%{INT:src_port}\)%{ENDPOINT_TAG} -> %{NOTSPACE:dst_interface}/%{HOST:dst_host:string}\(%{INT:dst_port}\)%{ENDPOINT_TAG} hit-cnt %{INT:hit_count}.*"#
 // 313004: `Denied ICMP type=N, from laddr ip on interface IF to ip: reason`.
 let $denied_icmp = r#"Denied %{NOTSPACE:protocol} type=%{INT:icmp_type}, from laddr %{HOST:src_host:string} on interface %{NOTSPACE:src_interface} to %{HOST:dst_host:string}: %{GREEDYDATA:reason}"#
 // 313008: `Denied IPv6-ICMP type=N, code=N from ip on interface IF` (source only).
 let $denied_icmp6 = r#"Denied %{NOTSPACE:protocol} type=%{INT:icmp_type}, code=%{INT:icmp_code} from %{HOST:src_host:string} on interface %{NOTSPACE:src_interface}"#
+// 313009: `Denied invalid ICMP code N, for IF:host/port (xlate/port) to ...`.
+let $denied_invalid_icmp = r#"Denied invalid %{WORD:protocol} code %{INT:icmp_code}, for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} \(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port}\) to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} \(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port}\), ICMP id %{INT:icmp_id}, ICMP type %{INT:icmp_type}"#
 // 419002: `Duplicate <proto> SYN from IF:host/port to IF:host/port …`.
 let $duplicate_syn = r#"Duplicate %{WORD:protocol} SYN from %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port}.*"#
 // 710003/710005: to-the-box denies, `<proto> (access denied by ACL|request
@@ -96,11 +102,14 @@ match message_id {
   302014 | 302016 => { this = {...this, ...text.parse_grok($teardown, pattern_definitions=$patterns)} }
   302021 => { this = {...this, ...text.parse_grok($teardown_icmp, pattern_definitions=$patterns)} }
   106023 | 106010 | 106014 => { this = {...this, ...text.parse_grok($deny, pattern_definitions=$patterns)} }
+  106017 => { this = {...this, ...text.parse_grok($land_attack, pattern_definitions=$patterns)} }
   106001 => { this = {...this, ...text.parse_grok($conn_denied, pattern_definitions=$patterns)} }
   106006 | 106007 => { this = {...this, ...text.parse_grok($deny_from, pattern_definitions=$patterns)} }
   106100 => { this = {...this, ...text.parse_grok($acl, pattern_definitions=$patterns)} }
+  106102 | 106103 => { this = {...this, ...text.parse_grok($acl_user, pattern_definitions=$patterns)} }
   313004 => { this = {...this, ...text.parse_grok($denied_icmp, pattern_definitions=$patterns)} }
   313008 => { this = {...this, ...text.parse_grok($denied_icmp6, pattern_definitions=$patterns)} }
+  313009 => { this = {...this, ...text.parse_grok($denied_invalid_icmp, pattern_definitions=$patterns)} }
   419002 => { this = {...this, ...text.parse_grok($duplicate_syn, pattern_definitions=$patterns)} }
   710003 | 710005 => { this = {...this, ...text.parse_grok($denied_box, pattern_definitions=$patterns)} }
   722051 => { this = {...this, ...text.parse_grok($vpn_assigned, pattern_definitions=$patterns)} }

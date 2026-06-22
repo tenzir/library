@@ -23,6 +23,14 @@ if $event.asa.acl_id? != null {
   }
 }
 
+if $event.asa.user? != null {
+  $event.ocsf.actor.user.name = move $event.asa.user
+}
+
+if $event.asa.reason? != null {
+  $event.ocsf.status_detail = move $event.asa.reason
+}
+
 // Connection direction relative to the firewall, when the message states it.
 if $event.asa.direction? != null {
   let $directions = {
@@ -42,6 +50,9 @@ if $event.asa.hit_count? != null {
 
 // Access-list decisions populate the security_control profile.
 $event.ocsf.metadata.profiles = ["security_control"]
+if $event.ocsf.actor? != null {
+  $event.ocsf.metadata.profiles = $event.ocsf.metadata.profiles.add("host")
+}
 
 // 106100 logs both permits and denies via `action`; everything else is a deny.
 if $event.asa.action? == "permitted" {
