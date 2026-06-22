@@ -108,24 +108,28 @@ if timestamp? != null {
   drop ts
 }
 
-// Parse the message body of supported message IDs into structured fields.
+// Parse the body of the matched message ID, then merge the structured fields
+// into the event once. Each body pattern is written against `text` alone.
+body = {}
 match message_id {
-  302013 | 302015 => { this = {...this, ...text.parse_grok($built, pattern_definitions=$patterns)} }
-  302014 | 302016 => { this = {...this, ...text.parse_grok($teardown, pattern_definitions=$patterns)} }
-  302021 => { this = {...this, ...text.parse_grok($teardown_icmp, pattern_definitions=$patterns)} }
-  106023 | 106010 | 106014 => { this = {...this, ...text.parse_grok($deny, pattern_definitions=$patterns)} }
-  106001 => { this = {...this, ...text.parse_grok($conn_denied, pattern_definitions=$patterns)} }
-  106006 | 106007 => { this = {...this, ...text.parse_grok($deny_from, pattern_definitions=$patterns)} }
-  106100 => { this = {...this, ...text.parse_grok($acl, pattern_definitions=$patterns)} }
-  313004 => { this = {...this, ...text.parse_grok($denied_icmp, pattern_definitions=$patterns)} }
-  313008 => { this = {...this, ...text.parse_grok($denied_icmp6, pattern_definitions=$patterns)} }
-  419002 => { this = {...this, ...text.parse_grok($duplicate_syn, pattern_definitions=$patterns)} }
-  710003 | 710005 => { this = {...this, ...text.parse_grok($denied_box, pattern_definitions=$patterns)} }
-  722051 => { this = {...this, ...text.parse_grok($vpn_assigned, pattern_definitions=$patterns)} }
-  113019 => { this = {...this, ...text.parse_grok($vpn_disconnect, pattern_definitions=$patterns)} }
-  746013 => { this = {...this, ...text.parse_grok($identity_delete, pattern_definitions=$patterns)} }
+  302013 | 302015 => { body = text.parse_grok($built, pattern_definitions=$patterns) }
+  302014 | 302016 => { body = text.parse_grok($teardown, pattern_definitions=$patterns) }
+  302021 => { body = text.parse_grok($teardown_icmp, pattern_definitions=$patterns) }
+  106023 | 106010 | 106014 => { body = text.parse_grok($deny, pattern_definitions=$patterns) }
+  106001 => { body = text.parse_grok($conn_denied, pattern_definitions=$patterns) }
+  106006 | 106007 => { body = text.parse_grok($deny_from, pattern_definitions=$patterns) }
+  106100 => { body = text.parse_grok($acl, pattern_definitions=$patterns) }
+  313004 => { body = text.parse_grok($denied_icmp, pattern_definitions=$patterns) }
+  313008 => { body = text.parse_grok($denied_icmp6, pattern_definitions=$patterns) }
+  419002 => { body = text.parse_grok($duplicate_syn, pattern_definitions=$patterns) }
+  710003 | 710005 => { body = text.parse_grok($denied_box, pattern_definitions=$patterns) }
+  722051 => { body = text.parse_grok($vpn_assigned, pattern_definitions=$patterns) }
+  113019 => { body = text.parse_grok($vpn_disconnect, pattern_definitions=$patterns) }
+  746013 => { body = text.parse_grok($identity_delete, pattern_definitions=$patterns) }
   _ => {}
 }
+this = {...this, ...body}
+drop body
 
 // Normalize across the message formats: lower-case the connection direction
 // and fold a numeric protocol token into protocol_num.
