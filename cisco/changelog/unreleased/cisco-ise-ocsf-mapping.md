@@ -23,8 +23,8 @@ it into the new operators.
   segments sharing a message id. It windows segments by message id on an
   event-time field, concatenates their payloads in segment order, and preserves
   the `CISE_<Category>` tag so the parser can recover the category. Because BSD
-  syslog timestamps carry no year, the multi-segment example shows how to assign
-  the current year (with year-boundary rollover) before windowing. Fragments
+  syslog timestamps carry no year, the syslog example shows how to assign the
+  current year (with year-boundary rollover) before windowing. Fragments
   whose header segment never arrives are kept rather than dropped: the parser
   tags them `cisco.ise.incomplete` and the mapper labels them
   (`metadata.labels`) as an OCSF Base Event, preserving their attributes.
