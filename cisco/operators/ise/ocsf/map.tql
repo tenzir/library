@@ -6,14 +6,6 @@ args:
       description: The field that holds the event to map.
       type: field
       default: this
-    - name: logger_host
-      description: |
-        The name of a field holding the host that sent the logs (the ISE node).
-        Defaults to `hostname`, the field `read_syslog` produces, so the syslog
-        case works out of the box; point it at another field (e.g. a shipper's
-        host field) for other transports.
-      type: string
-      default: "hostname"
 ---
 
 $event = {...$event, ise: $event, ocsf: {}}
@@ -38,19 +30,17 @@ if $event.ise.sequence_number? != null {
   $event.ocsf.metadata.sequence = $event.ise.sequence_number
 }
 
-// The host that sent the logs (the ISE node) becomes a logger. By default this
-// is the syslog `hostname`; route it to `device.ip` or `device.hostname`
-// depending on whether it is an address or a name.
-logger_host = this[$logger_host]?
-if logger_host != null {
-  if logger_host.match_regex(r"^[0-9.]+$") or logger_host.match_regex(":") {
-    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {ip: ip(logger_host)}}]
+// The host that sent the logs (the ISE node) becomes a logger. This is the
+// syslog `hostname`; route it to `device.ip` or `device.hostname` depending on
+// whether it is an address or a name.
+if $event.ise.hostname? != null {
+  if $event.ise.hostname.match_regex(r"^[0-9.]+$") or $event.ise.hostname.match_regex(":") {
+    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {ip: ip($event.ise.hostname)}}]
   } else {
-    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {hostname: logger_host}}]
+    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {hostname: $event.ise.hostname}}]
   }
 }
-drop logger_host
-drop $event.ise[$logger_host]?
+drop $event.ise.hostname?
 
 // Preserve the original message body (the complete, concatenated body for
 // reassembled multi-segment messages) as the raw event data and its size.
