@@ -14,10 +14,10 @@ args:
         the syslog example).
       type: field
       default: timestamp
-    - name: window
+    - name: span
       description: |
         The event-time span used to gather a message's segments. Segments of the
-        same logical message must fall into the same window to be reassembled.
+        same logical message must arrive within this span to be reassembled.
         ISE normally sends a message's segments back-to-back, so the default
         leaves wide margin while keeping latency low; raise it if segments are
         delayed in transit, lower it for faster output.
@@ -39,15 +39,21 @@ segment_category = segment.category
 segment_message_id = segment.message_id
 segment_total = segment.segment_total
 segment_number = int(segment.segment_number)
+segment_window_start = floor($on, $span)
+header_window_start = segment_window_start if segment_number == 0 else null
 payload = segment.payload.trim_end(", ")
 
-// Bound reassembly by time, then group within the window so high-cardinality
-// message ids do not create long-lived subpipelines.
-window size=$window, on=$on, idle_timeout=$window {
+// Use hopping windows to cover fixed-window boundaries, then keep only the
+// window anchored at segment 0's home window (or the first orphan segment).
+window size=$span * 2, every=$span, on=$on, idle_timeout=$span {
   sort segment_number
-  summarize segment_message_id, segment_number, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), payload=first(payload)
+  summarize segment_message_id, segment_number, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), segment_window_start=first(segment_window_start), header_window_start=first(header_window_start), payload=first(payload)
   sort segment_number
-  summarize segment_message_id, context=first(context), category=first(category), message_id=first(message_id), segment_total=first(segment_total), segment_numbers=collect(segment_number), payloads=collect(payload)
+  summarize segment_message_id, context=first(context), category=first(category), message_id=first(message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
+  orphan_window_start = first_segment_window_start - $span
+  canonical_window_start = header_window_start else orphan_window_start
+  where $window.start == canonical_window_start
+  drop canonical_window_start, first_segment_window_start, header_window_start, orphan_window_start
 }
 
 expected_segment_count = int(segment_total)
