@@ -47,9 +47,8 @@ payload = segment.payload.trim_end(", ")
 // window anchored at segment 0's home window (or the first orphan segment).
 window size=$span * 2, every=$span, on=$on, idle_timeout=$span {
   sort segment_number
-  summarize segment_message_id, segment_number, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), segment_window_start=first(segment_window_start), header_window_start=first(header_window_start), payload=first(payload)
-  sort segment_number
-  summarize segment_message_id, context=first(context), category=first(category), message_id=first(message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
+  deduplicate segment_message_id, segment_number
+  summarize segment_message_id, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
   orphan_window_start = first_segment_window_start - $span
   canonical_window_start = header_window_start else orphan_window_start
   where $window.start == canonical_window_start
