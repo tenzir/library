@@ -20,8 +20,6 @@ drop $event.ise.timestamp?
 $event.ocsf.message = move $event.ise.message_text?
 drop $event.ise.attributes["Event-Timestamp"]?
 
-// Outcome: the Failed Attempts message codes (5400-5499) distinguish a failed
-// attempt from a successful authentication.
 if $event.ise.message_code >= 5400 and $event.ise.message_code < 5500 {
   $event.ocsf.status_id = 2
   $event.ocsf.status = "Failure"
@@ -33,7 +31,6 @@ if $event.ise.attributes.FailureReason? != null {
   $event.ocsf.status_detail = move $event.ise.attributes.FailureReason
 }
 
-// The authenticated subject.
 if ($event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?) != null {
   $event.ocsf.user.name = move $event.ise.attributes.UserName? else move $event.ise.attributes["User-Name"]?
 }
@@ -50,12 +47,10 @@ if user_type == "User" {
 }
 drop user_type
 
-// The authentication session.
 if $event.ise.attributes.AcsSessionID? != null {
   $event.ocsf.session = {uid: move $event.ise.attributes.AcsSessionID}
 }
 
-// The ISE policy node / AAA server that processed the request.
 if $event.ise.attributes.DestinationIPAddress? != null {
   $event.ocsf.dst_endpoint.ip = ip(move $event.ise.attributes.DestinationIPAddress)
 }
@@ -63,7 +58,6 @@ if $event.ise.attributes.DestinationPort? != null {
   $event.ocsf.dst_endpoint.port = int(move $event.ise.attributes.DestinationPort)
 }
 
-// The connecting endpoint.
 src_ip = move $event.ise.attributes["Framed-IP-Address"]? else move $event.ise.attributes.IpAddress?
 if src_ip != null {
   $event.ocsf.src_endpoint.ip = ip(src_ip)
@@ -75,7 +69,6 @@ if src_mac != null {
 }
 drop src_mac, $event.ise.attributes["Calling-Station-ID"]?, $event.ise.attributes.EndPointMACAddress?
 
-// The network access device (NAD) that relayed the request.
 device_ip = move $event.ise.attributes["Device IP Address"]? else move $event.ise.attributes["NAS-IP-Address"]?
 if device_ip != null {
   $event.ocsf.device.ip = ip(device_ip)
@@ -84,10 +77,7 @@ drop device_ip, $event.ise.attributes["Device IP Address"]?, $event.ise.attribut
 if $event.ise.attributes.NetworkDeviceName? != null {
   $event.ocsf.device.hostname = move $event.ise.attributes.NetworkDeviceName
 }
-// The network device groups (Location, Device Type, ...) are folded into
-// `device.groups` by the dispatcher.
 
-// The authentication protocol.
 protocol = move $event.ise.attributes.Protocol?
 if protocol == "Radius" {
   $event.ocsf.auth_protocol_id = 10
@@ -100,12 +90,7 @@ drop protocol
 
 $event.ocsf.is_remote = true
 
-// Additional identity and device context: the endpoint identity group, the
-// Cisco policy-manager session id (an alternate session key), and the network
-// device's hardware model.
-// The identity groups the subject belongs to. ISE exposes these across
-// `IdentityGroup`, `HostIdentityGroup`, and `Name` (a user or endpoint group),
-// which may differ; collect the distinct set.
+// ISE exposes identity groups across user and endpoint fields.
 identity_groups = [move $event.ise.attributes.IdentityGroup?, move $event.ise.attributes.HostIdentityGroup?, move $event.ise.attributes.Name?].where(g => g != null).distinct()
 if identity_groups.length() > 0 {
   $event.ocsf.user.groups = identity_groups.map(name => {name: name})
@@ -118,16 +103,11 @@ if $event.ise.attributes["Model Name"]? != null {
   $event.ocsf.device.model = move $event.ise.attributes["Model Name"]
 }
 
-// Authorization outcome — ISE acts as a network access control, so the access
-// decision maps to the security_control profile (distinct from the
-// authentication `status`: a successful authentication can still be denied
-// access). The profile is only declared when there is an authorization result.
+// Authorization is separate from authentication: a successful authentication can
+// still be denied access.
 authz_profile = move $event.ise.attributes.SelectedAuthorizationProfiles?
 if authz_profile != null {
   $event.ocsf.metadata.profiles = $event.ocsf.metadata.profiles.concatenate(["security_control"])
-  // `DenyAccess` denies access; any other profile (PermitAccess or a named
-  // authorization profile) grants it. The decision is the outcome; the profile
-  // itself is the applied access policy.
   if authz_profile == "DenyAccess" {
     $event.ocsf.disposition_id = 2
     $event.ocsf.disposition = "Blocked"
@@ -137,7 +117,6 @@ if authz_profile != null {
     $event.ocsf.disposition = "Allowed"
     $event.ocsf.authorizations = [{decision: "Allowed", policy: {name: authz_profile}}]
   }
-  // The authorization rule that produced the result, within its ISE policy set.
   if $event.ise.attributes.AuthorizationPolicyMatchedRule? != null {
     $event.ocsf.policy.name = move $event.ise.attributes.AuthorizationPolicyMatchedRule
   }

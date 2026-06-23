@@ -18,8 +18,6 @@ $event.ocsf.metadata = {
   profiles: ["host"],
   version: "1.8.0",
 }
-// The ISE message id is the source system's event identifier; the message code
-// is the Cisco syslog code; the sequence number orders events.
 if $event.ise.message_id? != null {
   $event.ocsf.metadata.original_event_uid = $event.ise.message_id.string()
 }
@@ -30,9 +28,6 @@ if $event.ise.sequence_number? != null {
   $event.ocsf.metadata.sequence = move $event.ise.sequence_number
 }
 
-// The host that sent the logs (the ISE node) becomes a logger. This is the
-// syslog `hostname`; route it to `device.ip` or `device.hostname` depending on
-// whether it is an address or a name.
 logger_host = move $event.ise.hostname?
 if logger_host != null {
   if logger_host.match_regex(r"^[0-9.]+$") or logger_host.match_regex(":") {
@@ -43,20 +38,13 @@ if logger_host != null {
 }
 drop logger_host
 
-// Preserve the original message body (the complete, concatenated body for
-// reassembled multi-segment messages) as the raw event data and its size.
 if $event.ise.raw? != null {
   $event.ocsf.raw_data = move $event.ise.raw
   $event.ocsf.raw_data_size = $event.ocsf.raw_data.length_bytes()
 }
 
-// Label fragments whose header segment never arrived to be reassembled, so they
-// remain queryable in OCSF instead of being silently lost. They carry only
-// attributes and map to an OCSF Base Event.
 if @name == "cisco.ise.incomplete" {
   $event.ocsf.metadata.labels = ["cisco.ise.incomplete"]
-  // Segments are missing, so mark the OCSF data as truncated and record the
-  // reason in the metadata debug information (a non-fatal processing issue).
   $event.ocsf.metadata.is_truncated = true
   if $event.ise.missing_segments? != null {
     $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): missing " + $event.ise.missing_segments.string() + " segment(s) during reassembly"]
@@ -65,7 +53,6 @@ if @name == "cisco.ise.incomplete" {
   }
 }
 
-// Map the ISE syslog severity keyword to an OCSF severity identifier.
 severity = move $event.ise.severity?
 match severity {
   "DEBUG" | "INFO" | "NOTICE" => {
@@ -104,22 +91,16 @@ match @name {
   }
 }
 
-// Fold every ISE network device group (Location, Device Type, IPSEC, and any
-// custom roots) into `device.groups`. The individual NDG attributes carry the
-// same values and are dropped as redundant.
+// The parser preserves all `NetworkDeviceGroups` values because `parse_kv`
+// keeps only the last one.
 network_device_groups = move $event.ise.network_device_groups? else []
 if network_device_groups.length() > 0 {
   $event.ocsf.device.groups = network_device_groups.map(name => {name: name})
 }
 drop network_device_groups, $event.ise.attributes.NetworkDeviceGroups?, $event.ise.attributes.Location?, $event.ise.attributes["Device Type"]?, $event.ise.attributes.IPSEC?, $event.ise.attributes["Wired-Guest"]?, $event.ise.attributes.Mode?
 
-// `message_code`/`sequence_number` are now in `metadata`; the segment counters
-// are transport artifacts with no OCSF home (and `segment_number` is always 0
-// after reassembly). Drop them so `unmapped` keeps only genuine residue.
 drop $event.ise.message_id?, $event.ise.message_code?, $event.ise.segment_total?, $event.ise.segment_number?, $event.ise.missing_segments?
 
-// Lift the residual ISE attributes to the top of `unmapped`, so they appear as
-// `unmapped.<Attribute>` instead of `unmapped.attributes.<Attribute>`.
 $event.ise = {...$event.ise, ...($event.ise.attributes? else {})}
 drop $event.ise.attributes?
 
