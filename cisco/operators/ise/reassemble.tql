@@ -42,13 +42,17 @@ segment_number = int(segment.segment_number)
 segment_window_start = floor($on, $span)
 header_window_start = segment_window_start if segment_number == 0 else null
 payload = segment.payload.trim_end(", ")
+reassembly_id = segment_message_id
+if segment_total == "1" {
+  reassembly_id = segment_message_id + ":" + payload
+}
 
 // Use hopping windows to cover fixed-window boundaries, then keep only the
 // window anchored at segment 0's home window (or the first orphan segment).
 window size=$span * 2, every=$span, on=$on, idle_timeout=$span {
   sort segment_number
-  deduplicate segment_message_id, segment_number
-  summarize segment_message_id, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
+  deduplicate reassembly_id, segment_number
+  summarize reassembly_id, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
   orphan_window_start = first_segment_window_start - $span
   emit_window_start = header_window_start else orphan_window_start
   where $window.start == emit_window_start
