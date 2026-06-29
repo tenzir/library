@@ -1,0 +1,29 @@
+---
+description: |
+  Map a parsed ISC BIND `named` record into OCSF.
+
+  Run `named::parse` first. This operator expects a normalized BIND named
+  domain record, preserves parser leftovers in `unmapped`, and replaces the
+  selected input event field with the OCSF event.
+args:
+  named:
+    - name: event
+      description: The parsed BIND named record to map.
+      type: field
+      default: this
+---
+
+// Keep staging under the selected input event. Bare field assignments can
+// overwrite sibling fields in the caller's record.
+$event = {...$event, named: $event, ocsf: {}}
+
+match $event.named.category? {
+  "query" | "query-error" | "query-policy" | "rpz" => {
+    named::ocsf::events::dns event=$event
+  }
+  _ => {
+    named::ocsf::base event=$event
+  }
+}
+
+$event = {...$event.ocsf, unmapped: $event.named}

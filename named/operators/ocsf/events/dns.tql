@@ -1,0 +1,174 @@
+---
+description: BIND named parsed DNS record -> OCSF DNS Activity.
+args:
+  named:
+    - name: event
+      description: The staged event to map.
+      type: field
+---
+
+let $rcode_ids = {
+  NOERROR: 0,
+  FORMERR: 1,
+  FORMERROR: 1,
+  SERVFAIL: 2,
+  SERVERROR: 2,
+  NXDOMAIN: 3,
+  NOTIMP: 4,
+  REFUSED: 5,
+  YXDOMAIN: 6,
+  YXRRSET: 7,
+  NXRRSET: 8,
+  NOTAUTH: 9,
+  NOTZONE: 10,
+  DSOTYPENI: 11,
+  BADSIG: 16,
+  BADVERS: 16,
+  BADSIG_VERS: 16,
+  BADKEY: 17,
+  BADTIME: 18,
+  BADMODE: 19,
+  BADNAME: 20,
+  BADALG: 21,
+  BADTRUNC: 22,
+  BADCOOKIE: 23,
+}
+
+let $rcode_names = {
+  NOERROR: "NoError",
+  FORMERR: "FormError",
+  FORMERROR: "FormError",
+  SERVFAIL: "ServError",
+  SERVERROR: "ServError",
+  NXDOMAIN: "NXDomain",
+  NOTIMP: "NotImp",
+  REFUSED: "Refused",
+  YXDOMAIN: "YXDomain",
+  YXRRSET: "YXRRSet",
+  NXRRSET: "NXRRSet",
+  NOTAUTH: "NotAuth",
+  NOTZONE: "NotZone",
+  DSOTYPENI: "DSOTYPENI",
+  BADSIG: "BADSIG_VERS",
+  BADVERS: "BADSIG_VERS",
+  BADSIG_VERS: "BADSIG_VERS",
+  BADKEY: "BADKEY",
+  BADTIME: "BADTIME",
+  BADMODE: "BADMODE",
+  BADNAME: "BADNAME",
+  BADALG: "BADALG",
+  BADTRUNC: "BADTRUNC",
+  BADCOOKIE: "BADCOOKIE",
+}
+
+@name = "ocsf.dns_activity"
+
+$event.ocsf = {
+  time: move $event.named.time,
+  raw_data: move $event.named.raw_data,
+  category_uid: 4,
+  class_uid: 4003,
+  activity_id: 1,
+  app_protocol_name: "dns",
+  severity_id: 1,
+  metadata: {
+    version: "1.8.0",
+    log_name: "named",
+    log_provider: "BIND",
+    log_source: "named",
+    original_time: move $event.named.native_time?,
+    product: {
+      name: "BIND named",
+      vendor_name: "ISC",
+      feature: {
+        name: move $event.named.feature?,
+      },
+    },
+  },
+  connection_info: {
+    direction_id: 0,
+    protocol_name: "udp",
+    protocol_num: 17,
+    protocol_ver_id: 4,
+  },
+  src_endpoint: {
+    ip: move $event.named.client_ip,
+    port: move $event.named.client_port,
+  },
+  dst_endpoint: {
+    ip: move $event.named.server_ip?,
+    port: 53,
+    svc_name: "dns",
+  },
+  query: {
+    hostname: move $event.named.query_name,
+    class: move $event.named.query_class,
+    opcode_id: 0,
+    type: move $event.named.query_type,
+  },
+}
+
+match $event.named.category? {
+  "query-error" | "query-policy" | "rpz" => {
+    $event.ocsf.activity_id = 2
+  }
+  _ => {}
+}
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.query_time = $event.ocsf.time
+match $event.named.category? {
+  "query-error" | "query-policy" | "rpz" => {
+    $event.ocsf.response_time = $event.ocsf.time
+  }
+  _ => {}
+}
+
+if $event.named.flags?.contains("T") {
+  $event.ocsf.connection_info.protocol_name = "tcp"
+  $event.ocsf.connection_info.protocol_num = 6
+}
+if $event.ocsf.src_endpoint.ip.is_v6() {
+  $event.ocsf.connection_info.protocol_ver_id = 6
+}
+
+if $event.named.decision? == "denied" {
+  $event.ocsf.status_detail = $event.named.decision
+  $event.ocsf.action_id = 2
+  $event.ocsf.disposition_id = 2
+  $event.ocsf.rcode = "Refused"
+  $event.ocsf.rcode_id = 5
+}
+if $event.named.rpz?.action? != null {
+  $event.ocsf.action_id = 99
+  $event.ocsf.action = $event.named.rpz.action
+  $event.ocsf.disposition_id = 99
+  $event.ocsf.disposition = $event.named.rpz.action
+}
+if $event.ocsf.action_id? != null or $event.ocsf.disposition_id? != null {
+  $event.ocsf.metadata.profiles = ["security_control"]
+}
+
+if $event.named.rcode? != null {
+  $event.ocsf.rcode_id = $rcode_ids.get($event.named.rcode.to_upper(), 99)
+  match $event.ocsf.rcode_id {
+    99 => {
+      $event.ocsf.rcode = move $event.named.rcode
+    }
+    _ => {
+      $event.ocsf.rcode = $rcode_names.get($event.named.rcode.to_upper(), $event.named.rcode)
+      drop $event.named.rcode
+    }
+  }
+}
+
+match $event.ocsf.rcode_id? {
+  null => {
+    $event.ocsf.status_id = 0
+  }
+  0 => {
+    $event.ocsf.status_id = 1
+  }
+  _ => {
+    $event.ocsf.status_id = 2
+  }
+}

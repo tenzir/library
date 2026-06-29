@@ -1,0 +1,49 @@
+---
+description: |
+  Parse an ISC DHCPD message record.
+
+  The operator expects an input record with required `time` and `message`
+  fields. The `message` field must contain the raw DHCPD message body, not the
+  full syslog envelope. The selected input event field is replaced with a
+  normalized DHCPD record that stores the original body in `raw_data`.
+args:
+  named:
+    - name: event
+      description: The record field to parse.
+      type: field
+      default: this
+---
+
+// Only write inside the selected input event. Bare field assignments can
+// overwrite sibling fields in the caller's record.
+$event.raw_data = null
+if $event.message? != null {
+  $event.raw_data = $event.message.string()
+}
+if $event.raw_data == null {
+  @name = "dhcpd.parser_error"
+  $event = {
+    ...$event,
+    category: "parser",
+    template: "missing_message",
+    parser: {
+      warning: "missing required input field",
+      field: "message",
+    },
+  }
+} else {
+  // Parsers are probes: each leaves $event unchanged on no match.
+  // BOOTP must run first because DHCP4o6 can prefix BOOTP messages.
+  dhcpd::parsers::bootp event=$event
+  if $event.category? == null {
+    dhcpd::parsers::dhcpv4 event=$event
+  }
+  if $event.category? == null {
+    dhcpd::parsers::dhcpv6 event=$event
+  }
+  if $event.category? == null {
+    dhcpd::parsers::fallback event=$event
+  }
+}
+
+drop $event.message?
