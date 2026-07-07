@@ -59,4 +59,15 @@ jobs:
         env:
           TENZIR_BINARY: ${{ matrix.tenzir.binary }}
           TENZIR_NODE_BINARY: ${{ matrix.tenzir.node_binary }}
-        run: uvx tenzir-test ${{ steps.touched.outputs.packages }}
+        shell: bash
+        run: |
+          packages="${{ steps.touched.outputs.packages }}"
+          if [[ "$packages" == "." ]]; then
+            uvx tenzir-test .
+          else
+            args=()
+            for package in $packages; do
+              args+=(--match "$package/*")
+            done
+            uvx tenzir-test . "${args[@]}"
+          fi
