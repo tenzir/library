@@ -15,7 +15,7 @@ All key workflows are well-supported by agents. See
 <https://tenzir.com/docs/guides/ai-workbench/use-agent-skills.md> for a list
 of relevant agent skills during package development.
 
-Always load the `tenzir-docs` skill when working with TQL content.
+Always load the `tenzir` skill when working with TQL content.
 
 Prefer running the following commands through `uvx` instead of executing them
 locally, unless you are testing a specific feature that's not available in the
