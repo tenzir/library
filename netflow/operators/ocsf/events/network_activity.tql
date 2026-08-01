@@ -1,0 +1,97 @@
+---
+description: NetFlow or IPFIX flow record to OCSF Network Activity.
+args:
+  named:
+    - name: event
+      description: The mapper working record.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+@name = "ocsf.network_activity"
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = 6
+$event.ocsf.severity_id = 1
+$event.ocsf.status_id = 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.is_src_dst_assignment_known = false
+
+// --- OCSF: occurrence attributes --------------
+
+$event.ocsf.start_time = move $event.source.flow_start? else
+                         move $event.source.flow_start_seconds? else
+                         move $event.source.flow_start_milliseconds? else
+                         move $event.source.flow_start_microseconds? else
+                         move $event.source.flow_start_nanoseconds?
+$event.ocsf.end_time = move $event.source.flow_end? else
+                       move $event.source.flow_end_seconds? else
+                       move $event.source.flow_end_milliseconds? else
+                       move $event.source.flow_end_microseconds? else
+                       move $event.source.flow_end_nanoseconds?
+
+$event.ocsf.time = $event.ocsf.start_time? else
+                   $event.ocsf.end_time? else
+                   $event.source.netflow.export_time?
+if $event.ocsf.start_time? != null and $event.ocsf.end_time? != null and
+   $event.ocsf.end_time >= $event.ocsf.start_time {
+  $event.ocsf.duration = count_milliseconds(
+    $event.ocsf.end_time - $event.ocsf.start_time,
+  ).round()
+}
+
+// --- OCSF: primary attributes -----------------
+
+$event.ocsf.src_endpoint = {
+  ip: move $event.source.source_ipv4_address? else
+      move $event.source.source_ipv6_address?,
+  port: move $event.source.source_transport_port?,
+  mac: move $event.source.source_mac_address?,
+  interface_uid: (move $event.source.ingress_interface?).string(),
+  autonomous_system: {
+    number: move $event.source.bgp_source_as_number?,
+  },
+  proxy_endpoint: {
+    ip: move $event.source.post_nat_source_ipv4_address? else
+        move $event.source.post_nat_source_ipv6_address?,
+    port: move $event.source.post_napt_source_transport_port?,
+  },
+}
+
+$event.ocsf.dst_endpoint = {
+  ip: move $event.source.destination_ipv4_address? else
+      move $event.source.destination_ipv6_address?,
+  port: move $event.source.destination_transport_port?,
+  mac: move $event.source.destination_mac_address?,
+  interface_uid: (move $event.source.egress_interface?).string(),
+  autonomous_system: {
+    number: move $event.source.bgp_destination_as_number?,
+  },
+  proxy_endpoint: {
+    ip: move $event.source.post_nat_destination_ipv4_address? else
+        move $event.source.post_nat_destination_ipv6_address?,
+    port: move $event.source.post_napt_destination_transport_port?,
+  },
+}
+
+$event.ocsf.connection_info = {
+  direction_id: 0,
+  protocol_num: move $event.source.protocol_identifier?,
+  protocol_ver_id: (move $event.source.ip_version?).int() else
+                   6 if ($event.ocsf.src_endpoint.ip?.is_v6() else false) or
+                        ($event.ocsf.dst_endpoint.ip?.is_v6() else false) else
+                   4,
+  tcp_flags: move $event.source.tcp_control_bits?,
+  uid: (move $event.source.flow_id?).string(),
+}
+$event.ocsf.traffic = {
+  bytes: move $event.source.octet_delta_count?,
+  packets: move $event.source.packet_delta_count?,
+  start_time: $event.ocsf.start_time?,
+  end_time: $event.ocsf.end_time?,
+}
+$event.ocsf.cumulative_traffic = {
+  bytes: move $event.source.octet_total_count?,
+  packets: move $event.source.packet_total_count?,
+}
