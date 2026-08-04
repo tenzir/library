@@ -18,41 +18,42 @@ $event.ocsf.activity_id = 6
 $event.ocsf.severity_id = 1
 $event.ocsf.status_id = 0
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.is_src_dst_assignment_known = false
+$event.ocsf.initiator_id = 0
 
 // --- OCSF: occurrence attributes --------------
 
 // Consume only the selected timestamp so less precise alternatives remain in
-// `unmapped` for provenance.
-$event.ocsf.start_time = null
+// `unmapped` for provenance. OCSF 1.9 reserves top-level occurrence bounds for
+// aggregate events, so flow observation bounds live in `traffic`.
+$event._flow_start_time = null
 if $event.source.flow_start? != null {
-  $event.ocsf.start_time = move $event.source.flow_start
+  $event._flow_start_time = move $event.source.flow_start
 } else if $event.source.flow_start_nanoseconds? != null {
-  $event.ocsf.start_time = move $event.source.flow_start_nanoseconds
+  $event._flow_start_time = move $event.source.flow_start_nanoseconds
 } else if $event.source.flow_start_microseconds? != null {
-  $event.ocsf.start_time = move $event.source.flow_start_microseconds
+  $event._flow_start_time = move $event.source.flow_start_microseconds
 } else if $event.source.flow_start_milliseconds? != null {
-  $event.ocsf.start_time = move $event.source.flow_start_milliseconds
+  $event._flow_start_time = move $event.source.flow_start_milliseconds
 } else if $event.source.flow_start_seconds? != null {
-  $event.ocsf.start_time = move $event.source.flow_start_seconds
+  $event._flow_start_time = move $event.source.flow_start_seconds
 }
 
-$event.ocsf.end_time = null
+$event._flow_end_time = null
 if $event.source.flow_end? != null {
-  $event.ocsf.end_time = move $event.source.flow_end
+  $event._flow_end_time = move $event.source.flow_end
 } else if $event.source.flow_end_nanoseconds? != null {
-  $event.ocsf.end_time = move $event.source.flow_end_nanoseconds
+  $event._flow_end_time = move $event.source.flow_end_nanoseconds
 } else if $event.source.flow_end_microseconds? != null {
-  $event.ocsf.end_time = move $event.source.flow_end_microseconds
+  $event._flow_end_time = move $event.source.flow_end_microseconds
 } else if $event.source.flow_end_milliseconds? != null {
-  $event.ocsf.end_time = move $event.source.flow_end_milliseconds
+  $event._flow_end_time = move $event.source.flow_end_milliseconds
 } else if $event.source.flow_end_seconds? != null {
-  $event.ocsf.end_time = move $event.source.flow_end_seconds
+  $event._flow_end_time = move $event.source.flow_end_seconds
 }
 
 // NetFlow v9 timestamps may be relative to the exporter's 32-bit uptime
 // counter. Account for the counter wrapping approximately every 49.7 days.
-if $event.ocsf.start_time? == null and
+if $event._flow_start_time? == null and
    $event.source.flow_start_sys_up_time? != null and
    $event.source.netflow.sys_uptime? != null and
    $event.source.netflow.export_time? != null {
@@ -65,10 +66,10 @@ if $event.ocsf.start_time? == null and
     else $sys_uptime_period - $event._flow_start_uptime +
          $event.source.netflow.sys_uptime
   )
-  $event.ocsf.start_time = $event.source.netflow.export_time -
-                           $event._flow_start_age
+  $event._flow_start_time = $event.source.netflow.export_time -
+                            $event._flow_start_age
 }
-if $event.ocsf.end_time? == null and
+if $event._flow_end_time? == null and
    $event.source.flow_end_sys_up_time? != null and
    $event.source.netflow.sys_uptime? != null and
    $event.source.netflow.export_time? != null {
@@ -81,16 +82,17 @@ if $event.ocsf.end_time? == null and
     else $sys_uptime_period - $event._flow_end_uptime +
          $event.source.netflow.sys_uptime
   )
-  $event.ocsf.end_time = $event.source.netflow.export_time -
-                         $event._flow_end_age
+  $event._flow_end_time = $event.source.netflow.export_time -
+                          $event._flow_end_age
 }
 
-$event.ocsf.time = $event.ocsf.start_time? else
-                   $event.ocsf.end_time? else
+$event.ocsf.time = $event._flow_start_time? else
+                   $event._flow_end_time? else
                    $event.source.netflow.export_time?
-$event._flow_duration = $event.ocsf.end_time? - $event.ocsf.start_time?
+$event._flow_duration = $event._flow_end_time? - $event._flow_start_time?
+$event._flow_duration_ms = null
 if ($event._flow_duration? >= 0s else false) {
-  $event.ocsf.duration = count_milliseconds($event._flow_duration).round()
+  $event._flow_duration_ms = count_milliseconds($event._flow_duration).round()
 } else if $event.source.flow_start_sys_up_time? != null and
           $event.source.flow_end_sys_up_time? != null {
   $event._flow_start_uptime = (
@@ -105,7 +107,7 @@ if ($event._flow_duration? >= 0s else false) {
     else $sys_uptime_period - $event._flow_start_uptime +
          $event._flow_end_uptime
   )
-  $event.ocsf.duration = count_milliseconds($event._flow_duration).round()
+  $event._flow_duration_ms = count_milliseconds($event._flow_duration).round()
 }
 
 // --- OCSF: primary attributes -----------------
@@ -202,8 +204,11 @@ if $event.source.ip_version? in [4, 6] {
 $event.ocsf.traffic = {
   bytes: move $event.source.octet_delta_count?,
   packets: move $event.source.packet_delta_count?,
-  start_time: $event.ocsf.start_time?,
-  end_time: $event.ocsf.end_time?,
+  start_time: $event._flow_start_time?,
+  end_time: $event._flow_end_time?,
+}
+if $event._flow_duration_ms? != null {
+  $event.ocsf.traffic.timespan.duration = $event._flow_duration_ms
 }
 $event.ocsf.cumulative_traffic = {
   bytes: move $event.source.octet_total_count?,
