@@ -22,194 +22,123 @@ $event.ocsf.initiator_id = 0
 
 // --- OCSF: occurrence attributes --------------
 
-// Consume only the selected timestamp so less precise alternatives remain in
-// `unmapped` for provenance. OCSF 1.9 reserves top-level occurrence bounds for
-// aggregate events, so flow observation bounds live in `traffic`.
-$event._flow_start_time = null
-if $event.source.flow_start? != null {
-  $event._flow_start_time = move $event.source.flow_start
-} else if $event.source.flow_start_nanoseconds? != null {
-  $event._flow_start_time = move $event.source.flow_start_nanoseconds
-} else if $event.source.flow_start_microseconds? != null {
-  $event._flow_start_time = move $event.source.flow_start_microseconds
-} else if $event.source.flow_start_milliseconds? != null {
-  $event._flow_start_time = move $event.source.flow_start_milliseconds
-} else if $event.source.flow_start_seconds? != null {
-  $event._flow_start_time = move $event.source.flow_start_seconds
-}
+$event.ocsf.traffic.start_time = (
+  (move $event.source.flow_start?) else
+  (move $event.source.flow_start_nanoseconds?) else
+  (move $event.source.flow_start_microseconds?) else
+  (move $event.source.flow_start_milliseconds?) else
+  (move $event.source.flow_start_seconds?)
+)
+$event.ocsf.traffic.end_time = (
+  (move $event.source.flow_end?) else
+  (move $event.source.flow_end_nanoseconds?) else
+  (move $event.source.flow_end_microseconds?) else
+  (move $event.source.flow_end_milliseconds?) else
+  (move $event.source.flow_end_seconds?)
+)
 
-$event._flow_end_time = null
-if $event.source.flow_end? != null {
-  $event._flow_end_time = move $event.source.flow_end
-} else if $event.source.flow_end_nanoseconds? != null {
-  $event._flow_end_time = move $event.source.flow_end_nanoseconds
-} else if $event.source.flow_end_microseconds? != null {
-  $event._flow_end_time = move $event.source.flow_end_microseconds
-} else if $event.source.flow_end_milliseconds? != null {
-  $event._flow_end_time = move $event.source.flow_end_milliseconds
-} else if $event.source.flow_end_seconds? != null {
-  $event._flow_end_time = move $event.source.flow_end_seconds
-}
-
-// NetFlow v9 timestamps may be relative to the exporter's 32-bit uptime
-// counter. Account for the counter wrapping approximately every 49.7 days.
-if $event._flow_start_time? == null and
-   $event.source.flow_start_sys_up_time? != null and
-   $event.source.netflow.sys_uptime? != null and
-   $event.source.netflow.export_time? != null {
-  $event._flow_start_uptime = (
-    move $event.source.flow_start_sys_up_time
-  ).milliseconds()
-  $event._flow_start_age = (
-    $event.source.netflow.sys_uptime - $event._flow_start_uptime
-    if $event.source.netflow.sys_uptime >= $event._flow_start_uptime
-    else $sys_uptime_period - $event._flow_start_uptime +
+// Account for the 32-bit exporter uptime counter wrapping every 49.7 days.
+$event.ocsf.traffic.start_time = $event.ocsf.traffic.start_time else (
+  $event.source.netflow.export_time - (
+    $event.source.netflow.sys_uptime -
+      (move $event.source.flow_start_sys_up_time?).milliseconds()
+    if $event.source.netflow.sys_uptime >=
+       $event.source.flow_start_sys_up_time.milliseconds()
+    else $sys_uptime_period -
+         (move $event.source.flow_start_sys_up_time?).milliseconds() +
          $event.source.netflow.sys_uptime
   )
-  $event._flow_start_time = $event.source.netflow.export_time -
-                            $event._flow_start_age
-}
-if $event._flow_end_time? == null and
-   $event.source.flow_end_sys_up_time? != null and
-   $event.source.netflow.sys_uptime? != null and
-   $event.source.netflow.export_time? != null {
-  $event._flow_end_uptime = (
-    move $event.source.flow_end_sys_up_time
-  ).milliseconds()
-  $event._flow_end_age = (
-    $event.source.netflow.sys_uptime - $event._flow_end_uptime
-    if $event.source.netflow.sys_uptime >= $event._flow_end_uptime
-    else $sys_uptime_period - $event._flow_end_uptime +
+  if $event.source.flow_start_sys_up_time? != null and
+     $event.source.netflow.sys_uptime? != null and
+     $event.source.netflow.export_time? != null
+)
+$event.ocsf.traffic.end_time = $event.ocsf.traffic.end_time else (
+  $event.source.netflow.export_time - (
+    $event.source.netflow.sys_uptime -
+      (move $event.source.flow_end_sys_up_time?).milliseconds()
+    if $event.source.netflow.sys_uptime >=
+       $event.source.flow_end_sys_up_time.milliseconds()
+    else $sys_uptime_period -
+         (move $event.source.flow_end_sys_up_time?).milliseconds() +
          $event.source.netflow.sys_uptime
   )
-  $event._flow_end_time = $event.source.netflow.export_time -
-                          $event._flow_end_age
-}
+  if $event.source.flow_end_sys_up_time? != null and
+     $event.source.netflow.sys_uptime? != null and
+     $event.source.netflow.export_time? != null
+)
 
-$event.ocsf.time = $event._flow_start_time? else
-                   $event._flow_end_time? else
+$event.ocsf.time = $event.ocsf.traffic.start_time else
+                   $event.ocsf.traffic.end_time else
                    $event.source.netflow.export_time?
-$event._flow_duration = $event._flow_end_time? - $event._flow_start_time?
-$event._flow_duration_ms = null
-if ($event._flow_duration? >= 0s else false) {
-  $event._flow_duration_ms = count_milliseconds($event._flow_duration).round()
-} else if $event.source.flow_start_sys_up_time? != null and
-          $event.source.flow_end_sys_up_time? != null {
-  $event._flow_start_uptime = (
-    move $event.source.flow_start_sys_up_time
-  ).milliseconds()
-  $event._flow_end_uptime = (
-    move $event.source.flow_end_sys_up_time
-  ).milliseconds()
-  $event._flow_duration = (
-    $event._flow_end_uptime - $event._flow_start_uptime
-    if $event._flow_end_uptime >= $event._flow_start_uptime
-    else $sys_uptime_period - $event._flow_start_uptime +
-         $event._flow_end_uptime
-  )
-  $event._flow_duration_ms = count_milliseconds($event._flow_duration).round()
-}
+$event.ocsf.traffic.timespan.duration = count_milliseconds(
+  $event.ocsf.traffic.end_time? - $event.ocsf.traffic.start_time?
+).round() if (($event.ocsf.traffic.end_time? -
+              $event.ocsf.traffic.start_time?) >= 0s else false)
 
 // --- OCSF: primary attributes -----------------
 
-// Keep address-family selection in statement branches so the unselected
-// information elements remain in `unmapped`.
 $event.ocsf.src_endpoint = {
+  ip: (
+    (move $event.source.source_ipv6_address?)
+    if $event.source.ip_version? == 6
+  ) else (move $event.source.source_ipv4_address?) else
+         (move $event.source.source_ipv6_address?),
   port: move $event.source.source_transport_port?,
   mac: move $event.source.source_mac_address?,
   autonomous_system: {
     number: move $event.source.bgp_source_as_number?,
   },
   proxy_endpoint: {
-    ip: null,
+    ip: (
+      (move $event.source.post_nat_source_ipv6_address?)
+      if $event.source.ip_version? == 6
+    ) else (move $event.source.post_nat_source_ipv4_address?) else
+           (move $event.source.post_nat_source_ipv6_address?),
     port: move $event.source.post_napt_source_transport_port?,
   },
 }
-if $event.source.ip_version? == 6 and
-   $event.source.source_ipv6_address? != null {
-  $event.ocsf.src_endpoint.ip = move $event.source.source_ipv6_address
-} else if $event.source.source_ipv4_address? != null {
-  $event.ocsf.src_endpoint.ip = move $event.source.source_ipv4_address
-} else if $event.source.source_ipv6_address? != null {
-  $event.ocsf.src_endpoint.ip = move $event.source.source_ipv6_address
-}
-if $event.source.ip_version? == 6 and
-   $event.source.post_nat_source_ipv6_address? != null {
-  $event.ocsf.src_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_source_ipv6_address
-} else if $event.source.post_nat_source_ipv4_address? != null {
-  $event.ocsf.src_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_source_ipv4_address
-} else if $event.source.post_nat_source_ipv6_address? != null {
-  $event.ocsf.src_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_source_ipv6_address
-}
 
 $event.ocsf.dst_endpoint = {
+  ip: (
+    (move $event.source.destination_ipv6_address?)
+    if $event.source.ip_version? == 6
+  ) else (move $event.source.destination_ipv4_address?) else
+         (move $event.source.destination_ipv6_address?),
   port: move $event.source.destination_transport_port?,
   mac: move $event.source.destination_mac_address?,
   autonomous_system: {
     number: move $event.source.bgp_destination_as_number?,
   },
   proxy_endpoint: {
-    ip: null,
+    ip: (
+      (move $event.source.post_nat_destination_ipv6_address?)
+      if $event.source.ip_version? == 6
+    ) else (move $event.source.post_nat_destination_ipv4_address?) else
+           (move $event.source.post_nat_destination_ipv6_address?),
     port: move $event.source.post_napt_destination_transport_port?,
   },
-}
-if $event.source.ip_version? == 6 and
-   $event.source.destination_ipv6_address? != null {
-  $event.ocsf.dst_endpoint.ip = move $event.source.destination_ipv6_address
-} else if $event.source.destination_ipv4_address? != null {
-  $event.ocsf.dst_endpoint.ip = move $event.source.destination_ipv4_address
-} else if $event.source.destination_ipv6_address? != null {
-  $event.ocsf.dst_endpoint.ip = move $event.source.destination_ipv6_address
-}
-if $event.source.ip_version? == 6 and
-   $event.source.post_nat_destination_ipv6_address? != null {
-  $event.ocsf.dst_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_destination_ipv6_address
-} else if $event.source.post_nat_destination_ipv4_address? != null {
-  $event.ocsf.dst_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_destination_ipv4_address
-} else if $event.source.post_nat_destination_ipv6_address? != null {
-  $event.ocsf.dst_endpoint.proxy_endpoint.ip = move \
-    $event.source.post_nat_destination_ipv6_address
 }
 
 // IPFIX `flow_direction` is relative to the observation point, whereas OCSF
 // direction is relative to the monitored network boundary. Preserve the source
 // value in `unmapped` because the latter cannot be inferred here.
-//
-// Community ID is not a standard NetFlow/IPFIX information element, and
-// `read_netflow` intentionally leaves this derived enrichment to another step.
 $event.ocsf.connection_info = {
   direction_id: 0,
   protocol_num: move $event.source.protocol_identifier?,
   tcp_flags: move $event.source.tcp_control_bits?,
   uid: (move $event.source.flow_id?).string(),
 }
-if $event.source.ip_version? in [4, 6] {
-  $event.ocsf.connection_info.protocol_ver_id = (
-    move $event.source.ip_version
-  ).int()
-} else if ($event.ocsf.src_endpoint.ip?.is_v6() else false) or
-          ($event.ocsf.dst_endpoint.ip?.is_v6() else false) {
-  $event.ocsf.connection_info.protocol_ver_id = 6
-} else if $event.ocsf.src_endpoint.ip? != null or
-          $event.ocsf.dst_endpoint.ip? != null {
-  $event.ocsf.connection_info.protocol_ver_id = 4
-} else {
-  $event.ocsf.connection_info.protocol_ver_id = 0
-}
-$event.ocsf.traffic = {
-  bytes: move $event.source.octet_delta_count?,
-  packets: move $event.source.packet_delta_count?,
-  start_time: $event._flow_start_time?,
-  end_time: $event._flow_end_time?,
-}
-if $event._flow_duration_ms? != null {
-  $event.ocsf.traffic.timespan.duration = $event._flow_duration_ms
-}
+$event.ocsf.connection_info.protocol_ver_id = (
+  (move $event.source.ip_version?).int()
+  if $event.source.ip_version? in [4, 6]
+  else 6 if ($event.ocsf.src_endpoint.ip?.is_v6() else false) or
+            ($event.ocsf.dst_endpoint.ip?.is_v6() else false)
+  else 4 if $event.ocsf.src_endpoint.ip? != null or
+            $event.ocsf.dst_endpoint.ip? != null
+  else 0
+)
+$event.ocsf.traffic.bytes = move $event.source.octet_delta_count?
+$event.ocsf.traffic.packets = move $event.source.packet_delta_count?
 $event.ocsf.cumulative_traffic = {
   bytes: move $event.source.octet_total_count?,
   packets: move $event.source.packet_total_count?,
