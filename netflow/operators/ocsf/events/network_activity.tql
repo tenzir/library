@@ -40,32 +40,26 @@ $event.ocsf.traffic.end_time = (
 
 // Account for the 32-bit exporter uptime counter wrapping every 49.7 days.
 $event.ocsf.traffic.start_time = $event.ocsf.traffic.start_time else (
-  $event.source.netflow.export_time - (
-    $event.source.netflow.sys_uptime -
+  $event.source.netflow.export_time? - (
+    $event.source.netflow.sys_uptime? -
       (move $event.source.flow_start_sys_up_time?).milliseconds()
-    if $event.source.netflow.sys_uptime >=
-       $event.source.flow_start_sys_up_time.milliseconds()
+    if $event.source.netflow.sys_uptime? >=
+       $event.source.flow_start_sys_up_time?.milliseconds()
     else $sys_uptime_period -
          (move $event.source.flow_start_sys_up_time?).milliseconds() +
-         $event.source.netflow.sys_uptime
+         $event.source.netflow.sys_uptime?
   )
-  if $event.source.flow_start_sys_up_time? != null and
-     $event.source.netflow.sys_uptime? != null and
-     $event.source.netflow.export_time? != null
 )
 $event.ocsf.traffic.end_time = $event.ocsf.traffic.end_time else (
-  $event.source.netflow.export_time - (
-    $event.source.netflow.sys_uptime -
+  $event.source.netflow.export_time? - (
+    $event.source.netflow.sys_uptime? -
       (move $event.source.flow_end_sys_up_time?).milliseconds()
-    if $event.source.netflow.sys_uptime >=
-       $event.source.flow_end_sys_up_time.milliseconds()
+    if $event.source.netflow.sys_uptime? >=
+       $event.source.flow_end_sys_up_time?.milliseconds()
     else $sys_uptime_period -
          (move $event.source.flow_end_sys_up_time?).milliseconds() +
-         $event.source.netflow.sys_uptime
+         $event.source.netflow.sys_uptime?
   )
-  if $event.source.flow_end_sys_up_time? != null and
-     $event.source.netflow.sys_uptime? != null and
-     $event.source.netflow.export_time? != null
 )
 
 $event.ocsf.time = $event.ocsf.traffic.start_time else
@@ -131,8 +125,8 @@ $event.ocsf.connection_info = {
 $event.ocsf.connection_info.protocol_ver_id = (
   (move $event.source.ip_version?).int()
   if $event.source.ip_version? in [4, 6]
-  else 6 if ($event.ocsf.src_endpoint.ip?.is_v6() else false) or
-            ($event.ocsf.dst_endpoint.ip?.is_v6() else false)
+  else 6 if $event.ocsf.src_endpoint.ip?.is_v6() or
+            $event.ocsf.dst_endpoint.ip?.is_v6()
   else 4 if $event.ocsf.src_endpoint.ip? != null or
             $event.ocsf.dst_endpoint.ip? != null
   else 0
