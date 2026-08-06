@@ -40,13 +40,13 @@ args:
       description: Span identifier, typically a hex string.
 ---
 
-_body_kind = type_of($body).kind if $body != null else null
+_body_kind = type_of($body).kind if $body != null
 
 otel::attributes $attributes
 
 log_record = {
-  timeUnixNano: $time.since_epoch().count_nanoseconds().string() if $time != null else null,
-  observedTimeUnixNano: $observed_time.since_epoch().count_nanoseconds().string() if $observed_time != null else null,
+  timeUnixNano: $time.since_epoch().count_nanoseconds().string(),
+  observedTimeUnixNano: $observed_time.since_epoch().count_nanoseconds().string(),
   severityNumber: $severity_number,
   severityText: $severity_text,
   body: {
@@ -55,12 +55,11 @@ log_record = {
     // empty AnyValue.
     stringValue: $body if _body_kind == "string" else
                  $body.string() if _body_kind in ["ip", "subnet", "time", "duration"] else
-                 $body.string() if _body_kind not in ["string", "ip", "subnet", "time", "duration", "bool", "int64", "uint64", "double"] else
-                 null,
-    boolValue: $body if _body_kind == "bool" else null,
-    intValue: $body.string() if _body_kind in ["int64", "uint64"] else null,
-    doubleValue: $body if _body_kind == "double" else null,
-  } if $body != null else null,
+                 $body.string() if _body_kind not in ["string", "ip", "subnet", "time", "duration", "bool", "int64", "uint64", "double"],
+    boolValue: $body if _body_kind == "bool",
+    intValue: $body.string() if _body_kind in ["int64", "uint64"],
+    doubleValue: $body if _body_kind == "double",
+  } if $body != null,
   attributes: move attributes,
   flags: $flags,
   traceId: $trace_id,
