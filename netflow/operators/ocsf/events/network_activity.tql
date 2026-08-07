@@ -131,8 +131,22 @@ $event.ocsf.connection_info.protocol_ver_id = (
             $event.ocsf.dst_endpoint.ip? != null
   else 0
 )
-$event.ocsf.traffic.bytes = move $event.source.octet_delta_count?
-$event.ocsf.traffic.packets = move $event.source.packet_delta_count?
+// A NetFlow or IPFIX flow record is unidirectional: its counters describe
+// packets flowing from the record's source to its destination. Biflow
+// exporters instead report both directions with the initiator and responder
+// elements from RFC 5103.
+$event.ocsf.traffic.bytes_out = (move $event.source.initiator_octets?) else
+                                (move $event.source.octet_delta_count?)
+$event.ocsf.traffic.bytes_in = move $event.source.responder_octets?
+$event.ocsf.traffic.packets_out = (move $event.source.initiator_packets?) else
+                                  (move $event.source.packet_delta_count?)
+$event.ocsf.traffic.packets_in = move $event.source.responder_packets?
+$event.ocsf.traffic.bytes = (
+  $event.ocsf.traffic.bytes_out + $event.ocsf.traffic.bytes_in
+) else $event.ocsf.traffic.bytes_out else $event.ocsf.traffic.bytes_in
+$event.ocsf.traffic.packets = (
+  $event.ocsf.traffic.packets_out + $event.ocsf.traffic.packets_in
+) else $event.ocsf.traffic.packets_out else $event.ocsf.traffic.packets_in
 $event.ocsf.cumulative_traffic = {
   bytes: move $event.source.octet_total_count?,
   packets: move $event.source.packet_total_count?,
