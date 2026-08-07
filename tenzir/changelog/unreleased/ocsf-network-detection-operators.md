@@ -24,3 +24,7 @@ publish "findings"
 
 Each operator exposes its time window, late-event tolerance, and detection
 thresholds as named arguments for environment-specific tuning.
+
+The beacon and volume detectors measure originator traffic via
+`traffic.bytes_out`, the source-to-destination byte count that the NetFlow,
+Zeek, and Suricata mappings populate consistently.
