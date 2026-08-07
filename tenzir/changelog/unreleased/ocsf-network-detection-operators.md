@@ -18,7 +18,7 @@ the findings topic:
 
 ```tql
 subscribe "ocsf"
-tenzir::detect::beacon_cadence
+tenzir::detect::network::beacon_cadence
 publish "findings"
 ```
 
@@ -28,3 +28,8 @@ thresholds as named arguments for environment-specific tuning.
 The beacon and volume detectors measure originator traffic via
 `traffic.bytes_out`, the source-to-destination byte count that the NetFlow,
 Zeek, and Suricata mappings populate consistently.
+
+Detectors live in the `tenzir::detect::network` namespace, leaving room for
+future detector families over other OCSF classes. Every finding carries MITRE
+ATT&CK tactic and technique mappings in `finding_info.attacks` and a versioned
+analytic identity for traceability.
