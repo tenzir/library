@@ -1,0 +1,111 @@
+---
+description: Detects periodic network activity with robust timing and size statistics.
+args:
+  named:
+    - name: window_size
+      type: duration
+      default: 30min
+      description: Event-time window over which to measure cadence.
+    - name: tolerance
+      type: duration
+      default: 1min
+      description: Maximum expected lateness for out-of-order events.
+    - name: idle_timeout
+      type: duration
+      default: 5min
+      description: Inactivity after which the current window closes.
+    - name: min_samples
+      type: int
+      default: 8
+      description: Minimum number of flows for one tuple.
+    - name: min_period
+      type: duration
+      default: 10s
+      description: Minimum median inter-arrival interval.
+    - name: max_period
+      type: duration
+      default: 3min
+      description: Maximum median inter-arrival interval.
+    - name: max_interval_dispersion
+      type: float
+      default: 0.2
+      description: Maximum interval MAD as a fraction of the median.
+    - name: max_size
+      type: int
+      default: 4096
+      description: Maximum median flow size in bytes.
+    - name: max_size_dispersion
+      type: float
+      default: 0.35
+      description: Maximum size MAD as a fraction of the median.
+    - name: max_skew
+      type: float
+      default: 0.6
+      description: Maximum absolute Bowley skewness for timing and size.
+---
+
+where class_uid == 4001 and activity_id == 6
+window size=$window_size, on=time, tolerance=$tolerance,
+       idle_timeout=$idle_timeout {
+  group {
+    src_ip: src_endpoint.ip,
+    dst_ip: dst_endpoint.ip,
+    dst_port: dst_endpoint.port,
+  } {
+    sort time
+    summarize times=collect(time),
+              sizes=collect(traffic.bytes),
+              samples=count()
+    intervals = times.deltas()
+    interval_median = intervals.median()
+    interval_mad = intervals.mad()
+    interval_skew = intervals.skewness(method="bowley")
+    size_median = sizes.median()
+    size_mad = sizes.mad()
+    size_skew = sizes.skewness(method="bowley")
+    src_ip = $group.src_ip
+    dst_ip = $group.dst_ip
+    dst_port = $group.dst_port
+    start = $window.start
+    end = $window.end
+    drop times, sizes, intervals
+  }
+}
+where samples >= $min_samples and
+      interval_median >= $min_period and interval_median <= $max_period and
+      interval_mad <= interval_median * $max_interval_dispersion and
+      abs(interval_skew) <= $max_skew and
+      size_median <= $max_size and
+      size_mad <= size_median * $max_size_dispersion and
+      abs(size_skew) <= $max_skew
+this = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  is_alert: true,
+  start_time: start,
+  end_time: end,
+  finding_info: {
+    uid: uuid(),
+    title: f"Periodic network activity from {src_ip} to {dst_ip}:{dst_port}",
+    desc: f"{samples} flows; interval median {interval_median}, MAD {interval_mad}",
+    analytic: {
+      name: "Beacon cadence",
+      uid: "tenzir::detect::beacon_cadence",
+      type_id: 3,
+    },
+  },
+  evidences: [{
+    src_endpoint: {ip: src_ip},
+    dst_endpoint: {ip: dst_ip, port: dst_port},
+  }],
+}

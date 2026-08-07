@@ -1,0 +1,83 @@
+---
+description: Detects scan fan-out from small flows and unanswered TCP attempts.
+args:
+  named:
+    - name: window_size
+      type: duration
+      default: 5min
+      description: Event-time window over which to measure fan-out.
+    - name: tolerance
+      type: duration
+      default: 30s
+      description: Maximum expected lateness for out-of-order events.
+    - name: idle_timeout
+      type: duration
+      default: 2min
+      description: Inactivity after which the current window closes.
+    - name: min_flows
+      type: int
+      default: 5
+      description: Minimum number of flows from one source.
+    - name: max_packets_per_flow
+      type: float
+      default: 5.0
+      description: Maximum average number of packets per flow.
+    - name: min_fanout
+      type: int
+      default: 5
+      description: Minimum number of distinct destination hosts or ports.
+    - name: min_unanswered_share
+      type: float
+      default: 0.8
+      description: Minimum share of TCP flows whose flags contain no ACK.
+---
+
+where class_uid == 4001 and activity_id == 6
+window size=$window_size, on=time, tolerance=$tolerance,
+       idle_timeout=$idle_timeout {
+  group src_endpoint.ip {
+    summarize flows=count(),
+              targets=count_distinct(dst_endpoint.ip),
+              ports=count_distinct(dst_endpoint.port),
+              avg_packets=mean(traffic.packets),
+              tcp_flows=count(connection_info.tcp_flags),
+              unanswered=count_if(connection_info.tcp_flags,
+                                  flags => bit_and(flags, 16) == 0)
+    src_ip = $group
+    start = $window.start
+    end = $window.end
+  }
+}
+where flows >= $min_flows and
+      avg_packets <= $max_packets_per_flow and
+      (targets >= $min_fanout or ports >= $min_fanout) and
+      (tcp_flows == 0 or
+       unanswered >= tcp_flows * $min_unanswered_share)
+this = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  is_alert: true,
+  start_time: start,
+  end_time: end,
+  finding_info: {
+    uid: uuid(),
+    title: f"Scan fan-out from {src_ip}",
+    desc: f"{flows} flows reached {targets} hosts across {ports} ports",
+    analytic: {
+      name: "Scan fan-out",
+      uid: "tenzir::detect::scan_fan_out",
+      type_id: 1,
+    },
+  },
+  evidences: [{src_endpoint: {ip: src_ip}}],
+}
