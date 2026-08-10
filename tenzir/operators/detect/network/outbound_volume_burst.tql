@@ -1,0 +1,69 @@
+---
+description: Detects outbound byte volume from an internal asset above a fixed threshold.
+args:
+  named:
+    - name: window_size
+      type: duration
+      default: 15min
+      description: Event-time window over which to sum outbound bytes.
+    - name: tolerance
+      type: duration
+      default: 1min
+      description: Maximum expected lateness for out-of-order events.
+    - name: idle_timeout
+      type: duration
+      default: 5min
+      description: Inactivity after which the current window closes.
+    - name: min_bytes_out
+      type: int
+      default: 500M
+      description: Minimum outbound bytes from one internal asset.
+---
+
+where class_uid == 4001 and activity_id == 6
+where src_endpoint.network_scope_id == 1 and
+      dst_endpoint.network_scope_id == 2
+window size=$window_size, on=time, tolerance=$tolerance,
+       idle_timeout=$idle_timeout {
+  group src_endpoint.ip {
+    summarize bytes_out=sum(traffic.bytes_out),
+              destinations=count_distinct(dst_endpoint.ip)
+    asset = $group
+    start = $window.start
+    end = $window.end
+  }
+}
+where bytes_out >= $min_bytes_out
+this = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  is_alert: true,
+  start_time: start,
+  end_time: end,
+  finding_info: {
+    uid: uuid(),
+    title: f"Outbound volume burst from {asset}",
+    desc: f"{asset} sent {bytes_out} bytes to {destinations} external destinations",
+    analytic: {
+      name: "Outbound volume threshold",
+      uid: "tenzir::detect::network::outbound_volume_burst",
+      type_id: 1,
+      version: "1.0",
+    },
+    attacks: [{
+      tactic: {uid: "TA0010", name: "Exfiltration"},
+      technique: {uid: "T1030", name: "Data Transfer Size Limits"},
+    }],
+  },
+  evidences: [{src_endpoint: {ip: asset, network_scope_id: 1}}],
+}
