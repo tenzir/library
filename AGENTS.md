@@ -32,6 +32,23 @@ E.g., run `uvx tenzir -f path/to/pipe.tql` to execute a TQL program.
 
 Use the `tenzir-manage-packages` skill to manage the lifecycle of a package.
 
+### Check the agent harness
+
+`.agents/harness-check/` generates a broad, security-relevant OpenTelemetry
+workload from the current agent harness: native agent tools, file operations,
+process lifecycle, scheduled jobs, CLI invocation, web access, MCP, and
+permission decisions.
+
+It is agent-agnostic: the scripted core is plain bash and runs under any
+agent, or by hand.
+
+- `$harness-check` runs the autonomous and guided workflow in Codex or Claude
+  Code (both project skill paths point to the same source)
+- `.agents/harness-check/scripts/run-all.sh` runs every safe scripted probe
+
+Use it to test agent telemetry collection, especially after changing harness
+settings, permissions, MCP servers, or the OTEL pipeline.
+
 ### Test packages
 
 Use [tenzir-test](https://tenzir.com/docs/reference/test-framework.md) for
