@@ -1,0 +1,72 @@
+---
+description: |
+  OpenSSH `sshd` events → OCSF.
+
+  Maps a structured OpenSSH event, as `openssh::parse` produces it, to OCSF
+  Authentication (class 3002). Both arguments default to `this`, so
+  `openssh::ocsf::map` maps the current event in place.
+
+  A `null` event, which is what the parser yields for a message template it
+  does not model, becomes an OCSF Base Event that carries its payload. Whatever
+  the mapping did not translate stays in `unmapped`.
+
+  Callers stage the Syslog envelope's `time` and `hostname` into the event
+  before mapping, and assign `raw_data` afterwards from the field that still
+  holds the original message. Provenance is the caller's decision.
+args:
+  positional:
+    - name: event
+      description: The structured OpenSSH event to map.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+let $status_ids = {
+  success: 1,
+  failure: 2,
+}
+
+$into = {event: $event, ocsf: {}}
+
+// --- OCSF: shared attributes ------------------
+
+$into.ocsf = {
+  time: move $into.event.time?,
+  severity_id: 1,
+  metadata: {
+    version: "1.9.0",
+    log_name: "sshd",
+    log_provider: "OpenSSH",
+    product: {
+      name: "OpenSSH",
+      vendor_name: "OpenBSD",
+    },
+  },
+}
+if $into.event.outcome? != null {
+  $into.ocsf.status_id = $status_ids[move $into.event.outcome]?
+}
+
+match $into.event.category? {
+  "authentication" => {
+    openssh::ocsf::events::authentication $into
+  }
+  _ => {
+    @name = "ocsf.base_event"
+    $into.ocsf.category_uid = 0
+    $into.ocsf.class_uid = 0
+    $into.ocsf.activity_id = 0
+  }
+}
+
+// --- Finalize ---------------------------------
+
+$into.ocsf.type_uid = $into.ocsf.class_uid * 100 + $into.ocsf.activity_id
+drop $into.event.category?
+
+$into = {...$into.ocsf, unmapped: $into.event}

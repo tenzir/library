@@ -1,0 +1,49 @@
+---
+description: |
+  Normalizes one raw OpenSSH `sshd` message to OCSF Authentication
+  (class 3002).
+
+  One call takes a message body all the way: it parses the body, adds the
+  Syslog envelope fields the caller selects, maps the structured event, and
+  stores the body as provenance. A message template the package does not model
+  becomes an OCSF Base Event that carries the payload.
+
+  An `sshd` message body carries neither a timestamp nor a host, so `time` and
+  `hostname` select the envelope fields that do. Callers that already hold a
+  structured OpenSSH event use `openssh::ocsf::map` instead.
+args:
+  positional:
+    - name: input
+      description: The raw OpenSSH message body to normalize.
+      type: field
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+    - name: time
+      description: The envelope field holding the event timestamp.
+      type: field
+      default: null
+    - name: hostname
+      description: The envelope field holding the host that logged the message.
+      type: field
+      default: null
+---
+
+assert type_of($input).kind == "string", message="expected a raw OpenSSH message body"
+
+openssh::parse $input, into=$into.event
+if $time != null {
+  $into.event.time = $time
+}
+if $hostname != null {
+  $into.event.hostname = $hostname
+}
+openssh::ocsf::map $into.event, into=$into.event
+
+$into = {
+  ...$into.event,
+  raw_data: $input,
+  raw_data_size: $input.length_bytes(),
+}

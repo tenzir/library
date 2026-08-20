@@ -1,0 +1,104 @@
+---
+description: |
+  Parses an OpenSSH `sshd` log message.
+
+  The positional argument selects the field that holds the raw `sshd` message
+  body, not the full Syslog envelope, and `into` receives the structured
+  OpenSSH event. The output is `null` when no supported message template
+  matches, which is what the mapper turns into an OCSF Base Event.
+
+  Recognized messages describe the authentication lifecycle: accepted logins,
+  failed logins, unknown accounts, exhausted authentication attempts, and
+  session termination.
+
+  The parsed event carries no timestamp and no provenance, because an `sshd`
+  message body holds neither. Callers add the Syslog envelope's `time` and
+  `hostname` before mapping to OCSF.
+args:
+  positional:
+    - name: log
+      type: field
+      description: The field holding the raw OpenSSH message body.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the parsed event.
+---
+
+let $attempt = r"(?<verb>Accepted|Failed) %{NOTSPACE:method} for (?:(?<invalid>invalid user) )?%{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int}(?: %{NOTSPACE:protocol})?(?:: %{GREEDYDATA:credential})?"
+let $invalid_user = r"(?<verb>Invalid user) %{NOTSPACE:user} from %{IP:source_ip}(?: port %{POSINT:source_port:int})?(?: \[(?<phase>preauth)\])?"
+let $max_attempts = r"(?:error: )?(?<verb>maximum authentication attempts exceeded) for (?:(?<invalid>invalid user) )?%{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int}(?: %{NOTSPACE:protocol})?(?: \[(?<phase>preauth)\])?"
+let $session_end = r"(?<verb>Disconnected from|Connection closed by)(?: (?<user_state>authenticating|invalid))?(?: user %{NOTSPACE:user})? %{IP:source_ip} port %{POSINT:source_port:int}(?: \[(?<phase>preauth)\])?"
+let $pattern = "^(?:%{OPENSSH_ATTEMPT}|%{OPENSSH_INVALID_USER}|%{OPENSSH_MAX_ATTEMPTS}|%{OPENSSH_SESSION_END}|%{GREEDYDATA:other})$"
+let $pattern_definitions = {
+  OPENSSH_ATTEMPT: $attempt,
+  OPENSSH_INVALID_USER: $invalid_user,
+  OPENSSH_MAX_ATTEMPTS: $max_attempts,
+  OPENSSH_SESSION_END: $session_end,
+}
+// The verbs that state the outcome themselves. A session end has to infer it.
+let $verbs = {
+  Accepted: {
+    template: "accepted",
+    activity: "logon",
+    outcome: "success",
+  },
+  Failed: {
+    template: "failed",
+    activity: "logon",
+    outcome: "failure",
+  },
+  "Invalid user": {
+    template: "invalid_user",
+    activity: "logon",
+    outcome: "failure",
+  },
+  "maximum authentication attempts exceeded": {
+    template: "max_auth_attempts",
+    activity: "logon",
+    outcome: "failure",
+  },
+}
+
+$into = $log.parse_grok(
+  $pattern,
+  pattern_definitions=$pattern_definitions,
+)
+// Only a template that matched captures a verb. The catch-all keeps `sshd`
+// chatter from warning.
+if $into.verb == null {
+  $into = null
+} else {
+  @name = "openssh.authentication"
+  $into = {
+    ...$into,
+    ...$verbs[$into.verb]?,
+    category: "authentication",
+  }
+  if $into.activity? == null {
+    // A named session end is a logoff. An authenticating or invalid user
+    // failed to log on, while an anonymous close reveals no outcome.
+    $into.template = "disconnected" if $into.verb == "Disconnected from" else "connection_closed"
+    $into.activity = "logon"
+    $into.outcome = null
+    if $into.user_state != null {
+      $into.outcome = "failure"
+    } else if $into.user != null {
+      $into.activity = "logoff"
+      $into.outcome = "success"
+    }
+  }
+  $into.user = {
+    name: move $into.user,
+    is_invalid: $into.invalid != null
+      or $into.user_state == "invalid"
+      or $into.template == "invalid_user",
+  }
+  $into.source = {
+    ip: move $into.source_ip,
+    port: move $into.source_port,
+  }
+  $into.preauth = $into.phase == "preauth"
+  drop $into.verb, $into.invalid, $into.user_state, $into.phase, $into.other
+}
