@@ -3,7 +3,6 @@ title: OpenSSH package for Syslog and OCSF
 type: feature
 authors:
   - mavam
-  - claude
 prs:
   - 175
 created: 2026-08-17T00:00:00Z
