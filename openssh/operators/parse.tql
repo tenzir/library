@@ -2,10 +2,15 @@
 description: |
   Parses an OpenSSH `sshd` log message.
 
-  The positional argument selects the field that holds the raw `sshd` message
-  body, not the full Syslog envelope, and `into` receives the structured
-  OpenSSH event. The output is `null` when no supported message template
-  matches, which is what the mapper turns into an OCSF Base Event.
+  The first field holds the raw `sshd` message body, not the full Syslog
+  envelope, and the second receives the structured OpenSSH event:
+
+  ```tql
+  openssh::parse message, openssh
+  ```
+
+  The output is `null` when no supported message template matches, which is
+  what the mapper turns into an OCSF Base Event.
 
   Recognized messages describe the authentication lifecycle: accepted logins,
   failed logins, unknown accounts, exhausted authentication attempts, and
@@ -19,11 +24,9 @@ args:
     - name: log
       type: field
       description: The field holding the raw OpenSSH message body.
-  named:
-    - name: into
+    - name: openssh
       type: field
-      default: this
-      description: The field that receives the parsed event.
+      description: The field that receives the structured OpenSSH event.
 ---
 
 let $attempt = r"(?<verb>Accepted|Failed) %{NOTSPACE:method} for (?:(?<invalid>invalid user) )?%{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int}(?: %{NOTSPACE:protocol})?(?:: %{GREEDYDATA:credential})?"
@@ -61,44 +64,44 @@ let $verbs = {
   },
 }
 
-$into = $log.parse_grok(
+$openssh = $log.parse_grok(
   $pattern,
   pattern_definitions=$pattern_definitions,
 )
 // Only a template that matched captures a verb. The catch-all keeps `sshd`
 // chatter from warning.
-if $into.verb == null {
-  $into = null
+if $openssh.verb == null {
+  $openssh = null
 } else {
   @name = "openssh.authentication"
-  $into = {
-    ...$into,
-    ...$verbs[$into.verb]?,
+  $openssh = {
+    ...$openssh,
+    ...$verbs[$openssh.verb]?,
     category: "authentication",
   }
-  if $into.activity? == null {
+  if $openssh.activity? == null {
     // A named session end is a logoff. An authenticating or invalid user
     // failed to log on, while an anonymous close reveals no outcome.
-    $into.template = "disconnected" if $into.verb == "Disconnected from" else "connection_closed"
-    $into.activity = "logon"
-    $into.outcome = null
-    if $into.user_state != null {
-      $into.outcome = "failure"
-    } else if $into.user != null {
-      $into.activity = "logoff"
-      $into.outcome = "success"
+    $openssh.template = "disconnected" if $openssh.verb == "Disconnected from" else "connection_closed"
+    $openssh.activity = "logon"
+    $openssh.outcome = null
+    if $openssh.user_state != null {
+      $openssh.outcome = "failure"
+    } else if $openssh.user != null {
+      $openssh.activity = "logoff"
+      $openssh.outcome = "success"
     }
   }
-  $into.user = {
-    name: move $into.user,
-    is_invalid: $into.invalid != null
-      or $into.user_state == "invalid"
-      or $into.template == "invalid_user",
+  $openssh.user = {
+    name: move $openssh.user,
+    is_invalid: $openssh.invalid != null
+      or $openssh.user_state == "invalid"
+      or $openssh.template == "invalid_user",
   }
-  $into.source = {
-    ip: move $into.source_ip,
-    port: move $into.source_port,
+  $openssh.source = {
+    ip: move $openssh.source_ip,
+    port: move $openssh.source_port,
   }
-  $into.preauth = $into.phase == "preauth"
-  drop $into.verb, $into.invalid, $into.user_state, $into.phase, $into.other
+  $openssh.preauth = $openssh.phase == "preauth"
+  drop $openssh.verb, $openssh.invalid, $openssh.user_state, $openssh.phase, $openssh.other
 }

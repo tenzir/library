@@ -12,8 +12,8 @@ created: 2026-08-17T00:00:00Z
 The library now includes an `openssh` package for parsing OpenSSH `sshd`
 messages and mapping them to OCSF Authentication (class 3002).
 
-The package exposes three operators. Each takes its input as a positional
-argument and writes to the named `into` argument, which defaults to `this`:
+The package exposes three operators. `parse` and `map` each take the field they
+read and the field they write, in that order:
 
 | Operator | Purpose |
 |---|---|
@@ -31,6 +31,11 @@ where app_name == "sshd"
 openssh::ocsf::normalize message, time=timestamp, hostname=hostname
 ```
 
-Pipelines that inspect, enrich, or route the structured event call
-`openssh::parse` and `openssh::ocsf::map` directly and assign `raw_data`
-themselves.
+Pipelines that inspect, enrich, or route the structured event stage the steps
+themselves:
+
+```tql
+openssh::parse message, event
+openssh::ocsf::map event, ocsf
+this = {...ocsf, unmapped: event, raw_data: message}
+```

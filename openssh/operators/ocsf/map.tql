@@ -2,28 +2,28 @@
 description: |
   OpenSSH `sshd` events → OCSF.
 
-  Maps a structured OpenSSH event, as `openssh::parse` produces it, to OCSF
-  Authentication (class 3002). Both arguments default to `this`, so
-  `openssh::ocsf::map` maps the current event in place.
+  Reads a structured OpenSSH event, as `openssh::parse` produces it, and builds
+  OCSF Authentication (class 3002) in the second field:
+
+  ```tql
+  openssh::ocsf::map openssh, ocsf
+  ```
 
   A `null` event, which is what the parser yields for a message template it
-  does not model, becomes an OCSF Base Event that carries its payload. Whatever
-  the mapping did not translate stays in `unmapped`.
+  does not model, becomes an OCSF Base Event.
 
-  Callers stage the Syslog envelope's `time` and `hostname` into the event
-  before mapping, and assign `raw_data` afterwards from the field that still
-  holds the original message. Provenance is the caller's decision.
+  The operator consumes the source fields it maps and leaves the rest in place,
+  so the caller decides what becomes `unmapped`. Callers also stage the Syslog
+  envelope's `time` and `hostname` into the source event beforehand, and own
+  provenance afterwards.
 args:
   positional:
-    - name: event
-      description: The structured OpenSSH event to map.
+    - name: openssh
+      description: The structured OpenSSH event to read.
       type: field
-      default: this
-  named:
-    - name: into
-      description: The field that receives the OCSF event.
+    - name: ocsf
+      description: The OCSF event to build.
       type: field
-      default: this
 ---
 
 let $status_ids = {
@@ -31,12 +31,10 @@ let $status_ids = {
   failure: 2,
 }
 
-$into = {openssh: $event, ocsf: {}}
-
 // --- OCSF: shared attributes ------------------
 
-$into.ocsf = {
-  time: move $into.openssh.time?,
+$ocsf = {
+  time: move $openssh.time?,
   severity_id: 1,
   metadata: {
     version: "1.9.0",
@@ -48,25 +46,23 @@ $into.ocsf = {
     },
   },
 }
-if $into.openssh.outcome? != null {
-  $into.ocsf.status_id = $status_ids[move $into.openssh.outcome]?
+if $openssh.outcome? != null {
+  $ocsf.status_id = $status_ids[move $openssh.outcome]?
 }
 
-match $into.openssh.category? {
+match $openssh.category? {
   "authentication" => {
-    openssh::ocsf::events::authentication $into.openssh, $into.ocsf
+    openssh::ocsf::events::authentication $openssh, $ocsf
   }
   _ => {
     @name = "ocsf.base_event"
-    $into.ocsf.category_uid = 0
-    $into.ocsf.class_uid = 0
-    $into.ocsf.activity_id = 0
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
   }
 }
 
 // --- Finalize ---------------------------------
 
-$into.ocsf.type_uid = $into.ocsf.class_uid * 100 + $into.ocsf.activity_id
-drop $into.openssh.category?
-
-$into = {...$into.ocsf, unmapped: $into.openssh}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+drop $openssh.category?
