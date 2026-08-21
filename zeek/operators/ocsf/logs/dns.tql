@@ -14,6 +14,7 @@ zeek::ocsf::map_network event=$event
 
 $event.ocsf.activity_id = 6
 $event.ocsf.class_uid = 4003
+$event.ocsf.opcode_id = 0
 $event.ocsf.severity_id = 1
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
@@ -36,7 +37,7 @@ let $rcode_names = {
   NOTAUTH: "NotAuth",
   NOTZONE: "NotZone",
   "unassigned-11": "DSOTYPENI",
-  BADVERS: "BADSIG_VERS",
+  BADVERS: "BADVERS",
   BADKEY: "BADKEY",
   BADTIME: "BADTIME",
   BADMODE: "BADMODE",
@@ -44,7 +45,7 @@ let $rcode_names = {
   BADALG: "BADALG",
   BADTRUNC: "BADTRUNC",
   BADCOOKIE: "BADCOOKIE",
-  BADSIG: "BADSIG_VERS",
+  BADSIG: "BADSIG",
 }
 $event.ocsf.answers = zip(move $event.zeek.answers, move $event.zeek.TTLs).map(x => {
   rdata: x.left,
@@ -60,8 +61,13 @@ $event.ocsf.query = {
 $event.ocsf.query_time = $event.ocsf.time
 $event.ocsf.response_time = $event.ocsf.time
 $event.ocsf.rcode = $rcode_names[$event.zeek.rcode_name]? else $event.zeek.rcode_name
+if $event.zeek.rcode_name? == "BADSIG" {
+  $event.ocsf.rcode_id = 99
+  drop $event.zeek.rcode
+} else {
+  $event.ocsf.rcode_id = move $event.zeek.rcode
+}
 drop $event.zeek.rcode_name
-$event.ocsf.rcode_id = move $event.zeek.rcode
 
 $event.ocsf.connection_info = {
   direction: "Other",
