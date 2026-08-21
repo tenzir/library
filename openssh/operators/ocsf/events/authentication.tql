@@ -1,0 +1,47 @@
+---
+description: Structured OpenSSH event → OCSF Authentication (class 3002).
+args:
+  positional:
+    - name: openssh
+      description: The OpenSSH record to read.
+      type: field
+    - name: ocsf
+      description: The OCSF event to build.
+      type: field
+---
+
+let $activity_ids = {
+  logon: 1,
+  logoff: 2,
+}
+let $status_details = {
+  failed: "INVALID_CREDENTIALS",
+  invalid_user: "USER_DOES_NOT_EXIST",
+  max_auth_attempts: "MAX_ATTEMPTS_EXCEEDED",
+}
+
+@name = "ocsf.authentication"
+
+$ocsf.status_detail = $status_details[$openssh.template]?
+// A login against an account that does not exist fails for that reason, unless
+// OpenSSH already gave a more specific one.
+if $openssh.user.is_invalid and $openssh.template != "max_auth_attempts" {
+  $ocsf.status_detail = "USER_DOES_NOT_EXIST"
+}
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = $activity_ids[move $openssh.activity]
+$ocsf.user.name = move $openssh.user.name
+$ocsf.src_endpoint.ip = move $openssh.source.ip
+$ocsf.src_endpoint.port = move $openssh.source.port
+$ocsf.dst_endpoint.hostname = move $openssh.hostname?
+$ocsf.service.name = "sshd"
+$ocsf.auth_protocol_id = 99
+$ocsf.auth_protocol = "SSH"
+$ocsf.logon_type_id = 10
+$ocsf.is_remote = true
+// SSH encrypts the transport regardless of the credential method.
+$ocsf.is_cleartext = false
+
+drop $openssh.template, $openssh.user, $openssh.source

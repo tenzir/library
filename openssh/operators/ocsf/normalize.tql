@@ -1,0 +1,46 @@
+---
+description: |
+  Normalizes a Syslog event carrying an OpenSSH `sshd` message to OCSF
+  Authentication (class 3002).
+
+  One call takes the event all the way. It parses the `sshd` message, takes the
+  timestamp and host from the envelope around it, maps the structured event, and
+  stores the message as provenance:
+
+  ```tql
+  where app_name == "sshd"
+  openssh::ocsf::normalize
+  ```
+
+  The input is a Syslog event as `read_syslog` or `parse_syslog` yields it, which
+  is the shape `sshd` messages arrive in, and it defaults to the whole event. A
+  message template the package does not model becomes an OCSF Base Event that
+  carries the payload.
+
+  Callers that hold an `sshd` message without its envelope use `openssh::parse`
+  and `openssh::ocsf::map` directly.
+args:
+  positional:
+    - name: syslog
+      description: The Syslog event carrying the `sshd` message.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+openssh::parse $syslog.message, $into.openssh
+// An `sshd` message carries neither a timestamp nor a host, so the envelope
+// supplies both.
+$into.openssh.time = $syslog.timestamp
+$into.openssh.hostname = $syslog.hostname
+openssh::ocsf::map $into.openssh, $into.ocsf
+
+$into = {
+  ...$into.ocsf,
+  raw_data: $syslog.message,
+  raw_data_size: $syslog.message.length_bytes(),
+}

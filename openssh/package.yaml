@@ -1,0 +1,50 @@
+id: openssh
+name: OpenSSH
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+
+description: |
+  [OpenSSH](https://www.openssh.com/) is the SSH implementation that ships with
+  virtually every Unix system. Its `sshd` daemon writes free-form messages to
+  Syslog, which makes remote logins one of the most widely deployed and least
+  structured security-relevant log sources.
+
+  Operators:
+  - `openssh::ocsf::normalize` - Normalize one raw `sshd` message to OCSF
+    Authentication (class 3002)
+  - `openssh::parse` - Parse one raw `sshd` message
+  - `openssh::ocsf::map` - Map a structured OpenSSH event to OCSF
+    Authentication (class 3002)
+
+  `openssh::ocsf::normalize` takes a Syslog event all the way, in one call with
+  no arguments. It parses the `sshd` message, takes the timestamp and host from
+  the envelope around it, maps the result, and stores the message as provenance.
+  Pipelines that already hold a structured OpenSSH event call
+  `openssh::ocsf::map` instead.
+
+  `openssh::parse` and `openssh::ocsf::map` each take the field they read and
+  the field they write, in that order, so a staged pipeline reads from left to
+  right:
+
+  ```tql
+  openssh::parse message, event
+  openssh::ocsf::map event, ocsf
+  ```
+
+  An `sshd` message body carries neither a timestamp nor a host, which is why
+  the normalizer works on the Syslog event rather than the message alone.
+
+  The parser covers the authentication lifecycle that matters for detection:
+  accepted and failed logins, unknown accounts, exhausted authentication
+  attempts, and session termination. It does not structurally parse PAM session
+  messages, key exchange and cipher negotiation, subsystem and SFTP activity, or
+  daemon diagnostics. Those messages become OCSF Base Event records that carry
+  their payload, so downstream pipelines can route them without mistaking them
+  for authentication activity.
+
+  The examples show both forms: one call to the normalizer, and the staged
+  version that parses, maps, and adds provenance separately.
+categories:
+- sources
+- mappings

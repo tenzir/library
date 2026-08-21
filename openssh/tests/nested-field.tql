@@ -1,0 +1,27 @@
+// Verifies that the parser writes nothing but its selected output field, that
+// it leaves the payload intact, and that both fields can be nested paths.
+from {
+  marker: "authentication",
+  envelope: {
+    timestamp: 2026-01-01T00:00:00Z,
+    hostname: "bastion-01",
+    message: "Accepted password for alice from 192.0.2.5 port 33333 ssh2",
+    keep: "inner-authentication",
+  },
+}, {
+  marker: "unmodeled",
+  envelope: {
+    timestamp: 2026-01-01T00:00:00Z,
+    hostname: "bastion-01",
+    message: "Server listening on 0.0.0.0 port 22.",
+    keep: "inner-unmodeled",
+  },
+}
+openssh::parse envelope.message, envelope.ssh
+select \
+  name=@name,
+  marker,
+  has_message=envelope.message? != null,
+  keep=envelope.keep,
+  ssh=envelope.ssh
+sort marker

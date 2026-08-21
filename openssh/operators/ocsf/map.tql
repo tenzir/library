@@ -1,0 +1,72 @@
+---
+description: |
+  OpenSSH `sshd` events → OCSF.
+
+  Reads a structured OpenSSH event, as `openssh::parse` produces it, and builds
+  OCSF Authentication (class 3002) in the second field:
+
+  ```tql
+  openssh::ocsf::map openssh, ocsf
+  ```
+
+  A `null` event, which is what the parser yields for a message template it
+  does not model, becomes an OCSF Base Event.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event. Callers stage the Syslog
+  envelope's `time` and `hostname` into the source event beforehand, and own
+  provenance afterwards.
+args:
+  positional:
+    - name: openssh
+      description: The structured OpenSSH event to read.
+      type: field
+    - name: ocsf
+      description: The OCSF event to build.
+      type: field
+---
+
+let $status_ids = {
+  success: 1,
+  failure: 2,
+}
+
+// --- OCSF: shared attributes ------------------
+
+$ocsf = {
+  time: move $openssh.time?,
+  severity_id: 1,
+  metadata: {
+    version: "1.9.0",
+    log_name: "sshd",
+    log_provider: "OpenSSH",
+    product: {
+      name: "OpenSSH",
+      vendor_name: "OpenBSD",
+    },
+  },
+}
+if $openssh.outcome? != null {
+  $ocsf.status_id = $status_ids[move $openssh.outcome]?
+}
+
+match $openssh.category? {
+  "authentication" => {
+    openssh::ocsf::events::authentication $openssh, $ocsf
+  }
+  _ => {
+    @name = "ocsf.base_event"
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
+  }
+}
+
+// --- Finalize ---------------------------------
+// The event type derives from what the arm set, and whatever the mapping did
+// not consume becomes the residue. The envelope fields the caller staged are
+// not residue, so they go first.
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+drop $openssh.category?, $openssh.hostname?
+$ocsf.unmapped = move $openssh
