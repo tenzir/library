@@ -12,8 +12,8 @@ description: |
   A `null` event, which is what the parser yields for a message template it
   does not model, becomes an OCSF Base Event.
 
-  The operator consumes the source fields it maps and leaves the rest in place,
-  so the caller decides what becomes `unmapped`. Callers also stage the Syslog
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event. Callers stage the Syslog
   envelope's `time` and `hostname` into the source event beforehand, and own
   provenance afterwards.
 args:
@@ -63,6 +63,10 @@ match $openssh.category? {
 }
 
 // --- Finalize ---------------------------------
+// The event type derives from what the arm set, and whatever the mapping did
+// not consume becomes the residue. The envelope fields the caller staged are
+// not residue, so they go first.
 
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-drop $openssh.category?
+drop $openssh.category?, $openssh.hostname?
+$ocsf.unmapped = move $openssh

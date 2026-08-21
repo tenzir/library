@@ -17,18 +17,19 @@ read and the field they write, in that order:
 
 | Operator | Purpose |
 |---|---|
-| `openssh::ocsf::normalize` | Parse one raw `sshd` message body, map it, and store the body as `raw_data` |
-| `openssh::parse` | Parse one raw `sshd` message body into a structured OpenSSH event |
+| `openssh::ocsf::normalize` | Take a Syslog event carrying an `sshd` message all the way to OCSF |
+| `openssh::parse` | Parse one raw `sshd` message into a structured OpenSSH event |
 | `openssh::ocsf::map` | Map a structured OpenSSH event to OCSF Authentication |
 
-An `sshd` message body carries neither a timestamp nor a host, so the
-normalizer takes both from the Syslog envelope:
+An `sshd` message carries neither a timestamp nor a host, so the normalizer
+works on the Syslog event around it and takes both from there. It needs no
+arguments:
 
 ```tql
 accept_relp "0.0.0.0:2514"
 this = data.parse_syslog()
 where app_name == "sshd"
-openssh::ocsf::normalize message, time=timestamp, hostname=hostname
+openssh::ocsf::normalize
 ```
 
 Pipelines that inspect, enrich, or route the structured event stage the steps
@@ -36,6 +37,10 @@ themselves:
 
 ```tql
 openssh::parse message, event
+event.time = move timestamp
 openssh::ocsf::map event, ocsf
-this = {...ocsf, unmapped: event, raw_data: message}
+this = {...ocsf, raw_data: message}
 ```
+
+`openssh::ocsf::map` consumes the source event: what it maps becomes OCSF, and
+what it cannot map becomes `unmapped` inside the OCSF event.

@@ -1,50 +1,46 @@
 ---
 description: |
-  Normalizes one raw OpenSSH `sshd` message to OCSF Authentication
-  (class 3002).
+  Normalizes a Syslog event carrying an OpenSSH `sshd` message to OCSF
+  Authentication (class 3002).
 
-  One call takes a message body all the way: it parses the body, adds the
-  Syslog envelope fields the caller selects, maps the structured event, and
-  stores the body as provenance. A message template the package does not model
-  becomes an OCSF Base Event that carries the payload.
+  One call takes the event all the way. It parses the `sshd` message, takes the
+  timestamp and host from the envelope around it, maps the structured event, and
+  stores the message as provenance:
 
-  An `sshd` message body carries neither a timestamp nor a host, so `time` and
-  `hostname` select the envelope fields that do. Callers that already hold a
-  structured OpenSSH event use `openssh::ocsf::map` instead.
+  ```tql
+  where app_name == "sshd"
+  openssh::ocsf::normalize
+  ```
+
+  The input is a Syslog event as `read_syslog` or `parse_syslog` yields it, which
+  is the shape `sshd` messages arrive in, and it defaults to the whole event. A
+  message template the package does not model becomes an OCSF Base Event that
+  carries the payload.
+
+  Callers that hold an `sshd` message without its envelope use `openssh::parse`
+  and `openssh::ocsf::map` directly.
 args:
   positional:
-    - name: input
-      description: The raw OpenSSH message body to normalize.
+    - name: syslog
+      description: The Syslog event carrying the `sshd` message.
       type: field
+      default: this
   named:
     - name: into
       description: The field that receives the OCSF event.
       type: field
       default: this
-    - name: time
-      description: The envelope field holding the event timestamp.
-      type: field
-      default: null
-    - name: hostname
-      description: The envelope field holding the host that logged the message.
-      type: field
-      default: null
 ---
 
-assert type_of($input).kind == "string", message="expected a raw OpenSSH message body"
-
-openssh::parse $input, $into.openssh
-if $time != null {
-  $into.openssh.time = $time
-}
-if $hostname != null {
-  $into.openssh.hostname = $hostname
-}
+openssh::parse $syslog.message, $into.openssh
+// An `sshd` message carries neither a timestamp nor a host, so the envelope
+// supplies both.
+$into.openssh.time = $syslog.timestamp
+$into.openssh.hostname = $syslog.hostname
 openssh::ocsf::map $into.openssh, $into.ocsf
 
 $into = {
   ...$into.ocsf,
-  unmapped: $into.openssh,
-  raw_data: $input,
-  raw_data_size: $input.length_bytes(),
+  raw_data: $syslog.message,
+  raw_data_size: $syslog.message.length_bytes(),
 }
