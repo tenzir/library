@@ -1,67 +1,73 @@
 ---
-description: FortiGate → OCSF
+description: Maps a structured FortiGate event to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the event to map.
       type: field
       default: this
+      description: The structured FortiGate event to map.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, fortinet: $event, ocsf: {}}
+
+$into = {fortinet: $event, ocsf: {}}
 
 // Normalize FortiGate sentinel strings to null.
-replace $event.fortinet, what="N/A", with=null
-replace $event.fortinet, what="none", with=null
-replace $event.fortinet, what="undefined", with=null
+replace $into.fortinet, what="N/A", with=null
+replace $into.fortinet, what="none", with=null
+replace $into.fortinet, what="undefined", with=null
 
-$event.ocsf.metadata = {
+$into.ocsf.metadata = {
   log_format: "kv",
-  log_level: move $event.fortinet.level,
-  log_name: move $event.fortinet.subtype,
-  original_time: f"{(move $event.fortinet.date).format_time("%Y-%m-%d")} {move $event.fortinet.time}",
-  original_event_uid: (move $event.fortinet.logid).string(),
+  log_level: move $into.fortinet.level,
+  log_name: move $into.fortinet.subtype,
+  original_time: f"{(move $into.fortinet.date).format_time("%Y-%m-%d")} {move $into.fortinet.time}",
+  original_event_uid: (move $into.fortinet.logid).string(),
   processed_time: now(),
   product: {
     name: "FortiGate",
     vendor_name: "Fortinet",
   },
   profiles: ["host"],
-  type: move $event.fortinet.type?,
-  version: "1.8.0",
+  type: move $into.fortinet.type?,
+  version: "1.9.0",
 }
 
-if $event.fortinet.msg? != null {
-  $event.ocsf.message = move $event.fortinet.msg
+if $into.fortinet.msg? != null {
+  $into.ocsf.message = move $into.fortinet.msg
 }
 
-if $event.fortinet.eventtime? != null {
-  $event.ocsf.time = move $event.fortinet.eventtime
+if $into.fortinet.eventtime? != null {
+  $into.ocsf.time = move $into.fortinet.eventtime
   // FortiGate eventtime is seconds (10-digit) or nanoseconds (19-digit).
   // Values below 1e13 are seconds; above are nanoseconds.
-  $event.ocsf.time = $event.ocsf.time.seconds() if $event.ocsf.time < 10T else $event.ocsf.time.nanoseconds()
-  $event.ocsf.time = $event.ocsf.time.from_epoch()
+  $into.ocsf.time = $into.ocsf.time.seconds() if $into.ocsf.time < 10T else $into.ocsf.time.nanoseconds()
+  $into.ocsf.time = $into.ocsf.time.from_epoch()
 } else {
-  $event.ocsf.time = $event.ocsf.metadata.original_time.parse_time("%Y-%m-%d %H:%M:%S")
+  $into.ocsf.time = $into.ocsf.metadata.original_time.parse_time("%Y-%m-%d %H:%M:%S")
 }
 
-if $event.fortinet.logdesc? != null  {
-  $event.ocsf.status_detail = move $event.fortinet.logdesc
+if $into.fortinet.logdesc? != null  {
+  $into.ocsf.status_detail = move $into.fortinet.logdesc
 }
 
 // `severity` is present on some UTM logs; `level` appears on all logs and is
 // already captured in metadata.log_level. Use severity first, fall back to
 // level so events without an explicit severity are not silently downgraded to
 // Informational.
-if $event.fortinet.severity? != null {
+if $into.fortinet.severity? != null {
   let $severities = {
     low: 2,
     medium: 3,
     high: 4,
     critical: 5,
   }
-  $event.ocsf.severity_id = $severities[move $event.fortinet.severity]
-} else if $event.ocsf.metadata.log_level? != null {
+  $into.ocsf.severity_id = $severities[move $into.fortinet.severity]
+} else if $into.ocsf.metadata.log_level? != null {
   let $levels = {
     debug: 1,
     information: 1,
@@ -72,72 +78,74 @@ if $event.fortinet.severity? != null {
     critical: 5,
     emergency: 6,
   }
-  $event.ocsf.severity_id = $levels[$event.ocsf.metadata.log_level]? else 1
+  $into.ocsf.severity_id = $levels[$into.ocsf.metadata.log_level]? else 1
 } else {
-  $event.ocsf.severity_id = 1
+  $into.ocsf.severity_id = 1
 }
 
 // Host profile
-if $event.fortinet.vd? != null {
-  $event.ocsf.device.zone = move $event.fortinet.vd
+if $into.fortinet.vd? != null {
+  $into.ocsf.device.zone = move $into.fortinet.vd
 }
 
 // Specific event type mappings
-if $event.ocsf.metadata.type == "utm" {
-  if $event.ocsf.metadata.log_name == "dns" {
-    fortinet::fortigate::ocsf::logs::dns event=$event
-  } else if $event.ocsf.metadata.log_name == "ips" {
-    fortinet::fortigate::ocsf::logs::ips event=$event
-  } else if $event.ocsf.metadata.log_name == "webfilter" {
-    fortinet::fortigate::ocsf::logs::webfilter event=$event
-  } else if $event.ocsf.metadata.log_name == "anomaly" {
-    fortinet::fortigate::ocsf::logs::anomaly event=$event
-  } else if $event.ocsf.metadata.log_name == "virus" {
-    fortinet::fortigate::ocsf::logs::virus event=$event
-  } else if $event.ocsf.metadata.log_name == "ssh" {
-    fortinet::fortigate::ocsf::logs::ssh event=$event
-  } else if $event.ocsf.metadata.log_name == "ssl" {
-    fortinet::fortigate::ocsf::logs::ssl event=$event
-  } else if $event.ocsf.metadata.log_name == "emailfilter" {
-    fortinet::fortigate::ocsf::logs::emailfilter event=$event
-  } else if $event.ocsf.metadata.log_name == "app-ctrl" {
-    fortinet::fortigate::ocsf::logs::app_ctrl event=$event
-  } else if $event.ocsf.metadata.log_name == "dlp" {
-    fortinet::fortigate::ocsf::logs::dlp event=$event
-  } else if $event.ocsf.metadata.log_name == "cifs" {
-    fortinet::fortigate::ocsf::logs::cifs event=$event
+if $into.ocsf.metadata.type == "utm" {
+  if $into.ocsf.metadata.log_name == "dns" {
+    fortinet::fortigate::ocsf::logs::dns event=$into
+  } else if $into.ocsf.metadata.log_name == "ips" {
+    fortinet::fortigate::ocsf::logs::ips event=$into
+  } else if $into.ocsf.metadata.log_name == "webfilter" {
+    fortinet::fortigate::ocsf::logs::webfilter event=$into
+  } else if $into.ocsf.metadata.log_name == "anomaly" {
+    fortinet::fortigate::ocsf::logs::anomaly event=$into
+  } else if $into.ocsf.metadata.log_name == "virus" {
+    fortinet::fortigate::ocsf::logs::virus event=$into
+  } else if $into.ocsf.metadata.log_name == "ssh" {
+    fortinet::fortigate::ocsf::logs::ssh event=$into
+  } else if $into.ocsf.metadata.log_name == "ssl" {
+    fortinet::fortigate::ocsf::logs::ssl event=$into
+  } else if $into.ocsf.metadata.log_name == "emailfilter" {
+    fortinet::fortigate::ocsf::logs::emailfilter event=$into
+  } else if $into.ocsf.metadata.log_name == "app-ctrl" {
+    fortinet::fortigate::ocsf::logs::app_ctrl event=$into
+  } else if $into.ocsf.metadata.log_name == "dlp" {
+    fortinet::fortigate::ocsf::logs::dlp event=$into
+  } else if $into.ocsf.metadata.log_name == "cifs" {
+    fortinet::fortigate::ocsf::logs::cifs event=$into
   } else {
     // Unknown UTM subtype: emit as Base Event so ocsf::derive does not drop
     // the record for a missing class_uid.
-    fortinet::fortigate::ocsf::base event=$event
+    fortinet::fortigate::ocsf::base event=$into
   }
-} else if $event.ocsf.metadata.type == "traffic" {
-  fortinet::fortigate::ocsf::logs::traffic event=$event
-} else if $event.ocsf.metadata.type == "event" {
-  if $event.ocsf.metadata.log_name == "user" {
-    fortinet::fortigate::ocsf::logs::authentication event=$event
-  } else if $event.ocsf.metadata.log_name == "system" {
+} else if $into.ocsf.metadata.type == "traffic" {
+  fortinet::fortigate::ocsf::logs::traffic event=$into
+} else if $into.ocsf.metadata.type == "event" {
+  if $into.ocsf.metadata.log_name == "user" {
+    fortinet::fortigate::ocsf::logs::authentication event=$into
+  } else if $into.ocsf.metadata.log_name == "system" {
     // Only admin login/logout events map to Authentication; subtype="system"
     // also covers startup, config changes, and performance stats which should
     // fall through to Base Event.
-    if $event.fortinet.action? == "login" or $event.fortinet.action? == "logout" {
-      fortinet::fortigate::ocsf::logs::authentication event=$event
+    if $into.fortinet.action? == "login" or $into.fortinet.action? == "logout" {
+      fortinet::fortigate::ocsf::logs::authentication event=$into
     } else {
-      fortinet::fortigate::ocsf::base event=$event
+      fortinet::fortigate::ocsf::base event=$into
     }
-  } else if $event.ocsf.metadata.log_name == "vpn" {
-    fortinet::fortigate::ocsf::logs::vpn event=$event
-  } else if $event.ocsf.metadata.log_name == "endpoint" {
-    fortinet::fortigate::ocsf::logs::endpoint event=$event
-  } else if $event.ocsf.metadata.log_name == "wad" {
-    fortinet::fortigate::ocsf::logs::wad event=$event
-  } else if $event.ocsf.metadata.log_name == "wireless" {
-    fortinet::fortigate::ocsf::logs::wireless event=$event
+  } else if $into.ocsf.metadata.log_name == "vpn" {
+    fortinet::fortigate::ocsf::logs::vpn event=$into
+  } else if $into.ocsf.metadata.log_name == "endpoint" {
+    fortinet::fortigate::ocsf::logs::endpoint event=$into
+  } else if $into.ocsf.metadata.log_name == "wad" {
+    fortinet::fortigate::ocsf::logs::wad event=$into
+  } else if $into.ocsf.metadata.log_name == "wireless" {
+    fortinet::fortigate::ocsf::logs::wireless event=$into
   } else {
-    fortinet::fortigate::ocsf::base event=$event
+    fortinet::fortigate::ocsf::base event=$into
   }
 } else {
-  fortinet::fortigate::ocsf::base event=$event
+  fortinet::fortigate::ocsf::base event=$into
 }
 
-$event = {...$event.ocsf, unmapped: $event.fortinet}
+
+
+$into = {...$into.ocsf, unmapped: $into.fortinet}
