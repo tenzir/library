@@ -1,0 +1,22 @@
+---
+description: Normalizes a supported AWS VPC Flow Log line to OCSF 1.9.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The VPC Flow Log line to normalize.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the OCSF event.
+---
+
+$into = {raw: $input}
+amazon::vpc_flow::parse $into.raw, into=$into.event
+amazon::vpc_flow::ocsf::map $into.event, into=$into.ocsf
+$into = {
+  ...$into.ocsf,
+  raw_data: $into.raw,
+  raw_data_size: $into.raw.length_bytes(),
+}

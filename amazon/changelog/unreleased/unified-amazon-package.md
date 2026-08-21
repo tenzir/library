@@ -14,7 +14,7 @@ created: 2025-12-18T00:00:00Z
 Merged `amazon_security_lake` and `amazon_vpc_flow` packages into a single
 unified `amazon` package with namespaced operators:
 
-- `amazon::vpc_flow::parse` - Parse VPC Flow Log lines with custom header using `parse_ssv`
+- `amazon::vpc_flow::parse` - Classify and parse supported VPC Flow Log layouts
 - `amazon::vpc_flow::parse_v2` - Parse default AWS format (14 fields)
 - `amazon::vpc_flow::parse_v7_ecs` - Parse v7 format with ECS fields (24 fields)
 - `amazon::vpc_flow::ocsf::map` - Map to OCSF Network Activity (class 4001)

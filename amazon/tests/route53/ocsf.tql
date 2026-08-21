@@ -6,10 +6,12 @@ from_file f"{env("TENZIR_INPUTS")}/route53-query-logs.ndjson" {
   read_lines
 }
 event = line.parse_json()
-amazon::route53::ocsf::map event=event
-event.raw_data = move line
-event.raw_data_size = event.raw_data.length_bytes()
-this = event
+amazon::route53::ocsf::map event, into=ocsf
+this = {
+  ...ocsf,
+  raw_data: line,
+  raw_data_size: line.length_bytes(),
+}
 ocsf::derive
 ocsf::cast
 sort time

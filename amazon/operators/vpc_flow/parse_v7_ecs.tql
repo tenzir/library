@@ -1,26 +1,21 @@
 ---
-description: |
-  Parses AWS VPC Flow Logs in v7 format with ECS fields (24 fields).
-  Use `into=this` to replace the current event with the parsed record.
+description: Parses AWS VPC Flow Logs in v7 format with ECS fields.
 args:
+  positional:
+    - name: input
+      type: field
+      description: The field holding the VPC Flow Log line.
   named:
     - name: into
       type: field
-      description: Output field for the parsed VPC Flow Log record.
-    - name: field
-      type: field
-      description: Field containing the VPC Flow Log line.
+      default: this
+      description: The field that receives the parsed record.
 ---
 
-let $header = "version account_id interface_id srcaddr dstaddr srcport dstport protocol packets bytes start end action log_status ecs_cluster_name ecs_cluster_arn ecs_container_instance_arn ecs_container_instance_id ecs_service_name ecs_task_definition_arn ecs_task_id ecs_task_arn ecs_second_container_id ecs_container_id"
-
-_vpc_flow = $field.parse_ssv(
-  header=$header,
+$into = $input.parse_ssv(
+  header=amazon::$vpc_flow_v7_ecs_header,
   null_value="-",
 )
-
-// Convert Unix epoch seconds to timestamps.
-_vpc_flow.start = _vpc_flow.start?.seconds().from_epoch()
-_vpc_flow.end = _vpc_flow.end?.seconds().from_epoch()
-
-$into = move _vpc_flow
+$into.account_id = $into.account_id?.string().pad_start(12, "0")
+$into.start = $into.start?.seconds().from_epoch()
+$into.end = $into.end?.seconds().from_epoch()

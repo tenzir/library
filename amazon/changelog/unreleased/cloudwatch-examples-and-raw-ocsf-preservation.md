@@ -9,15 +9,15 @@ prs:
 created: 2026-05-20T13:20:50.623334Z
 ---
 
-The Amazon package now includes source-agnostic VPC Flow Log parsing helpers and examples for CloudWatch and S3 workflows.
-
-Use the `into` argument when you need to keep source metadata or the raw log line alongside the parsed record:
+The Amazon package includes source-agnostic VPC Flow Log parsing helpers and
+examples for CloudWatch and S3 workflows. The normalizer preserves the source
+line as OCSF provenance:
 
 ```tql
 from_amazon_cloudwatch "/aws/vpc/flowlogs", mode="search"
-amazon::vpc_flow::parse_v7_ecs field=message, into=vpc_flow
-amazon::vpc_flow::ocsf::map vpc_flow, raw=message
+amazon::vpc_flow::ocsf::normalize message
 ocsf::cast
 ```
 
-The VPC Flow Log and Route 53 OCSF mappings preserve `raw_data` and `raw_data_size` when a raw field is provided.
+Use the parser and mapper separately when the pipeline needs the structured VPC
+Flow Log record before mapping.
