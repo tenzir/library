@@ -1,5 +1,5 @@
 ---
-description: "Check Point URL/Application Control → OCSF Web Resource Access Activity (6004)"
+description: "Check Point URL/Application Control -> OCSF HTTP Activity (4002)"
 args:
   named:
     - name: event
@@ -7,47 +7,23 @@ args:
       type: field
 ---
 
-@name = "ocsf.web_resource_access_activity"
+@name = "ocsf.http_activity"
 
 $event.ocsf.metadata.profiles = ["host", "security_control"]
 
-$event.ocsf.category_uid = 6
-$event.ocsf.class_uid = 6004
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4002
 
-match $event.checkpoint.action? {
-  "Accept" | "Allow" => {
-    $event.ocsf.activity_id = 1
-    $event.ocsf.action_id = 1
-    $event.ocsf.disposition_id = 1
-    $event.ocsf.status_id = 1
-  }
-  "Drop" | "Prevent" | "Reject" => {
-    $event.ocsf.activity_id = 2
-    $event.ocsf.action_id = 2
-    $event.ocsf.disposition_id = 2
-    $event.ocsf.status_id = 2
-  }
-  _ => {
-    $event.ocsf.activity_id = 0
-    $event.ocsf.action_id = 0
-    $event.ocsf.disposition_id = 0
-    $event.ocsf.status_id = 0
-  }
-}
+$event.ocsf.activity_id = 0
+checkpoint::ocsf::security_control_outcome event=$event
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 drop $event.checkpoint.action?
 
 if $event.checkpoint.url? != null {
-  $event.ocsf.http_request.url.path = $event.checkpoint.url
-  $event.ocsf.web_resources = [{
-    url_string: move $event.checkpoint.url,
-  }]
+  $event.ocsf.http_request.url.url_string = move $event.checkpoint.url
 } else {
   $event.ocsf.http_request = {}
-  $event.ocsf.web_resources = [{
-    name: $event.ocsf.message? else "web resource",
-  }]
 }
 
 if $event.checkpoint.src? != null {
@@ -58,9 +34,6 @@ if $event.checkpoint.s_port? != null {
 }
 if $event.checkpoint.sname? != null {
   $event.ocsf.src_endpoint.hostname = move $event.checkpoint.sname
-}
-if $event.checkpoint.user? != null {
-  $event.ocsf.actor.user.name = move $event.checkpoint.user
 }
 if $event.checkpoint.reason? != null {
   $event.ocsf.status_detail = move $event.checkpoint.reason

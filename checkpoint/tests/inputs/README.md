@@ -15,7 +15,7 @@ parser catalog and the Check Point Log Exporter administration guide.
 | `checkpoint.ndjson` detect | Local sanitized JSON export | JSON/NDJSON | VPN-1 & FireWall-1 | `message_info=Address spoofing` | `checkpoint.firewall.threat` | Detection Finding |
 | `checkpoint.ndjson` reject | Local sanitized JSON export | JSON/NDJSON | VPN-1 & FireWall-1 | `action=Reject` | `checkpoint.firewall.network` | Network Activity |
 | `checkpoint-expanded.ndjson` `net-nat-1` | Synthetic from documented core/VPN-1 fields | JSON/NDJSON | VPN-1 & FireWall-1 | NAT, bytes, packets, zones | `checkpoint.firewall.network` | Network Activity |
-| `checkpoint-expanded.ndjson` `url-1` | Synthetic from documented Application Control/URL Filtering fields | JSON/NDJSON | URL Filtering | URL and application fields | `checkpoint.firewall.web_resource` | Web Resource Access Activity |
+| `checkpoint-expanded.ndjson` `url-1` | Synthetic from documented Application Control/URL Filtering fields | JSON/NDJSON | URL Filtering | URL and application fields | `checkpoint.firewall.web_resource` | HTTP Activity |
 | `checkpoint-expanded.ndjson` `threat-1` | Synthetic from documented IPS/threat-prevention fields | JSON/NDJSON | IPS | `threatname` and `protection_name` | `checkpoint.firewall.threat` | Detection Finding |
 | `checkpoint-expanded.ndjson` `dlp-1` | Synthetic from documented DLP fields | JSON/NDJSON | DLP | `data_type`, `object`, sender/recipient | `checkpoint.firewall.dlp` | Data Security Finding |
 | `checkpoint-expanded.ndjson` `vpn-1` | Synthetic from documented Mobile Access/Connectra fields | JSON/NDJSON | Mobile Access | VPN session and user fields | `checkpoint.firewall.vpn` | Tunnel Activity |

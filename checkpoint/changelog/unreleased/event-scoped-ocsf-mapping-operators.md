@@ -7,16 +7,12 @@ authors:
 created: 2026-06-13T07:58:15.702248Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+`checkpoint::ocsf::map` now takes an optional positional source field and a
+named `into` output. Both default to `this`, and exact in-place mapping is safe:
 
 ```tql
-pkg::ocsf::map event=source
+checkpoint::ocsf::map source, into=ocsf
 ```
+
+The mapper targets OCSF 1.9. URL and Application Control records now use HTTP
+Activity because OCSF deprecated Web Resource Access Activity.

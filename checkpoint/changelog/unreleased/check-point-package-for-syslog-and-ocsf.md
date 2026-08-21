@@ -41,7 +41,7 @@ The mapper now covers these fixture-backed OCSF classes:
 | Check Point family | OCSF class |
 |---|---|
 | Firewall/Core/VPN-1 traffic | Network Activity (4001) |
-| Application Control and URL Filtering | Web Resource Access Activity (6004) |
+| Application Control and URL Filtering | HTTP Activity (4002) |
 | IPS and threat-prevention findings | Detection Finding (2004) |
 | DLP and Content Awareness | Data Security Finding (2006) |
 | VPN and Mobile Access | Tunnel Activity (4014) |
