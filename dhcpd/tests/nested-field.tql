@@ -1,3 +1,5 @@
+// Verifies that the normalizer only writes its selected output field, preserves
+// unrelated siblings, and accepts nested input and output paths.
 from {
   marker: "parsed",
   dhcpd: {
@@ -13,11 +15,11 @@ from {
   },
 }
 
-dhcpd::parse event=dhcpd
-dhcpd::ocsf::map event=dhcpd
-
-dhcpd.unmapped.outer_marker = move marker
-this = move dhcpd
+dhcpd::ocsf::normalize dhcpd, into=normalized
+normalized.unmapped.source_keep = move dhcpd.keep
+normalized.unmapped.has_message = dhcpd.message? != null
+normalized.unmapped.outer_marker = move marker
+this = move normalized
 ocsf::cast
 
 drop_null_fields

@@ -1,42 +1,50 @@
 ---
 description: |
-  Map a parsed ISC DHCPD record into OCSF.
+  Maps a structured ISC DHCPD event to OCSF.
 
-  Run `dhcpd::parse` first. This operator expects a normalized DHCPD domain
-  record, preserves parser leftovers in `unmapped`, and replaces the selected
-  input event field with the OCSF event.
+  The first field holds the event produced by `dhcpd::parse`, and the second
+  receives OCSF DHCP Activity (class 4004) or an OCSF Base Event:
+
+  ```tql
+  dhcpd::ocsf::map dhcpd, ocsf
+  ```
+
+  The mapper consumes the structured source event. Translated fields become
+  OCSF attributes, and the remaining source fields become `unmapped`.
+  Provenance remains the caller's decision.
 args:
-  named:
-    - name: event
-      description: The parsed DHCPD record to map.
+  positional:
+    - name: dhcpd
+      description: The structured DHCPD event to read.
       type: field
-      default: this
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
 ---
 
-// Keep staging under the selected input event. Bare field assignments can
-// overwrite sibling fields in the caller's record.
-$event = {...$event, dhcpd: $event, ocsf: {}}
-
-match $event.dhcpd.category? {
+match $dhcpd.category? {
   "transaction" => {
-    match $event.dhcpd.family? {
+    match $dhcpd.family? {
       "dhcpv4" => {
-        dhcpd::ocsf::events::dhcpv4 event=$event
+        dhcpd::ocsf::events::dhcpv4 $dhcpd, $ocsf
       }
       "bootp" => {
-        dhcpd::ocsf::events::bootp event=$event
+        dhcpd::ocsf::events::bootp $dhcpd, $ocsf
       }
       "dhcpv6" => {
-        dhcpd::ocsf::events::dhcpv6 event=$event
+        dhcpd::ocsf::events::dhcpv6 $dhcpd, $ocsf
       }
       _ => {
-        dhcpd::ocsf::base event=$event
+        dhcpd::ocsf::base $dhcpd, $ocsf
       }
     }
   }
   _ => {
-    dhcpd::ocsf::base event=$event
+    dhcpd::ocsf::base $dhcpd, $ocsf
   }
 }
 
-$event = {...$event.ocsf, unmapped: $event.dhcpd}
+// The parser category and family only dispatch the mapper and are not source
+// residue.
+drop $dhcpd.category?, $dhcpd.family?
+$ocsf.unmapped = move $dhcpd
