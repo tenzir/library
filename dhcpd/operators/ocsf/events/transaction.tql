@@ -2,11 +2,8 @@
 description: ISC DHCPD parsed transaction -> OCSF DHCP Activity.
 args:
   positional:
-    - name: dhcpd
-      description: The structured DHCPD transaction to read.
-      type: field
-    - name: ocsf
-      description: The OCSF DHCP Activity event to build.
+    - name: event
+      description: The active mapping scope.
       type: field
 ---
 
@@ -42,11 +39,11 @@ let $activity_ids = {
 
 @name = "ocsf.dhcp_activity"
 
-$ocsf = {
-  time: move $dhcpd.time,
+$event.ocsf = {
+  time: move $event.dhcpd.time,
   category_uid: 4,
   class_uid: 4004,
-  activity_id: $activity_ids.get($dhcpd.message_type.to_lower(), 99),
+  activity_id: $activity_ids.get($event.dhcpd.message_type.to_lower(), 99),
   severity_id: 1,
   metadata: {
     version: "1.9.0",
@@ -64,58 +61,58 @@ $ocsf = {
     protocol_num: 17,
   },
   src_endpoint: {
-    uid: move $dhcpd.client?.uid?,
-    hostname: move $dhcpd.client?.hostname?,
-    mac: move $dhcpd.client?.mac?,
-    ip: move $dhcpd.client?.ip?,
+    uid: move $event.dhcpd.client?.uid?,
+    hostname: move $event.dhcpd.client?.hostname?,
+    mac: move $event.dhcpd.client?.mac?,
+    ip: move $event.dhcpd.client?.ip?,
   },
   dst_endpoint: {
-    ip: move $dhcpd.server?.ip?,
+    ip: move $event.dhcpd.server?.ip?,
     svc_name: "dhcp",
   },
 }
 
-if $dhcpd.message_type.to_lower() in ["renew", "rebind"] {
-  $ocsf.is_renewal = true
+if $event.dhcpd.message_type.to_lower() in ["renew", "rebind"] {
+  $event.ocsf.is_renewal = true
 }
 
-if $dhcpd.client_action? != null {
-  $ocsf.activity_id = $activity_ids.get($dhcpd.client_action.to_lower(), 99)
+if $event.dhcpd.client_action? != null {
+  $event.ocsf.activity_id = $activity_ids.get($event.dhcpd.client_action.to_lower(), 99)
 }
 
-match $ocsf.activity_id {
+match $event.ocsf.activity_id {
   2 | 5 => {
-    $ocsf.status_id = 1
+    $event.ocsf.status_id = 1
   }
   4 | 6 => {
-    $ocsf.status_id = 2
+    $event.ocsf.status_id = 2
   }
   _ => {
-    $ocsf.status_id = 0
+    $event.ocsf.status_id = 0
   }
 }
 
-if $dhcpd.reason? != null {
-  $ocsf.status_detail = move $dhcpd.reason
+if $event.dhcpd.reason? != null {
+  $event.ocsf.status_detail = move $event.dhcpd.reason
 }
-if $ocsf.status_detail? == null and $dhcpd.status_text? != null {
-  $ocsf.status_detail = move $dhcpd.status_text
+if $event.ocsf.status_detail? == null and $event.dhcpd.status_text? != null {
+  $event.ocsf.status_detail = move $event.dhcpd.status_text
 }
-if $dhcpd.identity_association?.valid_for_seconds? != null {
-  $ocsf.lease_dur = move $dhcpd.identity_association.valid_for_seconds
+if $event.dhcpd.identity_association?.valid_for_seconds? != null {
+  $event.ocsf.lease_dur = move $event.dhcpd.identity_association.valid_for_seconds
 }
-if $dhcpd.transaction_id? != null {
-  $ocsf.transaction_uid = move $dhcpd.transaction_id
+if $event.dhcpd.transaction_id? != null {
+  $event.ocsf.transaction_uid = move $event.dhcpd.transaction_id
 }
-if $ocsf.activity_id == 99 {
-  $ocsf.activity_name = $dhcpd.client_event? else $dhcpd.client_action? else $dhcpd.message_type
+if $event.ocsf.activity_id == 99 {
+  $event.ocsf.activity_name = $event.dhcpd.client_event? else $event.dhcpd.client_action? else $event.dhcpd.message_type
 }
-if $dhcpd.via_ip? != null or $dhcpd.via_interface? != null {
-  if $dhcpd.via_ip? != null {
-    $ocsf.relay.ip = move $dhcpd.via_ip
+if $event.dhcpd.via_ip? != null or $event.dhcpd.via_interface? != null {
+  if $event.dhcpd.via_ip? != null {
+    $event.ocsf.relay.ip = move $event.dhcpd.via_ip
   }
-  if $dhcpd.via_interface? != null {
-    $ocsf.relay.name = move $dhcpd.via_interface
+  if $event.dhcpd.via_interface? != null {
+    $event.ocsf.relay.name = move $event.dhcpd.via_interface
   }
 }
-$ocsf.type_uid = 400400 + $ocsf.activity_id
+$event.ocsf.type_uid = 400400 + $event.ocsf.activity_id

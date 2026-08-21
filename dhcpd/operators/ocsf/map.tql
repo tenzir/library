@@ -2,49 +2,60 @@
 description: |
   Maps a structured ISC DHCPD event to OCSF.
 
-  The first field holds the event produced by `dhcpd::parse`, and the second
-  receives OCSF DHCP Activity (class 4004) or an OCSF Base Event:
+  The optional positional field holds the event produced by `dhcpd::parse`.
+  The named output receives OCSF DHCP Activity (class 4004) or an OCSF Base
+  Event. Both default to `this` for in-place mapping:
 
   ```tql
-  dhcpd::ocsf::map dhcpd, ocsf
+  dhcpd::ocsf::map event, into=ocsf
   ```
 
-  The mapper consumes the structured source event. Translated fields become
+  The mapper consumes the structured source event: translated fields become
   OCSF attributes, and the remaining source fields become `unmapped`.
   Provenance remains the caller's decision.
 args:
   positional:
-    - name: dhcpd
-      description: The structured DHCPD event to read.
+    - name: event
+      description: The structured DHCPD event to map.
       type: field
-    - name: ocsf
+      default: this
+  named:
+    - name: into
       description: The field that receives the OCSF event.
       type: field
+      default: this
 ---
 
-match $dhcpd.category? {
+// Snapshot the source before writing so in-place and separate-field calls use
+// the same mapping path.
+$into = {
+  dhcpd: $event,
+  ocsf: {},
+}
+
+match $into.dhcpd.category? {
   "transaction" => {
-    match $dhcpd.family? {
+    match $into.dhcpd.family? {
       "dhcpv4" => {
-        dhcpd::ocsf::events::dhcpv4 $dhcpd, $ocsf
+        dhcpd::ocsf::events::dhcpv4 $into
       }
       "bootp" => {
-        dhcpd::ocsf::events::bootp $dhcpd, $ocsf
+        dhcpd::ocsf::events::bootp $into
       }
       "dhcpv6" => {
-        dhcpd::ocsf::events::dhcpv6 $dhcpd, $ocsf
+        dhcpd::ocsf::events::dhcpv6 $into
       }
       _ => {
-        dhcpd::ocsf::base $dhcpd, $ocsf
+        dhcpd::ocsf::base $into
       }
     }
   }
   _ => {
-    dhcpd::ocsf::base $dhcpd, $ocsf
+    dhcpd::ocsf::base $into
   }
 }
 
-// The parser category and family only dispatch the mapper and are not source
-// residue.
-drop $dhcpd.category?, $dhcpd.family?
-$ocsf.unmapped = move $dhcpd
+$into = {
+  ...$into.ocsf,
+  unmapped: $into.dhcpd,
+}

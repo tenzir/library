@@ -2,11 +2,11 @@
 description: |
   Parses an ISC DHCPD message body.
 
-  The first field holds the raw message body, not the full Syslog envelope, and
-  the second receives the structured DHCPD event:
+  The positional field holds the raw message body, not the full Syslog
+  envelope. The named output receives the structured DHCPD event:
 
   ```tql
-  dhcpd::parse message, dhcpd
+  dhcpd::parse message, into=event
   ```
 
   The parser leaves the input field unchanged. It does not add a timestamp or
@@ -16,17 +16,16 @@ args:
     - name: log
       description: The field holding the raw DHCPD message body.
       type: field
-    - name: dhcpd
+  named:
+    - name: into
       description: The field that receives the structured DHCPD event.
       type: field
+      default: this
 ---
 
-// The parser helpers use `raw_data` as scratch state. The public parser removes
-// it before returning because only the caller can choose event provenance.
-$dhcpd = {raw_data: $log.string()}
-if $dhcpd.raw_data == null {
+if $log == null {
   @name = "dhcpd.parser_error"
-  $dhcpd = {
+  $into = {
     category: "parser",
     template: "missing_message",
     parser: {
@@ -35,17 +34,21 @@ if $dhcpd.raw_data == null {
     },
   }
 } else {
-  // Parsers are probes: each leaves $dhcpd unchanged on no match.
+  // Snapshot the input once. Each parser writes directly to `event` on a match.
+  $into = {
+    source: $log,
+    event: null,
+  }
   // BOOTP must run first because DHCP4o6 can prefix BOOTP messages.
-  dhcpd::parsers::bootp event=$dhcpd
-  if $dhcpd.category? == null {
-    dhcpd::parsers::dhcpv4 event=$dhcpd
+  dhcpd::parsers::bootp $into
+  if $into.event.category? == null {
+    dhcpd::parsers::dhcpv4 $into
   }
-  if $dhcpd.category? == null {
-    dhcpd::parsers::dhcpv6 event=$dhcpd
+  if $into.event.category? == null {
+    dhcpd::parsers::dhcpv6 $into
   }
-  if $dhcpd.category? == null {
-    dhcpd::parsers::fallback event=$dhcpd
+  if $into.event.category? == null {
+    dhcpd::parsers::fallback $into
   }
-  drop $dhcpd.raw_data
+  $into = move $into.event
 }

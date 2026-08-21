@@ -1,9 +1,9 @@
 ---
 description: Parse ISC DHCPD DHCPv6 message bodies.
 args:
-  named:
-    - name: event
-      description: The record field to parse.
+  positional:
+    - name: scope
+      description: The active parsing scope.
       type: field
 ---
 
@@ -34,178 +34,133 @@ let $dhcpv6_pattern_definitions = {
 let $valid_lease_status_pattern = "^valid for [0-9]+ seconds$"
 let $valid_lease_status_grok_pattern = "^valid for %{INT:valid_for_seconds} seconds$"
 
-if $event.raw_data.match_regex($dhcpv6_classifier_pattern) {
-  $event._parsed = $event.raw_data.parse_grok(
+if $scope.source.match_regex($dhcpv6_classifier_pattern) {
+  $scope.event = $scope.source.parse_grok(
     $dhcpv6_grok_pattern,
     pattern_definitions=$dhcpv6_pattern_definitions,
   )
-  if $event._parsed? == null {
-    dhcpd::parsers::parse_error event=$event
-  } else if $event._parsed.other? != null {
-    dhcpd::parsers::parse_error event=$event
-  } else if $event._parsed.ia_type? != null {
+  if $scope.event? == null {
+    dhcpd::parsers::parse_error $scope
+  } else if $scope.event.other? != null {
+    dhcpd::parsers::parse_error $scope
+  } else if $scope.event.ia_type? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "identity_association",
-      category: "transaction",
-      dhcp4o6: false,
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "identity_association"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.prefix = subnet($scope.event.address, $scope.event.prefix_length?)
+    $scope.event.client_ip = $scope.event.address
+    $scope.event.identity_address = move $scope.event.address
+    if $scope.event.ia_type == "PD" {
+      $scope.event.client_ip = null
+      $scope.event.identity_address = null
     }
-    $event.prefix = subnet($event.address, $event.prefix_length?)
-    $event.client_ip = $event.address
-    $event.identity_address = move $event.address
-    if $event.ia_type == "PD" {
-      $event.client_ip = null
-      $event.identity_address = null
-    }
-    if $event.lease_status.match_regex($valid_lease_status_pattern) {
-      $event._lease_parsed = $event.lease_status.parse_grok($valid_lease_status_grok_pattern)
-      if $event._lease_parsed? != null {
-        $event = {
-          ...$event,
-          ...$event._lease_parsed,
-        }
-      } else {
-        dhcpd::parsers::parse_error event=$event
-      }
-      drop $event._lease_parsed?
-    }
-    if $event.category != "parser" {
-      $event.client.uid = move $event.duid
-      if $event.client_ip? != null {
-        $event.client.ip = move $event.client_ip
-      }
-      $event.identity_association = {
-        type: move $event.ia_type,
-        address: move $event.identity_address?,
-        prefix: move $event.prefix?,
-        prefix_length: move $event.prefix_length?,
-        static: $event.lease_status == "static",
-        valid_for_seconds: move $event.valid_for_seconds?,
+    if $scope.event.lease_status.match_regex($valid_lease_status_pattern) {
+      $scope.event.valid_for_seconds = $scope.event.lease_status.parse_grok(
+        $valid_lease_status_grok_pattern,
+      ).valid_for_seconds?
+      if $scope.event.valid_for_seconds? == null {
+        dhcpd::parsers::parse_error $scope
       }
     }
-  } else if $event._parsed.verb? != null {
+    if $scope.event.category != "parser" {
+      $scope.event.client.uid = move $scope.event.duid
+      if $scope.event.client_ip? != null {
+        $scope.event.client.ip = move $scope.event.client_ip
+      }
+      $scope.event.identity_association = {
+        type: move $scope.event.ia_type,
+        address: move $scope.event.identity_address?,
+        prefix: move $scope.event.prefix?,
+        prefix_length: move $scope.event.prefix_length?,
+        static: $scope.event.lease_status == "static",
+        valid_for_seconds: move $scope.event.valid_for_seconds?,
+      }
+    }
+  } else if $scope.event.verb? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "client_address",
-      category: "transaction",
-      message_type: "Client",
-      dhcp4o6: false,
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "client_address"
+    $scope.event.category = "transaction"
+    $scope.event.message_type = "Client"
+    $scope.event.dhcp4o6 = false
+    $scope.event.status_text = $scope.event.verb
+    if $scope.event.status_suffix? != null and $scope.event.status_suffix != "" {
+      $scope.event.status_text = f"{$scope.event.verb} address{$scope.event.status_suffix}"
     }
-    $event.status_text = $event.verb
-    if $event.status_suffix? != null and $event.status_suffix != "" {
-      $event.status_text = f"{$event.verb} address{$event.status_suffix}"
-    }
-    $event.client.uid = move $event.duid
-    $event.client.ip = move $event.address
-    $event.client_action = move $event.verb
-  } else if $event._parsed.prefix_ip? != null {
+    $scope.event.client.uid = move $scope.event.duid
+    $scope.event.client.ip = move $scope.event.address
+    $scope.event.client_action = move $scope.event.verb
+  } else if $scope.event.prefix_ip? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "client_prefix_release",
-      category: "transaction",
-      message_type: "Client",
-      dhcp4o6: false,
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "client_prefix_release"
+    $scope.event.category = "transaction"
+    $scope.event.message_type = "Client"
+    $scope.event.dhcp4o6 = false
+    $scope.event.prefix = subnet($scope.event.prefix_ip, $scope.event.prefix_length)
+    $scope.event.status_text = "releases prefix"
+    if $scope.event.status_suffix? != null and $scope.event.status_suffix != "" {
+      $scope.event.status_text = f"releases prefix{$scope.event.status_suffix}"
     }
-    $event.prefix = subnet($event.prefix_ip, $event.prefix_length)
-    $event.status_text = "releases prefix"
-    if $event.status_suffix? != null and $event.status_suffix != "" {
-      $event.status_text = f"releases prefix{$event.status_suffix}"
-    }
-    $event.client.uid = move $event.duid
-    $event.client_action = "releases"
-    drop $event.prefix_ip
-  } else if $event._parsed.lease_text? != null {
+    $scope.event.client.uid = move $scope.event.duid
+    $scope.event.client_action = "releases"
+    drop $scope.event.prefix_ip
+  } else if $scope.event.lease_text? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "client_roamed",
-      category: "transaction",
-      message_type: "Client",
-      dhcp4o6: false,
-      client_event: "roamed to new network",
-    }
-    $event.client.uid = move $event.duid
-    $event.lease.text = move $event.lease_text
-  } else if $event._parsed.type_id? != null {
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "client_roamed"
+    $scope.event.category = "transaction"
+    $scope.event.message_type = "Client"
+    $scope.event.dhcp4o6 = false
+    $scope.event.client_event = "roamed to new network"
+    $scope.event.client.uid = move $scope.event.duid
+    $scope.event.lease.text = move $scope.event.lease_text
+  } else if $scope.event.type_id? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "unknown_message_type",
-      category: "transaction",
-      message_type: "Unknown",
-      dhcp4o6: false,
-    }
-    $event.client.ip = move $event.client_ip
-  } else if $event._parsed.port? != null {
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "unknown_message_type"
+    $scope.event.category = "transaction"
+    $scope.event.message_type = "Unknown"
+    $scope.event.dhcp4o6 = false
+    $scope.event.client.ip = move $scope.event.client_ip
+  } else if $scope.event.port? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "sending",
-      category: "transaction",
-      dhcp4o6: false,
-    }
-    $event.client.ip = move $event.client_ip
-  } else if $event.raw_data.contains("missing Relay Message option.") {
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "sending"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.client.ip = move $scope.event.client_ip
+  } else if $scope.source.contains("missing Relay Message option.") {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "relay_forward_missing_message",
-      category: "transaction",
-      dhcp4o6: false,
-      missing_option: "Relay Message",
-    }
-    $event.client.ip = move $event.client_ip
-  } else if $event.raw_data.contains("missing DHCPv4 Message option.") {
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "relay_forward_missing_message"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.missing_option = "Relay Message"
+    $scope.event.client.ip = move $scope.event.client_ip
+  } else if $scope.source.contains("missing DHCPv4 Message option.") {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "dhcpv4_query_missing_message",
-      category: "transaction",
-      dhcp4o6: false,
-      missing_option: "DHCPv4 Message",
-    }
-    $event.client.ip = move $event.client_ip
-  } else if $event._parsed.link_address? != null {
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "dhcpv4_query_missing_message"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.missing_option = "DHCPv4 Message"
+    $scope.event.client.ip = move $scope.event.client_ip
+  } else if $scope.event.link_address? != null {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "message_link_peer",
-      category: "transaction",
-      dhcp4o6: false,
-    }
-    $event.client.ip = move $event.client_ip
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "message_link_peer"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.client.ip = move $scope.event.client_ip
   } else {
     @name = "dhcpd.transaction"
-    $event = {
-      ...$event,
-      ...$event._parsed,
-      family: "dhcpv6",
-      template: "message_transaction_id",
-      category: "transaction",
-      dhcp4o6: false,
-    }
-    $event.client.ip = move $event.client_ip
+    $scope.event.family = "dhcpv6"
+    $scope.event.template = "message_transaction_id"
+    $scope.event.category = "transaction"
+    $scope.event.dhcp4o6 = false
+    $scope.event.client.ip = move $scope.event.client_ip
   }
-  drop $event._parsed?
 }
