@@ -1,32 +1,40 @@
 ---
-description: Cisco Umbrella → OCSF
+description: Maps a structured Cisco Umbrella event to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the event to map.
       type: field
       default: this
+      description: The structured Umbrella event to map.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, umbrella: $event, ocsf: {}}
 
-$event.ocsf.metadata = {
+$into = {umbrella: $event, ocsf: {}}
+
+$into.ocsf.metadata = {
   product: {
     name: "Umbrella",
     vendor_name: "Cisco",
   },
   profiles: ["host", "security_control"],
-  version: "1.8.0",
+  version: "1.9.0",
 }
-$event.ocsf.severity_id = 1
+$into.ocsf.severity_id = 1
 
 match @name {
   "cisco.umbrella.dns" => {
-    cisco::umbrella::ocsf::events::dns event=$event
+    cisco::umbrella::ocsf::events::dns event=$into
   }
   _ => {
-    cisco::umbrella::ocsf::base event=$event
+    cisco::umbrella::ocsf::base event=$into
   }
 }
 
-$event = {...$event.ocsf, unmapped: $event.umbrella}
+
+
+$into = {...$into.ocsf, unmapped: $into.umbrella}
