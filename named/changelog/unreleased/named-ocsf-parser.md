@@ -9,16 +9,16 @@ prs:
 created: 2026-06-19T00:00:00Z
 ---
 
-The library now includes a `named` package with `named::parse` and
-`named::ocsf::map` for parsing ISC BIND `named` log message bodies and mapping
-the normalized records to OCSF.
+The library now includes a `named` package that normalizes ISC BIND `named`
+messages to OCSF 1.9.
 
-The package currently expands common query logging templates, including regular
-queries, view-qualified queries, query failures, and cache/client query denials.
-Other `named` daemon, zone, resolver, and DNSSEC diagnostics are retained as OCSF
-Base Event records for downstream routing and inspection.
+Use `named::ocsf::normalize` to take a record with `time` and a raw `message`
+body all the way to OCSF. The normalizer preserves the body in `raw_data`. Use
+`named::parse` and `named::ocsf::map` with separate input and output fields when
+a pipeline needs to inspect or enrich the structured BIND event before mapping.
 
-The parser expects input records with required `time` and raw `message` fields.
-The raw message body is preserved as `raw_data`; parser diagnostics are kept in
-the mapped event's `unmapped` object instead of being reported as DNS activity
-failures.
+The package expands common query logging templates, including regular queries,
+view-qualified queries, query failures, and cache/client query denials. Other
+`named` daemon, zone, resolver, and DNSSEC diagnostics become OCSF Base Event
+records for downstream routing and inspection. Parser diagnostics remain in the
+mapped event's `unmapped` object instead of appearing as DNS activity failures.

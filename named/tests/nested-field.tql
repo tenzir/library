@@ -1,3 +1,5 @@
+// Verifies that the normalizer only writes its selected output field, preserves
+// unrelated siblings, and accepts nested input and output paths.
 from {
   keep: "outer",
   event: {
@@ -7,11 +9,11 @@ from {
   },
 }
 
-named::parse event=event
-named::ocsf::map event=event
-
-event.unmapped.outer_keep = move keep
-this = move event
+named::ocsf::normalize event, into=normalized
+normalized.unmapped.source_keep = move event.keep
+normalized.unmapped.has_message = event.message? != null
+normalized.unmapped.outer_keep = move keep
+this = move normalized
 ocsf::cast
 
 drop_null_fields

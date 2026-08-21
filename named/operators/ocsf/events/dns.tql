@@ -1,9 +1,12 @@
 ---
 description: BIND named parsed DNS record -> OCSF DNS Activity.
 args:
-  named:
-    - name: event
-      description: The staged event to map.
+  positional:
+    - name: named
+      description: The structured BIND named event to read.
+      type: field
+    - name: ocsf
+      description: The OCSF DNS Activity event to build.
       type: field
 ---
 
@@ -49,9 +52,9 @@ let $rcode_names = {
   NOTAUTH: "NotAuth",
   NOTZONE: "NotZone",
   DSOTYPENI: "DSOTYPENI",
-  BADSIG: "BADSIG_VERS",
-  BADVERS: "BADSIG_VERS",
-  BADSIG_VERS: "BADSIG_VERS",
+  BADSIG: "BADVERS",
+  BADVERS: "BADVERS",
+  BADSIG_VERS: "BADVERS",
   BADKEY: "BADKEY",
   BADTIME: "BADTIME",
   BADMODE: "BADMODE",
@@ -63,25 +66,24 @@ let $rcode_names = {
 
 @name = "ocsf.dns_activity"
 
-$event.ocsf = {
-  time: move $event.named.time,
-  raw_data: move $event.named.raw_data,
+$ocsf = {
+  time: move $named.time,
   category_uid: 4,
   class_uid: 4003,
   activity_id: 1,
   app_protocol_name: "dns",
   severity_id: 1,
   metadata: {
-    version: "1.8.0",
+    version: "1.9.0",
     log_name: "named",
     log_provider: "BIND",
     log_source: "named",
-    original_time: move $event.named.native_time?,
+    original_time: move $named.native_time?,
     product: {
       name: "BIND named",
       vendor_name: "ISC",
       feature: {
-        name: move $event.named.feature?,
+        name: move $named.feature?,
       },
     },
   },
@@ -92,83 +94,83 @@ $event.ocsf = {
     protocol_ver_id: 4,
   },
   src_endpoint: {
-    ip: move $event.named.client_ip,
-    port: move $event.named.client_port,
+    ip: move $named.client_ip,
+    port: move $named.client_port,
   },
   dst_endpoint: {
-    ip: move $event.named.server_ip?,
+    ip: move $named.server_ip?,
     port: 53,
     svc_name: "dns",
   },
+  opcode_id: 0,
   query: {
-    hostname: move $event.named.query_name,
-    class: move $event.named.query_class,
-    opcode_id: 0,
-    type: move $event.named.query_type,
+    hostname: move $named.query_name,
+    class: move $named.query_class,
+    type: move $named.query_type,
   },
 }
 
-match $event.named.category? {
+match $named.category? {
   "query-error" | "query-policy" | "rpz" => {
-    $event.ocsf.activity_id = 2
+    $ocsf.activity_id = 2
   }
   _ => {}
 }
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.query_time = $event.ocsf.time
-match $event.named.category? {
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.query_time = $ocsf.time
+match $named.category? {
   "query-error" | "query-policy" | "rpz" => {
-    $event.ocsf.response_time = $event.ocsf.time
+    $ocsf.response_time = $ocsf.time
   }
   _ => {}
 }
 
-if $event.named.flags?.contains("T") {
-  $event.ocsf.connection_info.protocol_name = "tcp"
-  $event.ocsf.connection_info.protocol_num = 6
+if $named.flags?.contains("T") {
+  $ocsf.connection_info.protocol_name = "tcp"
+  $ocsf.connection_info.protocol_num = 6
 }
-if $event.ocsf.src_endpoint.ip.is_v6() {
-  $event.ocsf.connection_info.protocol_ver_id = 6
-}
-
-if $event.named.decision? == "denied" {
-  $event.ocsf.status_detail = $event.named.decision
-  $event.ocsf.action_id = 2
-  $event.ocsf.disposition_id = 2
-  $event.ocsf.rcode = "Refused"
-  $event.ocsf.rcode_id = 5
-}
-if $event.named.rpz?.action? != null {
-  $event.ocsf.action_id = 99
-  $event.ocsf.action = $event.named.rpz.action
-  $event.ocsf.disposition_id = 99
-  $event.ocsf.disposition = $event.named.rpz.action
-}
-if $event.ocsf.action_id? != null or $event.ocsf.disposition_id? != null {
-  $event.ocsf.metadata.profiles = ["security_control"]
+if $ocsf.src_endpoint.ip.is_v6() {
+  $ocsf.connection_info.protocol_ver_id = 6
 }
 
-if $event.named.rcode? != null {
-  $event.ocsf.rcode_id = $rcode_ids.get($event.named.rcode.to_upper(), 99)
-  match $event.ocsf.rcode_id {
+if $named.decision? == "denied" {
+  $ocsf.status_detail = $named.decision
+  $ocsf.action_id = 2
+  $ocsf.disposition_id = 2
+  $ocsf.rcode = "Refused"
+  $ocsf.rcode_id = 5
+}
+if $named.rpz?.action? != null {
+  $ocsf.action_id = 99
+  $ocsf.action = $named.rpz.action
+  $ocsf.disposition_id = 99
+  $ocsf.disposition = $named.rpz.action
+}
+if $ocsf.action_id? != null or $ocsf.disposition_id? != null {
+  $ocsf.metadata.profiles = ["security_control"]
+}
+
+if $named.rcode? != null {
+  $ocsf.rcode_id = $rcode_ids.get($named.rcode.to_upper(), 99)
+  match $ocsf.rcode_id {
     99 => {
-      $event.ocsf.rcode = move $event.named.rcode
+      $ocsf.rcode = move $named.rcode
     }
     _ => {
-      $event.ocsf.rcode = $rcode_names.get($event.named.rcode.to_upper(), $event.named.rcode)
-      drop $event.named.rcode
+      $ocsf.rcode = $rcode_names.get($named.rcode.to_upper(), $named.rcode)
+      drop $named.rcode
     }
   }
 }
 
-match $event.ocsf.rcode_id? {
+match $ocsf.rcode_id? {
   null => {
-    $event.ocsf.status_id = 0
+    $ocsf.status_id = 0
   }
   0 => {
-    $event.ocsf.status_id = 1
+    $ocsf.status_id = 1
   }
   _ => {
-    $event.ocsf.status_id = 2
+    $ocsf.status_id = 2
   }
 }

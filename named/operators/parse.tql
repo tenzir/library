@@ -1,26 +1,32 @@
 ---
 description: |
-  Parse an ISC BIND `named` message record.
+  Parses an ISC BIND `named` message body.
 
-  The operator expects an input record with required `time` and `message`
-  fields. The `message` field must contain the raw `named` message body, not the
-  full syslog envelope. The selected input event field is replaced with a
-  normalized BIND named record that stores the original body in `raw_data`.
+  The first field holds the raw message body, not the full Syslog envelope, and
+  the second receives the structured BIND event:
+
+  ```tql
+  named::parse message, named
+  ```
+
+  The parser leaves the input field unchanged. It does not add a timestamp or
+  provenance because those belong to the carrier around the message.
 args:
-  named:
-    - name: event
-      description: The record field to parse.
+  positional:
+    - name: log
+      description: The field holding the raw BIND named message body.
       type: field
-      default: this
+    - name: named
+      description: The field that receives the structured BIND named event.
+      type: field
 ---
 
-// Only write inside the selected input event. Bare field assignments can
-// overwrite sibling fields in the caller's record.
-$event.raw_data = $event.message?.string()
-if $event.raw_data == null {
+// The parser helpers use `raw_data` as scratch state. The public parser removes
+// it before returning because only the caller can choose event provenance.
+$named = {raw_data: $log.string()}
+if $named.raw_data == null {
   @name = "named.parser_error"
-  $event = {
-    ...$event,
+  $named = {
     category: "parser",
     template: "missing_message",
     parser: {
@@ -29,11 +35,10 @@ if $event.raw_data == null {
     },
   }
 } else {
-  // Parsers are probes: each leaves $event unchanged on no match.
-  named::parsers::client event=$event
-  if $event.category? == null {
-    named::parsers::fallback event=$event
+  // Parsers are probes: each leaves $named unchanged on no match.
+  named::parsers::client event=$named
+  if $named.category? == null {
+    named::parsers::fallback event=$named
   }
+  drop $named.raw_data
 }
-
-drop $event.message?
