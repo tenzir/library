@@ -1,20 +1,26 @@
 ---
-description: Microsoft Graph → OCSF
+description: Maps a structured Microsoft Graph event to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the Microsoft Graph event to map.
       type: field
       default: this
+      description: The structured source event to map.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, graph: $event, ocsf: {}}
 
-$event.ocsf.cloud = {
+$into = {graph: $event, ocsf: {}}
+
+$into.ocsf.cloud = {
   provider: "Azure",
 }
 
-$event.ocsf.metadata = {
+$into.ocsf.metadata = {
   product: {
     vendor_name: "Microsoft",
     feature: {
@@ -22,51 +28,53 @@ $event.ocsf.metadata = {
     },
   },
   profiles: ["cloud"],
-  version: "1.8.0",
+  version: "1.9.0",
 }
-if $event.graph.tenantId? != null {
-  $event.ocsf.metadata.tenant_uid = move $event.graph.tenantId
+if $into.graph.tenantId? != null {
+  $into.ocsf.metadata.tenant_uid = move $into.graph.tenantId
 }
-if $event.graph.correlationId? != null {
-  $event.ocsf.metadata.correlation_uid = move $event.graph.correlationId
+if $into.graph.correlationId? != null {
+  $into.ocsf.metadata.correlation_uid = move $into.graph.correlationId
 }
-if $event.graph.id? != null {
-  $event.ocsf.metadata.original_event_uid = move $event.graph.id
+if $into.graph.id? != null {
+  $into.ocsf.metadata.original_event_uid = move $into.graph.id
 }
 
-$event.ocsf.severity_id = 1
+$into.ocsf.severity_id = 1
 
 match @name {
   "microsoft.graph.sign_in" => {
-    microsoft::graph::ocsf::events::sign_in event=$event
+    microsoft::graph::ocsf::events::sign_in event=$into
   }
   "microsoft.graph.directory_audit" => {
-    microsoft::graph::ocsf::events::directory_audit event=$event
+    microsoft::graph::ocsf::events::directory_audit event=$into
   }
   "microsoft.graph.defender.alert" => {
-    microsoft::graph::ocsf::events::defender_alert event=$event
+    microsoft::graph::ocsf::events::defender_alert event=$into
   }
   "microsoft.graph.defender.incident" => {
-    microsoft::graph::ocsf::events::defender_incident event=$event
+    microsoft::graph::ocsf::events::defender_incident event=$into
   }
   "microsoft.graph.identity_protection.risk_detection" => {
-    microsoft::graph::ocsf::events::risk_detection event=$event
+    microsoft::graph::ocsf::events::risk_detection event=$into
   }
   "microsoft.graph.identity_protection.risky_user" => {
-    microsoft::graph::ocsf::events::risky_user event=$event
+    microsoft::graph::ocsf::events::risky_user event=$into
   }
   "microsoft.graph.intune.managed_device" => {
-    microsoft::graph::ocsf::events::managed_device event=$event
+    microsoft::graph::ocsf::events::managed_device event=$into
   }
   "microsoft.graph.intune.detected_app" => {
-    microsoft::graph::ocsf::events::detected_app event=$event
+    microsoft::graph::ocsf::events::detected_app event=$into
   }
   "microsoft.graph.intune.compliance_policy_setting_state_summary" => {
-    microsoft::graph::ocsf::events::compliance_policy_setting_state_summary event=$event
+    microsoft::graph::ocsf::events::compliance_policy_setting_state_summary event=$into
   }
   _ => {
-    microsoft::graph::ocsf::base event=$event
+    microsoft::graph::ocsf::base event=$into
   }
 }
 
-$event = {...$event.ocsf, unmapped: $event.graph}
+
+
+$into = {...$into.ocsf, unmapped: $into.graph}
