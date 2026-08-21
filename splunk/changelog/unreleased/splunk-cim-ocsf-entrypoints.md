@@ -9,8 +9,8 @@ prs:
 created: 2026-06-08T00:00:00Z
 ---
 
-The Splunk package now exposes `splunk::cim::map` as the canonical entry point
-for mapping supported events to Splunk CIM and `splunk::ocsf::map` as the
+The Splunk package now exposes `splunk::cim::from_ocsf` as the canonical entry point
+for mapping supported events to Splunk CIM and `splunk::ocsf::from_cim` as the
 canonical entry point for mapping supported events to OCSF. The OCSF-specific
 CIM mapper moved to `splunk::cim::ocsf::map`, and the previous
 `splunk::cim::from_ocsf` namespace was removed before release.

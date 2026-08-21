@@ -18,7 +18,7 @@ match $event.cim.message_type? {
     $event.ocsf.activity_id = 2
   }
   _ if $event.cim.answer? != null or $event.cim.reply_code? != null or $event.cim.reply_code_id? != null => {
-    $event.ocsf.activity_id = 6
+    $event.ocsf.activity_id = 2
   }
   _ => {
     $event.ocsf.activity_id = 1
@@ -32,7 +32,7 @@ $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 // --- OCSF: occurrence attributes --------------
 
 $event.ocsf.time = move $event.cim._time?
-$event.ocsf.duration = (move $event.cim.duration?).seconds().count_milliseconds().round()
+drop $event.cim.duration?
 
 $event.ocsf.response_time = $event.ocsf.time if $event.cim.response_time? != null
 $event.ocsf.query_time = $event.ocsf.time - (move $event.cim.response_time?).seconds()
@@ -44,7 +44,7 @@ $event.ocsf.metadata = {
     name: move $event.cim.product? else move $event.cim.vendor_product? else "Splunk CIM",
     vendor_name: move $event.cim.vendor?,
   },
-  version: "1.8.0",
+  version: "1.9.0",
 }
 
 $event.ocsf.connection_info = {
@@ -65,30 +65,30 @@ match $event.ocsf.connection_info.protocol_name {
 
 // --- OCSF: primary DNS attributes -------------
 
+$event.ocsf.opcode = move $event.cim.query_type?
 $event.ocsf.query = {
   hostname: move $event.cim.query?,
-  opcode: move $event.cim.query_type?,
   packet_uid: move $event.cim.transaction_id?,
   type: move $event.cim.record_type?,
 }
-match $event.ocsf.query.opcode {
+match $event.ocsf.opcode {
   "Query" => {
-    $event.ocsf.query.opcode_id = 0
+    $event.ocsf.opcode_id = 0
   }
   "IQuery" => {
-    $event.ocsf.query.opcode_id = 1
+    $event.ocsf.opcode_id = 1
   }
   "Status" => {
-    $event.ocsf.query.opcode_id = 2
+    $event.ocsf.opcode_id = 2
   }
   "Notify" => {
-    $event.ocsf.query.opcode_id = 4
+    $event.ocsf.opcode_id = 4
   }
   "Update" => {
-    $event.ocsf.query.opcode_id = 5
+    $event.ocsf.opcode_id = 5
   }
   _ => {
-    $event.ocsf.query.opcode_id = 99 if $event.ocsf.query.opcode? != null
+    $event.ocsf.opcode_id = 99 if $event.ocsf.opcode? != null
   }
 }
 
