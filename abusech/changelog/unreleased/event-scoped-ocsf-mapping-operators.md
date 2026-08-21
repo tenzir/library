@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 mapping contracts
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,13 @@ authors:
 created: 2026-06-13T07:58:14.148769Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+abuse.ch OCSF mappers now take an optional positional source field and a named
+`into` output. Both default to `this`.
 
 ```tql
-pkg::ocsf::map event=source
+abusech::threatfox::ocsf::map indicator, into=ocsf
 ```
+
+The MalwareBazaar and ThreatFox API response helpers are now named `unwrap`.
+They split API response envelopes into source rows and are not OCSF
+normalizers.

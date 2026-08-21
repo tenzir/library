@@ -1,44 +1,52 @@
 ---
-description: SSLBL rows → OCSF OSINT Inventory Info
+description: Maps sslbl rows to OCSF 1.9 OSINT Inventory Info.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the event to map.
       type: field
       default: this
+      description: The structured source row to map.
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, sslbl: $event, ocsf: {}}
 
-$event.osint = {}
-$event.osint.category = move $event.sslbl.reason
-$event.osint.confidence_id = 3
-$event.osint.created_time = time($event.sslbl.timestamp)
-drop $event.sslbl.timestamp
-$event.osint.severity_id = 4
-$event.osint.src_url = "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
-$event.osint.type_id = 7
-$event.osint.value = move $event.sslbl.SHA1
-$event.osint.vendor_name = "abuse.ch"
+$into = {sslbl: $event, ocsf: {}}
 
-$event.ocsf = {}
-$event.ocsf.activity_id = 2
-$event.ocsf.actor = {
+$into.osint = {}
+$into.osint.category = move $into.sslbl.reason
+$into.osint.confidence_id = 3
+$into.osint.created_time = time($into.sslbl.timestamp)
+drop $into.sslbl.timestamp
+$into.osint.severity_id = 4
+$into.osint.src_url = "https://sslbl.abuse.ch/blacklist/sslblacklist.csv"
+$into.osint.type_id = 7
+$into.osint.value = move $into.sslbl.SHA1
+$into.osint.vendor_name = "abuse.ch"
+
+$into.ocsf = {}
+$into.ocsf.activity_id = 2
+$into.ocsf.actor = {
   app_name: "Tenzir",
 }
-$event.ocsf.category_uid = 5
-$event.ocsf.class_uid = 5021
-$event.ocsf.metadata = {
+$into.ocsf.category_uid = 5
+$into.ocsf.class_uid = 5021
+$into.ocsf.metadata = {
   product: {
     name: "SSLBL",
     vendor_name: "abuse.ch",
   },
-  version: "1.8.0",
+  version: "1.9.0",
 }
-$event.ocsf.osint = [move $event.osint]
-$event.ocsf.severity_id = 1
-$event.ocsf.time = $event.ocsf.osint[0].created_time
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$into.ocsf.osint = [move $into.osint]
+$into.ocsf.severity_id = 1
+$into.ocsf.time = $into.ocsf.osint[0].created_time
+$into.ocsf.type_uid = $into.ocsf.class_uid * 100 + $into.ocsf.activity_id
 
-$event = {...$event.ocsf, unmapped: $event.sslbl}
+
 @name = "ocsf.osint_inventory_info"
+
+$into = {...$into.ocsf, unmapped: $into.sslbl}
