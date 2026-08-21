@@ -2,11 +2,11 @@
 description: |
   Parses an ISC BIND `named` message body.
 
-  The first field holds the raw message body, not the full Syslog envelope, and
-  the second receives the structured BIND event:
+  The positional field holds the raw message body, not the full Syslog
+  envelope. The named output receives the structured BIND event:
 
   ```tql
-  named::parse message, named
+  named::parse message, into=event
   ```
 
   The parser leaves the input field unchanged. It does not add a timestamp or
@@ -16,17 +16,36 @@ args:
     - name: log
       description: The field holding the raw BIND named message body.
       type: field
-    - name: named
+  named:
+    - name: into
       description: The field that receives the structured BIND named event.
       type: field
+      default: this
 ---
 
-// The parser helpers use `_raw` as private scratch state. The public parser
-// removes it before returning because only the caller can choose provenance.
-$named = {_raw: $log.string()}
-if $named._raw == null {
+let $client_dns_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?client "
+let $client_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?client (?:(?:@%{NOTSPACE:client_object} )?%{IP:client_ip}#%{INT:client_port}(?:/key %{NOTSPACE:signer})? \(%{NOTSPACE:client_query}\): (?:(?:view %{NOTSPACE:view}: )?(?:%{BIND9_QUERY}|%{BIND9_RPZ})|%{BIND9_QUERY_FAILED}|%{BIND9_QUERY_DENIED})|%{GREEDYDATA:client_body})$"
+let $bind9_query_grok = r"query: %{NOTSPACE:query_name} %{WORD:query_class} %{WORD:query_type}(?: %{NOTSPACE:flags})? \(%{IP:server_ip}\)(?: \[ECS %{DATA:ecs}\])?"
+let $bind9_query_failed_grok = r"query failed \(%{NOTSPACE:rcode}\) for %{NOTSPACE:query_name}/%{WORD:query_class}/%{WORD:query_type} at %{GREEDYDATA:location}"
+let $bind9_query_denied_grok = r"query \(%{DATA:query_context}\) '%{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class}' %{GREEDYDATA:decision}"
+let $bind9_rpz_grok = "(?:(?<rpz_disabled>disabled) )?rpz %{NOTSPACE:rpz_trigger} %{NOTSPACE:rpz_policy} %{WORD:rpz_action} %{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class} via %{GREEDYDATA:rpz_zone}"
+let $bind9_pattern_definitions = {
+  BIND9_QUERY: $bind9_query_grok,
+  BIND9_QUERY_FAILED: $bind9_query_failed_grok,
+  BIND9_QUERY_DENIED: $bind9_query_denied_grok,
+  BIND9_RPZ: $bind9_rpz_grok,
+}
+let $client_dns_parse_error_pattern = r": (?:query(?:: | failed \(| \()|(?:disabled )?rpz )"
+let $message_prefix_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?%{GREEDYDATA:message_body}$"
+let $message_category_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?"
+let $zone_message_pattern = f"{$message_category_prefix_pattern}zone "
+let $resolver_message_pattern = f"{$message_category_prefix_pattern}(resolver |.* resolving |.* resolver )"
+let $dnssec_message_pattern = f"{$message_category_prefix_pattern}(validating |managed-keys-zone)"
+let $daemon_message_pattern = f"{$message_category_prefix_pattern}(starting BIND|running on|built with|adjusted limit|found [0-9]+ CPU|using .* UDP listeners|listening on|generating session key|sizing zone task pool|set up managed keys zone|all zones loaded|running|loading configuration|command channel listening|shutting down|exiting)"
+
+if $log == null {
   @name = "named.parser_error"
-  $named = {
+  $into = {
     category: "parser",
     template: "missing_message",
     parser: {
@@ -34,11 +53,91 @@ if $named._raw == null {
       field: "message",
     },
   }
-} else {
-  // Parsers are probes: each leaves $named unchanged on no match.
-  named::parsers::client event=$named
-  if $named.category? == null {
-    named::parsers::fallback event=$named
+} else if $log.match_regex($client_dns_prefix_pattern) {
+  $into = $log.parse_grok(
+    $client_grok_pattern,
+    pattern_definitions=$bind9_pattern_definitions,
+  )
+  if $into == null {
+    @name = "named.parser_error"
+    $into = {
+      category: "parser",
+      template: "parse_grok_failed",
+      parser: {
+        warning: "failed to parse named message",
+        reason: "recognized message template did not match detailed grok parser",
+      },
+    }
+  } else {
+    if $into.server_ip? != null {
+      @name = "named.query"
+      $into.category = "query"
+      $into.template = "query"
+      $into.feature = "query logging"
+    } else if $into.rcode? != null {
+      @name = "named.query_failed"
+      $into.category = "query-error"
+      $into.template = "query_failed"
+      $into.feature = "query-errors logging"
+    } else if $into.decision? != null {
+      @name = "named.query_denied"
+      $into.category = "query-policy"
+      $into.template = "query_denied"
+      $into.feature = "query logging"
+    } else if $into.rpz_zone? != null {
+      @name = "named.rpz"
+      $into.category = "rpz"
+      $into.template = "rpz"
+      $into.feature = "response policy zone logging"
+      $into.rpz = {
+        disabled: $into.rpz_disabled? == "disabled",
+        trigger: move $into.rpz_trigger,
+        policy: move $into.rpz_policy,
+        action: move $into.rpz_action,
+        zone: move $into.rpz_zone,
+      }
+      drop $into.rpz_disabled?
+    } else if $into.client_body? != null and $into.client_body.match_regex($client_dns_parse_error_pattern) {
+      @name = "named.parser_error"
+      $into.message_body = move $into.client_body
+      $into.category = "client"
+      $into.template = "client_dns_parse_error"
+      $into.parser = {
+        warning: "failed to parse named client DNS message",
+        reason: "required fields are missing or malformed",
+      }
+    } else {
+      @name = "named.client"
+      $into.message_body = move $into.client_body
+      $into.category = "client"
+      $into.template = "client"
+    }
+    drop $into.client_body?
   }
-  drop $named._raw
+} else {
+  $into = $log.parse_grok($message_prefix_grok_pattern)
+  if $into == null {
+    @name = "named.parser_error"
+    $into = {
+      category: "parser",
+      template: "parse_grok_failed",
+      parser: {
+        warning: "failed to parse named message",
+        reason: "recognized message template did not match detailed grok parser",
+      },
+    }
+  } else {
+    $into.category = "unknown"
+    if $log.match_regex($zone_message_pattern) {
+      $into.category = "zone"
+    } else if $log.match_regex($resolver_message_pattern) {
+      $into.category = "resolver"
+    } else if $log.match_regex($dnssec_message_pattern) {
+      $into.category = "dnssec"
+    } else if $log.match_regex($daemon_message_pattern) {
+      $into.category = "daemon"
+    }
+    @name = "named.service"
+    $into.template = $into.category
+  }
 }
