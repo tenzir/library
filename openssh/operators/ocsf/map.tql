@@ -31,12 +31,12 @@ let $status_ids = {
   failure: 2,
 }
 
-$into = {event: $event, ocsf: {}}
+$into = {openssh: $event, ocsf: {}}
 
 // --- OCSF: shared attributes ------------------
 
 $into.ocsf = {
-  time: move $into.event.time?,
+  time: move $into.openssh.time?,
   severity_id: 1,
   metadata: {
     version: "1.9.0",
@@ -48,13 +48,13 @@ $into.ocsf = {
     },
   },
 }
-if $into.event.outcome? != null {
-  $into.ocsf.status_id = $status_ids[move $into.event.outcome]?
+if $into.openssh.outcome? != null {
+  $into.ocsf.status_id = $status_ids[move $into.openssh.outcome]?
 }
 
-match $into.event.category? {
+match $into.openssh.category? {
   "authentication" => {
-    openssh::ocsf::events::authentication $into
+    openssh::ocsf::events::authentication $into.openssh, $into.ocsf
   }
   _ => {
     @name = "ocsf.base_event"
@@ -67,6 +67,6 @@ match $into.event.category? {
 // --- Finalize ---------------------------------
 
 $into.ocsf.type_uid = $into.ocsf.class_uid * 100 + $into.ocsf.activity_id
-drop $into.event.category?
+drop $into.openssh.category?
 
-$into = {...$into.ocsf, unmapped: $into.event}
+$into = {...$into.ocsf, unmapped: $into.openssh}

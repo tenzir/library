@@ -2,8 +2,11 @@
 description: Structured OpenSSH event → OCSF Authentication (class 3002).
 args:
   positional:
-    - name: scope
-      description: The active mapping scope.
+    - name: openssh
+      description: The OpenSSH record to read.
+      type: field
+    - name: ocsf
+      description: The OCSF event to build.
       type: field
 ---
 
@@ -19,37 +22,26 @@ let $status_details = {
 
 @name = "ocsf.authentication"
 
-$scope.ocsf.status_detail = $status_details[$scope.event.template]?
+$ocsf.status_detail = $status_details[$openssh.template]?
 // A login against an account that does not exist fails for that reason, unless
 // OpenSSH already gave a more specific one.
-if $scope.event.user.is_invalid and $scope.event.template != "max_auth_attempts" {
-  $scope.ocsf.status_detail = "USER_DOES_NOT_EXIST"
+if $openssh.user.is_invalid and $openssh.template != "max_auth_attempts" {
+  $ocsf.status_detail = "USER_DOES_NOT_EXIST"
 }
 
-$scope.ocsf = {
-  ...$scope.ocsf,
-  category_uid: 3,
-  class_uid: 3002,
-  activity_id: $activity_ids[move $scope.event.activity],
-  user: {
-    name: move $scope.event.user.name,
-  },
-  src_endpoint: {
-    ip: move $scope.event.source.ip,
-    port: move $scope.event.source.port,
-  },
-  dst_endpoint: {
-    hostname: move $scope.event.hostname?,
-  },
-  service: {
-    name: "sshd",
-  },
-  auth_protocol_id: 99,
-  auth_protocol: "SSH",
-  logon_type_id: 10,
-  is_remote: true,
-  // SSH encrypts the transport regardless of the credential method.
-  is_cleartext: false,
-}
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = $activity_ids[move $openssh.activity]
+$ocsf.user.name = move $openssh.user.name
+$ocsf.src_endpoint.ip = move $openssh.source.ip
+$ocsf.src_endpoint.port = move $openssh.source.port
+$ocsf.dst_endpoint.hostname = move $openssh.hostname?
+$ocsf.service.name = "sshd"
+$ocsf.auth_protocol_id = 99
+$ocsf.auth_protocol = "SSH"
+$ocsf.logon_type_id = 10
+$ocsf.is_remote = true
+// SSH encrypts the transport regardless of the credential method.
+$ocsf.is_cleartext = false
 
-drop $scope.event.template, $scope.event.user, $scope.event.source
+drop $openssh.template, $openssh.user, $openssh.source
