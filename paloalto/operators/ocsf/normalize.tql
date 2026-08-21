@@ -1,0 +1,39 @@
+---
+description: |
+  Normalizes a Syslog event carrying a Palo Alto Networks PAN-OS CSV payload to
+  OCSF 1.9.
+
+  The input is the record produced by `read_syslog` or `parse_syslog`. The
+  operator parses its `content` field, maps the PAN-OS record, and preserves the
+  CSV payload as provenance. Unsupported input becomes an OCSF Base Event.
+args:
+  positional:
+    - name: syslog
+      description: The Syslog event carrying the PAN-OS CSV payload.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+// Snapshot the carrier before writing so in-place and separate-field calls use
+// the same normalization path.
+$into = {source: $syslog}
+paloalto::parse $into.source.content, into=$into.paloalto
+if $into.paloalto == null {
+  $into.paloalto = {}
+}
+$into.paloalto.time = $into.source.timestamp?
+paloalto::ocsf::map $into.paloalto, into=$into.ocsf
+
+$into.ocsf.raw_data = $into.source.content
+$into.ocsf.raw_data_size = $into.source.content?.length_bytes()
+drop $into.source.content?, $into.source.timestamp?
+$into.ocsf.unmapped = {
+  ...$into.source,
+  ...$into.ocsf.unmapped,
+}
+$into = move $into.ocsf

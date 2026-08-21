@@ -9,15 +9,19 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-Palo Alto Networks syslog examples now use the v6 network source syntax and the
-new PAN-OS CSV parser.
+The Palo Alto Networks package now parses PAN-OS CSV payloads with a positional
+input and a named `into` output. It also maps PAN-OS Traffic, URL Filtering,
+Threat, and supported GlobalProtect authentication records to OCSF 1.9. Other
+parsed families become OCSF Base Events and retain their structured fields in
+`unmapped`.
 
-Receive UDP syslog with `accept_udp`, parse the payload with
-`paloalto::parse`, and then continue with your routing or mapping workflow:
+Normalize a Syslog record in one call:
 
 ```tql
-from "udp://0.0.0.0:514" {
-  read_syslog
-}
-paloalto::parse
+accept_udp "udp://0.0.0.0:514"
+this = data.parse_syslog()
+paloalto::ocsf::normalize
 ```
+
+Use `paloalto::parse` and `paloalto::ocsf::map` separately when a pipeline needs
+to inspect or enrich the parsed PAN-OS record before mapping.

@@ -1,0 +1,107 @@
+---
+description: Palo Alto Networks PAN-OS Traffic record -> OCSF Network Activity.
+args:
+  positional:
+    - name: event
+      description: The active mapping scope.
+      type: field
+---
+
+paloalto::ocsf::base $event
+@name = "ocsf.network_activity"
+
+let $activities = {
+  start: 1,
+  end: 2,
+  drop: 4,
+  deny: 5,
+}
+let $action_ids = {
+  allow: 1,
+  deny: 2,
+  drop: 2,
+  block: 2,
+  "reset-client": 2,
+  "reset-server": 2,
+  "reset-both": 2,
+}
+let $disposition_ids = {
+  allow: 1,
+  deny: 2,
+  block: 2,
+  drop: 6,
+  "reset-client": 21,
+  "reset-server": 21,
+  "reset-both": 21,
+}
+
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = $activities[$event.paloalto.threat_content_type?]? else 6
+$event.ocsf.type_uid = 400100 + ($activities[$event.paloalto.threat_content_type?]? else 6)
+drop $event.ocsf.activity_name?
+$event.ocsf.status_id = 1
+$event.ocsf.metadata.profiles = ["security_control"]
+$event.ocsf.initiator_id = 1
+$event.ocsf.app_name = move $event.paloalto.application?
+$event.ocsf.src_endpoint = {
+  ip: move $event.paloalto.source_address?,
+  port: move $event.paloalto.source_port?,
+  zone: move $event.paloalto.source_zone?,
+  interface_name: move $event.paloalto.inbound_interface?,
+  hostname: move $event.paloalto.source_hostname?,
+  mac: move $event.paloalto.source_mac_address?,
+  proxy_endpoint: {
+    ip: move $event.paloalto.nat_source_ip?,
+    port: move $event.paloalto.nat_source_port?,
+  },
+}
+$event.ocsf.dst_endpoint = {
+  ip: move $event.paloalto.destination_address?,
+  port: move $event.paloalto.destination_port?,
+  zone: move $event.paloalto.destination_zone?,
+  interface_name: move $event.paloalto.outbound_interface?,
+  hostname: move $event.paloalto.destination_hostname?,
+  mac: move $event.paloalto.destination_mac_address?,
+  proxy_endpoint: {
+    ip: move $event.paloalto.nat_destination_ip?,
+    port: move $event.paloalto.nat_destination_port?,
+  },
+}
+$event.ocsf.connection_info = {
+  direction_id: 0,
+  protocol_name: move $event.paloalto.protocol?,
+  uid: (move $event.paloalto.session_id?).string(),
+}
+if $event.ocsf.src_endpoint.proxy_endpoint.ip? == null and $event.ocsf.src_endpoint.proxy_endpoint.port? == null {
+  drop $event.ocsf.src_endpoint.proxy_endpoint
+}
+if $event.ocsf.dst_endpoint.proxy_endpoint.ip? == null and $event.ocsf.dst_endpoint.proxy_endpoint.port? == null {
+  drop $event.ocsf.dst_endpoint.proxy_endpoint
+}
+if $event.paloalto.bytes? != null or $event.paloalto.bytes_sent? != null or $event.paloalto.bytes_received? != null or $event.paloalto.packets? != null or $event.paloalto.packets_sent? != null or $event.paloalto.packets_received? != null {
+  $event.ocsf.cumulative_traffic = {
+    bytes: move $event.paloalto.bytes?,
+    bytes_out: move $event.paloalto.bytes_sent?,
+    bytes_in: move $event.paloalto.bytes_received?,
+    packets: move $event.paloalto.packets?,
+    packets_out: move $event.paloalto.packets_sent?,
+    packets_in: move $event.paloalto.packets_received?,
+    start_time: move $event.paloalto.start_time?,
+    end_time: $event.ocsf.time,
+  }
+}
+if $event.paloalto.rule_name? != null or $event.paloalto.rule_uuid? != null {
+  $event.ocsf.firewall_rule = {
+    name: move $event.paloalto.rule_name?,
+    uid: move $event.paloalto.rule_uuid?,
+  }
+}
+if $action_ids[$event.paloalto.action?]? != null {
+  $event.ocsf.action_id = $action_ids[$event.paloalto.action?]?
+  $event.ocsf.disposition_id = $disposition_ids[$event.paloalto.action?]?
+  drop $event.paloalto.action
+}
+
+drop $event.paloalto.type?
+drop $event.paloalto.threat_content_type?

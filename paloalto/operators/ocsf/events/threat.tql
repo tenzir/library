@@ -1,0 +1,96 @@
+---
+description: Palo Alto Networks PAN-OS Threat record -> OCSF Detection Finding.
+args:
+  positional:
+    - name: event
+      description: The active mapping scope.
+      type: field
+---
+
+paloalto::ocsf::base $event
+@name = "ocsf.detection_finding"
+
+let $action_ids = {
+  allow: 1,
+  block: 2,
+  deny: 2,
+  drop: 2,
+  "reset-client": 2,
+  "reset-server": 2,
+  "reset-both": 2,
+  alert: 3,
+}
+let $disposition_ids = {
+  allow: 1,
+  block: 2,
+  deny: 2,
+  drop: 6,
+  "reset-client": 21,
+  "reset-server": 21,
+  "reset-both": 21,
+  alert: 19,
+}
+
+$event.ocsf.category_uid = 2
+$event.ocsf.class_uid = 2004
+$event.ocsf.activity_id = 1
+$event.ocsf.type_uid = 200401
+drop $event.ocsf.activity_name?
+$event.ocsf.metadata.profiles = ["security_control"]
+$event.ocsf.is_alert = true
+$event.ocsf.finding_info = {
+  uid: ($event.paloalto.sequence_number? else $event.paloalto.threat_id?).string(),
+  title: $event.paloalto.url_filename? else $event.paloalto.threat_content_type? else "PAN-OS threat",
+  analytic: {
+    type_id: 1,
+    uid: $event.paloalto.threat_id?.string(),
+    name: $event.paloalto.threat_content_type?,
+  },
+}
+$event.ocsf.evidences = [drop_null_fields({
+  src_endpoint: {
+    ip: move $event.paloalto.source_address?,
+    port: move $event.paloalto.source_port?,
+    zone: move $event.paloalto.source_zone?,
+    interface_name: move $event.paloalto.inbound_interface?,
+    hostname: move $event.paloalto.source_hostname?,
+    mac: move $event.paloalto.source_mac_address?,
+  },
+  dst_endpoint: {
+    ip: move $event.paloalto.destination_address?,
+    port: move $event.paloalto.destination_port?,
+    zone: move $event.paloalto.destination_zone?,
+    interface_name: move $event.paloalto.outbound_interface?,
+    hostname: move $event.paloalto.destination_hostname?,
+    mac: move $event.paloalto.destination_mac_address?,
+  },
+  connection_info: {
+    direction_id: 0,
+    protocol_name: move $event.paloalto.ip_protocol?,
+    uid: (move $event.paloalto.session_id?).string(),
+  },
+  url: {
+    url_string: move $event.paloalto.url_filename?,
+  },
+  actor: {
+    user: {
+      name: move $event.paloalto.source_user?,
+    },
+  },
+})]
+if $event.paloalto.rule_name? != null or $event.paloalto.rule_uuid? != null {
+  $event.ocsf.policy = {
+    name: move $event.paloalto.rule_name?,
+    uid: move $event.paloalto.rule_uuid?,
+  }
+}
+if $action_ids[$event.paloalto.action?]? != null {
+  $event.ocsf.action_id = $action_ids[$event.paloalto.action?]?
+  $event.ocsf.disposition_id = $disposition_ids[$event.paloalto.action?]?
+  drop $event.paloalto.action
+}
+
+drop $event.paloalto.type?
+drop $event.paloalto.threat_content_type?
+drop $event.paloalto.threat_id?
+drop $event.paloalto.sequence_number?

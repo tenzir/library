@@ -1,0 +1,58 @@
+---
+description: Palo Alto Networks PAN-OS parsed record -> OCSF Base Event.
+args:
+  positional:
+    - name: event
+      description: The active mapping scope.
+      type: field
+---
+
+@name = "ocsf.base_event"
+
+let $severity_ids = {
+  informational: 1,
+  info: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  critical: 5,
+}
+
+$event.ocsf = {
+  time: $event.paloalto.generated_time? else $event.paloalto.generate_time? else $event.paloalto.time? else $event.paloalto.receive_time?,
+  category_uid: 0,
+  class_uid: 0,
+  activity_id: 0,
+  severity_id: $severity_ids[$event.paloalto.severity?]? else 1,
+  type_uid: 0,
+  status_id: 0,
+  message: move $event.paloalto.description?,
+  metadata: {
+    version: "1.9.0",
+    log_name: "PAN-OS",
+    log_provider: "Palo Alto Networks",
+    log_source: "PAN-OS Syslog",
+    logged_time: $event.paloalto.receive_time?,
+    product: {
+      name: "PAN-OS",
+      vendor_name: "Palo Alto Networks",
+      uid: ($event.paloalto.serial_number? else $event.paloalto.serial?).string(),
+    },
+  },
+}
+
+if ($event.paloalto.type? else $event.paloalto.threat_content_type?) != null {
+  $event.ocsf.activity_id = 99
+  $event.ocsf.activity_name = $event.paloalto.type? else $event.paloalto.threat_content_type?
+  $event.ocsf.type_uid = 99
+}
+if $severity_ids[$event.paloalto.severity?]? != null {
+  drop $event.paloalto.severity
+}
+
+drop $event.paloalto.generated_time?
+drop $event.paloalto.generate_time?
+drop $event.paloalto.time?
+drop $event.paloalto.receive_time?
+drop $event.paloalto.serial_number?
+drop $event.paloalto.serial?
