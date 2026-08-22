@@ -16,7 +16,7 @@ line as OCSF provenance:
 ```tql
 from_amazon_cloudwatch "/aws/vpc/flowlogs", mode="search"
 amazon::vpc_flow::ocsf::normalize message
-ocsf::cast
+ocsf_cast
 ```
 
 Use the parser and mapper separately when the pipeline needs the structured VPC
