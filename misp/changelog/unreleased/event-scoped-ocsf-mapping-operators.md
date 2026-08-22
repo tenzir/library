@@ -7,7 +7,7 @@ authors:
 created: 2026-06-13T07:58:18.719629Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
+The MISP event OCSF mapper takes the structured source and OCSF output fields positionally.
 
 Before:
 
