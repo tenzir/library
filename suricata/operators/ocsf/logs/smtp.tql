@@ -1,38 +1,41 @@
 ---
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 // --- OCSF: classification attributes ----------
 
-$event.ocsf.activity_id = 5
+$ocsf.activity_id = 5
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4009
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4009
 
 // Severity: informational for normal operations
-$event.ocsf.severity_id = 1
+$ocsf.severity_id = 1
 
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.direction_id = 0
+$ocsf.direction_id = 0
 
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.protocol_name = "SMTP"
-$event.ocsf.smtp_hello = move $event.suricata.smtp.helo?
-$event.ocsf.email = {
-  smtp_from: move $event.suricata.smtp?.mail_from?,
-  smtp_to: move $event.suricata.smtp?.rcpt_to?,
-  from_mailbox: move $event.suricata.email?.from?,
-  to_mailboxes: move $event.suricata.email?.to?,
+$ocsf.protocol_name = "SMTP"
+$ocsf.smtp_hello = move $event.smtp.helo?
+$ocsf.email = {
+  smtp_from: move $event.smtp?.mail_from?,
+  smtp_to: move $event.smtp?.rcpt_to?,
+  from_mailbox: move $event.email?.from?,
+  to_mailboxes: move $event.email?.to?,
 }
-$event.ocsf.status_id = 1 if $event.suricata.email?.status? == "PARSE_DONE" else 0
-$event.ocsf.status_detail = move $event.suricata.email?.status?
+$ocsf.status_id = 1 if $event.email?.status? == "PARSE_DONE" else 0
+$ocsf.status_detail = move $event.email?.status?
 
 drop_null_fields
 

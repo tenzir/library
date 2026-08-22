@@ -1,8 +1,11 @@
 ---
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 // --- OCSF: classification attributes ----------
@@ -18,49 +21,49 @@ let $activity_id = {
   inform: 8,
 }
 
-$event.ocsf.class_uid = 4004
-$event.ocsf.activity_id = $activity_id[$event.suricata.dhcp.dhcp_type.string()] else 0
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.class_uid = 4004
+$ocsf.activity_id = $activity_id[$event.dhcp.dhcp_type.string()] else 0
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
-if $event.suricata.dhcp.type? == "reply" {
-  $event._server_endpoint = $event.ocsf.src_endpoint
-  $event.ocsf.src_endpoint = $event.ocsf.dst_endpoint
-  $event.ocsf.dst_endpoint = $event._server_endpoint
+if $event.dhcp.type? == "reply" {
+  $event._server_endpoint = $ocsf.src_endpoint
+  $ocsf.src_endpoint = $ocsf.dst_endpoint
+  $ocsf.dst_endpoint = $event._server_endpoint
   drop $event._server_endpoint
 }
 
-if $event.suricata.dhcp.has("hostname") {
-  $event.ocsf.src_endpoint.hostname = move $event.suricata.dhcp.hostname
+if $event.dhcp.has("hostname") {
+  $ocsf.src_endpoint.hostname = move $event.dhcp.hostname
 }
 
-if $event.suricata.dhcp.has("client_mac") {
-  $event.ocsf.src_endpoint.mac = move $event.suricata.dhcp.client_mac
+if $event.dhcp.has("client_mac") {
+  $ocsf.src_endpoint.mac = move $event.dhcp.client_mac
 }
 
-if $event.suricata.dhcp.has("assigned_ip") {
-  $event.ocsf.src_endpoint.ip = move $event.suricata.dhcp.assigned_ip
+if $event.dhcp.has("assigned_ip") {
+  $ocsf.src_endpoint.ip = move $event.dhcp.assigned_ip
 }
 
-if $event.suricata.dhcp.has("lease_time") {
-  $event.ocsf.lease_dur = move $event.suricata.dhcp.lease_time
+if $event.dhcp.has("lease_time") {
+  $ocsf.lease_dur = move $event.dhcp.lease_time
 }
 
-match $event.suricata.dhcp.dhcp_type {
+match $event.dhcp.dhcp_type {
   "offer" | "ack" => {
-    $event.ocsf.status_id = 1
+    $ocsf.status_id = 1
   }
   "decline" | "nak" => {
-    $event.ocsf.status_id = 2
+    $ocsf.status_id = 2
   }
   _ => {
-    $event.ocsf.status_id = 0
+    $ocsf.status_id = 0
   }
 }
 
-$event.ocsf.transaction_uid = (move $event.suricata.dhcp.id).string()
+$ocsf.transaction_uid = (move $event.dhcp.id).string()
 
 // --- Finalize ---------------------------------
 

@@ -1,8 +1,11 @@
 ---
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 // --- OCSF: classification attributes ----------
@@ -21,35 +24,35 @@ let $krb5_activity_map = {
   KRB_TGS_REP: 4,
 }
 
-match $event.suricata.krb5.msg_type {
-  "KRB_ERROR" if $event.suricata.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
-    $event.ocsf.activity_id = 6
+match $event.krb5.msg_type {
+  "KRB_ERROR" if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
+    $ocsf.activity_id = 6
   }
   "KRB_ERROR" => {
     // For other errors, map based on the failed_request field.
-    $event.ocsf.activity_id = $krb5_activity_map[$event.suricata.krb5.failed_request?]? else 99
+    $ocsf.activity_id = $krb5_activity_map[$event.krb5.failed_request?]? else 99
   }
   _ => {
-    $event.ocsf.activity_id = $krb5_activity_map[$event.suricata.krb5.msg_type]? else 99
+    $ocsf.activity_id = $krb5_activity_map[$event.krb5.msg_type]? else 99
   }
 }
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3002
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
 
 // Severity: informational for success, low for authentication failures
-$event.ocsf.severity_id = 1 if $event.suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
+$ocsf.severity_id = 1 if $event.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
 
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.is_cleartext = move $event.suricata.krb5.weak_encryption
+$ocsf.is_cleartext = move $event.krb5.weak_encryption
 
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.auth_protocol = "Kerberos"
-$event.ocsf.auth_protocol_id = 2
+$ocsf.auth_protocol = "Kerberos"
+$ocsf.auth_protocol_id = 2
 
 // Map Kerberos encryption types to OCSF algorithm names
 let $krb5_to_algo = {
@@ -99,38 +102,38 @@ let $algo_to_id = {
 
 // For successful authentications, create an authentication_token object to
 // represent the Kerberos ticket
-if $event.suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] {
-  $event.ocsf.authentication_token = {
+if $event.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] {
+  $ocsf.authentication_token = {
     // Map Kerberos message type to token type
-    type: "Ticket Granting Ticket" if $event.suricata.krb5.msg_type == "KRB_AS_REP" else "Service Ticket",
-    type_id: 1 if $event.suricata.krb5.msg_type == "KRB_AS_REP" else 2,
+    type: "Ticket Granting Ticket" if $event.krb5.msg_type == "KRB_AS_REP" else "Service Ticket",
+    type_id: 1 if $event.krb5.msg_type == "KRB_AS_REP" else 2,
   }
-  if $event.suricata.krb5.has("encryption") and $event.suricata.krb5.encryption != "<none>" {
-    $event.ocsf.authentication_token.encryption_details = {
-      algorithm: $krb5_to_algo[$event.suricata.krb5.encryption]? else "Other",
-      algorithm_id: $algo_to_id[$krb5_to_algo[$event.suricata.krb5.encryption]? else "Other"],
-      type: move $event.suricata.krb5.encryption,
+  if $event.krb5.has("encryption") and $event.krb5.encryption != "<none>" {
+    $ocsf.authentication_token.encryption_details = {
+      algorithm: $krb5_to_algo[$event.krb5.encryption]? else "Other",
+      algorithm_id: $algo_to_id[$krb5_to_algo[$event.krb5.encryption]? else "Other"],
+      type: move $event.krb5.encryption,
     }
   }
 }
 
 // Service (target) information - the service principal being accessed
-$event.ocsf.service = {
-  name: move $event.suricata.krb5.sname,
+$ocsf.service = {
+  name: move $event.krb5.sname,
 }
 
-$event.ocsf.status_code = move $event.suricata.krb5.error_code?
-$event.ocsf.status_detail = move $event.suricata.krb5.failed_request?
-$event.ocsf.status_id = 1 if $event.suricata.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
+$ocsf.status_code = move $event.krb5.error_code?
+$ocsf.status_detail = move $event.krb5.failed_request?
+$ocsf.status_id = 1 if $event.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] else 2
 
-if $event.suricata.krb5.has("realm") and $event.suricata.krb5.realm != "<empty>" {
-  $event.ocsf.user.domain = move $event.suricata.krb5.realm
+if $event.krb5.has("realm") and $event.krb5.realm != "<empty>" {
+  $ocsf.user.domain = move $event.krb5.realm
 }
-if $event.suricata.krb5.has("cname") and $event.suricata.krb5.cname != "<empty>" {
-  $event.ocsf.user.name = move $event.suricata.krb5.cname
+if $event.krb5.has("cname") and $event.krb5.cname != "<empty>" {
+  $ocsf.user.name = move $event.krb5.cname
 }
 
-drop $event.suricata.krb5.msg_type
+drop $event.krb5.msg_type
 
 // --- Finalize ---------------------------------
 

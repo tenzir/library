@@ -1,48 +1,51 @@
 ---
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 // --- OCSF: classification attributes ----------
 
-$event.ocsf.activity_id = 6
+$ocsf.activity_id = 6
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4007
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4007
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
-if $event.suricata.ssh.server?.proto_version? != null {
-  $event.ocsf.protocol_ver = move $event.suricata.ssh.server.proto_version
-} else if $event.suricata.ssh.client?.proto_version? != null {
-  $event.ocsf.protocol_ver = move $event.suricata.ssh.client.proto_version
+if $event.ssh.server?.proto_version? != null {
+  $ocsf.protocol_ver = move $event.ssh.server.proto_version
+} else if $event.ssh.client?.proto_version? != null {
+  $ocsf.protocol_ver = move $event.ssh.client.proto_version
 }
 
-if $event.suricata.ssh.client?.has("hassh") {
-  $event.ocsf.client_hassh = {
-    algorithm: move $event.suricata.ssh.client.hassh.string,
+if $event.ssh.client?.has("hassh") {
+  $ocsf.client_hassh = {
+    algorithm: move $event.ssh.client.hassh.string,
     fingerprint: {
       algorithm_id: 20,
-      value: move $event.suricata.ssh.client.hassh.hash,
+      value: move $event.ssh.client.hassh.hash,
     },
   }
 }
 
-if $event.suricata.ssh.server?.has("hassh") {
-  $event.ocsf.server_hassh = {
-    algorithm: move $event.suricata.ssh.server.hassh.string,
+if $event.ssh.server?.has("hassh") {
+  $ocsf.server_hassh = {
+    algorithm: move $event.ssh.server.hassh.string,
     fingerprint: {
       algorithm_id: 20,
-      value: move $event.suricata.ssh.server.hassh.hash,
+      value: move $event.ssh.server.hassh.hash,
     },
   }
 }
 
-$event.ocsf.status_id = 0
+$ocsf.status_id = 0
 
 // --- Finalize ---------------------------------
 
