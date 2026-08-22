@@ -2,12 +2,11 @@
 description: |
   Maps a structured ISC BIND `named` event to OCSF.
 
-  The optional positional field holds the event produced by `named::parse`.
-  The named output receives OCSF DNS Activity (class 4003) or an OCSF Base
-  Event. Both default to `this` for in-place mapping:
+  The first positional field holds the event produced by `named::parse`.
+  The second receives OCSF DNS Activity (class 4003) or an OCSF Base Event:
 
   ```tql
-  named::ocsf::map event, into=ocsf
+  named::ocsf::map event, ocsf
   ```
 
   The mapper consumes the structured source event: translated fields become
@@ -16,33 +15,30 @@ description: |
 args:
   positional:
     - name: event
-      description: The structured BIND named event to map.
       type: field
-      default: this
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
       description: The field that receives the OCSF event.
-      type: field
-      default: this
 ---
 
 // Snapshot the source before writing so in-place and separate-field calls use
 // the same mapping path.
-$into = {
+$event = {
   named: $event,
   ocsf: {},
 }
 
-match $into.named.category? {
+match $event.named.category? {
   "query" | "query-error" | "query-policy" | "rpz" => {
-    named::ocsf::events::dns $into
+    named::ocsf::events::dns $event
   }
   _ => {
-    named::ocsf::base $into
+    named::ocsf::base $event
   }
 }
 
-$into = {
-  ...$into.ocsf,
-  unmapped: $into.named,
+$ocsf = {
+  ...$event.ocsf,
+  unmapped: $event.named,
 }
