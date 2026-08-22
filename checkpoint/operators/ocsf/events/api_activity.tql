@@ -1,46 +1,49 @@
 ---
 description: "Check Point WEB_API → OCSF API Activity (6003)"
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
 @name = "ocsf.api_activity"
 
-$event.ocsf.metadata.profiles = ["host"]
+$ocsf.metadata.profiles = ["host"]
 
-$event.ocsf.category_uid = 6
-$event.ocsf.class_uid = 6003
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6003
 let $activities = {
   Create: 1,
   Read: 2,
   Update: 3,
   Delete: 4,
 }
-$event.ocsf.activity_id = $activities[$event.checkpoint.action?]? else 0
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activities[$event.action?]? else 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.api = {
-  operation: $event.checkpoint.action? else $event.checkpoint.subject? else "unknown",
+$ocsf.api = {
+  operation: $event.action? else $event.subject? else "unknown",
 }
-drop $event.checkpoint.action?
+drop $event.action?
 
-checkpoint::ocsf::status event=$event
+checkpoint::ocsf::status $event, $ocsf
 
-if $event.checkpoint.user? != null {
-  $event.ocsf.actor.user.name = move $event.checkpoint.user
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
 }
-if $event.checkpoint.src? != null {
-  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
+if $event.src? != null {
+  $ocsf.src_endpoint.ip = move $event.src
 }
-if $event.checkpoint.object? != null or $event.checkpoint.objecttype? != null {
-  $event.ocsf.resources = [{
-    name: move $event.checkpoint.object?,
-    type: move $event.checkpoint.objecttype?,
+if $event.object? != null or $event.objecttype? != null {
+  $ocsf.resources = [{
+    name: move $event.object?,
+    type: move $event.objecttype?,
   }]
 }
-if $event.checkpoint.subject? != null {
-  $event.ocsf.api.request.uid = move $event.checkpoint.subject
+if $event.subject? != null {
+  $ocsf.api.request.uid = move $event.subject
 }

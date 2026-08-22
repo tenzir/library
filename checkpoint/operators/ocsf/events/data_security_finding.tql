@@ -1,71 +1,74 @@
 ---
 description: "Check Point DLP/Content Awareness → OCSF Data Security Finding (2006)"
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
 @name = "ocsf.data_security_finding"
 
-$event.ocsf.metadata.profiles = ["host", "security_control"]
+$ocsf.metadata.profiles = ["host", "security_control"]
 
-$event.ocsf.category_uid = 2
-$event.ocsf.class_uid = 2006
-$event.ocsf.activity_id = 1  // Create
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.is_alert = true
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2006
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.is_alert = true
 
-checkpoint::ocsf::security_control_outcome event=$event
+checkpoint::ocsf::security_control_outcome $event, $ocsf
 
-$event.ocsf.finding_info = {
-  title: $event.checkpoint.data_type? else $event.checkpoint.reason? else $event.ocsf.message? else "Check Point DLP finding",
-  desc: $event.checkpoint.reason?,
-  uid: $event.ocsf.metadata.uid? else $event.ocsf.metadata.original_event_uid?,
+$ocsf.finding_info = {
+  title: $event.data_type? else $event.reason? else $ocsf.message? else "Check Point DLP finding",
+  desc: $event.reason?,
+  uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
   analytic: {
-    name: $event.checkpoint.policy? else "Check Point DLP",
+    name: $event.policy? else "Check Point DLP",
     type_id: 1,
-    uid: $event.ocsf.metadata.uid? else $event.ocsf.metadata.original_event_uid?,
+    uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
   },
 }
 
-$event.ocsf.data_security = {
+$ocsf.data_security = {
   data_lifecycle_state_id: 2,
   detection_system_id: 2,
-  detection_pattern: move $event.checkpoint.data_type?,
+  detection_pattern: move $event.data_type?,
 }
-if $event.checkpoint.policy? != null {
-  $event.ocsf.data_security.policy.name = move $event.checkpoint.policy
-}
-
-if $event.checkpoint.object? != null {
-  $event.ocsf.file.name = move $event.checkpoint.object
-  $event.ocsf.file.type_id = 1
-}
-if $event.checkpoint.objecttype? != null {
-  $event.ocsf.file.type_id = 99
-  $event.ocsf.file.type = move $event.checkpoint.objecttype
-}
-if $event.checkpoint.size? != null {
-  $event.ocsf.file.size = move $event.checkpoint.size
+if $event.policy? != null {
+  $ocsf.data_security.policy.name = move $event.policy
 }
 
-if $event.checkpoint.src? != null {
-  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
+if $event.object? != null {
+  $ocsf.file.name = move $event.object
+  $ocsf.file.type_id = 1
 }
-if $event.checkpoint.dst? != null {
-  $event.ocsf.dst_endpoint.ip = move $event.checkpoint.dst
+if $event.objecttype? != null {
+  $ocsf.file.type_id = 99
+  $ocsf.file.type = move $event.objecttype
 }
-if $event.checkpoint.service? != null {
-  $event.ocsf.dst_endpoint.port = move $event.checkpoint.service
+if $event.size? != null {
+  $ocsf.file.size = move $event.size
 }
-if $event.checkpoint.user? != null {
-  $event.ocsf.actor.user.name = move $event.checkpoint.user
+
+if $event.src? != null {
+  $ocsf.src_endpoint.ip = move $event.src
 }
-if $event.checkpoint.sender? != null {
-  $event.ocsf.actor.user.email_addr = move $event.checkpoint.sender
+if $event.dst? != null {
+  $ocsf.dst_endpoint.ip = move $event.dst
 }
-if $event.checkpoint.reason? != null {
-  $event.ocsf.status_detail = move $event.checkpoint.reason
+if $event.service? != null {
+  $ocsf.dst_endpoint.port = move $event.service
+}
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
+}
+if $event.sender? != null {
+  $ocsf.actor.user.email_addr = move $event.sender
+}
+if $event.reason? != null {
+  $ocsf.status_detail = move $event.reason
 }

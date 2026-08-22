@@ -1,40 +1,43 @@
 ---
 description: "Check Point URL/Application Control -> OCSF HTTP Activity (4002)"
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
 @name = "ocsf.http_activity"
 
-$event.ocsf.metadata.profiles = ["host", "security_control"]
+$ocsf.metadata.profiles = ["host", "security_control"]
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4002
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
 
-$event.ocsf.activity_id = 0
-checkpoint::ocsf::security_control_outcome event=$event
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = 0
+checkpoint::ocsf::security_control_outcome $event, $ocsf
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-drop $event.checkpoint.action?
+drop $event.action?
 
-if $event.checkpoint.url? != null {
-  $event.ocsf.http_request.url.url_string = move $event.checkpoint.url
+if $event.url? != null {
+  $ocsf.http_request.url.url_string = move $event.url
 } else {
-  $event.ocsf.http_request = {}
+  $ocsf.http_request = {}
 }
 
-if $event.checkpoint.src? != null {
-  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
+if $event.src? != null {
+  $ocsf.src_endpoint.ip = move $event.src
 }
-if $event.checkpoint.s_port? != null {
-  $event.ocsf.src_endpoint.port = move $event.checkpoint.s_port
+if $event.s_port? != null {
+  $ocsf.src_endpoint.port = move $event.s_port
 }
-if $event.checkpoint.sname? != null {
-  $event.ocsf.src_endpoint.hostname = move $event.checkpoint.sname
+if $event.sname? != null {
+  $ocsf.src_endpoint.hostname = move $event.sname
 }
-if $event.checkpoint.reason? != null {
-  $event.ocsf.status_detail = move $event.checkpoint.reason
+if $event.reason? != null {
+  $ocsf.status_detail = move $event.reason
 }
