@@ -16,8 +16,8 @@ Use the namespaced operators directly in your own workflows:
 ```tql
 alphamountain::threat::feed license="ALPHAMOUNTAIN_LICENSE", limit=100
 alphamountain::ocsf::map this, this
-ocsf::derive
-ocsf::cast
+ocsf_derive
+ocsf_cast
 ```
 
 The package covers real-time URI lookups, hostname intelligence, and threat and category feeds. It also ships anonymized OCSF mapping coverage that derives and casts the resulting events.
