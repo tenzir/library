@@ -17,4 +17,4 @@ to OCSF Base Event.
 The mapping now preserves more accurate Suricata network direction, maps
 `flow_id` as the original event UID, improves HTTP, DHCP, FTP, SMTP, SSH, TLS,
 alert, flow, and file activity coverage, and validates all Suricata OCSF test
-outputs with `ocsf::cast`.
+outputs with `ocsf_cast`.
