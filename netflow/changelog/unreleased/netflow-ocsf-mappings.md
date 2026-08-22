@@ -16,8 +16,8 @@ OCSF 1.9.0:
 accept_udp "0.0.0.0:2055", binary=true
 read_netflow
 netflow::ocsf::map this, this
-ocsf::derive
-ocsf::cast
+ocsf_derive
+ocsf_cast
 ```
 
 Flow records become Network Activity `Traffic` events. The mapper preserves
