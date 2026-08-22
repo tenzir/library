@@ -4,12 +4,9 @@ args:
   positional:
     - name: event
       type: field
-      default: this
-      description: The structured EVE event to map.
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
@@ -17,22 +14,22 @@ args:
 // Helpful information for mappers:
 // - https://github.com/OISF/suricata/blob/main/etc/schema.json
 
-$into = {suricata: $event, ocsf: {}}
+$event = {suricata: $event, ocsf: {}}
 
 // --- OCSF: classification attributes ----------
 
-$into.ocsf.category_uid = 4
-$into.ocsf.severity_id = 1
+$event.ocsf.category_uid = 4
+$event.ocsf.severity_id = 1
 
 // --- OCSF: occurrence attributes --------------
 
-$into.ocsf.time = move $into.suricata.timestamp
+$event.ocsf.time = move $event.suricata.timestamp
 
 // --- OCSF: context attributes -----------------
 
-$into.ocsf.metadata = {
+$event.ocsf.metadata = {
   log_format: "json",
-  log_name: $into.suricata.event_type,
+  log_name: $event.suricata.event_type,
   product: {
     name: "Suricata",
     vendor_name: "Open Information Security Foundation",
@@ -40,132 +37,132 @@ $into.ocsf.metadata = {
   },
   version: "1.9.0",
 }
-if $into.suricata.pcap_cnt? != null {
-  $into.ocsf.metadata.sequence = move $into.suricata.pcap_cnt
+if $event.suricata.pcap_cnt? != null {
+  $event.ocsf.metadata.sequence = move $event.suricata.pcap_cnt
 }
-if $into.suricata.flow_id? != null {
-  $into.ocsf.metadata.original_event_uid = $into.suricata.flow_id.string()
-  $into.ocsf.metadata.correlation_uid = $into.suricata.flow_id.string()
+if $event.suricata.flow_id? != null {
+  $event.ocsf.metadata.original_event_uid = $event.suricata.flow_id.string()
+  $event.ocsf.metadata.correlation_uid = $event.suricata.flow_id.string()
 }
 
 // Prefer flow initiator/responder fields when Suricata provides them. Alert
 // packets can point in the opposite direction of the flow that triggered them.
-if $into.suricata.flow?.src_ip? != null {
-  $into.ocsf.src_endpoint.ip = move $into.suricata.flow.src_ip
-} else if $into.suricata.src_ip? != null {
-  $into.ocsf.src_endpoint.ip = move $into.suricata.src_ip
+if $event.suricata.flow?.src_ip? != null {
+  $event.ocsf.src_endpoint.ip = move $event.suricata.flow.src_ip
+} else if $event.suricata.src_ip? != null {
+  $event.ocsf.src_endpoint.ip = move $event.suricata.src_ip
 }
-if $into.suricata.flow?.dest_ip? != null {
-  $into.ocsf.dst_endpoint.ip = move $into.suricata.flow.dest_ip
-} else if $into.suricata.dest_ip? != null {
-  $into.ocsf.dst_endpoint.ip = move $into.suricata.dest_ip
+if $event.suricata.flow?.dest_ip? != null {
+  $event.ocsf.dst_endpoint.ip = move $event.suricata.flow.dest_ip
+} else if $event.suricata.dest_ip? != null {
+  $event.ocsf.dst_endpoint.ip = move $event.suricata.dest_ip
 }
-if $into.suricata.flow?.src_port? != null {
-  $into.ocsf.src_endpoint.port = move $into.suricata.flow.src_port
-} else if $into.suricata.src_port? != null {
-  $into.ocsf.src_endpoint.port = move $into.suricata.src_port
+if $event.suricata.flow?.src_port? != null {
+  $event.ocsf.src_endpoint.port = move $event.suricata.flow.src_port
+} else if $event.suricata.src_port? != null {
+  $event.ocsf.src_endpoint.port = move $event.suricata.src_port
 }
-if $into.suricata.flow?.dest_port? != null {
-  $into.ocsf.dst_endpoint.port = move $into.suricata.flow.dest_port
-} else if $into.suricata.dest_port? != null {
-  $into.ocsf.dst_endpoint.port = move $into.suricata.dest_port
+if $event.suricata.flow?.dest_port? != null {
+  $event.ocsf.dst_endpoint.port = move $event.suricata.flow.dest_port
+} else if $event.suricata.dest_port? != null {
+  $event.ocsf.dst_endpoint.port = move $event.suricata.dest_port
 }
 
-if $into.suricata.event_type != "krb5" and $into.suricata.event_type != "smtp" {
-  if $into.suricata.ip_v? != null {
-    $into.ocsf.connection_info.protocol_ver_id = move $into.suricata.ip_v
-  } else if $into.ocsf.src_endpoint?.ip? != null {
-    $into.ocsf.connection_info.protocol_ver_id = 6 if $into.ocsf.src_endpoint.ip.is_v6() else 4
-  } else if $into.ocsf.dst_endpoint?.ip? != null {
-    $into.ocsf.connection_info.protocol_ver_id = 6 if $into.ocsf.dst_endpoint.ip.is_v6() else 4
+if $event.suricata.event_type != "krb5" and $event.suricata.event_type != "smtp" {
+  if $event.suricata.ip_v? != null {
+    $event.ocsf.connection_info.protocol_ver_id = move $event.suricata.ip_v
+  } else if $event.ocsf.src_endpoint?.ip? != null {
+    $event.ocsf.connection_info.protocol_ver_id = 6 if $event.ocsf.src_endpoint.ip.is_v6() else 4
+  } else if $event.ocsf.dst_endpoint?.ip? != null {
+    $event.ocsf.connection_info.protocol_ver_id = 6 if $event.ocsf.dst_endpoint.ip.is_v6() else 4
   }
 
-  if $into.suricata.flow_id? != null {
-    $into.ocsf.connection_info.uid = $into.suricata.flow_id.string()
+  if $event.suricata.flow_id? != null {
+    $event.ocsf.connection_info.uid = $event.suricata.flow_id.string()
   }
 
-  if $into.suricata.proto? != null {
+  if $event.suricata.proto? != null {
     let $proto_nums = {
       TCP: 6,
       UDP: 17,
       ICMP: 1,
       ICMPV6: 58,
     }
-    $into.ocsf.connection_info.protocol_name = $into.suricata.proto.to_lower()
-    $into.ocsf.connection_info.protocol_num = $proto_nums[$into.suricata.proto]? else 0
-    drop $into.suricata.proto
+    $event.ocsf.connection_info.protocol_name = $event.suricata.proto.to_lower()
+    $event.ocsf.connection_info.protocol_num = $proto_nums[$event.suricata.proto]? else 0
+    drop $event.suricata.proto
   }
 
-  if $into.suricata.community_id? != null {
-    $into.ocsf.connection_info.community_uid = move $into.suricata.community_id
+  if $event.suricata.community_id? != null {
+    $event.ocsf.connection_info.community_uid = move $event.suricata.community_id
   }
 }
 
-let $into_types_without_app_proto = ["alert", "krb5", "smtp"]
-if $into.suricata.app_proto? != null and $into.suricata.app_proto != "failed" and not ($into.suricata.event_type in $into_types_without_app_proto) {
-  $into.ocsf.app_protocol_name = move $into.suricata.app_proto
+let $event_types_without_app_proto = ["alert", "krb5", "smtp"]
+if $event.suricata.app_proto? != null and $event.suricata.app_proto != "failed" and not ($event.suricata.event_type in $event_types_without_app_proto) {
+  $event.ocsf.app_protocol_name = move $event.suricata.app_proto
 }
-drop $into.suricata.flow_id?
+drop $event.suricata.flow_id?
 
 // --- Event-specific mapping -------------------
 
-match $into.suricata.event_type {
+match $event.suricata.event_type {
   "alert" => {
-    suricata::ocsf::logs::alert event=$into
+    suricata::ocsf::logs::alert event=$event
   }
   "anomaly" => {
-    suricata::ocsf::logs::anomaly event=$into
+    suricata::ocsf::logs::anomaly event=$event
   }
   "dhcp" => {
-    suricata::ocsf::logs::dhcp event=$into
+    suricata::ocsf::logs::dhcp event=$event
   }
   "dns" => {
-    suricata::ocsf::logs::dns event=$into
+    suricata::ocsf::logs::dns event=$event
   }
   "fileinfo" => {
-    suricata::ocsf::logs::fileinfo event=$into
+    suricata::ocsf::logs::fileinfo event=$event
   }
   "flow" | "netflow" => {
-    suricata::ocsf::logs::flow event=$into
+    suricata::ocsf::logs::flow event=$event
   }
   "ftp" => {
-    suricata::ocsf::logs::ftp event=$into
+    suricata::ocsf::logs::ftp event=$event
   }
   "http" => {
-    suricata::ocsf::logs::http event=$into
+    suricata::ocsf::logs::http event=$event
   }
   "krb5" => {
-    suricata::ocsf::logs::krb5 event=$into
+    suricata::ocsf::logs::krb5 event=$event
   }
   "mqtt" => {
-    suricata::ocsf::logs::mqtt event=$into
+    suricata::ocsf::logs::mqtt event=$event
   }
   "sip" => {
-    suricata::ocsf::logs::sip event=$into
+    suricata::ocsf::logs::sip event=$event
   }
   "smb" => {
-    suricata::ocsf::logs::smb event=$into
+    suricata::ocsf::logs::smb event=$event
   }
   "smtp" => {
-    suricata::ocsf::logs::smtp event=$into
+    suricata::ocsf::logs::smtp event=$event
   }
   "snmp" => {
-    suricata::ocsf::logs::snmp event=$into
+    suricata::ocsf::logs::snmp event=$event
   }
   "ssh" => {
-    suricata::ocsf::logs::ssh event=$into
+    suricata::ocsf::logs::ssh event=$event
   }
   "tls" => {
-    suricata::ocsf::logs::tls event=$into
+    suricata::ocsf::logs::tls event=$event
   }
   _ => {
-    suricata::ocsf::base event=$into
+    suricata::ocsf::base event=$event
   }
 }
 
 // --- Epilogue ---------------------------------
 
-drop $into.suricata.event_type
+drop $event.suricata.event_type
 
 
-$into = {...$into.ocsf, unmapped: $into.suricata}
+$ocsf = {...$event.ocsf, unmapped: $event.suricata}
