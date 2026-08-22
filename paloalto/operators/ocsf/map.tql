@@ -12,59 +12,56 @@ description: |
 args:
   positional:
     - name: event
-      description: The structured PAN-OS event to map.
       type: field
-      default: this
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
       description: The field that receives the OCSF event.
-      type: field
-      default: this
 ---
 
 // Snapshot the source before writing so in-place and separate-field calls use
 // the same mapping path.
-$into = {
+$event = {
   paloalto: $event,
   ocsf: {},
 }
 
-match $into.paloalto.type? {
+match $event.paloalto.type? {
   "TRAFFIC" => {
-    paloalto::ocsf::events::traffic $into
+    paloalto::ocsf::events::traffic $event
   }
   "URL-FILTERING" => {
-    paloalto::ocsf::events::url_filtering $into
+    paloalto::ocsf::events::url_filtering $event
   }
   "THREAT" => {
-    match $into.paloalto.threat_content_type? {
+    match $event.paloalto.threat_content_type? {
       "url" => {
-        paloalto::ocsf::events::url_filtering $into
+        paloalto::ocsf::events::url_filtering $event
       }
       "data" | "dlp" | "dlp-non-file" => {
-        paloalto::ocsf::base $into
+        paloalto::ocsf::base $event
       }
       _ => {
-        paloalto::ocsf::events::threat $into
+        paloalto::ocsf::events::threat $event
       }
     }
   }
   "GLOBALPROTECT" => {
-    if $into.paloalto.event_id? == "gateway-auth" or $into.paloalto.stage? == "login" {
-      paloalto::ocsf::events::globalprotect_authentication $into
+    if $event.paloalto.event_id? == "gateway-auth" or $event.paloalto.stage? == "login" {
+      paloalto::ocsf::events::globalprotect_authentication $event
     } else {
-      paloalto::ocsf::base $into
+      paloalto::ocsf::base $event
     }
   }
-  _ if $into.paloalto.threat_content_type? == "AUDIT" => {
-    paloalto::ocsf::events::audit $into
+  _ if $event.paloalto.threat_content_type? == "AUDIT" => {
+    paloalto::ocsf::events::audit $event
   }
   _ => {
-    paloalto::ocsf::base $into
+    paloalto::ocsf::base $event
   }
 }
 
-$into = {
-  ...$into.ocsf,
-  unmapped: $into.paloalto,
+$ocsf = {
+  ...$event.ocsf,
+  unmapped: $event.paloalto,
 }
