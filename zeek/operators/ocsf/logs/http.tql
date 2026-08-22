@@ -2,13 +2,16 @@
 description: |
   Zeek http.log → OCSF HTTP Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-zeek::ocsf::map_network event=$event
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
@@ -22,59 +25,59 @@ let $methods = {
   PUT: 7,
   TRACE: 8,
 }
-$event.zeek._method = move $event.zeek.method?
-$event.ocsf.activity_id = $methods[$event.zeek._method]? else 0
-$event.ocsf.class_uid = 4002
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event._method = move $event.method?
+$ocsf.activity_id = $methods[$event._method]? else 0
+$ocsf.class_uid = 4002
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "http.log"
+$ocsf.metadata.log_name = "http.log"
 
 // --- OCSF: primary attributes -----------------
 
-if $event.zeek.has("dest_host") {
-  $event.host = $event.zeek.dest_host
+if $event.has("dest_host") {
+  $event.host = $event.dest_host
 } else {
-  $event.host = $event.zeek.host
+  $event.host = $event.host
 }
 
-$event.ocsf.http_request = {
-  http_method: $event.zeek._method?.to_title(),
-  referrer: move $event.zeek.referrer,
+$ocsf.http_request = {
+  http_method: $event._method?.to_title(),
+  referrer: move $event.referrer,
   url: {
     hostname: move $event.host,
     // TODO: Take this apart with string or URL functions.
     // Zeek's uri field is actually the path plus all parameters.
-    path: move $event.zeek.uri,
+    path: move $event.uri,
   },
-  user_agent: move $event.zeek.user_agent,
-  version: move $event.zeek.version,
+  user_agent: move $event.user_agent,
+  version: move $event.version,
 }
-drop $event.zeek._method?
-if $event.zeek.has("client_headers") {
-  $event.ocsf.http_request.http_headers = \
-    $event.zeek.client_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
-  drop $event.zeek.client_headers
+drop $event._method?
+if $event.has("client_headers") {
+  $ocsf.http_request.http_headers = \
+    $event.client_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+  drop $event.client_headers
 }
-if $event.zeek.has("server_headers") {
-  $event.ocsf.http_response.http_headers = \
-    $event.zeek.server_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
-  drop $event.zeek.server_headers
-}
-
-$event.ocsf.http_response = {
-  code: move $event.zeek.status_code,
-  status: move $event.zeek.status_msg,
+if $event.has("server_headers") {
+  $ocsf.http_response.http_headers = \
+    $event.server_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+  drop $event.server_headers
 }
 
-$event.ocsf.connection_info.direction = "Other"
-$event.ocsf.connection_info.direction_id = 99
-$event.ocsf.connection_info.protocol_name = "tcp"
-$event.ocsf.connection_info.protocol_num = 6
+$ocsf.http_response = {
+  code: move $event.status_code,
+  status: move $event.status_msg,
+}
 
-$event.ocsf.status = "Unknown"
-$event.ocsf.status_id = 0
+$ocsf.connection_info.direction = "Other"
+$ocsf.connection_info.direction_id = 99
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
+
+$ocsf.status = "Unknown"
+$ocsf.status_id = 0
 
 @name = "ocsf.http_activity"

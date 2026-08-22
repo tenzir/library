@@ -2,13 +2,16 @@
 description: |
   Zeek rdp.log → OCSF RDP Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-zeek::ocsf::map_network event=$event
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
@@ -20,41 +23,41 @@ let $results = {
   "Rejected for symmetry breaking": 2,
   "Locked conference": 2,
 }
-$event.ocsf.activity_id = 6
-$event.ocsf.class_uid = 4005
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = 6
+$ocsf.class_uid = 4005
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "rdp.log"
+$ocsf.metadata.log_name = "rdp.log"
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.connection_info.protocol_name = "tcp"
-$event.ocsf.connection_info.protocol_num = 6
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
 
-$event.ocsf.protocol_ver = move $event.zeek.client_build?
-$event.ocsf.identifier_cookie = move $event.zeek.cookie
-$event.ocsf.keyboard_info = {
-  keyboard_layout: move $event.zeek.keyboard_layout?,
+$ocsf.protocol_ver = move $event.client_build?
+$ocsf.identifier_cookie = move $event.cookie
+$ocsf.keyboard_info = {
+  keyboard_layout: move $event.keyboard_layout?,
 }
-$event.ocsf.remote_display = {
-  physical_height: move $event.zeek.desktop_height?,
-  physical_width: move $event.zeek.desktop_width?,
-  color_depth: int(replace(move $event.zeek.requested_color_depth?, "bit", "")),
+$ocsf.remote_display = {
+  physical_height: move $event.desktop_height?,
+  physical_width: move $event.desktop_width?,
+  color_depth: int(replace(move $event.requested_color_depth?, "bit", "")),
 }
-$event.ocsf.tls = {
-  key_length: int(replace(move $event.zeek.encryption_method?, "bit", "")),
+$ocsf.tls = {
+  key_length: int(replace(move $event.encryption_method?, "bit", "")),
   // The version is required, but not present in the data.
   version: null,
 }
-$event.ocsf.status_detail = move $event.zeek.result
-$event.ocsf.status_id = $results[$event.ocsf.status_detail] else 0
+$ocsf.status_detail = move $event.result
+$ocsf.status_id = $results[$ocsf.status_detail] else 0
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.device = {
-  name: move $event.zeek.client_name?,
+$ocsf.device = {
+  name: move $event.client_name?,
   os: {
     name: "Windows",
     cpe_name: "cpe:2.3:o:microsoft:windows",
@@ -62,7 +65,7 @@ $event.ocsf.device = {
     type: "Windows",
   },
   // 64-byte clientDigProductId
-  uid: move $event.zeek.client_dig_product_id?,
+  uid: move $event.client_dig_product_id?,
   type_id: 2,
   type: "Desktop",
 }

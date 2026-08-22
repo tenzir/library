@@ -2,25 +2,28 @@
 description: |
   Zeek dns.log → OCSF DNS Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-zeek::ocsf::map_network event=$event
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
-$event.ocsf.activity_id = 6
-$event.ocsf.class_uid = 4003
-$event.ocsf.opcode_id = 0
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = 6
+$ocsf.class_uid = 4003
+$ocsf.opcode_id = 0
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "dns.log"
+$ocsf.metadata.log_name = "dns.log"
 
 // --- OCSF: primary attributes -----------------
 
@@ -47,33 +50,33 @@ let $rcode_names = {
   BADCOOKIE: "BADCOOKIE",
   BADSIG: "BADSIG",
 }
-$event.ocsf.answers = zip(move $event.zeek.answers, move $event.zeek.TTLs).map(x => {
+$ocsf.answers = zip(move $event.answers, move $event.TTLs).map(x => {
   rdata: x.left,
   ttl: int(x.right),
 })
-$event.ocsf.query = {
-  class: move $event.zeek.qclass_name,
-  hostname: move $event.zeek.query,
+$ocsf.query = {
+  class: move $event.qclass_name,
+  hostname: move $event.query,
   // TODO: go deeper and extract the log semantics.
   //opcode_id: 0,
-  type: move $event.zeek.qtype_name,
+  type: move $event.qtype_name,
 }
-$event.ocsf.query_time = $event.ocsf.time
-$event.ocsf.response_time = $event.ocsf.time
-$event.ocsf.rcode = $rcode_names[$event.zeek.rcode_name]? else $event.zeek.rcode_name
-if $event.zeek.rcode_name? == "BADSIG" {
-  $event.ocsf.rcode_id = 99
-  drop $event.zeek.rcode
+$ocsf.query_time = $ocsf.time
+$ocsf.response_time = $ocsf.time
+$ocsf.rcode = $rcode_names[$event.rcode_name]? else $event.rcode_name
+if $event.rcode_name? == "BADSIG" {
+  $ocsf.rcode_id = 99
+  drop $event.rcode
 } else {
-  $event.ocsf.rcode_id = move $event.zeek.rcode
+  $ocsf.rcode_id = move $event.rcode
 }
-drop $event.zeek.rcode_name
+drop $event.rcode_name
 
-$event.ocsf.connection_info = {
+$ocsf.connection_info = {
   direction: "Other",
   direction_id: 99,
 }
-$event.ocsf.status = "Unknown"
-$event.ocsf.status_id = 0
+$ocsf.status = "Unknown"
+$ocsf.status_id = 0
 
 @name = "ocsf.dns_activity"

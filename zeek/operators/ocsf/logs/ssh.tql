@@ -2,13 +2,16 @@
 description: |
   Zeek ssh.log → OCSF SSH Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-zeek::ocsf::map_network event=$event
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
@@ -16,34 +19,34 @@ zeek::ocsf::map_network event=$event
 // we have a ssh.log entry, it means we already have an established
 // connection and must assume data is being exchanged, even if it's just
 // the SSH handshake.
-$event.ocsf.activity_id = 6
-$event.ocsf.class_uid = 4007
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-if "ABP" in $event.zeek.inferences or "BFS" in $event.zeek.inferences {
+$ocsf.activity_id = 6
+$ocsf.class_uid = 4007
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+if "ABP" in $event.inferences or "BFS" in $event.inferences {
   // Client authentication bypass (ABP) or brute force success (BFS) are
   // worthwhile escalating.
-  $event.ocsf.severity_id = 4
-} else if "BF" in $event.zeek.inferences or "SV" in $event.zeek.inferences or "SC" in $event.zeek.inferences or "SP" in $event.zeek.inferences {
+  $ocsf.severity_id = 4
+} else if "BF" in $event.inferences or "SV" in $event.inferences or "SC" in $event.inferences or "SP" in $event.inferences {
   // Noteworthy are brute force attempts (BF), version scanning (SV),
   // capability scanning (SC), or other scanning (SP).
-  $event.ocsf.severity_id = 3
+  $ocsf.severity_id = 3
 } else {
   // Everything else is standard.
-  $event.ocsf.severity_id = 1
+  $ocsf.severity_id = 1
 }
 
 // --- OCSF: occurence attributes ---------------
 
-$event.ocsf.count = move $event.zeek.auth_attempts
+$ocsf.count = move $event.auth_attempts
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "ssh.log"
+$ocsf.metadata.log_name = "ssh.log"
 
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.connection_info.protocol_name = "tcp"
-$event.ocsf.connection_info.protocol_num = 6
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
 
 // The Direction enum in Zeek can be INBOUND, OUTBOUND, BIDIRECTIONAL, or
 // NO_DIRECTION. NB: there is no equivalent to Lateral in Zeek, so we
@@ -73,44 +76,44 @@ let $direction = {
     name: "Unknown"
   },
 }
-$event.ocsf.connection_info.direction = $direction[$event.zeek.direction].name
-$event.ocsf.connection_info.direction_id = $direction[$event.zeek.direction].id
-drop $event.zeek.direction
+$ocsf.connection_info.direction = $direction[$event.direction].name
+$ocsf.connection_info.direction_id = $direction[$event.direction].id
+drop $event.direction
 
-$event.ocsf.src_endpoint.agent_list = [{
-  name: move $event.zeek.client,
+$ocsf.src_endpoint.agent_list = [{
+  name: move $event.client,
   type: "Remote Access",
   type_id: 9,
 }]
-$event.ocsf.dst_endpoint.agent_list = [{
-  name: move $event.zeek.server,
+$ocsf.dst_endpoint.agent_list = [{
+  name: move $event.server,
   type: "Remote Access",
   type_id: 9,
 }]
 
-$event.ocsf.server_hassh = {
-  algorithm: move $event.zeek.hasshServerAlgorithms,
+$ocsf.server_hassh = {
+  algorithm: move $event.hasshServerAlgorithms,
   fingerprint: {
     algorithm_id: 20,
-    value: move $event.zeek.hasshServer,
+    value: move $event.hasshServer,
   },
 }
-$event.ocsf.client_hassh = {
-  algorithm: move $event.zeek.hasshAlgorithms,
+$ocsf.client_hassh = {
+  algorithm: move $event.hasshAlgorithms,
   fingerprint: {
     algorithm_id: 20,
-    value: move $event.zeek.hassh,
+    value: move $event.hassh,
   },
 }
 
 // The Authentication Type can be deduced if we have the `inferences`
 // package.
-if "KS" in $event.zeek.inferences {
-  $event.ocsf.auth_type_id = 4
-  $event.ocsf.auth_type = "Keyboard Interactive"
+if "KS" in $event.inferences {
+  $ocsf.auth_type_id = 4
+  $ocsf.auth_type = "Keyboard Interactive"
 } else {
-  $event.ocsf.auth_type_id = 0
-  $event.ocsf.auth_type = "Unknown"
+  $ocsf.auth_type_id = 0
+  $ocsf.auth_type = "Unknown"
 }
 
 @name = "ocsf.ssh_activity"

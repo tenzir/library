@@ -2,9 +2,12 @@
 description: |
   Zeek dhcp.log → OCSF DHCP Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
@@ -14,8 +17,8 @@ args:
 // DORA "session". See https://docs.zeek.org/en/master/logs/dhcp.html for
 // details. In OCSF, an event represents a single DORA message, which is
 // why we simply unroll the array.
-unroll $event.zeek.msg_types
-zeek::ocsf::map_network event=$event
+unroll $event.msg_types
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
@@ -31,30 +34,30 @@ let $msg_types = {
   RELEASE: 7,
   INFORM: 8,
 }
-$event.ocsf.activity_id = $msg_types[$event.zeek.msg_types]? else 99
-$event.ocsf.class_uid = 4004
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $msg_types[$event.msg_types]? else 99
+$ocsf.class_uid = 4004
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "dhcp.log"
+$ocsf.metadata.log_name = "dhcp.log"
 // The `uids` field in the DHCP log is an array of all conn UIDs. To keep at
 // least the uniqueness constraint intact, we sort and join them.
-$event.zeek._uids = sort(move $event.zeek.uids).join(",")
-$event.ocsf.metadata.original_event_uid = $event.zeek._uids
-$event.ocsf.metadata.correlation_uid = move $event.zeek._uids
+$event._uids = sort(move $event.uids).join(",")
+$ocsf.metadata.original_event_uid = $event._uids
+$ocsf.metadata.correlation_uid = move $event._uids
 
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.connection_info.protocol_name = "udp"
-$event.ocsf.connection_info.protocol_num = 17
-$event.ocsf.src_endpoint.hostname = move $event.zeek.host_name?
-$event.ocsf.src_endpoint.ip = move $event.zeek.client_addr? else $event.zeek.assigned_addr?
-$event.ocsf.src_endpoint.domain = move $event.zeek.client_fqdn?
-$event.ocsf.src_endpoint.mac = move $event.zeek.mac?
-$event.ocsf.dst_endpoint.ip = move $event.zeek.server_addr?
-$event.ocsf.dst_endpoint.domain = move $event.zeek.domain?
-$event.ocsf.lease_dur = int(move $event.zeek.lease_time?)
+$ocsf.connection_info.protocol_name = "udp"
+$ocsf.connection_info.protocol_num = 17
+$ocsf.src_endpoint.hostname = move $event.host_name?
+$ocsf.src_endpoint.ip = move $event.client_addr? else $event.assigned_addr?
+$ocsf.src_endpoint.domain = move $event.client_fqdn?
+$ocsf.src_endpoint.mac = move $event.mac?
+$ocsf.dst_endpoint.ip = move $event.server_addr?
+$ocsf.dst_endpoint.domain = move $event.domain?
+$ocsf.lease_dur = int(move $event.lease_time?)
 
 @name = "ocsf.dhcp_activity"
