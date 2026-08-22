@@ -4,32 +4,29 @@ args:
   positional:
     - name: event
       type: field
-      default: this
-      description: The structured Zscaler event to map.
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
 
-$into = {zia: $event, ocsf: {}}
+$event = {zia: $event, ocsf: {}}
 
 // Clean up the original data.
-replace $into.zia.bwthrottle, what="NO", with=false
-replace $into.zia.bwthrottle, what="YES", with=true
-replace $into.zia, what="None", with=null
-replace $into.zia, what="N/A", with=null
-replace $into.zia, what="NA", with=null
-if $into.zia.refererURL? != null {
-  $into.zia.refererURL = $into.zia.refererURL.trim("\"")
+replace $event.zia.bwthrottle, what="NO", with=false
+replace $event.zia.bwthrottle, what="YES", with=true
+replace $event.zia, what="None", with=null
+replace $event.zia, what="N/A", with=null
+replace $event.zia, what="NA", with=null
+if $event.zia.refererURL? != null {
+  $event.zia.refererURL = $event.zia.refererURL.trim("\"")
 }
-if $into.zia.filetype? != null {
-  $into.zia.filetype = $into.zia.filetype.trim("\"")
+if $event.zia.filetype? != null {
+  $event.zia.filetype = $event.zia.filetype.trim("\"")
 }
 
-$into.ocsf.metadata = {
+$event.ocsf.metadata = {
   log_name: "NSS",
   product: {
     name: "Unknown",
@@ -37,26 +34,26 @@ $into.ocsf.metadata = {
   },
   version: "1.9.0",
 }
-if $into.zia.product? != null {
-  $into.ocsf.metadata.product.name = move $into.zia.product
+if $event.zia.product? != null {
+  $event.ocsf.metadata.product.name = move $event.zia.product
 }
-if $into.zia.vendor? != null {
-  $into.ocsf.metadata.product.vendor_name = move $into.zia.vendor
+if $event.zia.vendor? != null {
+  $event.ocsf.metadata.product.vendor_name = move $event.zia.vendor
 }
-if $into.zia.event_id? != null {
-  $into.ocsf.metadata.original_event_uid = string(move $into.zia.event_id)
+if $event.zia.event_id? != null {
+  $event.ocsf.metadata.original_event_uid = string(move $event.zia.event_id)
 }
 
-$into.ocsf.severity_id = 0
-$into.ocsf.time = now()
+$event.ocsf.severity_id = 0
+$event.ocsf.time = now()
 
 // Poor man's proxy log detection.
-if $into.zia.has("requestmethod") {
-  zscaler::ocsf::zia::proxy event=$into
+if $event.zia.has("requestmethod") {
+  zscaler::ocsf::zia::proxy event=$event
 } else {
-  zscaler::ocsf::base event=$into
+  zscaler::ocsf::base event=$event
 }
 
 
 
-$into = {...$into.ocsf, unmapped: $into.zia}
+$ocsf = {...$event.ocsf, unmapped: $event.zia}
