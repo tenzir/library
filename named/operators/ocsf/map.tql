@@ -22,23 +22,15 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-// Snapshot the source before writing so in-place and separate-field calls use
-// the same mapping path.
-$event = {
-  named: $event,
-  ocsf: {},
-}
+$ocsf = {}
 
-match $event.named.category? {
+match $event.category? {
   "query" | "query-error" | "query-policy" | "rpz" => {
-    named::ocsf::events::dns $event
+    named::ocsf::events::dns $event, $ocsf
   }
   _ => {
-    named::ocsf::base $event
+    named::ocsf::base $event, $ocsf
   }
 }
 
-$ocsf = {
-  ...$event.ocsf,
-  unmapped: $event.named,
-}
+$ocsf.unmapped = move $event
