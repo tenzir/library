@@ -11,9 +11,9 @@ guide](https://tenzir.com/docs/guides/package-management/install-a-package/):
 1. **Web UI**: browse to
    [app.tenzir.com/library](https://app.tenzir.com/library) and click _Install_.
 2. **Interactive**: run
-   [`package::add`](https://tenzir.com/docs/reference/operators/package/add)
+   [`package_add`](https://tenzir.com/docs/reference/operators/package/add)
    against a local directory, and remove it later with
-   [`package::remove`](https://tenzir.com/docs/reference/operators/package/remove).
+   [`package_remove`](https://tenzir.com/docs/reference/operators/package/remove).
 3. **As code**: place packages under `packages/` inside your
    configuration directory (or another path listed in `tenzir.package-dirs`) and
    include an optional `config.yaml` for inputs.
