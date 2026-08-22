@@ -4,31 +4,28 @@ args:
   positional:
     - name: event
       type: field
-      default: this
-      description: The structured Zeek record to map.
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
 
-$into = {zeek: $event, ocsf: {}}
+$event = {zeek: $event, ocsf: {}}
 
 // --- OCSF: occurrence attributes --------------
 
-if type_of($into.zeek.ts).kind == "time" {
-  $into.ocsf.time = move $into.zeek.ts
-} else if type_of($into.zeek.ts).kind == "double" {
-  $into.ocsf.time = (move $into.zeek.ts).seconds().from_epoch()
+if type_of($event.zeek.ts).kind == "time" {
+  $event.ocsf.time = move $event.zeek.ts
+} else if type_of($event.zeek.ts).kind == "double" {
+  $event.ocsf.time = (move $event.zeek.ts).seconds().from_epoch()
 }
 
 
 // --- OCSF: context attributes -----------------
 
-$into.ocsf.metadata = {
-  logged_time: move $into.zeek._write_ts?,
+$event.ocsf.metadata = {
+  logged_time: move $event.zeek._write_ts?,
   product: {
     name: "Zeek",
     vendor_name: "Zeek",
@@ -36,50 +33,50 @@ $into.ocsf.metadata = {
   },
   version: "1.9.0",
 }
-if $into.zeek.uid? != null {
-  $into.ocsf.metadata.original_event_uid = $into.zeek.uid
-  $into.ocsf.metadata.correlation_uid = move $into.zeek.uid
+if $event.zeek.uid? != null {
+  $event.ocsf.metadata.original_event_uid = $event.zeek.uid
+  $event.ocsf.metadata.correlation_uid = move $event.zeek.uid
 }
 
-match $into.zeek._path? else @name {
+match $event.zeek._path? else @name {
   "conn" | "zeek.conn" => {
-    zeek::ocsf::logs::conn event=$into
+    zeek::ocsf::logs::conn event=$event
   }
   "dhcp" | "zeek.dhcp" => {
-    zeek::ocsf::logs::dhcp event=$into
+    zeek::ocsf::logs::dhcp event=$event
   }
   "dns" | "zeek.dns" => {
-    zeek::ocsf::logs::dns event=$into
+    zeek::ocsf::logs::dns event=$event
   }
   "ftp" | "zeek.ftp" => {
-    zeek::ocsf::logs::ftp event=$into
+    zeek::ocsf::logs::ftp event=$event
   }
   "http" | "zeek.http" => {
-    zeek::ocsf::logs::http event=$into
+    zeek::ocsf::logs::http event=$event
   }
   "rdp" | "zeek.rdp" => {
-    zeek::ocsf::logs::rdp event=$into
+    zeek::ocsf::logs::rdp event=$event
   }
   "smb_files" | "zeek.smb_files" => {
-    zeek::ocsf::logs::smb_files event=$into
+    zeek::ocsf::logs::smb_files event=$event
   }
   "smtp" | "zeek.smtp" => {
-    zeek::ocsf::logs::smtp event=$into
+    zeek::ocsf::logs::smtp event=$event
   }
   "ssh" | "zeek.ssh" => {
-    zeek::ocsf::logs::ssh event=$into
+    zeek::ocsf::logs::ssh event=$event
   }
   "ssl" | "zeek.ssl" => {
-    zeek::ocsf::logs::ssl event=$into
+    zeek::ocsf::logs::ssl event=$event
   }
   "x509" | "zeek.x509" => {
-    zeek::ocsf::logs::x509 event=$into
+    zeek::ocsf::logs::x509 event=$event
   }
   _ => {
-    zeek::ocsf::base event=$into
+    zeek::ocsf::base event=$event
   }
 }
 
 
 
-$into = {...$into.ocsf, unmapped: $into.zeek}
+$ocsf = {...$event.ocsf, unmapped: $event.zeek}
