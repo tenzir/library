@@ -4,40 +4,37 @@ args:
   positional:
     - name: event
       type: field
-      default: this
-      description: The NetFlow or IPFIX record to map.
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
 
 // Keep all mapping work inside the selected event scope.
-$into = {source: $event, ocsf: {}}
+$event = {source: $event, ocsf: {}}
 
 // IPFIX uses version 10 for both flow and options records. Only flow records
 // map to Network Activity.
-match $into.source.netflow.version? {
-  5 | 9 | 10 if $into.source.netflow.record_type? == "flow" => {
-    netflow::ocsf::events::network_activity event=$into
+match $event.source.netflow.version? {
+  5 | 9 | 10 if $event.source.netflow.record_type? == "flow" => {
+    netflow::ocsf::events::network_activity event=$event
   }
   _ => {
-    netflow::ocsf::base event=$into
+    netflow::ocsf::base event=$event
   }
 }
 
 // Construct metadata after dispatch so shared fields move at their last use.
-$into.ocsf.metadata = {
+$event.ocsf.metadata = {
   version: "1.9.0",
   log_name: "netflow",
-  log_version: (move $into.source.netflow.version?).string(),
-  type: move $into.source.netflow.record_type?,
-  sequence: move $into.source.netflow.sequence_number?,
-  transmit_time: move $into.source.netflow.export_time?,
+  log_version: (move $event.source.netflow.version?).string(),
+  type: move $event.source.netflow.record_type?,
+  sequence: move $event.source.netflow.sequence_number?,
+  transmit_time: move $event.source.netflow.export_time?,
   reporter: {
-    ip: move $into.source.netflow.exporter?.ip?,
+    ip: move $event.source.netflow.exporter?.ip?,
   },
   product: {
     name: "NetFlow/IPFIX",
@@ -46,4 +43,4 @@ $into.ocsf.metadata = {
 
 
 
-$into = {...$into.ocsf, unmapped: $into.source}
+$ocsf = {...$event.ocsf, unmapped: $event.source}
