@@ -15,7 +15,7 @@ Use the package to ingest framed FortiGate syslog and map it to OCSF:
 
 ```tql
 subscribe "fortinet"
-fortinet::fortigate::ocsf::map
+fortinet::fortigate::ocsf::map this, this
 publish "ocsf"
 ```
 
