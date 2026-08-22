@@ -11,170 +11,170 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-$event = {vpc_flow: $event, ocsf: {}}
-if $event.vpc_flow != null {
+$ocsf = {}
+if $event != null {
 
 
 
   // --- OCSF: classification attributes ----------
 
-  $event.ocsf.category_uid = 4
-  $event.ocsf.class_uid = 4001
-  $event.ocsf.severity_id = 1
+  $ocsf.category_uid = 4
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
 
   // --- OCSF: context attributes -----------------
 
-  $event.ocsf.cloud = {
+  $ocsf.cloud = {
     account: {
-      uid: (move $event.vpc_flow.account_id?).string(),
+      uid: (move $event.account_id?).string(),
     },
-    region: move $event.vpc_flow.region?,
-    zone: move $event.vpc_flow.az_id?,
+    region: move $event.region?,
+    zone: move $event.az_id?,
     provider: "AWS",
   }
 
-  $event.ocsf.metadata = {
+  $ocsf.metadata = {
     version: "1.9.0",
     product: {
       name: "Amazon VPC",
       vendor_name: "AWS",
-      version: $event.vpc_flow.version?.string(),
+      version: $event.version?.string(),
       feature: {
         name: "Flow Logs",
       },
     },
     profiles: ["cloud", "security_control"],
   }
-  drop $event.vpc_flow.version?
+  drop $event.version?
 
   // --- OCSF: occurrence attributes --------------
 
-  $event.ocsf.time = $event.vpc_flow.start?
+  $ocsf.time = $event.start?
 
   // --- OCSF: primary attributes -----------------
 
-  $event.ocsf.traffic = {
-    bytes: move $event.vpc_flow.bytes?,
-    packets: move $event.vpc_flow.packets?,
-    start_time: move $event.vpc_flow.start?,
-    end_time: move $event.vpc_flow.end?,
+  $ocsf.traffic = {
+    bytes: move $event.bytes?,
+    packets: move $event.packets?,
+    start_time: move $event.start?,
+    end_time: move $event.end?,
   }
 
-  $event.ocsf.connection_info = {
-    protocol_num: move $event.vpc_flow.protocol?,
-    tcp_flags: move $event.vpc_flow.tcp_flags?,
+  $ocsf.connection_info = {
+    protocol_num: move $event.protocol?,
+    tcp_flags: move $event.tcp_flags?,
   }
 
-  $event.ocsf.status_code = move $event.vpc_flow.log_status?
+  $ocsf.status_code = move $event.log_status?
 
-  $event.ocsf.src_endpoint = {
-    port: move $event.vpc_flow.srcport?,
-    svc_name: move $event.vpc_flow.pkt_src_aws_service?,
+  $ocsf.src_endpoint = {
+    port: move $event.srcport?,
+    svc_name: move $event.pkt_src_aws_service?,
   }
 
-  $event.ocsf.dst_endpoint = {
-    port: move $event.vpc_flow.dstport?,
-    svc_name: move $event.vpc_flow.pkt_dst_aws_service?,
+  $ocsf.dst_endpoint = {
+    port: move $event.dstport?,
+    svc_name: move $event.pkt_dst_aws_service?,
   }
 
   // --- Security control: action/disposition -----
 
-  if $event.vpc_flow.action? == "REJECT" {
-    $event.ocsf.activity_id = 5
-    $event.ocsf.action_id = 2
-    $event.ocsf.disposition_id = 2
-  } else if $event.vpc_flow.action? == "ACCEPT" {
-    $event.ocsf.activity_id = 6
-    $event.ocsf.action_id = 1
-    $event.ocsf.disposition_id = 1
+  if $event.action? == "REJECT" {
+    $ocsf.activity_id = 5
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 2
+  } else if $event.action? == "ACCEPT" {
+    $ocsf.activity_id = 6
+    $ocsf.action_id = 1
+    $ocsf.disposition_id = 1
   } else {
     // NODATA and SKIPDATA windows contain no firewall decision.
-    $event.ocsf.activity_id = 6
+    $ocsf.activity_id = 6
   }
-  $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-  drop $event.vpc_flow.action?
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  drop $event.action?
 
-  if $event.vpc_flow.reject_reason? != null {
-    $event.ocsf.status_detail = move $event.vpc_flow.reject_reason
+  if $event.reject_reason? != null {
+    $ocsf.status_detail = move $event.reject_reason
   }
 
   // --- Traffic path (v5+) -----------------------
 
-  $event.ocsf.connection_info.boundary_id = move $event.vpc_flow.traffic_path?
+  $ocsf.connection_info.boundary_id = move $event.traffic_path?
   // AWS traffic path values 1 and 2 are not the same as OCSF boundary IDs.
-  if $event.ocsf.connection_info.boundary_id >= 1 and $event.ocsf.connection_info.boundary_id <= 8 {
-    $event.ocsf.connection_info.boundary_id = $event.ocsf.connection_info.boundary_id + 3
+  if $ocsf.connection_info.boundary_id >= 1 and $ocsf.connection_info.boundary_id <= 8 {
+    $ocsf.connection_info.boundary_id = $ocsf.connection_info.boundary_id + 3
   }
 
   // --- Flow direction and endpoint assignment ---
 
-  if $event.vpc_flow.flow_direction? == "ingress" {
-    $event.ocsf.connection_info.direction_id = 1
-    $event.ocsf.dst_endpoint.interface_uid = move $event.vpc_flow.interface_id?
-    $event.ocsf.dst_endpoint.vpc_uid = move $event.vpc_flow.vpc_id?
-    $event.ocsf.dst_endpoint.instance_uid = move $event.vpc_flow.instance_id?
-    $event.ocsf.dst_endpoint.subnet_uid = move $event.vpc_flow.subnet_id?
-  } else if $event.vpc_flow.flow_direction? == "egress" {
-    $event.ocsf.connection_info.direction_id = 2
-    $event.ocsf.src_endpoint.interface_uid = move $event.vpc_flow.interface_id?
-    $event.ocsf.src_endpoint.vpc_uid = move $event.vpc_flow.vpc_id?
-    $event.ocsf.src_endpoint.instance_uid = move $event.vpc_flow.instance_id?
-    $event.ocsf.src_endpoint.subnet_uid = move $event.vpc_flow.subnet_id?
+  if $event.flow_direction? == "ingress" {
+    $ocsf.connection_info.direction_id = 1
+    $ocsf.dst_endpoint.interface_uid = move $event.interface_id?
+    $ocsf.dst_endpoint.vpc_uid = move $event.vpc_id?
+    $ocsf.dst_endpoint.instance_uid = move $event.instance_id?
+    $ocsf.dst_endpoint.subnet_uid = move $event.subnet_id?
+  } else if $event.flow_direction? == "egress" {
+    $ocsf.connection_info.direction_id = 2
+    $ocsf.src_endpoint.interface_uid = move $event.interface_id?
+    $ocsf.src_endpoint.vpc_uid = move $event.vpc_id?
+    $ocsf.src_endpoint.instance_uid = move $event.instance_id?
+    $ocsf.src_endpoint.subnet_uid = move $event.subnet_id?
   }
-  drop $event.vpc_flow.flow_direction?
+  drop $event.flow_direction?
 
   // --- IP address handling ----------------------
   // pkt_srcaddr/pkt_dstaddr are the original addresses; srcaddr/dstaddr may
   // differ when NAT or intermediate devices are involved.
 
-  if $event.vpc_flow.pkt_srcaddr? != $event.vpc_flow.srcaddr? and $event.vpc_flow.pkt_srcaddr? != null {
-    $event.ocsf.src_endpoint.ip = move $event.vpc_flow.pkt_srcaddr
-    $event.ocsf.src_endpoint.intermediate_ips = [move $event.vpc_flow.srcaddr?]
+  if $event.pkt_srcaddr? != $event.srcaddr? and $event.pkt_srcaddr? != null {
+    $ocsf.src_endpoint.ip = move $event.pkt_srcaddr
+    $ocsf.src_endpoint.intermediate_ips = [move $event.srcaddr?]
   } else {
-    $event.ocsf.src_endpoint.ip = move $event.vpc_flow.srcaddr?
-    drop $event.vpc_flow.pkt_srcaddr?
+    $ocsf.src_endpoint.ip = move $event.srcaddr?
+    drop $event.pkt_srcaddr?
   }
 
-  if $event.vpc_flow.pkt_dstaddr? != $event.vpc_flow.dstaddr? and $event.vpc_flow.pkt_dstaddr? != null {
-    $event.ocsf.dst_endpoint.ip = move $event.vpc_flow.pkt_dstaddr
-    $event.ocsf.dst_endpoint.intermediate_ips = [move $event.vpc_flow.dstaddr?]
+  if $event.pkt_dstaddr? != $event.dstaddr? and $event.pkt_dstaddr? != null {
+    $ocsf.dst_endpoint.ip = move $event.pkt_dstaddr
+    $ocsf.dst_endpoint.intermediate_ips = [move $event.dstaddr?]
   } else {
-    $event.ocsf.dst_endpoint.ip = move $event.vpc_flow.dstaddr?
-    drop $event.vpc_flow.pkt_dstaddr?
+    $ocsf.dst_endpoint.ip = move $event.dstaddr?
+    drop $event.pkt_dstaddr?
   }
 
-  if ($event.ocsf.src_endpoint.ip? != null and $event.ocsf.src_endpoint.ip.is_v6()) or
-     ($event.ocsf.dst_endpoint.ip? != null and $event.ocsf.dst_endpoint.ip.is_v6()) {
-    $event.ocsf.connection_info.protocol_ver_id = 6
-  } else if $event.ocsf.src_endpoint.ip? != null or $event.ocsf.dst_endpoint.ip? != null {
-    $event.ocsf.connection_info.protocol_ver_id = 4
+  if ($ocsf.src_endpoint.ip? != null and $ocsf.src_endpoint.ip.is_v6()) or
+     ($ocsf.dst_endpoint.ip? != null and $ocsf.dst_endpoint.ip.is_v6()) {
+    $ocsf.connection_info.protocol_ver_id = 6
+  } else if $ocsf.src_endpoint.ip? != null or $ocsf.dst_endpoint.ip? != null {
+    $ocsf.connection_info.protocol_ver_id = 4
   }
 
-  drop $event.vpc_flow.type?
+  drop $event.type?
 
   // --- ECS metadata (v7+) -----------------------
 
-  if $event.vpc_flow.ecs_cluster_arn? != null {
-    $event.vpc_flow.ecs = {
-      cluster_arn: move $event.vpc_flow.ecs_cluster_arn?,
-      cluster_name: move $event.vpc_flow.ecs_cluster_name?,
-      container_instance_arn: move $event.vpc_flow.ecs_container_instance_arn?,
-      container_instance_id: move $event.vpc_flow.ecs_container_instance_id?,
-      container_id: move $event.vpc_flow.ecs_container_id?,
-      second_container_id: move $event.vpc_flow.ecs_second_container_id?,
-      service_name: move $event.vpc_flow.ecs_service_name?,
-      task_definition_arn: move $event.vpc_flow.ecs_task_definition_arn?,
-      task_arn: move $event.vpc_flow.ecs_task_arn?,
-      task_id: move $event.vpc_flow.ecs_task_id?,
+  if $event.ecs_cluster_arn? != null {
+    $event.ecs = {
+      cluster_arn: move $event.ecs_cluster_arn?,
+      cluster_name: move $event.ecs_cluster_name?,
+      container_instance_arn: move $event.ecs_container_instance_arn?,
+      container_instance_id: move $event.ecs_container_instance_id?,
+      container_id: move $event.ecs_container_id?,
+      second_container_id: move $event.ecs_second_container_id?,
+      service_name: move $event.ecs_service_name?,
+      task_definition_arn: move $event.ecs_task_definition_arn?,
+      task_arn: move $event.ecs_task_arn?,
+      task_id: move $event.ecs_task_id?,
     }
   }
 
   // --- Additional fields ------------------------
 
-  if $event.vpc_flow.sublocation_type? != null {
-    $event.ocsf.cloud.sublocation = {
-      type: move $event.vpc_flow.sublocation_type,
-      uid: move $event.vpc_flow.sublocation_id?,
+  if $event.sublocation_type? != null {
+    $ocsf.cloud.sublocation = {
+      type: move $event.sublocation_type,
+      uid: move $event.sublocation_id?,
     }
   }
 
@@ -184,7 +184,7 @@ if $event.vpc_flow != null {
 
 } else {
   @name = "ocsf.base_event"
-  $event.ocsf = {
+  $ocsf = {
     category_uid: 0,
     class_uid: 0,
     activity_id: 0,
@@ -197,4 +197,4 @@ if $event.vpc_flow != null {
     },
   }
 }
-$ocsf = {...$event.ocsf, unmapped: $event.vpc_flow}
+$ocsf.unmapped = move $event
