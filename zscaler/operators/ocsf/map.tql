@@ -11,22 +11,22 @@ args:
 ---
 
 
-$event = {zia: $event, ocsf: {}}
+$ocsf = {}
 
 // Clean up the original data.
-replace $event.zia.bwthrottle, what="NO", with=false
-replace $event.zia.bwthrottle, what="YES", with=true
-replace $event.zia, what="None", with=null
-replace $event.zia, what="N/A", with=null
-replace $event.zia, what="NA", with=null
-if $event.zia.refererURL? != null {
-  $event.zia.refererURL = $event.zia.refererURL.trim("\"")
+replace $event.bwthrottle, what="NO", with=false
+replace $event.bwthrottle, what="YES", with=true
+replace $event, what="None", with=null
+replace $event, what="N/A", with=null
+replace $event, what="NA", with=null
+if $event.refererURL? != null {
+  $event.refererURL = $event.refererURL.trim("\"")
 }
-if $event.zia.filetype? != null {
-  $event.zia.filetype = $event.zia.filetype.trim("\"")
+if $event.filetype? != null {
+  $event.filetype = $event.filetype.trim("\"")
 }
 
-$event.ocsf.metadata = {
+$ocsf.metadata = {
   log_name: "NSS",
   product: {
     name: "Unknown",
@@ -34,26 +34,26 @@ $event.ocsf.metadata = {
   },
   version: "1.9.0",
 }
-if $event.zia.product? != null {
-  $event.ocsf.metadata.product.name = move $event.zia.product
+if $event.product? != null {
+  $ocsf.metadata.product.name = move $event.product
 }
-if $event.zia.vendor? != null {
-  $event.ocsf.metadata.product.vendor_name = move $event.zia.vendor
+if $event.vendor? != null {
+  $ocsf.metadata.product.vendor_name = move $event.vendor
 }
-if $event.zia.event_id? != null {
-  $event.ocsf.metadata.original_event_uid = string(move $event.zia.event_id)
+if $event.event_id? != null {
+  $ocsf.metadata.original_event_uid = string(move $event.event_id)
 }
 
-$event.ocsf.severity_id = 0
-$event.ocsf.time = now()
+$ocsf.severity_id = 0
+$ocsf.time = now()
 
 // Poor man's proxy log detection.
-if $event.zia.has("requestmethod") {
-  zscaler::ocsf::zia::proxy event=$event
+if $event.has("requestmethod") {
+  zscaler::ocsf::zia::proxy $event, $ocsf
 } else {
-  zscaler::ocsf::base event=$event
+  zscaler::ocsf::base $event, $ocsf
 }
 
 
 
-$ocsf = {...$event.ocsf, unmapped: $event.zia}
+$ocsf.unmapped = move $event
