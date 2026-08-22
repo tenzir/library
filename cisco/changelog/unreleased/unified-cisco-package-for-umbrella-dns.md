@@ -15,7 +15,7 @@ Use the new namespaced operators for file, S3, and OCSF workflows:
 
 ```tql
 cisco::umbrella::dns::read
-cisco::umbrella::ocsf::map
+cisco::umbrella::ocsf::map this, this
 ```
 
 Installations that previously depended on the legacy Cisco Umbrella package
