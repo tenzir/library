@@ -11,56 +11,57 @@ args:
 ---
 
 
-$event = {am: $event, ocsf: {}, state: {}}
+$ocsf = {}
+$event._state = {}
 
 $event.osint = {
   src_url: "https://www.alphamountain.ai/api/",
   vendor_name: "alphaMountain",
 }
 
-if $event.am.uri? != null {
-  $event.osint.value = move $event.am.uri
+if $event.uri? != null {
+  $event.osint.value = move $event.uri
   $event.osint.type_id = 5
-} else if $event.am.hostname? != null {
-  $event.osint.value = move $event.am.hostname
+} else if $event.hostname? != null {
+  $event.osint.value = move $event.hostname
   $event.osint.type_id = 2
-} else if $event.am.domain? != null {
-  $event.osint.value = move $event.am.domain
+} else if $event.domain? != null {
+  $event.osint.value = move $event.domain
   $event.osint.type_id = 2
-} else if $event.am.sections?.whois?.domain? != null {
-  $event.osint.value = $event.am.sections.whois.domain
+} else if $event.sections?.whois?.domain? != null {
+  $event.osint.value = $event.sections.whois.domain
   $event.osint.type_id = 2
-} else if $event.am.url? != null {
-  $event.osint.value = move $event.am.url
+} else if $event.url? != null {
+  $event.osint.value = move $event.url
   $event.osint.type_id = 5
 } else {
   $event.osint.type_id = 0
 }
 if $event.osint.value? != null {
-  $event.state.ip = ip($event.osint.value)
-  if $event.state.ip? != null {
-    $event.osint.value = $event.state.ip.string()
+  $event._state.ip = ip($event.osint.value)
+  if $event._state.ip? != null {
+    $event.osint.value = $event._state.ip.string()
     $event.osint.type_id = 1
   }
-  drop $event.state.ip
+  drop $event._state.ip
 }
 
-if $event.am.score? != null {
-  $event.state.score = move $event.am.score
-} else if $event.am.threat?.score? != null {
-  $event.state.score = move $event.am.threat.score
-} else if $event.am.sections?.threat?.score? != null {
-  $event.state.score = move $event.am.sections.threat.score
+if $event.score? != null {
+  $event._state.score = move $event.score
+} else if $event.threat?.score? != null {
+  $event._state.score = move $event.threat.score
+} else if $event.sections?.threat?.score? != null {
+  $event._state.score = move $event.sections.threat.score
 }
 
-if $event.state.score? != null {
+if $event._state.score? != null {
   $event.osint.reputation = {
-    base_score: $event.state.score,
+    base_score: $event._state.score,
     provider: "alphaMountain",
   }
 
-  $event.state.score_floor = $event.state.score.int()
-  match $event.state.score_floor {
+  $event._state.score_floor = $event._state.score.int()
+  match $event._state.score_floor {
     9 | 10 => {
       $event.osint.reputation.score_id = 10
     }
@@ -85,7 +86,7 @@ if $event.state.score? != null {
     2 => {
       $event.osint.reputation.score_id = 3
     }
-    0 | 1 if $event.state.score > 0 => {
+    0 | 1 if $event._state.score > 0 => {
       $event.osint.reputation.score_id = 2
     }
     _ => {
@@ -93,8 +94,8 @@ if $event.state.score? != null {
     }
   }
 
-  $event.osint.risk_score = $event.state.score.round().int()
-  match $event.state.score_floor {
+  $event.osint.risk_score = $event._state.score.round().int()
+  match $event._state.score_floor {
     8 | 9 | 10 => {
       $event.osint.severity_id = 4
     }
@@ -108,21 +109,21 @@ if $event.state.score? != null {
       $event.osint.severity_id = 1
     }
   }
-  drop $event.state.score_floor
-  drop $event.state.score
+  drop $event._state.score_floor
+  drop $event._state.score
 }
 
-if $event.am.confidence? != null {
-  $event.state.confidence = move $event.am.confidence
-} else if $event.am.category?.confidence? != null {
-  $event.state.confidence = move $event.am.category.confidence
-} else if $event.am.sections?.category?.confidence? != null {
-  $event.state.confidence = move $event.am.sections.category.confidence
+if $event.confidence? != null {
+  $event._state.confidence = move $event.confidence
+} else if $event.category?.confidence? != null {
+  $event._state.confidence = move $event.category.confidence
+} else if $event.sections?.category?.confidence? != null {
+  $event._state.confidence = move $event.sections.category.confidence
 }
 
-if $event.state.confidence? != null {
-  $event.state.confidence_decile = ($event.state.confidence * 10).int()
-  match $event.state.confidence_decile {
+if $event._state.confidence? != null {
+  $event._state.confidence_decile = ($event._state.confidence * 10).int()
+  match $event._state.confidence_decile {
     8 | 9 | 10 => {
       $event.osint.confidence_id = 3
     }
@@ -133,39 +134,39 @@ if $event.state.confidence? != null {
       $event.osint.confidence_id = 1
     }
   }
-  drop $event.state.confidence_decile
-  drop $event.state.confidence
+  drop $event._state.confidence_decile
+  drop $event._state.confidence
 }
 
-if $event.am.category_ids? != null {
-  $event.state.category_ids = move $event.am.category_ids
-  $event.osint.labels = move $event.am.category_labels?
-} else if $event.am.categories? != null {
-  $event.state.category_ids = move $event.am.categories
-} else if $event.am.category?.categories? != null {
-  $event.state.category_ids = move $event.am.category.categories
-} else if $event.am.sections?.category?.categories? != null {
-  $event.state.category_ids = move $event.am.sections.category.categories
+if $event.category_ids? != null {
+  $event._state.category_ids = move $event.category_ids
+  $event.osint.labels = move $event.category_labels?
+} else if $event.categories? != null {
+  $event._state.category_ids = move $event.categories
+} else if $event.category?.categories? != null {
+  $event._state.category_ids = move $event.category.categories
+} else if $event.sections?.category?.categories? != null {
+  $event._state.category_ids = move $event.sections.category.categories
 }
 
-if $event.state.category_ids? != null {
-  $event.osint.category = $event.state.category_ids.map(id => id.string()).join(",")
-  $event.osint.labels = $event.osint.labels? else $event.state.category_ids.map(id => f"alphaMountain category {id}")
-  drop $event.state.category_ids
+if $event._state.category_ids? != null {
+  $event.osint.category = $event._state.category_ids.map(id => id.string()).join(",")
+  $event.osint.labels = $event.osint.labels? else $event._state.category_ids.map(id => f"alphaMountain category {id}")
+  drop $event._state.category_ids
 }
 
 $event.osint.answers = [
-  ...$event.am.sections?.dns?.ipv4?.map(ip => {
+  ...$event.sections?.dns?.ipv4?.map(ip => {
     class: "IN",
     type: "A",
     rdata: ip.string(),
   }),
-  ...$event.am.sections?.dns?.ipv6?.map(ip => {
+  ...$event.sections?.dns?.ipv6?.map(ip => {
     class: "IN",
     type: "AAAA",
     rdata: ip.string(),
   }),
-  ...$event.am.sections?.pdns?.where(x => x.ip? != null).map(x => {
+  ...$event.sections?.pdns?.where(x => x.ip? != null).map(x => {
     class: "IN",
     type: "A",
     rdata: x.ip.string(),
@@ -175,77 +176,78 @@ if $event.osint.answers.length() == 0 {
   drop $event.osint.answers
 }
 
-if $event.am.sections?.geo?.ipv4?.length() > 0 {
-  $event.state.geo = $event.am.sections.geo.ipv4[0]
+if $event.sections?.geo?.ipv4?.length() > 0 {
+  $event._state.geo = $event.sections.geo.ipv4[0]
   $event.osint.location = {
-    country: $event.state.geo.isoCode,
-    lat: $event.state.geo.latLng[0],
-    long: $event.state.geo.latLng[1],
+    country: $event._state.geo.isoCode,
+    lat: $event._state.geo.latLng[0],
+    long: $event._state.geo.latLng[1],
     provider: "alphaMountain",
   }
-  if $event.state.geo.asn? != null {
+  if $event._state.geo.asn? != null {
     $event.osint.autonomous_system = {
-      number: $event.state.geo.asn.number,
-      name: $event.state.geo.asn.organization,
+      number: $event._state.geo.asn.number,
+      name: $event._state.geo.asn.organization,
     }
   }
-  drop $event.state.geo
+  drop $event._state.geo
 }
 
-if $event.am.sections?.whois? != null {
+if $event.sections?.whois? != null {
   $event.osint.whois = {
-    domain: move $event.am.sections.whois.domain?,
-    registrar: move $event.am.sections.whois.registrar?,
-    created_time: time(move $event.am.sections.whois.created?),
-    last_seen_time: time(move $event.am.sections.whois.updated?),
+    domain: move $event.sections.whois.domain?,
+    registrar: move $event.sections.whois.registrar?,
+    created_time: time(move $event.sections.whois.created?),
+    last_seen_time: time(move $event.sections.whois.updated?),
   }
-  $event.osint.expiration_time = time(move $event.am.sections.whois.expires?)
+  $event.osint.expiration_time = time(move $event.sections.whois.expires?)
 }
 
 $event.osint.severity_id = $event.osint.severity_id? else 1
 $event.osint.confidence_id = $event.osint.confidence_id? else 0
 
-$event.ocsf = {}
-$event.ocsf.activity_id = 2
-$event.ocsf.actor = {
+$ocsf = {}
+$ocsf.activity_id = 2
+$ocsf.actor = {
   app_name: "Tenzir",
 }
-$event.ocsf.category_uid = 5
-$event.ocsf.class_uid = 5021
-$event.ocsf.metadata = {
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5021
+$ocsf.metadata = {
   product: {
     name: "alphaMountain API",
     vendor_name: "alphaMountain",
   },
   version: "1.9.0",
 }
-$event.ocsf.osint = [move $event.osint]
-$event.ocsf.severity_id = 1
-if $event.am.status? != null and type_of($event.am.status).kind == "string" {
-  $event.ocsf.status = move $event.am.status
-  match $event.ocsf.status {
+$ocsf.osint = [move $event.osint]
+$ocsf.severity_id = 1
+if $event.status? != null and type_of($event.status).kind == "string" {
+  $ocsf.status = move $event.status
+  match $ocsf.status {
     "Success" => {
-      $event.ocsf.status_id = 1
+      $ocsf.status_id = 1
     }
     _ => {
-      $event.ocsf.status_id = 2
+      $ocsf.status_id = 2
     }
   }
 }
-if $event.am.error? != null {
-  $event.ocsf.status_id = 2
-  $event.ocsf.status_detail = move $event.am.error
+if $event.error? != null {
+  $ocsf.status_id = 2
+  $ocsf.status_detail = move $event.error
 }
-if ($event.am.has("score") and $event.am.score == null) or
-   ($event.am.has("categories") and $event.am.categories == null) {
-  $event.ocsf.status_id = 99
-  $event.ocsf.status = "Removed"
-  $event.ocsf.status_detail = "alphaMountain feed removal"
+if ($event.has("score") and $event.score == null) or
+   ($event.has("categories") and $event.categories == null) {
+  $ocsf.status_id = 99
+  $ocsf.status = "Removed"
+  $ocsf.status_detail = "alphaMountain feed removal"
 }
-$event.ocsf.time = now()
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.time = now()
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 
 @name = "ocsf.osint_inventory_info"
 
-$ocsf = {...$event.ocsf, unmapped: $event.am}
+drop $event._state
+$ocsf.unmapped = move $event
