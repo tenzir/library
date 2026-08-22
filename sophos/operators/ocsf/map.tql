@@ -4,19 +4,16 @@ args:
   positional:
     - name: event
       type: field
-      default: this
-      description: The structured Sophos event to map.
-  named:
-    - name: into
+      description: The structured source event to map.
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
 
-$into = {sophos: $event, ocsf: {}}
+$event = {sophos: $event, ocsf: {}}
 
-$into.ocsf.metadata = {
+$event.ocsf.metadata = {
   product: {
     vendor_name: "Sophos",
     feature: {
@@ -26,17 +23,17 @@ $into.ocsf.metadata = {
   version: "1.9.0",
 }
 
-if $into.sophos.customer_id? != null {
-  $into.ocsf.metadata.tenant_uid = move $into.sophos.customer_id
+if $event.sophos.customer_id? != null {
+  $event.ocsf.metadata.tenant_uid = move $event.sophos.customer_id
 }
-if $into.sophos.tenant?.id? != null {
-  $into.ocsf.metadata.tenant_uid = move $into.sophos.tenant.id
+if $event.sophos.tenant?.id? != null {
+  $event.ocsf.metadata.tenant_uid = move $event.sophos.tenant.id
 }
-if $into.sophos.id? != null {
-  $into.ocsf.metadata.original_event_uid = move $into.sophos.id
+if $event.sophos.id? != null {
+  $event.ocsf.metadata.original_event_uid = move $event.sophos.id
 }
-if $into.sophos.data? != null and $into.sophos.data.correlation_id? != null {
-  $into.ocsf.metadata.correlation_uid = move $into.sophos.data.correlation_id
+if $event.sophos.data? != null and $event.sophos.data.correlation_id? != null {
+  $event.ocsf.metadata.correlation_uid = move $event.sophos.data.correlation_id
 }
 
 let $severities = {
@@ -47,46 +44,46 @@ let $severities = {
   high: 4,
   critical: 5,
 }
-$into.ocsf.severity_id = $severities[$into.sophos.severity?]? else 1
+$event.ocsf.severity_id = $severities[$event.sophos.severity?]? else 1
 
 match @name {
   "sophos.endpoint" => {
-    sophos::ocsf::events::endpoint event=$into
+    sophos::ocsf::events::endpoint event=$event
   }
   "sophos.detection" => {
-    sophos::ocsf::events::detection event=$into
+    sophos::ocsf::events::detection event=$event
   }
   "sophos.common.alert" => {
-    sophos::ocsf::events::common_alert event=$into
+    sophos::ocsf::events::common_alert event=$event
   }
   "sophos.alert" => {
-    sophos::ocsf::events::alert event=$into
+    sophos::ocsf::events::alert event=$event
   }
   "sophos.event" => {
-    match $into.sophos.type {
+    match $event.sophos.type {
       "Event::Endpoint::CoreDetection" |
       "Event::Endpoint::CorePuaDetection" |
       "Event::Endpoint::CorePuaRemoteDetection" |
       "Event::Endpoint::HmpaExploitPrevented" => {
-        sophos::ocsf::events::siem_detection event=$into
+        sophos::ocsf::events::siem_detection event=$event
       }
       "Event::Endpoint::CoreClean" |
       "Event::Endpoint::CorePuaClean" => {
-        sophos::ocsf::events::file_remediation_activity event=$into
+        sophos::ocsf::events::file_remediation_activity event=$event
       }
       "Event::Endpoint::WebFilteringBlocked" => {
-        sophos::ocsf::events::web_resource_access_activity event=$into
+        sophos::ocsf::events::web_resource_access_activity event=$event
       }
       _ => {
-        sophos::ocsf::base event=$into
+        sophos::ocsf::base event=$event
       }
     }
   }
   _ => {
-    sophos::ocsf::base event=$into
+    sophos::ocsf::base event=$event
   }
 }
 
 
 
-$into = {...$into.ocsf, unmapped: $into.sophos}
+$ocsf = {...$event.ocsf, unmapped: $event.sophos}
