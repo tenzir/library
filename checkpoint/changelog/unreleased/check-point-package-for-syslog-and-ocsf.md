@@ -26,8 +26,8 @@ from "udp://0.0.0.0:514" {
 }
 checkpoint::syslog::parse_structured_data
 checkpoint::ocsf::map this, this
-ocsf::derive
-ocsf::cast
+ocsf_derive
+ocsf_cast
 ```
 
 The syslog parser entry points are explicit for each configured feed format.
