@@ -5,9 +5,12 @@ args:
     - name: event
       description: The active mapping scope.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-paloalto::ocsf::base $event
+paloalto::ocsf::base $event, $ocsf
 @name = "ocsf.http_activity"
 
 let $activities = {
@@ -44,59 +47,59 @@ let $disposition_ids = {
   alert: 19,
 }
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4002
-$event.ocsf.activity_id = $activities[$event.paloalto.http_method?]? else 0
-$event.ocsf.type_uid = 400200 + ($activities[$event.paloalto.http_method?]? else 0)
-drop $event.ocsf.activity_name?
-$event.ocsf.status_id = 1
-$event.ocsf.metadata.profiles = ["security_control"]
-$event.ocsf.app_name = move $event.paloalto.application?
-$event.ocsf.src_endpoint = {
-  ip: move $event.paloalto.source_address?,
-  port: move $event.paloalto.source_port?,
-  zone: move $event.paloalto.source_zone?,
-  interface_name: move $event.paloalto.inbound_interface?,
-  hostname: move $event.paloalto.source_hostname?,
-  mac: move $event.paloalto.source_mac_address?,
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
+$ocsf.activity_id = $activities[$event.http_method?]? else 0
+$ocsf.type_uid = 400200 + ($activities[$event.http_method?]? else 0)
+drop $ocsf.activity_name?
+$ocsf.status_id = 1
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.app_name = move $event.application?
+$ocsf.src_endpoint = {
+  ip: move $event.source_address?,
+  port: move $event.source_port?,
+  zone: move $event.source_zone?,
+  interface_name: move $event.inbound_interface?,
+  hostname: move $event.source_hostname?,
+  mac: move $event.source_mac_address?,
 }
-$event.ocsf.dst_endpoint = {
-  ip: move $event.paloalto.destination_address?,
-  port: move $event.paloalto.destination_port?,
-  zone: move $event.paloalto.destination_zone?,
-  interface_name: move $event.paloalto.outbound_interface?,
-  hostname: move $event.paloalto.destination_hostname?,
-  mac: move $event.paloalto.destination_mac_address?,
+$ocsf.dst_endpoint = {
+  ip: move $event.destination_address?,
+  port: move $event.destination_port?,
+  zone: move $event.destination_zone?,
+  interface_name: move $event.outbound_interface?,
+  hostname: move $event.destination_hostname?,
+  mac: move $event.destination_mac_address?,
 }
-$event.ocsf.connection_info = {
+$ocsf.connection_info = {
   direction_id: 0,
-  protocol_name: move $event.paloalto.ip_protocol?,
-  uid: (move $event.paloalto.session_id?).string(),
+  protocol_name: move $event.ip_protocol?,
+  uid: (move $event.session_id?).string(),
 }
-$event.ocsf.http_request = {
-  http_method: move $event.paloalto.http_method?,
-  user_agent: move $event.paloalto.user_agent?,
-  referrer: move $event.paloalto.referer?,
-  x_forwarded_for: move $event.paloalto.x_forwarded_for?,
+$ocsf.http_request = {
+  http_method: move $event.http_method?,
+  user_agent: move $event.user_agent?,
+  referrer: move $event.referer?,
+  x_forwarded_for: move $event.x_forwarded_for?,
   url: {
-    url_string: move $event.paloalto.url_filename?,
+    url_string: move $event.url_filename?,
   },
 }
-if $event.paloalto.category? != null {
-  $event.ocsf.http_request.url.categories = [move $event.paloalto.category]
+if $event.category? != null {
+  $ocsf.http_request.url.categories = [move $event.category]
 }
-if $event.paloalto.rule_name? != null or $event.paloalto.rule_uuid? != null {
-  $event.ocsf.firewall_rule = {
-    name: move $event.paloalto.rule_name?,
-    uid: move $event.paloalto.rule_uuid?,
+if $event.rule_name? != null or $event.rule_uuid? != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
   }
 }
-if $action_ids[$event.paloalto.action?]? != null {
-  $event.ocsf.action_id = $action_ids[$event.paloalto.action?]?
-  $event.ocsf.disposition_id = $disposition_ids[$event.paloalto.action?]?
-  $event.ocsf.is_alert = $event.paloalto.action? == "alert"
-  drop $event.paloalto.action
+if $action_ids[$event.action?]? != null {
+  $ocsf.action_id = $action_ids[$event.action?]?
+  $ocsf.disposition_id = $disposition_ids[$event.action?]?
+  $ocsf.is_alert = $event.action? == "alert"
+  drop $event.action
 }
 
-drop $event.paloalto.type?
-drop $event.paloalto.threat_content_type?
+drop $event.type?
+drop $event.threat_content_type?

@@ -5,9 +5,12 @@ args:
     - name: event
       description: The active mapping scope.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-paloalto::ocsf::base $event
+paloalto::ocsf::base $event, $ocsf
 
 let $status_ids = {
   success: 1,
@@ -17,13 +20,13 @@ let $status_ids = {
   error: 2,
 }
 
-$event.ocsf.activity_id = 99
-$event.ocsf.activity_name = move $event.paloalto.event_id? else "Audit"
-$event.ocsf.type_uid = 99
-$event.ocsf.message = move $event.paloalto.cli_command?
-if $status_ids[$event.paloalto.severity?]? != null {
-  $event.ocsf.status_id = $status_ids[$event.paloalto.severity?]?
-  drop $event.paloalto.severity
+$ocsf.activity_id = 99
+$ocsf.activity_name = move $event.event_id? else "Audit"
+$ocsf.type_uid = 99
+$ocsf.message = move $event.cli_command?
+if $status_ids[$event.severity?]? != null {
+  $ocsf.status_id = $status_ids[$event.severity?]?
+  drop $event.severity
 }
 
-drop $event.paloalto.threat_content_type?
+drop $event.threat_content_type?

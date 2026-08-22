@@ -5,6 +5,9 @@ args:
     - name: event
       description: The active mapping scope.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
 @name = "ocsf.base_event"
@@ -18,41 +21,41 @@ let $severity_ids = {
   critical: 5,
 }
 
-$event.ocsf = {
-  time: $event.paloalto.generated_time? else $event.paloalto.generate_time? else $event.paloalto.time? else $event.paloalto.receive_time?,
+$ocsf = {
+  time: $event.generated_time? else $event.generate_time? else $event.time? else $event.receive_time?,
   category_uid: 0,
   class_uid: 0,
   activity_id: 0,
-  severity_id: $severity_ids[$event.paloalto.severity?]? else 1,
+  severity_id: $severity_ids[$event.severity?]? else 1,
   type_uid: 0,
   status_id: 0,
-  message: move $event.paloalto.description?,
+  message: move $event.description?,
   metadata: {
     version: "1.9.0",
     log_name: "PAN-OS",
     log_provider: "Palo Alto Networks",
     log_source: "PAN-OS Syslog",
-    logged_time: $event.paloalto.receive_time?,
+    logged_time: $event.receive_time?,
     product: {
       name: "PAN-OS",
       vendor_name: "Palo Alto Networks",
-      uid: ($event.paloalto.serial_number? else $event.paloalto.serial?).string(),
+      uid: ($event.serial_number? else $event.serial?).string(),
     },
   },
 }
 
-if ($event.paloalto.type? else $event.paloalto.threat_content_type?) != null {
-  $event.ocsf.activity_id = 99
-  $event.ocsf.activity_name = $event.paloalto.type? else $event.paloalto.threat_content_type?
-  $event.ocsf.type_uid = 99
+if ($event.type? else $event.threat_content_type?) != null {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = $event.type? else $event.threat_content_type?
+  $ocsf.type_uid = 99
 }
-if $severity_ids[$event.paloalto.severity?]? != null {
-  drop $event.paloalto.severity
+if $severity_ids[$event.severity?]? != null {
+  drop $event.severity
 }
 
-drop $event.paloalto.generated_time?
-drop $event.paloalto.generate_time?
-drop $event.paloalto.time?
-drop $event.paloalto.receive_time?
-drop $event.paloalto.serial_number?
-drop $event.paloalto.serial?
+drop $event.generated_time?
+drop $event.generate_time?
+drop $event.time?
+drop $event.receive_time?
+drop $event.serial_number?
+drop $event.serial?

@@ -5,9 +5,12 @@ args:
     - name: event
       description: The active mapping scope.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-paloalto::ocsf::base $event
+paloalto::ocsf::base $event, $ocsf
 @name = "ocsf.authentication"
 
 let $protocol_ids = {
@@ -32,44 +35,44 @@ let $status_ids = {
   error: 2,
 }
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3002
-$event.ocsf.activity_id = 1
-$event.ocsf.type_uid = 300201
-drop $event.ocsf.activity_name?
-$event.ocsf.metadata.profiles = ["security_control"]
-$event.ocsf.user = {
-  name: move $event.paloalto.source_user?,
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1
+$ocsf.type_uid = 300201
+drop $ocsf.activity_name?
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.user = {
+  name: move $event.source_user?,
 }
-$event.ocsf.src_endpoint = {
-  ip: move $event.paloalto.public_ip?,
-  hostname: move $event.paloalto.machine_name?,
+$ocsf.src_endpoint = {
+  ip: move $event.public_ip?,
+  hostname: move $event.machine_name?,
 }
-if ($event.paloalto.gateway? else $event.paloalto.portal?) != null {
-  $event.ocsf.dst_endpoint = {
-    hostname: $event.paloalto.gateway? else $event.paloalto.portal?,
+if ($event.gateway? else $event.portal?) != null {
+  $ocsf.dst_endpoint = {
+    hostname: $event.gateway? else $event.portal?,
   }
-  drop $event.paloalto.gateway?
-  drop $event.paloalto.portal?
+  drop $event.gateway?
+  drop $event.portal?
 }
-$event.ocsf.service = {
+$ocsf.service = {
   name: "GlobalProtect",
 }
-$event.ocsf.is_remote = true
-$event.ocsf.status_detail = move $event.paloalto.reason? else move $event.paloalto.error? else $event.ocsf.message?
-if $protocol_ids[$event.paloalto.authentication_method?]? != null {
-  $event.ocsf.auth_protocol_id = $protocol_ids[$event.paloalto.authentication_method?]?
-  drop $event.paloalto.authentication_method
-} else if $event.paloalto.authentication_method? != null {
-  $event.ocsf.auth_protocol_id = 99
-  $event.ocsf.auth_protocol = move $event.paloalto.authentication_method
+$ocsf.is_remote = true
+$ocsf.status_detail = move $event.reason? else move $event.error? else $ocsf.message?
+if $protocol_ids[$event.authentication_method?]? != null {
+  $ocsf.auth_protocol_id = $protocol_ids[$event.authentication_method?]?
+  drop $event.authentication_method
+} else if $event.authentication_method? != null {
+  $ocsf.auth_protocol_id = 99
+  $ocsf.auth_protocol = move $event.authentication_method
 }
-if $status_ids[$event.paloalto.status?]? != null {
-  $event.ocsf.status_id = $status_ids[$event.paloalto.status?]?
-  drop $event.paloalto.status
+if $status_ids[$event.status?]? != null {
+  $ocsf.status_id = $status_ids[$event.status?]?
+  drop $event.status
 }
 
-drop $event.paloalto.type?
-drop $event.paloalto.threat_content_type?
-drop $event.paloalto.event_id?
-drop $event.paloalto.stage?
+drop $event.type?
+drop $event.threat_content_type?
+drop $event.event_id?
+drop $event.stage?
