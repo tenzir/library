@@ -7,11 +7,11 @@ authors:
 created: 2026-06-13T07:58:14.148769Z
 ---
 
-abuse.ch OCSF mappers now take an optional positional source field and a named
-`into` output. Both default to `this`.
+abuse.ch OCSF mappers now take the structured source and OCSF output fields
+positionally.
 
 ```tql
-abusech::threatfox::ocsf::map indicator, into=ocsf
+abusech::threatfox::ocsf::map indicator, ocsf
 ```
 
 The MalwareBazaar and ThreatFox API response helpers are now named `unwrap`.

@@ -4,54 +4,51 @@ args:
   positional:
     - name: event
       type: field
-      default: this
       description: The structured source row to map.
-  named:
-    - name: into
+    - name: ocsf
       type: field
-      default: this
       description: The field that receives the OCSF event.
 ---
 
 
-$into = {feodo: $event, ocsf: {}}
+$event = {feodo: $event, ocsf: {}}
 
-$into.osint = {}
-$into.osint.category = "botnet c2"
-$into.osint.confidence_id = 3
-$into.osint.created_time = time($into.feodo.first_seen_utc)
-drop $into.feodo.first_seen_utc
-$into.osint.malware = [{
+$event.osint = {}
+$event.osint.category = "botnet c2"
+$event.osint.confidence_id = 3
+$event.osint.created_time = time($event.feodo.first_seen_utc)
+drop $event.feodo.first_seen_utc
+$event.osint.malware = [{
   classification_ids: [0],
-  name: move $into.feodo.malware,
+  name: move $event.feodo.malware,
   provider: "Feodo Tracker",
 }]
-$into.osint.severity_id = 4
-$into.osint.src_url = "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv"
-$into.osint.type_id = 1
-$into.osint.value = string(move $into.feodo.dst_ip)
-$into.osint.vendor_name = "abuse.ch"
+$event.osint.severity_id = 4
+$event.osint.src_url = "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv"
+$event.osint.type_id = 1
+$event.osint.value = string(move $event.feodo.dst_ip)
+$event.osint.vendor_name = "abuse.ch"
 
-$into.ocsf = {}
-$into.ocsf.activity_id = 2
-$into.ocsf.actor = {
+$event.ocsf = {}
+$event.ocsf.activity_id = 2
+$event.ocsf.actor = {
   app_name: "Tenzir",
 }
-$into.ocsf.category_uid = 5
-$into.ocsf.class_uid = 5021
-$into.ocsf.metadata = {
+$event.ocsf.category_uid = 5
+$event.ocsf.class_uid = 5021
+$event.ocsf.metadata = {
   product: {
     name: "Feodo Tracker",
     vendor_name: "abuse.ch",
   },
   version: "1.9.0",
 }
-$into.ocsf.osint = [move $into.osint]
-$into.ocsf.severity_id = 1
-$into.ocsf.time = $into.ocsf.osint[0].created_time
-$into.ocsf.type_uid = $into.ocsf.class_uid * 100 + $into.ocsf.activity_id
+$event.ocsf.osint = [move $event.osint]
+$event.ocsf.severity_id = 1
+$event.ocsf.time = $event.ocsf.osint[0].created_time
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 
 @name = "ocsf.osint_inventory_info"
 
-$into = {...$into.ocsf, unmapped: $into.feodo}
+$ocsf = {...$event.ocsf, unmapped: $event.feodo}
