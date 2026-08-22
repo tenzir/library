@@ -17,8 +17,8 @@ from_file "fortigate.log" {
   read_lines
 }
 fortinet::fortigate::ocsf::map line
-ocsf::derive
-ocsf::cast
+ocsf_derive
+ocsf_cast
 ```
 
 All major FortiGate log types are covered:
