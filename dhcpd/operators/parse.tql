@@ -2,11 +2,11 @@
 description: |
   Parses an ISC DHCPD message body.
 
-  The positional field holds the raw message body, not the full Syslog
-  envelope. The named output receives the structured DHCPD event:
+  The first positional field holds the raw message body, not the full Syslog
+  envelope. The second receives the structured DHCPD event:
 
   ```tql
-  dhcpd::parse message, into=event
+  dhcpd::parse message, event
   ```
 
   The parser leaves the input field unchanged. It does not add a timestamp or
@@ -14,18 +14,16 @@ description: |
 args:
   positional:
     - name: log
-      description: The field holding the raw DHCPD message body.
       type: field
-  named:
-    - name: into
-      description: The field that receives the structured DHCPD event.
+      description: The source field to parse.
+    - name: dhcpd
       type: field
-      default: this
+      description: The field that receives the parsed event.
 ---
 
 if $log == null {
   @name = "dhcpd.parser_error"
-  $into = {
+  $dhcpd = {
     category: "parser",
     template: "missing_message",
     parser: {
@@ -35,20 +33,20 @@ if $log == null {
   }
 } else {
   // Snapshot the input once. Each parser writes directly to `event` on a match.
-  $into = {
+  $dhcpd = {
     source: $log,
     event: null,
   }
   // BOOTP must run first because DHCP4o6 can prefix BOOTP messages.
-  dhcpd::parsers::bootp $into
-  if $into.event.category? == null {
-    dhcpd::parsers::dhcpv4 $into
+  dhcpd::parsers::bootp $dhcpd
+  if $dhcpd.event.category? == null {
+    dhcpd::parsers::dhcpv4 $dhcpd
   }
-  if $into.event.category? == null {
-    dhcpd::parsers::dhcpv6 $into
+  if $dhcpd.event.category? == null {
+    dhcpd::parsers::dhcpv6 $dhcpd
   }
-  if $into.event.category? == null {
-    dhcpd::parsers::fallback $into
+  if $dhcpd.event.category? == null {
+    dhcpd::parsers::fallback $dhcpd
   }
-  $into = move $into.event
+  $dhcpd = move $dhcpd.event
 }
