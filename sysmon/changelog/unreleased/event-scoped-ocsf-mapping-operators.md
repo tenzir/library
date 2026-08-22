@@ -7,7 +7,7 @@ authors:
 created: 2026-06-13T07:58:23.948112Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope. Preserve raw log data by parsing first, mapping the parsed event, and assigning `raw_data` and `raw_data_size` after mapping.
+The Sysmon OCSF mapper takes the structured source and OCSF output fields positionally. Preserve raw log data by parsing first, mapping the parsed event, and assigning `raw_data` and `raw_data_size` after mapping.
 
 Before:
 
