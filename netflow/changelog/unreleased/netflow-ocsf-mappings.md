@@ -15,7 +15,7 @@ OCSF 1.9.0:
 ```tql
 accept_udp "0.0.0.0:2055", binary=true
 read_netflow
-netflow::ocsf::map
+netflow::ocsf::map this, this
 ocsf::derive
 ocsf::cast
 ```
