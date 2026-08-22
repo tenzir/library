@@ -9,8 +9,8 @@ prs:
 created: 2026-05-31T19:12:55Z
 ---
 
-The Palo Alto Networks package now parses PAN-OS CSV payloads with a positional
-input and a named `into` output. It also maps PAN-OS Traffic, URL Filtering,
+The Palo Alto Networks package now parses PAN-OS CSV payloads with positional
+input and output fields. It also maps PAN-OS Traffic, URL Filtering,
 Threat, and supported GlobalProtect authentication records to OCSF 1.9. Other
 parsed families become OCSF Base Events and retain their structured fields in
 `unmapped`.
