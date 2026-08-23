@@ -12,6 +12,3 @@ Use `okta::ocsf::normalize` to normalize structured Okta System Log events to OC
 ```tql
 okta::ocsf::normalize
 ```
-
-The lower-level `okta::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
