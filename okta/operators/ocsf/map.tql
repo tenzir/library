@@ -46,7 +46,9 @@ $ocsf.http_request = {
     hostname: move $event.debugContext.debugData.authnRequestId? else move $event.debugContext.debugData.origin?,
   },
 }
-$ocsf.http_request.user_agent = move $event.client.userAgent?.rawUserAgent?
+if $event.client.userAgent? != null {
+  $ocsf.http_request.user_agent = move $event.client.userAgent.rawUserAgent?
+}
 
 $ocsf.cloud = {
   provider: "AWS" if $event.source?.contains("aws.partner") else "Other",
@@ -93,13 +95,16 @@ $ocsf.src_endpoint = {
     },
   },
 }
-$ocsf.src_endpoint.location = {
-  isp: move $event.securityContext.isp?,
-  city: move $event.client.geographicalContext?.city?,
-  country: move $event.client.geographicalContext?.country?,
-  postal_code: move $event.client.geographicalContext?.postalCode?,
-  lat: move $event.client.geographicalContext?.geolocation?.lat?,
-  long: move $event.client.geographicalContext?.geolocation?.lon?,
+$ocsf.src_endpoint.location.isp = move $event.securityContext.isp?
+if $event.client.geographicalContext? != null {
+  $ocsf.src_endpoint.location = {
+    ...$ocsf.src_endpoint.location?,
+    city: move $event.client.geographicalContext.city?,
+    country: move $event.client.geographicalContext.country?,
+    postal_code: move $event.client.geographicalContext.postalCode?,
+    lat: move $event.client.geographicalContext.geolocation?.lat?,
+    long: move $event.client.geographicalContext.geolocation?.lon?,
+  }
 }
 
 // Okta reports "Mac OS X (iPhone)" for iPhones, so check for mobile OS
