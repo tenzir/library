@@ -36,10 +36,15 @@ if $event.uri? != null {
 } else {
   $ocsf.osint.type_id = 0
 }
-if ip($ocsf.osint.value?) != null {
-  $ocsf.osint.value = ip($ocsf.osint.value).string()
-  $ocsf.osint.type_id = 1
+$ocsf.normalized_ip = ip($ocsf.osint.value?)
+match $ocsf.normalized_ip? {
+  null => {}
+  _ => {
+    $ocsf.osint.value = $ocsf.normalized_ip.string()
+    $ocsf.osint.type_id = 1
+  }
 }
+drop $ocsf.normalized_ip
 
 if $event.score? != null {
   $ocsf.osint.reputation = {base_score: move $event.score, provider: "alphaMountain"}
