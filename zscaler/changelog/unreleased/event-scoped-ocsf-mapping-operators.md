@@ -12,6 +12,3 @@ Use `zscaler::ocsf::normalize` to normalize structured Zscaler events to OCSF 1.
 ```tql
 zscaler::ocsf::normalize
 ```
-
-The lower-level `zscaler::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
