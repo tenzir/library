@@ -12,6 +12,3 @@ Use `dcso::tie::ocsf::normalize` to normalize structured DCSO TIE events to OCSF
 ```tql
 dcso::tie::ocsf::normalize
 ```
-
-The lower-level `dcso::tie::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
