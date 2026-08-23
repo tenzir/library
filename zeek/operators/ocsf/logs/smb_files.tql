@@ -40,18 +40,23 @@ $ocsf.file = {
   path: move $event.path,
 }
 $ocsf.share = move $event.name
-if $event.action.starts_with("SMB::FILE") {
-  $ocsf.share_type_id = 1
-  $ocsf.share_type = "File"
-} else if $event.action.starts_with("SMB::PIPE") {
-  $ocsf.share_type_id = 2
-  $ocsf.share_type = "Pipe"
-} else if $event.action.starts_with("SMB::PRINT") {
-  $ocsf.share_type_id = 3
-  $ocsf.share_type = "Print"
-} else {
-  $ocsf.share_type_id = 0
-  $ocsf.share_type = "Unknown"
+match $event.action.split("::")[1]?.split("_")[0]? {
+  "FILE" => {
+    $ocsf.share_type_id = 1
+    $ocsf.share_type = "File"
+  }
+  "PIPE" => {
+    $ocsf.share_type_id = 2
+    $ocsf.share_type = "Pipe"
+  }
+  "PRINT" => {
+    $ocsf.share_type_id = 3
+    $ocsf.share_type = "Print"
+  }
+  _ => {
+    $ocsf.share_type_id = 0
+    $ocsf.share_type = "Unknown"
+  }
 }
 drop $event.action
 
