@@ -46,9 +46,7 @@ $ocsf.http_request = {
     hostname: move $event.debugContext.debugData.authnRequestId? else move $event.debugContext.debugData.origin?,
   },
 }
-if $event.client.userAgent? != null {
-  $ocsf.http_request.user_agent = move $event.client.userAgent.rawUserAgent?
-}
+$ocsf.http_request.user_agent = move $event.client.userAgent?.rawUserAgent?
 
 $ocsf.cloud = {
   provider: "AWS" if $event.source?.contains("aws.partner") else "Other",
@@ -95,13 +93,13 @@ $ocsf.src_endpoint = {
     },
   },
 }
-$ocsf.src_endpoint.location.isp = move $event.securityContext.isp?
-if $event.client.geographicalContext? != null {
-  $ocsf.src_endpoint.location.city = move $event.client.geographicalContext.city?
-  $ocsf.src_endpoint.location.country = move $event.client.geographicalContext.country?
-  $ocsf.src_endpoint.location.postal_code = move $event.client.geographicalContext.postalCode?
-  $ocsf.src_endpoint.location.lat = move $event.client.geographicalContext.geolocation?.lat?
-  $ocsf.src_endpoint.location.long = move $event.client.geographicalContext.geolocation?.lon?
+$ocsf.src_endpoint.location = {
+  isp: move $event.securityContext.isp?,
+  city: move $event.client.geographicalContext?.city?,
+  country: move $event.client.geographicalContext?.country?,
+  postal_code: move $event.client.geographicalContext?.postalCode?,
+  lat: move $event.client.geographicalContext?.geolocation?.lat?,
+  long: move $event.client.geographicalContext?.geolocation?.lon?,
 }
 
 // Okta reports "Mac OS X (iPhone)" for iPhones, so check for mobile OS
@@ -176,17 +174,13 @@ match $ocsf.metadata.event_code {
 
 drop $event.severity?
 drop $event.legacyEventType?
-if $event.debugContext? != null {
-  drop $event.debugContext.debugData.threatSuspected?
-  drop $event.debugContext.debugData.responseTime?
-}
+drop $event.debugContext?.debugData?.threatSuspected?
+drop $event.debugContext?.debugData?.responseTime?
 drop $event.target?
 drop $event.client?
 drop $event.securityContext?
 drop $event.request?
 drop $event.transaction?
 drop $event.authenticationContext?
-
-
 
 $ocsf.unmapped = move $event
