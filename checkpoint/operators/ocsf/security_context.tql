@@ -10,9 +10,7 @@ args:
       type: field
 ---
 
-if $event.hll_key? != null {
-  $ocsf.connection_info.uid = (move $event.hll_key).string()
-}
+$ocsf.connection_info.uid = (move $event.hll_key?).string()
 if $event.proto? != null {
   match $event.proto {
     1 => {
@@ -36,10 +34,7 @@ let $connection_direction_ids = {
   Incoming: 1,
   Outgoing: 2,
 }
-if $connection_direction_ids[$event.conn_direction?]? != null {
-  $ocsf.connection_info.direction_id = $connection_direction_ids[$event.conn_direction?]
-}
-drop $event.conn_direction?
+$ocsf.connection_info.direction_id = $connection_direction_ids[move $event.conn_direction?]?
 if $event.inzone? != null and $event.outzone? != null {
   if $event.inzone == "Internal" and $event.outzone == "Internal" {
     $ocsf.connection_info.direction_id = 3
@@ -50,53 +45,29 @@ if $event.inzone? != null and $event.outzone? != null {
   }
 }
 
-if $event.src? != null {
-  $ocsf.src_endpoint.ip = move $event.src
+$ocsf.src_endpoint = {
+  ip: move $event.src?,
+  port: move $event.s_port?,
+  hostname: move $event.sname?,
+  zone: move $event.inzone?,
+  proxy_endpoint: {
+    ip: move $event.snatip?,
+    port: move $event.snatport?,
+  },
 }
-if $event.s_port? != null {
-  $ocsf.src_endpoint.port = move $event.s_port
+$ocsf.dst_endpoint = {
+  ip: move $event.dst?,
+  port: move $event.service?,
+  svc_name: move $event.service_id?,
+  hostname: move $event.dname?,
+  domain: move $event.dst_domain_name?,
+  zone: move $event.outzone?,
+  proxy_endpoint: {
+    ip: move $event.dnatip?,
+    port: move $event.dnatport?,
+  },
 }
-if $event.sname? != null {
-  $ocsf.src_endpoint.hostname = move $event.sname
-}
-if $event.inzone? != null {
-  $ocsf.src_endpoint.zone = move $event.inzone
-}
-if $event.dst? != null {
-  $ocsf.dst_endpoint.ip = move $event.dst
-}
-if $event.service? != null {
-  $ocsf.dst_endpoint.port = move $event.service
-}
-if $event.service_id? != null {
-  $ocsf.dst_endpoint.svc_name = move $event.service_id
-}
-if $event.dname? != null {
-  $ocsf.dst_endpoint.hostname = move $event.dname
-}
-if $event.dst_domain_name? != null {
-  $ocsf.dst_endpoint.domain = move $event.dst_domain_name
-}
-if $event.outzone? != null {
-  $ocsf.dst_endpoint.zone = move $event.outzone
-}
-
-if $event.snatip? != null {
-  $ocsf.src_endpoint.proxy_endpoint.ip = move $event.snatip
-}
-if $event.snatport? != null {
-  $ocsf.src_endpoint.proxy_endpoint.port = move $event.snatport
-}
-if $event.dnatip? != null {
-  $ocsf.dst_endpoint.proxy_endpoint.ip = move $event.dnatip
-}
-if $event.dnatport? != null {
-  $ocsf.dst_endpoint.proxy_endpoint.port = move $event.dnatport
-}
-
-if $event.user? != null {
-  $ocsf.actor.user.name = move $event.user
-}
+$ocsf.actor.user.name = move $event.user?
 if $event.app_name? != null {
   $ocsf.app_name = move $event.app_name
 }
