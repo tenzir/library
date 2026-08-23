@@ -33,31 +33,61 @@ $ocsf = {
     },
     version: "1.9.0",
   },
-  osint: [{
+  osint: {
     category: move $event.threat_type?,
-    confidence_id: 1 if $event.confidence_level? <= 30 else 2 if $event.confidence_level? <= 70 else 3 if $event.confidence_level? != null,
     created_time: $event.first_seen?,
     desc: move $event.threat_type_desc?,
     labels: move $event.tags?,
-    malware: [{
-      classification_ids: [0],
-      name: move $event.malware_printable? else move $event.malware?,
-      provider: "ThreatFox",
-    }] if $event.malware_printable? != null or $event.malware? != null,
-    ...({modified_time: time(move $event.last_seen)} if $event.last_seen? != null else {}),
-    ...({references: [move $event.reference]} if $event.reference? != null else {}),
-    risk_score: move $event.confidence_level?,
+    risk_score: $event.confidence_level?,
     src_url: "https://threatfox.abuse.ch/ioc/" + encode_url($event.ioc),
     type_id: $type_ids[$event.ioc_type]? else 99,
-    ...({type: move $event.ioc_type} if $type_ids[$event.ioc_type]? == null or $type_ids[$event.ioc_type] == 99 else {}),
     value: move $event.ioc,
     vendor_name: "abuse.ch",
-  }],
+  },
   severity_id: 1,
   time: $event.first_seen? else now(),
   type_uid: 502102,
 }
-drop $event.first_seen?, $event.ioc_type?
+
+if $event.confidence_level? != null {
+  match $event.confidence_level {
+    -1..30 => {
+      $ocsf.osint.confidence_id = 1
+    }
+    29..70 => {
+      $ocsf.osint.confidence_id = 2
+    }
+    _ => {
+      $ocsf.osint.confidence_id = 3
+    }
+  }
+  drop $event.confidence_level
+}
+
+if $event.last_seen? != null {
+  $ocsf.osint.modified_time = time(move $event.last_seen)
+}
+
+if $event.malware_printable? != null or $event.malware? != null {
+  $ocsf.osint.malware = [{
+    classification_ids: [0],
+    name: move $event.malware_printable? else move $event.malware?,
+    provider: "ThreatFox",
+  }]
+}
+
+if $event.reference? != null {
+  $ocsf.osint.references = [move $event.reference]
+}
+
+if $ocsf.osint.type_id == 99 {
+  $ocsf.osint.type = move $event.ioc_type
+} else {
+  drop $event.ioc_type
+}
+
+$ocsf.osint = [$ocsf.osint]
+drop $event.first_seen?
 
 @name = "ocsf.osint_inventory_info"
 
