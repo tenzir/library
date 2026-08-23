@@ -54,18 +54,24 @@ $ocsf.app_protocol_name = move $event.service
 
 $ocsf.connection_info.flag_history = move $event.history
 if $event.local_orig? != null and $event.local_resp? != null {
-  if $event.local_orig and $event.local_resp {
-    $ocsf.connection_info.direction = "Lateral"
-    $ocsf.connection_info.direction_id = 3
-  } else if $event.local_orig {
-    $ocsf.connection_info.direction = "Outbound"
-    $ocsf.connection_info.direction_id = 2
-  } else if $event.local_resp {
-    $ocsf.connection_info.direction = "Inbound"
-    $ocsf.connection_info.direction_id = 1
-  } else {
-    $ocsf.connection_info.direction = "Unknown"
-    $ocsf.connection_info.direction_id = 0
+  match [$event.local_orig, $event.local_resp] {
+    [true, true] => {
+      $ocsf.connection_info.direction = "Lateral"
+      $ocsf.connection_info.direction_id = 3
+    }
+    [true, false] => {
+      $ocsf.connection_info.direction = "Outbound"
+      $ocsf.connection_info.direction_id = 2
+    }
+    [false, true] => {
+      $ocsf.connection_info.direction = "Inbound"
+      $ocsf.connection_info.direction_id = 1
+    }
+    [false, false] => {
+      $ocsf.connection_info.direction = "Unknown"
+      $ocsf.connection_info.direction_id = 0
+    }
+    _ => {}
   }
   drop $event.local_orig, $event.local_resp
 }
