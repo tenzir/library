@@ -14,6 +14,3 @@ structured Route 53 Resolver Query Log events into OCSF 1.9:
 amazon::vpc_flow::ocsf::normalize
 amazon::route53::ocsf::normalize
 ```
-
-The lower-level `map` operators remain available for pipelines that need
-separate structured source and OCSF output fields.
