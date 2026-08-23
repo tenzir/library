@@ -139,33 +139,24 @@ if $event != null {
 
   // --- OCSF: network attributes -----------------
 
-  if $event.has("srcaddr") {
-    $ocsf.src_endpoint.ip = ip(move $event.srcaddr)
+  $ocsf.src_endpoint = {
+    ip: ip(move $event.srcaddr?),
+    port: int(move $event.srcport?),
+    vpc_uid: move $event.vpc_id?,
+    instance_uid: move $event.srcids?.instance?,
+  }
+  if $ocsf.src_endpoint.ip? != null {
     $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() else 4
   }
-  if $event.has("srcport") {
-    $ocsf.src_endpoint.port = int(move $event.srcport)
-  }
-  if $event.has("vpc_id") {
-    $ocsf.src_endpoint.vpc_uid = move $event.vpc_id
-  }
-  if $event.srcids?.instance? != null {
-    $ocsf.src_endpoint.instance_uid = move $event.srcids.instance
-  }
-
   // Resolver endpoint info goes to dst_endpoint since it's the DNS server.
-  if $event.srcids?.resolver_endpoint? != null {
-    $ocsf.dst_endpoint.uid = move $event.srcids.resolver_endpoint
-  }
-  if $event.srcids?.resolver_network_interface? != null {
-    $ocsf.dst_endpoint.interface_uid = move $event.srcids.resolver_network_interface
+  $ocsf.dst_endpoint = {
+    uid: move $event.srcids?.resolver_endpoint?,
+    interface_uid: move $event.srcids?.resolver_network_interface?,
   }
   drop $event.srcids?
-
-  if $event.has("transport") {
+  if $event.transport? != null {
     $ocsf.connection_info.protocol_name = $event.transport.to_lower()
-    $ocsf.connection_info.protocol_num = $proto_nums[$event.transport]? else 0
-    drop $event.transport
+    $ocsf.connection_info.protocol_num = $proto_nums[move $event.transport]? else 0
   }
 
   // --- DNS Firewall (security_control profile) --
