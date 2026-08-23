@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contracts
 type: breaking
 authors:
   - mavam
@@ -7,13 +7,13 @@ authors:
 created: 2026-06-13T07:58:00.996294Z
 ---
 
-Amazon OCSF mapping operators take the structured source and OCSF output
-fields positionally.
+Use the source-specific `normalize` operators to turn VPC Flow Log lines or
+structured Route 53 Resolver Query Log events into OCSF 1.9:
 
 ```tql
-amazon::vpc_flow::ocsf::map vpc_flow, ocsf
-amazon::route53::ocsf::map route53, ocsf
+amazon::vpc_flow::ocsf::normalize
+amazon::route53::ocsf::normalize
 ```
 
-The VPC Flow Log package also provides `amazon::vpc_flow::ocsf::normalize` for
-turning a supported raw line into OCSF with `raw_data` provenance.
+The lower-level `map` operators remain available for pipelines that need
+separate structured source and OCSF output fields.

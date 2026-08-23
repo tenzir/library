@@ -17,7 +17,7 @@ unified `amazon` package with namespaced operators:
 - `amazon::vpc_flow::parse` - Classify and parse supported VPC Flow Log layouts
 - `amazon::vpc_flow::parse_v2` - Parse default AWS format (14 fields)
 - `amazon::vpc_flow::parse_v7_ecs` - Parse v7 format with ECS fields (24 fields)
-- `amazon::vpc_flow::ocsf::map` - Map to OCSF Network Activity (class 4001)
+- `amazon::vpc_flow::ocsf::normalize` - Normalize to OCSF Network Activity (class 4001)
 - `amazon::security_lake::cast` - Cast OCSF events for Security Lake compatibility
 - `amazon::security_lake::send` - Send OCSF events to Security Lake
 
