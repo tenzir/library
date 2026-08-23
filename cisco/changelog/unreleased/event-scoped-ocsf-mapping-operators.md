@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,11 @@ authors:
 created: 2026-06-13T07:58:16.435958Z
 ---
 
-The Umbrella OCSF mapper takes the structured source and OCSF output fields positionally.
-
-Before:
+Use `cisco::umbrella::ocsf::normalize` to normalize structured Cisco Umbrella DNS events to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map source
+cisco::umbrella::ocsf::normalize
 ```
 
-After:
-
-```tql
-pkg::ocsf::map event=source
-```
+The lower-level `cisco::umbrella::ocsf::map` operator remains available for pipelines that need
+separate structured source and OCSF output fields.
