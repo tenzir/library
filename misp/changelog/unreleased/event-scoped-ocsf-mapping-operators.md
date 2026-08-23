@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,11 @@ authors:
 created: 2026-06-13T07:58:18.719629Z
 ---
 
-The MISP event OCSF mapper takes the structured source and OCSF output fields positionally.
-
-Before:
+Use `misp::event::ocsf::normalize` to normalize structured MISP events to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map source
+misp::event::ocsf::normalize
 ```
 
-After:
-
-```tql
-pkg::ocsf::map event=source
-```
+The lower-level `misp::event::ocsf::map` operator remains available for pipelines that need
+separate structured source and OCSF output fields.
