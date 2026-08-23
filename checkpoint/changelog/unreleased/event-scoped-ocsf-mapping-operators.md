@@ -12,6 +12,3 @@ Use `checkpoint::ocsf::normalize` to normalize structured Check Point events to 
 ```tql
 checkpoint::ocsf::normalize
 ```
-
-The lower-level `checkpoint::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
