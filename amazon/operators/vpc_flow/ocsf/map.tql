@@ -79,17 +79,21 @@ if $event != null {
 
   // --- Security control: action/disposition -----
 
-  if $event.action? == "REJECT" {
-    $ocsf.activity_id = 5
-    $ocsf.action_id = 2
-    $ocsf.disposition_id = 2
-  } else if $event.action? == "ACCEPT" {
-    $ocsf.activity_id = 6
-    $ocsf.action_id = 1
-    $ocsf.disposition_id = 1
-  } else {
-    // NODATA and SKIPDATA windows contain no firewall decision.
-    $ocsf.activity_id = 6
+  match $event.action? {
+    "REJECT" => {
+      $ocsf.activity_id = 5
+      $ocsf.action_id = 2
+      $ocsf.disposition_id = 2
+    }
+    "ACCEPT" => {
+      $ocsf.activity_id = 6
+      $ocsf.action_id = 1
+      $ocsf.disposition_id = 1
+    }
+    _ => {
+      // NODATA and SKIPDATA windows contain no firewall decision.
+      $ocsf.activity_id = 6
+    }
   }
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
   drop $event.action?
@@ -108,18 +112,22 @@ if $event != null {
 
   // --- Flow direction and endpoint assignment ---
 
-  if $event.flow_direction? == "ingress" {
-    $ocsf.connection_info.direction_id = 1
-    $ocsf.dst_endpoint.interface_uid = move $event.interface_id?
-    $ocsf.dst_endpoint.vpc_uid = move $event.vpc_id?
-    $ocsf.dst_endpoint.instance_uid = move $event.instance_id?
-    $ocsf.dst_endpoint.subnet_uid = move $event.subnet_id?
-  } else if $event.flow_direction? == "egress" {
-    $ocsf.connection_info.direction_id = 2
-    $ocsf.src_endpoint.interface_uid = move $event.interface_id?
-    $ocsf.src_endpoint.vpc_uid = move $event.vpc_id?
-    $ocsf.src_endpoint.instance_uid = move $event.instance_id?
-    $ocsf.src_endpoint.subnet_uid = move $event.subnet_id?
+  match $event.flow_direction? {
+    "ingress" => {
+      $ocsf.connection_info.direction_id = 1
+      $ocsf.dst_endpoint.interface_uid = move $event.interface_id?
+      $ocsf.dst_endpoint.vpc_uid = move $event.vpc_id?
+      $ocsf.dst_endpoint.instance_uid = move $event.instance_id?
+      $ocsf.dst_endpoint.subnet_uid = move $event.subnet_id?
+    }
+    "egress" => {
+      $ocsf.connection_info.direction_id = 2
+      $ocsf.src_endpoint.interface_uid = move $event.interface_id?
+      $ocsf.src_endpoint.vpc_uid = move $event.vpc_id?
+      $ocsf.src_endpoint.instance_uid = move $event.instance_id?
+      $ocsf.src_endpoint.subnet_uid = move $event.subnet_id?
+    }
+    _ => {}
   }
   drop $event.flow_direction?
 
