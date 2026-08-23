@@ -9,8 +9,8 @@ prs:
 created: 2026-05-31T15:46:51Z
 ---
 
-The `suricata::ocsf::map` operator now owns the shared OCSF setup, event
-dispatch, and finalization for Suricata EVE JSON events. Event-specific OCSF
+Suricata normalization now owns the shared OCSF setup, event dispatch, and
+finalization for EVE JSON events. Event-specific OCSF
 operators focus only on class-specific fields, and unknown event types fall back
 to OCSF Base Event.
 
