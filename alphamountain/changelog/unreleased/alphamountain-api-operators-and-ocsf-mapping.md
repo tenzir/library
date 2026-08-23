@@ -15,7 +15,7 @@ Use the namespaced operators directly in your own workflows:
 
 ```tql
 alphamountain::threat::feed license="ALPHAMOUNTAIN_LICENSE", limit=100
-alphamountain::ocsf::map this, this
+alphamountain::ocsf::normalize
 ocsf_derive
 ocsf_cast
 ```
