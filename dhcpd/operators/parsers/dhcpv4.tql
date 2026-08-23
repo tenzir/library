@@ -2,8 +2,11 @@
 description: Parse ISC DHCPD DHCPv4 and DHCP4o6 message bodies.
 args:
   positional:
-    - name: scope
-      description: The active parsing scope.
+    - name: source
+      description: The raw DHCPD message body.
+      type: field
+    - name: event
+      description: The field that receives the parsed event.
       type: field
 ---
 
@@ -32,64 +35,64 @@ let $dhcpv4_pattern_definitions = {
   DHCPV4_LEASE: $dhcpv4_lease_grok,
 }
 
-if $scope.source.match_regex($dhcpv4_classifier_pattern) {
-  $scope.event = $scope.source.parse_grok(
+if $source.match_regex($dhcpv4_classifier_pattern) {
+  $event = $source.parse_grok(
     $dhcpv4_grok_pattern,
     pattern_definitions=$dhcpv4_pattern_definitions,
   )
-  if $scope.event == null or $scope.event.other? != null {
-    dhcpd::parsers::parse_error $scope
+  if $event == null or $event.other? != null {
+    dhcpd::parsers::parse_error $source, $event
   } else {
     @name = "dhcpd.transaction"
-    $scope.event.family = "dhcpv4"
-    $scope.event.category = "transaction"
-    $scope.event.dhcp4o6 = $scope.source.starts_with("DHCP4o6 ")
-    if $scope.event.release_requested_address? != null {
-      $scope.event.template = "release_requested_address"
-      $scope.event.requested_address = move $scope.event.release_requested_address
+    $event.family = "dhcpv4"
+    $event.category = "transaction"
+    $event.dhcp4o6 = $source.starts_with("DHCP4o6 ")
+    if $event.release_requested_address? != null {
+      $event.template = "release_requested_address"
+      $event.requested_address = move $event.release_requested_address
     } else {
-      $scope.event.template = $scope.event.message_type.to_lower()
-      if $scope.event.requested_address? != null {
-        $scope.event.client_ip = move $scope.event.requested_address
+      $event.template = $event.message_type.to_lower()
+      if $event.requested_address? != null {
+        $event.client_ip = move $event.requested_address
       }
-      if $scope.event.server_identifier? != null {
-        $scope.event.server_ip = move $scope.event.server_identifier
+      if $event.server_identifier? != null {
+        $event.server_ip = move $event.server_identifier
       }
-      if $scope.event.lease_ip? != null {
-        $scope.event.client_ip = move $scope.event.lease_ip
+      if $event.lease_ip? != null {
+        $event.client_ip = move $event.lease_ip
       }
-      if $scope.event.declined_ip? != null {
-        $scope.event.client_ip = move $scope.event.declined_ip
+      if $event.declined_ip? != null {
+        $event.client_ip = move $event.declined_ip
       }
     }
-    if $scope.event.via? != null {
-      $scope.event.via = $scope.event.via.string()
-      $scope.event.via_ip = $scope.event.via.ip()
-      $scope.event.via_interface = $scope.event.via if $scope.event.via_ip == null
+    if $event.via? != null {
+      $event.via = $event.via.string()
+      $event.via_ip = $event.via.ip()
+      $event.via_interface = $event.via if $event.via_ip == null
     }
-    if $scope.event.client_mac? != null {
-      $scope.event.client.uid = $scope.event.client_mac
-      $scope.event.client.mac = move $scope.event.client_mac
+    if $event.client_mac? != null {
+      $event.client.uid = $event.client_mac
+      $event.client.mac = move $event.client_mac
     }
-    if $scope.event.client_hostname? != null {
-      $scope.event.client.hostname = move $scope.event.client_hostname
+    if $event.client_hostname? != null {
+      $event.client.hostname = move $event.client_hostname
     }
-    if $scope.event.client_ip? != null {
-      $scope.event.client.ip = move $scope.event.client_ip
+    if $event.client_ip? != null {
+      $event.client.ip = move $event.client_ip
     }
-    if $scope.event.client_id? != null {
-      $scope.event.client.uid = move $scope.event.client_id
+    if $event.client_id? != null {
+      $event.client.uid = move $event.client_id
     }
-    if $scope.event.client_hardware? != null {
-      $scope.event.client.uid = move $scope.event.client_hardware
+    if $event.client_hardware? != null {
+      $event.client.uid = move $event.client_hardware
     }
-    if $scope.event.server_ip? != null {
-      $scope.event.server.ip = move $scope.event.server_ip
+    if $event.server_ip? != null {
+      $event.server.ip = move $event.server_ip
     }
-    if $scope.event.lease_found? != null {
-      $scope.event.lease = {
-        found: $scope.event.lease_found == "found",
-        status: move $scope.event.lease_found,
+    if $event.lease_found? != null {
+      $event.lease = {
+        found: $event.lease_found == "found",
+        status: move $event.lease_found,
       }
     }
   }

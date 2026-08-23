@@ -32,21 +32,21 @@ if $log == null {
     },
   }
 } else {
-  // Snapshot the input once. Each parser writes directly to `event` on a match.
+  // Snapshot the input so the output may safely replace its carrier.
   $dhcpd = {
     source: $log,
     event: null,
   }
   // BOOTP must run first because DHCP4o6 can prefix BOOTP messages.
-  dhcpd::parsers::bootp $dhcpd
+  dhcpd::parsers::bootp $dhcpd.source, $dhcpd.event
   if $dhcpd.event.category? == null {
-    dhcpd::parsers::dhcpv4 $dhcpd
+    dhcpd::parsers::dhcpv4 $dhcpd.source, $dhcpd.event
   }
   if $dhcpd.event.category? == null {
-    dhcpd::parsers::dhcpv6 $dhcpd
+    dhcpd::parsers::dhcpv6 $dhcpd.source, $dhcpd.event
   }
   if $dhcpd.event.category? == null {
-    dhcpd::parsers::fallback $dhcpd
+    dhcpd::parsers::fallback $dhcpd.source, $dhcpd.event
   }
   $dhcpd = move $dhcpd.event
 }
