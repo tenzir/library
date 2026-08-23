@@ -53,46 +53,44 @@ if $event.alert.metadata?.confidence? != null {
     medium: 2,
     high: 3,
   }
-  $event.alert._confidence = $event.alert.metadata.confidence[0]
-  $ocsf.confidence_id = $confidence_ids[$event.alert._confidence.to_lower()]? else 99
+  $ocsf.confidence_id = $confidence_ids[$event.alert.metadata.confidence[0].to_lower()]? else 99
   if $ocsf.confidence_id == 99 {
-    $ocsf.confidence = $event.alert._confidence
+    $ocsf.confidence = $event.alert.metadata.confidence[0]
   }
-  drop $event.alert._confidence
   drop $event.alert.metadata.confidence
 }
 
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
 if $ocsf.has("src_endpoint") {
-  $event._evidence.src_endpoint = move $ocsf.src_endpoint
+  $ocsf.evidence.src_endpoint = move $ocsf.src_endpoint
 }
 if $ocsf.has("dst_endpoint") {
-  $event._evidence.dst_endpoint = move $ocsf.dst_endpoint
+  $ocsf.evidence.dst_endpoint = move $ocsf.dst_endpoint
 }
 if $ocsf.has("connection_info") {
-  $event._evidence.connection_info = move $ocsf.connection_info
+  $ocsf.evidence.connection_info = move $ocsf.connection_info
 }
 if $event.dns?.queries? != null {
   suricata::ocsf::map_dns_query $event, $ocsf
-  $event._evidence.query = move $ocsf.query
+  $ocsf.evidence.query = move $ocsf.query
 }
 if $event.has("http") {
   suricata::ocsf::map_http $event, $ocsf
   if $ocsf.has("http_request") {
-    $event._evidence.http_request = move $ocsf.http_request
+    $ocsf.evidence.http_request = move $ocsf.http_request
   }
   if $ocsf.has("http_response") {
-    $event._evidence.http_response = move $ocsf.http_response
+    $ocsf.evidence.http_response = move $ocsf.http_response
   }
 }
 if $event.smb?.filename? != null {
   suricata::ocsf::map_smb_file $event, $ocsf
-  $event._evidence.file = move $ocsf.file
+  $ocsf.evidence.file = move $ocsf.file
 }
-if $event.has("_evidence") {
-  $ocsf.evidences = [$event._evidence]
-  drop $event._evidence
+if $ocsf.has("evidence") {
+  $ocsf.evidences = [$ocsf.evidence]
+  drop $ocsf.evidence
 }
 
 $ocsf.finding_info = {
