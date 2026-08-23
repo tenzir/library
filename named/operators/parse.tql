@@ -21,26 +21,6 @@ args:
       description: The field that receives the parsed event.
 ---
 
-let $client_dns_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?client "
-let $client_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?client (?:(?:@%{NOTSPACE:client_object} )?%{IP:client_ip}#%{INT:client_port}(?:/key %{NOTSPACE:signer})? \(%{NOTSPACE:client_query}\): (?:(?:view %{NOTSPACE:view}: )?(?:%{BIND9_QUERY}|%{BIND9_RPZ})|%{BIND9_QUERY_FAILED}|%{BIND9_QUERY_DENIED})|%{GREEDYDATA:client_body})$"
-let $bind9_query_grok = r"query: %{NOTSPACE:query_name} %{WORD:query_class} %{WORD:query_type}(?: %{NOTSPACE:flags})? \(%{IP:server_ip}\)(?: \[ECS %{DATA:ecs}\])?"
-let $bind9_query_failed_grok = r"query failed \(%{NOTSPACE:rcode}\) for %{NOTSPACE:query_name}/%{WORD:query_class}/%{WORD:query_type} at %{GREEDYDATA:location}"
-let $bind9_query_denied_grok = r"query \(%{DATA:query_context}\) '%{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class}' %{GREEDYDATA:decision}"
-let $bind9_rpz_grok = "(?:(?<rpz_disabled>disabled) )?rpz %{NOTSPACE:rpz_trigger} %{NOTSPACE:rpz_policy} %{WORD:rpz_action} %{NOTSPACE:query_name}/%{WORD:query_type}/%{WORD:query_class} via %{GREEDYDATA:rpz_zone}"
-let $bind9_pattern_definitions = {
-  BIND9_QUERY: $bind9_query_grok,
-  BIND9_QUERY_FAILED: $bind9_query_failed_grok,
-  BIND9_QUERY_DENIED: $bind9_query_denied_grok,
-  BIND9_RPZ: $bind9_rpz_grok,
-}
-let $client_dns_parse_error_pattern = r": (?:query(?:: | failed \(| \()|(?:disabled )?rpz )"
-let $message_prefix_grok_pattern = r"^(?:(?<native_time>[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+) )?(?:(?<log_category>[A-Za-z0-9_-]+): )?%{GREEDYDATA:message_body}$"
-let $message_category_prefix_pattern = r"^(?:[0-9]{1,2}-[A-Za-z]{3}-[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+ )?(?:[A-Za-z0-9_-]+: )?"
-let $zone_message_pattern = f"{$message_category_prefix_pattern}zone "
-let $resolver_message_pattern = f"{$message_category_prefix_pattern}(resolver |.* resolving |.* resolver )"
-let $dnssec_message_pattern = f"{$message_category_prefix_pattern}(validating |managed-keys-zone)"
-let $daemon_message_pattern = f"{$message_category_prefix_pattern}(starting BIND|running on|built with|adjusted limit|found [0-9]+ CPU|using .* UDP listeners|listening on|generating session key|sizing zone task pool|set up managed keys zone|all zones loaded|running|loading configuration|command channel listening|shutting down|exiting)"
-
 if $log == null {
   @name = "named.parser_error"
   $named = {
@@ -51,91 +31,12 @@ if $log == null {
       field: "message",
     },
   }
-} else if $log.match_regex($client_dns_prefix_pattern) {
-  $named = $log.parse_grok(
-    $client_grok_pattern,
-    pattern_definitions=$bind9_pattern_definitions,
-  )
-  if $named == null {
-    @name = "named.parser_error"
-    $named = {
-      category: "parser",
-      template: "parse_grok_failed",
-      parser: {
-        warning: "failed to parse named message",
-        reason: "recognized message template did not match detailed grok parser",
-      },
-    }
-  } else {
-    if $named.server_ip? != null {
-      @name = "named.query"
-      $named.category = "query"
-      $named.template = "query"
-      $named.feature = "query logging"
-    } else if $named.rcode? != null {
-      @name = "named.query_failed"
-      $named.category = "query-error"
-      $named.template = "query_failed"
-      $named.feature = "query-errors logging"
-    } else if $named.decision? != null {
-      @name = "named.query_denied"
-      $named.category = "query-policy"
-      $named.template = "query_denied"
-      $named.feature = "query logging"
-    } else if $named.rpz_zone? != null {
-      @name = "named.rpz"
-      $named.category = "rpz"
-      $named.template = "rpz"
-      $named.feature = "response policy zone logging"
-      $named.rpz = {
-        disabled: $named.rpz_disabled? == "disabled",
-        trigger: move $named.rpz_trigger,
-        policy: move $named.rpz_policy,
-        action: move $named.rpz_action,
-        zone: move $named.rpz_zone,
-      }
-      drop $named.rpz_disabled?
-    } else if $named.client_body? != null and $named.client_body.match_regex($client_dns_parse_error_pattern) {
-      @name = "named.parser_error"
-      $named.message_body = move $named.client_body
-      $named.category = "client"
-      $named.template = "client_dns_parse_error"
-      $named.parser = {
-        warning: "failed to parse named client DNS message",
-        reason: "required fields are missing or malformed",
-      }
-    } else {
-      @name = "named.client"
-      $named.message_body = move $named.client_body
-      $named.category = "client"
-      $named.template = "client"
-    }
-    drop $named.client_body?
-  }
 } else {
-  $named = $log.parse_grok($message_prefix_grok_pattern)
-  if $named == null {
-    @name = "named.parser_error"
-    $named = {
-      category: "parser",
-      template: "parse_grok_failed",
-      parser: {
-        warning: "failed to parse named message",
-        reason: "recognized message template did not match detailed grok parser",
-      },
-    }
-  } else {
-    $named.category = "unknown"
-    if $log.match_regex($zone_message_pattern) {
-      $named.category = "zone"
-    } else if $log.match_regex($resolver_message_pattern) {
-      $named.category = "resolver"
-    } else if $log.match_regex($dnssec_message_pattern) {
-      $named.category = "dnssec"
-    } else if $log.match_regex($daemon_message_pattern) {
-      $named.category = "daemon"
-    }
-    @name = "named.service"
-    $named.template = $named.category
+  // Snapshot the input so the output may safely replace its carrier.
+  $named = {source: $log, event: null}
+  named::parsers::client $named.source, $named.event
+  if $named.event.category? == null {
+    named::parsers::fallback $named.source, $named.event
   }
+  $named = move $named.event
 }
