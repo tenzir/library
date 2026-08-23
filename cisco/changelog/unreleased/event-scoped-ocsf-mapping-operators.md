@@ -12,6 +12,3 @@ Use `cisco::umbrella::ocsf::normalize` to normalize structured Cisco Umbrella DN
 ```tql
 cisco::umbrella::ocsf::normalize
 ```
-
-The lower-level `cisco::umbrella::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
