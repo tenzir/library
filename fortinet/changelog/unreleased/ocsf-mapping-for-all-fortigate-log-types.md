@@ -10,14 +10,13 @@ prs:
 created: 2026-03-21T17:28:46.407793Z
 ---
 
-FortiGate logs can now be mapped to OCSF using `fortinet::fortigate::ocsf::map`:
+FortiGate logs can now be normalized to OCSF using `fortinet::fortigate::ocsf::normalize`:
 
 ```tql
 from_file "fortigate.log" {
   read_lines
 }
-fortinet::fortigate::ocsf::map line
-ocsf_derive
+fortinet::fortigate::ocsf::normalize
 ocsf_cast
 ```
 

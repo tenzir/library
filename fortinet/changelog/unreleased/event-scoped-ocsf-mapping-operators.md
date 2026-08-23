@@ -1,5 +1,5 @@
 ---
-title: OCSF 1.9 mapping contract
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,12 +7,12 @@ authors:
 created: 2026-06-13T07:58:23.2253Z
 ---
 
-`fortinet::fortigate::ocsf::map` takes the structured source and OCSF output
-fields positionally. The mapper does not choose raw provenance.
+Use `fortinet::fortigate::ocsf::normalize` to normalize structured FortiGate
+events to OCSF 1.9:
 
 ```tql
-fortinet::fortigate::ocsf::map fortinet, ocsf
-ocsf.raw_data = move line
-ocsf.raw_data_size = ocsf.raw_data.length_bytes()
-this = ocsf
+fortinet::fortigate::ocsf::normalize
 ```
+
+The lower-level `fortinet::fortigate::ocsf::map` operator remains available for
+pipelines that need separate structured source and OCSF output fields.
