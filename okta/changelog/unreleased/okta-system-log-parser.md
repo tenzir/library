@@ -16,7 +16,7 @@ Use `okta::read` after any byte source, then map the normalized events to OCSF:
 ```tql
 from_http "https://example.okta.com/api/v1/logs"
 okta::read
-okta::ocsf::map this, this
+okta::ocsf::normalize
 ```
 
 Pipelines that used the removed `okta::clean` operator should switch to this
