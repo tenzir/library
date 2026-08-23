@@ -46,18 +46,10 @@ $ocsf.metadata = {
 if $event.product? != null {
   $ocsf.metadata.product.name = move $event.product
 }
-if $event.loguid? != null {
-  $ocsf.metadata.uid = move $event.loguid
-}
-if $event.logid? != null {
-  $ocsf.metadata.event_code = (move $event.logid).string()
-}
-if $event.h_version? != null {
-  $ocsf.metadata.log_version = (move $event.h_version).string()
-}
-if $event.sequencenum? != null {
-  $ocsf.metadata.original_event_uid = (move $event.sequencenum).string()
-}
+$ocsf.metadata.uid = move $event.loguid?
+$ocsf.metadata.event_code = (move $event.logid?).string()
+$ocsf.metadata.log_version = (move $event.h_version?).string()
+$ocsf.metadata.original_event_uid = (move $event.sequencenum?).string()
 if $event.syslog? != null {
   $ocsf.metadata.log_format = "syslog"
 }
@@ -65,30 +57,12 @@ if $event.action? != null {
   $ocsf.metadata.log_name = $event.action
 }
 
-if $event.time? == null and $event.syslog?.timestamp? != null {
-  $ocsf.time = move $event.syslog.timestamp
-}
-if $event.time? != null {
-  $ocsf.time = move $event.time
-}
-if $event.action? != null {
-  $ocsf.message = $event.action
-}
-if $event.message_info? != null {
-  $ocsf.message = move $event.message_info
-}
-
+$ocsf.time = move $event.time? else move $event.syslog?.timestamp?
+$ocsf.message = move $event.message_info? else $event.action?
 // Prefer the Check Point payload hostname over the syslog header hostname,
 // because forwarded syslog headers often identify a relay.
-if $event.hostname? == null and $event.syslog?.hostname? != null {
-  $ocsf.device.hostname = (move $event.syslog.hostname).string()
-}
-if $event.hostname? != null {
-  $ocsf.device.hostname = (move $event.hostname).string()
-}
-if $event.origin? != null {
-  $ocsf.device.ip = move $event.origin
-}
+$ocsf.device.hostname = (move $event.hostname? else move $event.syslog?.hostname?).string()
+$ocsf.device.ip = move $event.origin?
 
 match @name {
   "checkpoint.firewall.threat" | "checkpoint.firewall.detection" => {
