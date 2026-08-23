@@ -12,6 +12,3 @@ Use `sophos::ocsf::normalize` to normalize structured Sophos Central events to O
 ```tql
 sophos::ocsf::normalize
 ```
-
-The lower-level `sophos::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
