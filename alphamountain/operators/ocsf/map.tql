@@ -100,16 +100,25 @@ if $ocsf.osint.reputation?.base_score? != null {
   }
 }
 
-if $event.confidence? != null {
-  $ocsf.osint.confidence_id = 3 if $event.confidence >= 0.8 else 2 if $event.confidence >= 0.5 else 1
-  drop $event.confidence
-} else if $event.category?.confidence? != null {
-  $ocsf.osint.confidence_id = 3 if $event.category.confidence >= 0.8 else 2 if $event.category.confidence >= 0.5 else 1
-  drop $event.category.confidence
-} else if $event.sections?.category?.confidence? != null {
-  $ocsf.osint.confidence_id = 3 if $event.sections.category.confidence >= 0.8 else 2 if $event.sections.category.confidence >= 0.5 else 1
-  drop $event.sections.category.confidence
+$ocsf.confidence_value = $event.confidence? else
+                         $event.category?.confidence? else
+                         $event.sections?.category?.confidence?
+match $ocsf.confidence_value? {
+  null => {}
+  _ if $ocsf.confidence_value >= 0.8 => {
+    $ocsf.osint.confidence_id = 3
+  }
+  _ if $ocsf.confidence_value >= 0.5 => {
+    $ocsf.osint.confidence_id = 2
+  }
+  _ => {
+    $ocsf.osint.confidence_id = 1
+  }
 }
+drop $ocsf.confidence_value,
+     $event.confidence?,
+     $event.category?.confidence?,
+     $event.sections?.category?.confidence?
 
 if $event.category_ids? != null {
   $ocsf.osint.category = $event.category_ids.map(id => id.string()).join(",")
