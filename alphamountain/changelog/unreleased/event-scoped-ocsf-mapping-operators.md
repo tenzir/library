@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,12 @@ authors:
 created: 2026-06-13T07:58:14.936978Z
 ---
 
-The OCSF mapper takes the structured source and OCSF output fields positionally.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use `alphamountain::ocsf::normalize` to normalize structured alphaMountain rows
+to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map event=source
+alphamountain::ocsf::normalize
 ```
+
+The lower-level `alphamountain::ocsf::map` operator remains available for
+pipelines that need separate structured source and OCSF output fields.
