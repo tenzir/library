@@ -13,6 +13,3 @@ OCSF 1.9:
 ```tql
 foxio::ocsf::normalize
 ```
-
-The lower-level `foxio::ocsf::map` operator remains available for pipelines
-that need separate structured source and OCSF output fields.
