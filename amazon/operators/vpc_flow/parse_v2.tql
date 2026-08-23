@@ -1,26 +1,19 @@
 ---
-description: |
-  Parses AWS VPC Flow Logs in the default v2 format (14 fields).
-  Use `into=this` to replace the current event with the parsed record.
+description: Parses AWS VPC Flow Logs in the default v2 format.
 args:
-  named:
-    - name: into
+  positional:
+    - name: input
       type: field
-      description: Output field for the parsed VPC Flow Log record.
-    - name: field
+      description: The field holding the VPC Flow Log line.
+    - name: vpc_flow
       type: field
-      description: Field containing the VPC Flow Log line.
+      description: The field that receives the parsed record.
 ---
 
-let $header = "version account_id interface_id srcaddr dstaddr srcport dstport protocol packets bytes start end action log_status"
-
-_vpc_flow = $field.parse_ssv(
-  header=$header,
+$vpc_flow = $input.parse_ssv(
+  header=amazon::$vpc_flow_v2_header,
   null_value="-",
 )
-
-// Convert Unix epoch seconds to timestamps.
-_vpc_flow.start = _vpc_flow.start?.seconds().from_epoch()
-_vpc_flow.end = _vpc_flow.end?.seconds().from_epoch()
-
-$into = move _vpc_flow
+$vpc_flow.account_id = $vpc_flow.account_id?.string().pad_start(12, "0")
+$vpc_flow.start = $vpc_flow.start?.seconds().from_epoch()
+$vpc_flow.end = $vpc_flow.end?.seconds().from_epoch()

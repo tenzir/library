@@ -15,11 +15,11 @@ Use the namespaced operators directly in your own workflows:
 
 ```tql
 alphamountain::threat::feed license="ALPHAMOUNTAIN_LICENSE", limit=100
-alphamountain::ocsf::map
-ocsf::derive
-ocsf::cast
+alphamountain::ocsf::normalize
+ocsf_derive
+ocsf_cast
 ```
 
 The package covers real-time URI lookups, hostname intelligence, and threat and category feeds. It also ships anonymized OCSF mapping coverage that derives and casts the resulting events.
 
-OCSF-specific category label derivation lives in `alphamountain::ocsf::map`. Use `tenzir::osint::update_context` from the Tenzir utilities package to load mapped OSINT events into a shared OCSF OSINT context.
+OCSF-specific category label normalization is included in `alphamountain::ocsf::normalize`. Use `tenzir::osint::update_context` from the Tenzir utilities package to load mapped OSINT events into a shared OCSF OSINT context.

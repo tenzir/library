@@ -1,22 +1,15 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
   - codex
-created: 2026-06-13T07:58:18.011303Z
+created: 2026-06-13T07:58:17.982827Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use `foxio::ocsf::normalize` to normalize structured FoxIO JA4+ records to
+OCSF 1.9:
 
 ```tql
-pkg::ocsf::map event=source
+foxio::ocsf::normalize
 ```

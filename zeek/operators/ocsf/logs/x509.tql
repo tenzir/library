@@ -2,44 +2,47 @@
 description: |
   Zeek x509.log → OCSF Network Activity.
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
 
-zeek::ocsf::map_network event=$event
+zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
-$event.ocsf.activity_id = 6
-$event.ocsf.class_uid = 4001
-$event.ocsf.severity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = 6
+$ocsf.class_uid = 4001
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$event.ocsf.metadata.log_name = "x509.log"
+$ocsf.metadata.log_name = "x509.log"
 
-$event.ocsf.tls = {
+$ocsf.tls = {
   certificate: {
-    serial_number: move $event.zeek.certificate.serial,
-    created_time: move $event.zeek.certificate.not_valid_before,
-    expiration_time: move $event.zeek.certificate.not_valid_after,
-    issuer: move $event.zeek.certificate.issuer,
-    subject: move $event.zeek.certificate.subject,
-    version: (move $event.zeek.certificate.version).string(),
+    serial_number: move $event.certificate.serial,
+    created_time: move $event.certificate.not_valid_before,
+    expiration_time: move $event.certificate.not_valid_after,
+    issuer: move $event.certificate.issuer,
+    subject: move $event.certificate.subject,
+    version: (move $event.certificate.version).string(),
   },
-  sans: (move $event.zeek.san.dns).map(name => {
+  sans: (move $event.san.dns).map(name => {
     name: name,
     type: "DNSName",
   }),
   version: null,
 }
-if $event.zeek.fingerprint? != null {
-  $event.ocsf.tls.certificate.fingerprints = [{
+if $event.fingerprint? != null {
+  $ocsf.tls.certificate.fingerprints = [{
     algorithm_id: 3,
-    value: move $event.zeek.fingerprint,
+    value: move $event.fingerprint,
   }]
 }
 

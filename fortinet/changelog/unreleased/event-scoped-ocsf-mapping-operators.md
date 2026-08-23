@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,19 +7,9 @@ authors:
 created: 2026-06-13T07:58:23.2253Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope. Preserve raw log data by parsing first, mapping the parsed event, and assigning `raw_data` and `raw_data_size` after mapping.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use `fortinet::fortigate::ocsf::normalize` to normalize structured FortiGate
+events to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map event=source
-source.raw_data = move raw
-source.raw_data_size = source.raw_data.length_bytes()
-this = source
+fortinet::fortigate::ocsf::normalize
 ```

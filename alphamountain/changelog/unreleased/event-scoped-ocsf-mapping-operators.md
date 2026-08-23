@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,9 @@ authors:
 created: 2026-06-13T07:58:14.936978Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use `alphamountain::ocsf::normalize` to normalize structured alphaMountain rows
+to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map event=source
+alphamountain::ocsf::normalize
 ```

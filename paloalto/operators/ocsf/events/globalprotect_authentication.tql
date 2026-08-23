@@ -1,0 +1,71 @@
+---
+description: Palo Alto Networks GlobalProtect authentication -> OCSF Authentication.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.authentication"
+
+let $protocol_ids = {
+  ntlm: 1,
+  kerberos: 2,
+  digest: 3,
+  openid: 4,
+  saml: 5,
+  oauth: 6,
+  pap: 7,
+  chap: 8,
+  eap: 9,
+  radius: 10,
+  basic: 11,
+  ldap: 12,
+}
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1
+$ocsf.type_uid = 300201
+drop $ocsf.activity_name?
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.user = {
+  name: move $event.source_user?,
+}
+$ocsf.src_endpoint = {
+  ip: move $event.public_ip?,
+  hostname: move $event.machine_name?,
+}
+if ($event.gateway? else $event.portal?) != null {
+  $ocsf.dst_endpoint = {
+    hostname: $event.gateway? else $event.portal?,
+  }
+  drop $event.gateway?
+  drop $event.portal?
+}
+$ocsf.service = {
+  name: "GlobalProtect",
+}
+$ocsf.is_remote = true
+$ocsf.status_detail = move $event.reason? else move $event.error? else $ocsf.message?
+if $protocol_ids[$event.authentication_method?]? != null {
+  $ocsf.auth_protocol_id = $protocol_ids[$event.authentication_method?]?
+  drop $event.authentication_method
+} else if $event.authentication_method? != null {
+  $ocsf.auth_protocol_id = 99
+  $ocsf.auth_protocol = move $event.authentication_method
+}
+if paloalto::$status_ids[$event.status?]? != null {
+  $ocsf.status_id = paloalto::$status_ids[$event.status?]?
+  drop $event.status
+}
+
+drop $event.type?
+drop $event.threat_content_type?
+drop $event.event_id?
+drop $event.stage?

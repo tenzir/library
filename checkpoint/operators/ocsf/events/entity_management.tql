@@ -1,18 +1,21 @@
 ---
 description: "Check Point management audit → OCSF Entity Management (3004)"
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
 @name = "ocsf.entity_management"
 
-$event.ocsf.metadata.profiles = ["host"]
+$ocsf.metadata.profiles = ["host"]
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3004
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
 let $activities = {
   Create: 1,
   Read: 2,
@@ -22,32 +25,26 @@ let $activities = {
   Enable: 8,
   Disable: 9,
 }
-$event.ocsf.activity_id = $activities[$event.checkpoint.action?]? else 0
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-drop $event.checkpoint.action?
+$ocsf.activity_id = $activities[$event.action?]? else 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+drop $event.action?
 
-checkpoint::ocsf::status event=$event
+checkpoint::ocsf::status $event, $ocsf
 
-if $event.checkpoint.user? != null {
-  $event.ocsf.actor.user.name = move $event.checkpoint.user
-}
-if $event.checkpoint.src? != null {
-  $event.ocsf.src_endpoint.ip = move $event.checkpoint.src
-}
+$ocsf.actor.user.name = move $event.user?
+$ocsf.src_endpoint.ip = move $event.src?
 
-$event.ocsf.entity = {
-  name: move $event.checkpoint.object?,
+$ocsf.entity = {
+  name: move $event.object?,
 }
-if $event.checkpoint.objecttype?.to_lower().contains("rule") or
-   $event.checkpoint.objecttype?.to_lower().contains("policy") {
-  $event.ocsf.entity.type_id = 5
-  $event.ocsf.entity.policy.name = $event.ocsf.entity.name
-  $event.ocsf.entity.policy.desc = move $event.checkpoint.objecttype
+if $event.objecttype?.to_lower().contains("rule") or
+   $event.objecttype?.to_lower().contains("policy") {
+  $ocsf.entity.type_id = 5
+  $ocsf.entity.policy.name = $ocsf.entity.name
+  $ocsf.entity.policy.desc = move $event.objecttype
 } else {
-  $event.ocsf.entity.type_id = 1
-  $event.ocsf.entity.device.name = $event.ocsf.entity.name
-  $event.ocsf.entity.device.desc = move $event.checkpoint.objecttype?
+  $ocsf.entity.type_id = 1
+  $ocsf.entity.device.name = $ocsf.entity.name
+  $ocsf.entity.device.desc = move $event.objecttype?
 }
-if $event.checkpoint.subject? != null {
-  $event.ocsf.comment = move $event.checkpoint.subject
-}
+$ocsf.comment = move $event.subject?

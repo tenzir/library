@@ -17,7 +17,7 @@ Feodo Tracker, MalwareBazaar, SSLBL, ThreatFox, and URLhaus:
 
 ```tql
 abusech::threatfox::fetch
-abusech::threatfox::ocsf::map
+abusech::threatfox::ocsf::normalize
 ```
 
 Installations that previously used the standalone abuse.ch feed packages must

@@ -1,9 +1,12 @@
 ---
 description: "Okta → OCSF Account Change (3001)"
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the event to map.
+      description: The field that holds the source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
@@ -38,26 +41,26 @@ let $activity_map = {
   "user.mfa.factor.update": 99,
   "user.mfa.factor.reset_all": 99,
 }
-$event.ocsf.activity_id = $activity_map[$event.ocsf.metadata.event_code]? else 99
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3001
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activity_map[$ocsf.metadata.event_code]? else 99
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3001
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = okta::$status_map[$event.okta.outcome.result?]? else 0
-$event.ocsf.status_detail = move $event.okta.outcome.reason?
-drop $event.okta.outcome?
+$ocsf.status_id = okta::$status_ids[$event.outcome.result?]? else 0
+$ocsf.status_detail = move $event.outcome.reason?
+drop $event.outcome?
 
 // --- OCSF: target user from target[] ----------
 
-if $event.okta.target? != null {
-  $event.ocsf.user = $event.okta.target.where(t => t.type == "User").map(t => {
+if $event.target? != null {
+  $ocsf.user = $event.target.where(t => t.type == "User").map(t => {
     uid: t.id,
     name: t.alternateId?.split("@")[0]?,
     full_name: string(t.displayName?),
     email_addr: t.alternateId,
     type_id: 1,
   })[0]?
-  $event.ocsf.user.groups = $event.okta.target.where(t => t.type == "UserGroup").map(t => {
+  $ocsf.user.groups = $event.target.where(t => t.type == "UserGroup").map(t => {
     uid: t.id,
     name: t.displayName,
   })

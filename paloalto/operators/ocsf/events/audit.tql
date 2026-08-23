@@ -1,0 +1,25 @@
+---
+description: Palo Alto Networks PAN-OS Audit record -> OCSF Base Event.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+paloalto::ocsf::base $event, $ocsf
+
+
+$ocsf.activity_id = 99
+$ocsf.activity_name = move $event.event_id? else "Audit"
+$ocsf.type_uid = 99
+$ocsf.message = move $event.cli_command?
+if paloalto::$status_ids[$event.severity?]? != null {
+  $ocsf.status_id = paloalto::$status_ids[$event.severity?]?
+  drop $event.severity
+}
+
+drop $event.threat_content_type?

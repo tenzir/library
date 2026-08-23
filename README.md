@@ -11,9 +11,9 @@ guide](https://tenzir.com/docs/guides/package-management/install-a-package/):
 1. **Web UI**: browse to
    [app.tenzir.com/library](https://app.tenzir.com/library) and click _Install_.
 2. **Interactive**: run
-   [`package::add`](https://tenzir.com/docs/reference/operators/package/add)
+   [`package_add`](https://tenzir.com/docs/reference/operators/package/add)
    against a local directory, and remove it later with
-   [`package::remove`](https://tenzir.com/docs/reference/operators/package/remove).
+   [`package_remove`](https://tenzir.com/docs/reference/operators/package/remove).
 3. **As code**: place packages under `packages/` inside your
    configuration directory (or another path listed in `tenzir.package-dirs`) and
    include an optional `config.yaml` for inputs.
@@ -32,10 +32,8 @@ A package lives in a directory with these building blocks:
 ## 🤝 Contribute a package
 
 Join us on our mission to democratize the world of security data integrations.
-
-Follow the [write-a-package
-tutorial](https://tenzir.com/docs/tutorials/write-a-package/) to scaffold, test,
-and document a new idea, then:
+Follow our [tutorials](https://tenzir.com/docs/tutorials) to learn how to
+package up use cases. Then:
 
 - Share it on the [Community Discord](https://discord.tenzir.com) to gather
   feedback.

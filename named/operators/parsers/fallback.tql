@@ -1,9 +1,12 @@
 ---
 description: Parse BIND named service and fallback messages.
 args:
-  named:
+  positional:
+    - name: source
+      description: The raw BIND named message body.
+      type: field
     - name: event
-      description: The record field to parse.
+      description: The field that receives the parsed event.
       type: field
 ---
 
@@ -14,27 +17,20 @@ let $resolver_message_pattern = f"{$message_category_prefix_pattern}(resolver |.
 let $dnssec_message_pattern = f"{$message_category_prefix_pattern}(validating |managed-keys-zone)"
 let $daemon_message_pattern = f"{$message_category_prefix_pattern}(starting BIND|running on|built with|adjusted limit|found [0-9]+ CPU|using .* UDP listeners|listening on|generating session key|sizing zone task pool|set up managed keys zone|all zones loaded|running|loading configuration|command channel listening|shutting down|exiting)"
 
-$event._parsed = $event.raw_data.parse_grok($message_prefix_grok_pattern)
-if $event._parsed? == null {
-  named::parsers::parse_error event=$event
+$event = $source.parse_grok($message_prefix_grok_pattern)
+if $event == null {
+  named::parsers::parse_error $event
 } else {
-  $event = {
-    ...$event,
-    ...$event._parsed,
-    category: "unknown",
-  }
-  drop $event._parsed?
-
-  if $event.raw_data.match_regex($zone_message_pattern) {
+  @name = "named.service"
+  $event.category = "unknown"
+  if $source.match_regex($zone_message_pattern) {
     $event.category = "zone"
-  } else if $event.raw_data.match_regex($resolver_message_pattern) {
+  } else if $source.match_regex($resolver_message_pattern) {
     $event.category = "resolver"
-  } else if $event.raw_data.match_regex($dnssec_message_pattern) {
+  } else if $source.match_regex($dnssec_message_pattern) {
     $event.category = "dnssec"
-  } else if $event.raw_data.match_regex($daemon_message_pattern) {
+  } else if $source.match_regex($daemon_message_pattern) {
     $event.category = "daemon"
   }
-
-  @name = "named.service"
   $event.template = $event.category
 }

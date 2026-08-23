@@ -1,5 +1,5 @@
 ---
-title: Event-scoped CIM and OCSF mapping operators
+title: Directional CIM and OCSF translation operators
 type: breaking
 authors:
   - mavam
@@ -7,18 +7,13 @@ authors:
 created: 2026-06-13T07:58:24.616664Z
 ---
 
-Splunk CIM and OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-The canonical OCSF-to-CIM mapper remains `splunk::cim::ocsf::map`, and the CIM-to-OCSF mapper remains `splunk::ocsf::cim::map`.
-
-Before:
+Public Splunk schema translation uses directional operators. The source field
+is positional and defaults to `this`; the named `into` output also defaults to
+`this`.
 
 ```tql
-splunk::cim::ocsf::map
+splunk::ocsf::from_cim cim, into=ocsf
+splunk::cim::from_ocsf ocsf, into=cim
 ```
 
-After:
-
-```tql
-splunk::cim::ocsf::map event=ocsf_event
-```
+Detailed mapping helpers remain internal under the schema-pair namespaces.

@@ -1,0 +1,43 @@
+---
+description: |
+  Normalizes an ISC BIND `named` message record to OCSF 1.9.
+
+  The input record contains the collection timestamp in `time` and the raw
+  `named` message body in `message`. One call parses the body, maps the
+  structured event to OCSF DNS Activity or Base Event, and preserves the body
+  as provenance:
+
+  ```tql
+  named::ocsf::normalize
+  ```
+
+  Callers that need to inspect or enrich the structured BIND event use
+  `named::parse` and `named::ocsf::map` instead.
+args:
+  positional:
+    - name: event
+      description: The record carrying `time` and the raw `message` body.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+// Snapshot the carrier before writing so in-place and separate-field calls use
+// the same normalization path.
+$into = {source: $event}
+named::parse $into.source.message, $into.named
+$into.named.time = $into.source.time
+named::ocsf::map $into.named, $into.ocsf
+
+$into.ocsf.raw_data = $into.source.message
+$into.ocsf.raw_data_size = $into.source.message?.length_bytes()
+drop $into.source.time?, $into.source.message?
+$into.ocsf.unmapped = {
+  ...$into.source,
+  ...$into.ocsf.unmapped,
+}
+$into = move $into.ocsf

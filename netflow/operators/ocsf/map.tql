@@ -1,46 +1,44 @@
 ---
-description: |
-  Map NetFlow and IPFIX records to OCSF.
-
-  Flow records become OCSF Network Activity events. Options records and records
-  from unsupported protocol versions become OCSF Base Event records.
-  The operator preserves fields without an OCSF destination in `unmapped`.
+description: Maps NetFlow and IPFIX records to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The NetFlow or IPFIX record to map.
       type: field
-      default: this
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
 ---
 
-// Keep all mapping work inside the selected event scope.
-$event = {...$event, source: $event, ocsf: {}}
+
 
 // IPFIX uses version 10 for both flow and options records. Only flow records
 // map to Network Activity.
-match $event.source.netflow.version? {
-  5 | 9 | 10 if $event.source.netflow.record_type? == "flow" => {
-    netflow::ocsf::events::network_activity event=$event
+match $event.netflow.version? {
+  5 | 9 | 10 if $event.netflow.record_type? == "flow" => {
+    netflow::ocsf::events::network_activity $event, $ocsf
   }
   _ => {
-    netflow::ocsf::base event=$event
+    netflow::ocsf::base $event, $ocsf
   }
 }
 
 // Construct metadata after dispatch so shared fields move at their last use.
-$event.ocsf.metadata = {
+$ocsf.metadata = {
   version: "1.9.0",
   log_name: "netflow",
-  log_version: (move $event.source.netflow.version?).string(),
-  type: move $event.source.netflow.record_type?,
-  sequence: move $event.source.netflow.sequence_number?,
-  transmit_time: move $event.source.netflow.export_time?,
+  log_version: (move $event.netflow.version?).string(),
+  type: move $event.netflow.record_type?,
+  sequence: move $event.netflow.sequence_number?,
+  transmit_time: move $event.netflow.export_time?,
   reporter: {
-    ip: move $event.source.netflow.exporter?.ip?,
+    ip: move $event.netflow.exporter?.ip?,
   },
   product: {
     name: "NetFlow/IPFIX",
   },
 }
 
-$event = {...$event.ocsf, unmapped: $event.source}
+
+
+$ocsf.unmapped = move $event

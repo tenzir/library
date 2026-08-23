@@ -20,10 +20,14 @@ drop $event.fortinet.eventtype
 // `direction` maps to OCSF direction_id for the email flow (Email Activity
 // class carries this at the top level, not in connection_info).
 $event.ocsf.direction_id = 0
-if $event.fortinet.direction? == "incoming" {
-  $event.ocsf.direction_id = 1  // Inbound
-} else if $event.fortinet.direction? == "outgoing" {
-  $event.ocsf.direction_id = 2  // Outbound
+match $event.fortinet.direction? {
+  "incoming" => {
+    $event.ocsf.direction_id = 1  // Inbound
+  }
+  "outgoing" => {
+    $event.ocsf.direction_id = 2  // Outbound
+  }
+  _ => {}
 }
 drop $event.fortinet.direction?
 
@@ -45,5 +49,5 @@ fortinet::fortigate::ocsf::network_endpoints event=$event
 fortinet::fortigate::ocsf::security_control event=$event
 
 if $event.fortinet.action? != null {
-  $event.ocsf.disposition_id = fortinet::$utm_dispositions[move $event.fortinet.action]? else 0
+  $event.ocsf.disposition_id = fortinet::$disposition_ids[move $event.fortinet.action]? else 0
 }

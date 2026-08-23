@@ -1,0 +1,59 @@
+---
+description: |
+  Maps a structured Palo Alto Networks PAN-OS event to OCSF 1.9.
+
+  Traffic records become Network Activity, URL Filtering records become HTTP
+  Activity, threat records become Detection Finding, and supported
+  GlobalProtect login records become Authentication. Other parsed families
+  become OCSF Base Event records.
+
+  The mapper consumes translated fields and puts the remaining PAN-OS record in
+  `unmapped`. It does not choose provenance.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+$ocsf = {}
+
+match $event.type? {
+  "TRAFFIC" => {
+    paloalto::ocsf::events::traffic $event, $ocsf
+  }
+  "URL-FILTERING" => {
+    paloalto::ocsf::events::url_filtering $event, $ocsf
+  }
+  "THREAT" => {
+    match $event.threat_content_type? {
+      "url" => {
+        paloalto::ocsf::events::url_filtering $event, $ocsf
+      }
+      "data" | "dlp" | "dlp-non-file" => {
+        paloalto::ocsf::base $event, $ocsf
+      }
+      _ => {
+        paloalto::ocsf::events::threat $event, $ocsf
+      }
+    }
+  }
+  "GLOBALPROTECT" => {
+    if $event.event_id? == "gateway-auth" or $event.stage? == "login" {
+      paloalto::ocsf::events::globalprotect_authentication $event, $ocsf
+    } else {
+      paloalto::ocsf::base $event, $ocsf
+    }
+  }
+  _ if $event.threat_content_type? == "AUDIT" => {
+    paloalto::ocsf::events::audit $event, $ocsf
+  }
+  _ => {
+    paloalto::ocsf::base $event, $ocsf
+  }
+}
+
+$ocsf.unmapped = move $event

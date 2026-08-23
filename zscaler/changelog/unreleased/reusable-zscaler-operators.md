@@ -14,7 +14,7 @@ Use the package operators directly in your own ZIA NSS workflows instead of
 depending on a fixed packaged pipeline:
 
 ```tql
-zscaler::ocsf::map
+zscaler::ocsf::normalize
 ```
 
 This gives you control over where logs come from, how they are routed, and when

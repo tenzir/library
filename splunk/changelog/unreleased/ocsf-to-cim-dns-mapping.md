@@ -13,7 +13,7 @@ The Splunk package can now map OCSF DNS Activity events to Splunk CIM Network
 Resolution DNS fields:
 
 ```tql
-splunk::cim::map
+splunk::cim::from_ocsf
 ```
 
 Use this compatibility layer before detection logic that expects fields such as

@@ -1,3 +1,5 @@
+// Verifies that the parser and mapper only write their selected output fields,
+// preserve unrelated siblings, and accept nested field paths.
 from {
   marker: "parsed",
   dhcpd: {
@@ -13,12 +15,16 @@ from {
   },
 }
 
-dhcpd::parse event=dhcpd
-dhcpd::ocsf::map event=dhcpd
-
-dhcpd.unmapped.outer_marker = move marker
-this = move dhcpd
-ocsf::cast
+dhcpd::parse dhcpd.message?, dhcpd.event
+dhcpd.event.time = dhcpd.time
+dhcpd::ocsf::map dhcpd.event, dhcpd.ocsf
+dhcpd.ocsf.raw_data = dhcpd.message?
+dhcpd.ocsf.raw_data_size = dhcpd.message?.length_bytes()
+dhcpd.ocsf.unmapped.source_keep = move dhcpd.keep
+dhcpd.ocsf.unmapped.has_message = dhcpd.message? != null
+dhcpd.ocsf.unmapped.outer_marker = move marker
+this = move dhcpd.ocsf
+ocsf_cast
 
 drop_null_fields
 sort time, unmapped.outer_marker

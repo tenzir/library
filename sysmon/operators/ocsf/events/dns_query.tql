@@ -19,9 +19,9 @@ $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 // Network Activity (4001) defines it.
 $event.ocsf.connection_info = { direction_id: 2 }  // Outbound
 
+$event.ocsf.opcode_id = 0  // Standard query
 $event.ocsf.query = {
-  hostname:  move $event.sysmon.EventData.QueryName,
-  opcode_id: 0,  // Standard query
+  hostname: move $event.sysmon.EventData.QueryName,
 }
 
 // QueryStatus 0 = success (RCODE NOERROR); anything else is an error.
@@ -35,7 +35,7 @@ $event.ocsf.status_code = (move $event.sysmon.EventData.QueryStatus).string()
 // raw field is left in unmapped.EventData for consumers that need it.
 
 // The process and user that issued the query — mapped via the Host profile actor.
-$event._user = (move $event.sysmon.EventData.User).split("\\")
+$event.user_parts = (move $event.sysmon.EventData.User).split("\\")
 $event.ocsf.actor = {
   process: {
     uid:  move $event.sysmon.EventData.ProcessGuid,
@@ -44,11 +44,11 @@ $event.ocsf.actor = {
     file: { type_id: 8 },
   },
   user: {
-    name:   $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name:   $event.user_parts[-1],
+    domain: $event.user_parts[0] if $event.user_parts.length() > 1,
   },
 }
-drop $event._user
+drop $event.user_parts
 
 $event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
 $event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name

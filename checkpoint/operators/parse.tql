@@ -21,6 +21,9 @@ if product? == null and ProductName? != null {
 if product? == null and Product? != null {
   product = move Product
 }
+if product? == null and blade? != null {
+  product = move blade
+}
 if product_family? == null and ProductFamily? != null {
   product_family = move ProductFamily
 }
@@ -64,6 +67,21 @@ if user? == null and login? != null {
 if user? == null and account? != null {
   user = move account
 }
+if user? == null and administrator? != null {
+  user = move administrator
+}
+if src? == null and client_ip? != null {
+  src = move client_ip
+}
+if sender? == null and this.has("from") {
+  sender = move this["from"]
+}
+if recipient? == null and this.has("to") {
+  recipient = move this["to"]
+}
+if subject? == null and email_subject? != null {
+  subject = move email_subject
+}
 if bytes_in? == null and bytesin? != null {
   bytes_in = move bytesin
 }
@@ -84,6 +102,9 @@ if threat_name? == null and threatname? != null {
 }
 if threat_name? == null and attack_name? != null {
   threat_name = move attack_name
+}
+if threat_name? == null and attack? != null {
+  threat_name = move attack
 }
 if protection_name? == null and protection? != null {
   protection_name = move protection
@@ -180,76 +201,57 @@ if size? != null {
   size = int(size)
 }
 
-_event_hint = (
-  product? else product_family? else blade? else event_type? else type? else ""
-).string().to_lower()
+// Product identifies the Software Blade. Product family remains a separate,
+// broader signal; event_type and type describe other dimensions of the log.
+_product = (product? else "").string().to_lower()
+_product_family = (product_family? else "").string().to_lower()
 
-match _event_hint {
+match _product {
   "web_api" | "web api" => {
     @name = "checkpoint.management.api"
   }
-  "smartconsole" | "smartdashboard" | "smartview" | "web-ui" | "web ui" => {
+  "smartconsole" | "smartdashboard" | "smartview" | "smartupdate" |
+  "web-ui" | "web ui" => {
     @name = "checkpoint.management.audit"
   }
   "dlp" | "content awareness" => {
     @name = "checkpoint.firewall.dlp"
   }
-  "mta" | "anti-spam" | "email" => {
+  "mta" | "anti-spam" | "anti-spam and email security" |
+  "anti phishing" | "email" => {
     @name = "checkpoint.firewall.email"
   }
-  "mobile access" | "connectra" => {
-    @name = "checkpoint.firewall.vpn"
-  }
-  _ if _event_hint.contains("web_api") or _event_hint.contains("web api") => {
-    @name = "checkpoint.management.api"
-  }
-  _ if _event_hint.contains("smartconsole") or
-       _event_hint.contains("smartdashboard") or
-       _event_hint.contains("smartview") or
-       _event_hint.contains("web-ui") or
-       _event_hint.contains("web ui") => {
-    @name = "checkpoint.management.audit"
-  }
-  _ if _event_hint.contains("dlp") or
-       _event_hint.contains("content awareness") or
-       data_type? != null => {
-    @name = "checkpoint.firewall.dlp"
-  }
-  _ if _event_hint.contains("mta") or
-       _event_hint.contains("anti-spam") or
-       _event_hint.contains("email") or
-       sender? != null or
-       recipient? != null => {
-    @name = "checkpoint.firewall.email"
-  }
-  _ if _event_hint.contains("mobile access") or
-       _event_hint.contains("connectra") or
-       vpn_feature? != null => {
-    @name = "checkpoint.firewall.vpn"
-  }
-  _ if threat_name? != null or
-       protection_name? != null or
-       action? == "Detect" or
-       message_info? != null => {
-    @name = "checkpoint.firewall.threat"
-  }
-  "url filtering" | "application control" | "https inspection" => {
+  "url filtering" | "endpoint url filtering" | "application control" |
+  "https inspection" => {
     @name = "checkpoint.firewall.web_resource"
-  }
-  _ if _event_hint.contains("url filtering") or
-       _event_hint.contains("application control") or
-       _event_hint.contains("https inspection") or
-       url? != null => {
-    @name = "checkpoint.firewall.web_resource"
-  }
-  _ if action? != null and (src? != null or dst? != null or proto? != null) => {
-    @name = "checkpoint.firewall.network"
-  }
-  _ if action? != null => {
-    @name = "checkpoint.firewall.network"
   }
   _ => {
-    @name = "checkpoint.firewall"
+    if vendorinfo?.string().to_lower() == "management api" {
+      @name = "checkpoint.management.api"
+    } else if data_type? != null {
+      @name = "checkpoint.firewall.dlp"
+    } else if sender? != null or recipient? != null {
+      @name = "checkpoint.firewall.email"
+    } else if vpn_feature? != null or
+              (_product in ["mobile access", "connectra"] and session? != null) {
+      @name = "checkpoint.firewall.vpn"
+    } else if _product_family == "threat" or
+              threat_name? != null or
+              protection_name? != null or
+              attack_info? != null or
+              action? == "Detect" or
+              message_info? != null {
+      @name = "checkpoint.firewall.threat"
+    } else if url? != null {
+      @name = "checkpoint.firewall.web_resource"
+    } else if operation? != null or operation_number? != null {
+      @name = "checkpoint.management.audit"
+    } else if action? != null and
+              (src? != null or dst? != null or proto? != null) {
+      @name = "checkpoint.firewall.network"
+    } else {
+      @name = "checkpoint.firewall"
+    }
   }
 }
-drop _event_hint
+drop _product, _product_family

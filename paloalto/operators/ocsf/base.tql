@@ -1,0 +1,53 @@
+---
+description: Palo Alto Networks PAN-OS parsed record -> OCSF Base Event.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+@name = "ocsf.base_event"
+
+
+$ocsf = {
+  time: $event.generated_time? else $event.generate_time? else $event.time? else $event.receive_time?,
+  category_uid: 0,
+  class_uid: 0,
+  activity_id: 0,
+  severity_id: paloalto::$severity_ids[$event.severity?]? else 1,
+  type_uid: 0,
+  status_id: 0,
+  message: move $event.description?,
+  metadata: {
+    version: "1.9.0",
+    log_name: "PAN-OS",
+    log_provider: "Palo Alto Networks",
+    log_source: "PAN-OS Syslog",
+    logged_time: $event.receive_time?,
+    product: {
+      name: "PAN-OS",
+      vendor_name: "Palo Alto Networks",
+      uid: ($event.serial_number? else $event.serial?).string(),
+    },
+  },
+}
+
+if ($event.type? else $event.threat_content_type?) != null {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = $event.type? else $event.threat_content_type?
+  $ocsf.type_uid = 99
+}
+if paloalto::$severity_ids[$event.severity?]? != null {
+  drop $event.severity
+}
+
+drop $event.generated_time?
+drop $event.generate_time?
+drop $event.time?
+drop $event.receive_time?
+drop $event.serial_number?
+drop $event.serial?

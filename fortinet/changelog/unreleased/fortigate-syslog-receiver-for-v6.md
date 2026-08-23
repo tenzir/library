@@ -18,7 +18,7 @@ before parsing and mapping FortiGate logs:
 from "udp://0.0.0.0:514" {
   read_syslog
 }
-fortinet::fortigate::ocsf::map
+fortinet::fortigate::ocsf::normalize
 ```
 
 This keeps FortiGate onboarding pipelines compatible with the v6 executor.

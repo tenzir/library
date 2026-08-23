@@ -1,42 +1,49 @@
 ---
 description: |
-  Map a parsed ISC DHCPD record into OCSF.
+  Maps a structured ISC DHCPD event to OCSF.
 
-  Run `dhcpd::parse` first. This operator expects a normalized DHCPD domain
-  record, preserves parser leftovers in `unmapped`, and replaces the selected
-  input event field with the OCSF event.
+  The first positional field holds the event produced by `dhcpd::parse`.
+  The second receives OCSF DHCP Activity (class 4004) or an OCSF Base Event:
+
+  ```tql
+  dhcpd::ocsf::map event, ocsf
+  ```
+
+  The mapper consumes the structured source event: translated fields become
+  OCSF attributes, and the remaining source fields become `unmapped`.
+  Provenance remains the caller's decision.
 args:
-  named:
+  positional:
     - name: event
-      description: The parsed DHCPD record to map.
       type: field
-      default: this
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
 ---
 
-// Keep staging under the selected input event. Bare field assignments can
-// overwrite sibling fields in the caller's record.
-$event = {...$event, dhcpd: $event, ocsf: {}}
+$ocsf = {}
 
-match $event.dhcpd.category? {
+match $event.category? {
   "transaction" => {
-    match $event.dhcpd.family? {
+    match $event.family? {
       "dhcpv4" => {
-        dhcpd::ocsf::events::dhcpv4 event=$event
+        dhcpd::ocsf::events::dhcpv4 $event, $ocsf
       }
       "bootp" => {
-        dhcpd::ocsf::events::bootp event=$event
+        dhcpd::ocsf::events::bootp $event, $ocsf
       }
       "dhcpv6" => {
-        dhcpd::ocsf::events::dhcpv6 event=$event
+        dhcpd::ocsf::events::dhcpv6 $event, $ocsf
       }
       _ => {
-        dhcpd::ocsf::base event=$event
+        dhcpd::ocsf::base $event, $ocsf
       }
     }
   }
   _ => {
-    dhcpd::ocsf::base event=$event
+    dhcpd::ocsf::base $event, $ocsf
   }
 }
 
-$event = {...$event.ocsf, unmapped: $event.dhcpd}
+$ocsf.unmapped = move $event

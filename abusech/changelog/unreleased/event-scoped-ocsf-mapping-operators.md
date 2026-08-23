@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contracts
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,9 @@ authors:
 created: 2026-06-13T07:58:14.148769Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use the feed-specific `normalize` operators to turn structured abuse.ch rows
+into OCSF 1.9 events:
 
 ```tql
-pkg::ocsf::map event=source
+abusech::threatfox::ocsf::normalize
 ```

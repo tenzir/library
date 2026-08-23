@@ -1,24 +1,25 @@
 ---
 description: Parse ISC DHCPD daemon, service, and unsupported message bodies.
 args:
-  named:
+  positional:
+    - name: source
+      description: The raw DHCPD message body.
+      type: field
     - name: event
-      description: The record field to parse.
+      description: The field that receives the parsed event.
       type: field
 ---
 
-$event.category = "unknown"
-$event.parser = {
-  warning: "unsupported DHCPD message template",
-}
 let $daemon_message_pattern = r"^(Internet Systems Consortium|Copyright|All rights reserved|For info|Wrote|Listening|Sending on|Server starting|dhcpd startup|dhcpd shutdown|No subnet|\*\* Ignoring requests|in your dhcpd\.conf|to which interface|you want, please write|Packet from|DHCP service|Data directory|Config file|Database file)"
 
-if $event.raw_data.match_regex($daemon_message_pattern) {
-  $event.category = "daemon"
-  $event.parser = null
+$event = {
+  category: "unknown",
+  parser: {
+    warning: "unsupported DHCPD message template",
+  },
 }
-
 @name = "dhcpd.unsupported"
-if $event.category == "daemon" {
+if $source.match_regex($daemon_message_pattern) {
   @name = "dhcpd.daemon"
+  $event = {category: "daemon"}
 }

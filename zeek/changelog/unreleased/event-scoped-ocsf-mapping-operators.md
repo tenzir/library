@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,8 @@ authors:
 created: 2026-06-13T07:58:21.799017Z
 ---
 
-OCSF mapping operators now take a named `event` field argument that defaults to `this` and perform all mapping work inside that explicit event scope.
-
-Before:
+Use `zeek::ocsf::normalize` to normalize structured Zeek events to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map source
-```
-
-After:
-
-```tql
-pkg::ocsf::map event=source
+zeek::ocsf::normalize
 ```

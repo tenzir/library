@@ -1,41 +1,44 @@
 ---
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
       type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
 ---
-assert $event.suricata.has("http")
+assert $event.has("http")
 
-$event.suricata.http._hostname = move $event.suricata.http.hostname
-$event.suricata.http._url = move $event.suricata.http.url
-$event.suricata.http._url_parts = $event.suricata.http._url.split("?", max=1)
+$event.http._hostname = move $event.http.hostname
+$event.http._url = move $event.http.url
+$event.http._url_parts = $event.http._url.split("?", max=1)
 
-$event.ocsf.http_request.url = {
-  hostname: $event.suricata.http._hostname.string(),
-  path: $event.suricata.http._url_parts[0],
+$ocsf.http_request.url = {
+  hostname: $event.http._hostname.string(),
+  path: $event.http._url_parts[0],
   scheme: "http",
-  url_string: f"http://{$event.suricata.http._hostname.string()}{$event.suricata.http._url}",
+  url_string: f"http://{$event.http._hostname.string()}{$event.http._url}",
 }
-$event.ocsf.http_request.http_method = move $event.suricata.http.http_method?
-$event.ocsf.http_request.referrer = move $event.suricata.http.http_refer?
-$event.ocsf.http_request.user_agent = move $event.suricata.http.http_user_agent?
-$event.ocsf.http_request.version = move $event.suricata.http.protocol?
-if $event.suricata.http._url_parts.length() == 2 {
-  $event.ocsf.http_request.url.query_string = $event.suricata.http._url_parts[1]
+$ocsf.http_request.http_method = move $event.http.http_method?
+$ocsf.http_request.referrer = move $event.http.http_refer?
+$ocsf.http_request.user_agent = move $event.http.http_user_agent?
+$ocsf.http_request.version = move $event.http.protocol?
+if $event.http._url_parts.length() == 2 {
+  $ocsf.http_request.url.query_string = $event.http._url_parts[1]
 }
-drop $event.suricata.http._hostname
-drop $event.suricata.http._url
-drop $event.suricata.http._url_parts
-if $event.suricata.http.has("request_headers") {
-  $event.ocsf.http_request.http_headers = move $event.suricata.http.request_headers
+drop $event.http._hostname
+drop $event.http._url
+drop $event.http._url_parts
+if $event.http.has("request_headers") {
+  $ocsf.http_request.http_headers = move $event.http.request_headers
 }
 
-$event.ocsf.http_response.body_length = move $event.suricata.http.length?
-$event.ocsf.http_response.content_type = move $event.suricata.http.http_content_type?
-if $event.suricata.http.has("status") {
-  $event.ocsf.http_response.code = move $event.suricata.http.status
+$ocsf.http_response.body_length = move $event.http.length?
+$ocsf.http_response.content_type = move $event.http.http_content_type?
+if $event.http.has("status") {
+  $ocsf.http_response.code = move $event.http.status
 }
-if $event.suricata.http.has("response_headers") {
-  $event.ocsf.http_response.http_headers = move $event.suricata.http.response_headers
+if $event.http.has("response_headers") {
+  $ocsf.http_response.http_headers = move $event.http.response_headers
 }

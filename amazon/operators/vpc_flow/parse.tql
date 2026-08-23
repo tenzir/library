@@ -1,28 +1,25 @@
 ---
 description: |
-  Parses AWS VPC Flow Log records.
-
-  The operator expects events with a field containing the VPC Flow Log line.
-  Specify the header matching your flow log's `--log-format` configuration,
-  using underscores instead of hyphens (e.g., `vpc_id` instead of `vpc-id`).
-  Use `into=this` to replace the current event with the parsed record.
+  Classifies and parses supported AWS VPC Flow Log layouts. Unsupported layouts
+  produce `null`.
 args:
   positional:
-    - name: header
-      type: string
-      description: Space-separated field names matching the flow log format.
-  named:
-    - name: into
+    - name: input
       type: field
-      description: Output field for the parsed VPC Flow Log record.
-    - name: field
+      description: The field holding the VPC Flow Log line.
+    - name: vpc_flow
       type: field
-      description: Field containing the VPC Flow Log line.
+      description: The field that receives the parsed record.
 ---
 
-_vpc_flow = $field.parse_ssv(
-  header=$header,
-  null_value="-",
-)
-
-$into = move _vpc_flow
+match $input.split(" ").length() {
+  14 => {
+    amazon::vpc_flow::parse_v2 $input, $vpc_flow
+  }
+  24 => {
+    amazon::vpc_flow::parse_v7_ecs $input, $vpc_flow
+  }
+  _ => {
+    $vpc_flow = null
+  }
+}

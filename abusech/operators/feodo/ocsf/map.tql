@@ -1,49 +1,47 @@
 ---
-description: Feodo Tracker rows → OCSF OSINT Inventory Info
+description: Maps feodo rows to OCSF 1.9 OSINT Inventory Info.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the event to map.
       type: field
-      default: this
+      description: The structured source row to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, feodo: $event, ocsf: {}}
-
-$event.osint = {}
-$event.osint.category = "botnet c2"
-$event.osint.confidence_id = 3
-$event.osint.created_time = time($event.feodo.first_seen_utc)
-drop $event.feodo.first_seen_utc
-$event.osint.malware = [{
-  classification_ids: [0],
-  name: move $event.feodo.malware,
-  provider: "Feodo Tracker",
-}]
-$event.osint.severity_id = 4
-$event.osint.src_url = "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv"
-$event.osint.type_id = 1
-$event.osint.value = string(move $event.feodo.dst_ip)
-$event.osint.vendor_name = "abuse.ch"
-
-$event.ocsf = {}
-$event.ocsf.activity_id = 2
-$event.ocsf.actor = {
-  app_name: "Tenzir",
-}
-$event.ocsf.category_uid = 5
-$event.ocsf.class_uid = 5021
-$event.ocsf.metadata = {
-  product: {
-    name: "Feodo Tracker",
-    vendor_name: "abuse.ch",
+$ocsf = {
+  activity_id: 2,
+  actor: {app_name: "Tenzir"},
+  category_uid: 5,
+  class_uid: 5021,
+  metadata: {
+    product: {
+      name: "Feodo Tracker",
+      vendor_name: "abuse.ch",
+    },
+    version: "1.9.0",
   },
-  version: "1.8.0",
+  osint: [{
+    category: "botnet c2",
+    confidence_id: 3,
+    created_time: time($event.first_seen_utc),
+    malware: [{
+      classification_ids: [0],
+      name: move $event.malware,
+      provider: "Feodo Tracker",
+    }],
+    severity_id: 4,
+    src_url: "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.csv",
+    type_id: 1,
+    value: string(move $event.dst_ip),
+    vendor_name: "abuse.ch",
+  }],
+  severity_id: 1,
+  time: time(move $event.first_seen_utc),
+  type_uid: 502102,
 }
-$event.ocsf.osint = [move $event.osint]
-$event.ocsf.severity_id = 1
-$event.ocsf.time = $event.ocsf.osint[0].created_time
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-$event = {...$event.ocsf, unmapped: $event.feodo}
 @name = "ocsf.osint_inventory_info"
+
+$ocsf.unmapped = move $event

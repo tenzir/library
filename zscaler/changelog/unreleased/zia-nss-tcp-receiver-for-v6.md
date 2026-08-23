@@ -17,7 +17,7 @@ Replace TCP receivers that used the old source form with `accept_tcp`:
 from "tcp://0.0.0.0:9014" {
   read_lines
 }
-zscaler::ocsf::map
+zscaler::ocsf::normalize
 ```
 
 This keeps Zscaler onboarding pipelines compatible with the v6 executor.

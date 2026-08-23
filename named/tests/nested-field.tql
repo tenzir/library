@@ -1,3 +1,5 @@
+// Verifies that the parser and mapper only write their selected output fields,
+// preserve unrelated siblings, and accept nested field paths.
 from {
   keep: "outer",
   event: {
@@ -7,11 +9,15 @@ from {
   },
 }
 
-named::parse event=event
-named::ocsf::map event=event
-
-event.unmapped.outer_keep = move keep
-this = move event
-ocsf::cast
+named::parse event.message, event.named
+event.named.time = event.time
+named::ocsf::map event.named, event.ocsf
+event.ocsf.raw_data = event.message
+event.ocsf.raw_data_size = event.message.length_bytes()
+event.ocsf.unmapped.source_keep = move event.keep
+event.ocsf.unmapped.has_message = event.message? != null
+event.ocsf.unmapped.outer_keep = move keep
+this = move event.ocsf
+ocsf_cast
 
 drop_null_fields

@@ -1,10 +1,13 @@
 ---
 description: Parse Palo Alto Networks PAN-OS syslog CSV payloads
 args:
-  named:
-    - name: field
+  positional:
+    - name: input
       type: field
-      description: Field containing the PAN-OS syslog CSV payload.
+      description: The source field to parse.
+    - name: paloalto
+      type: field
+      description: The field that receives the parsed event.
 ---
 
 // Header constants are derived from Palo Alto Networks' syslog field
@@ -1203,104 +1206,112 @@ let $audit_fields = [
   "severity",
 ].join(",")
 
-_panos = {
-  audit_type: $field.split(",", max=5)[2]?,
-  type: $field.split(",", max=5)[3]?,
-  subtype: $field.split(",", max=5)[4]?,
-}
-
-match _panos.type {
+match $input.split(",", max=5)[3]? {
   "TRAFFIC" => {
-    this = $field.parse_csv(header=$traffic_fields)
+    $paloalto = {...$input.parse_csv(header=$traffic_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.traffic"
   }
   "GLOBALPROTECT" => {
-    this = $field.parse_csv(header=$globalprotect_fields)
+    $paloalto = {...$input.parse_csv(header=$globalprotect_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.globalprotect"
   }
   "URL-FILTERING" => {
-    this = $field.parse_csv(header=$url_filtering_fields)
+    $paloalto = {...$input.parse_csv(header=$url_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.url-filtering"
   }
   "DATA-FILTERING" => {
-    this = $field.parse_csv(header=$data_filtering_fields)
+    $paloalto = {...$input.parse_csv(header=$data_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.data-filtering"
   }
   "THREAT" => {
-    match _panos.subtype {
+    match $input.split(",", max=5)[4]? {
       "url" => {
-        this = $field.parse_csv(header=$url_filtering_fields)
+        $paloalto = {...$input.parse_csv(header=$url_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
         @name = "paloalto.url-filtering"
       }
       "data" | "dlp" | "dlp-non-file" => {
-        this = $field.parse_csv(header=$data_filtering_fields)
+        $paloalto = {...$input.parse_csv(header=$data_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
         @name = "paloalto.data-filtering"
       }
       _ => {
-        this = $field.parse_csv(header=$threat_fields)
+        $paloalto = {...$input.parse_csv(header=$threat_fields), serial_number: $input.split(",", max=3)[2]?}
         @name = "paloalto.threat"
       }
     }
   }
   "HIP-MATCH" => {
-    this = $field.parse_csv(header=$hip_match_fields)
+    $paloalto = {...$input.parse_csv(header=$hip_match_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.hip-match"
   }
   "IPTAG" | "IP-TAGS" => {
-    this = $field.parse_csv(header=$ip_tag_fields)
+    $paloalto = {...$input.parse_csv(header=$ip_tag_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.ip-tags"
   }
   "USERID" | "USER-ID" => {
-    this = $field.parse_csv(header=$user_id_fields)
+    $paloalto = {...$input.parse_csv(header=$user_id_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.user-id"
   }
   "DECRYPTION" => {
-    this = $field.parse_csv(header=$decryption_fields)
+    $paloalto = {...$input.parse_csv(header=$decryption_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.decryption"
   }
   "TUNNEL" | "TUNNEL-INSPECTION" => {
-    this = $field.parse_csv(header=$tunnel_inspection_fields)
+    $paloalto = {...$input.parse_csv(header=$tunnel_inspection_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.tunnel-inspection"
   }
   "SCTP" => {
-    this = $field.parse_csv(header=$sctp_fields)
+    $paloalto = {...$input.parse_csv(header=$sctp_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.sctp"
   }
   "CONFIG" => {
-    this = $field.parse_csv(header=$config_fields)
+    $paloalto = {...$input.parse_csv(header=$config_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.config"
   }
   "AUTHENTICATION" => {
-    this = $field.parse_csv(header=$authentication_fields)
+    $paloalto = {...$input.parse_csv(header=$authentication_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.authentication"
   }
   "SYSTEM" => {
-    this = $field.parse_csv(header=$system_fields)
+    $paloalto = {...$input.parse_csv(header=$system_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.system"
   }
   "CORRELATION" => {
-    this = $field.parse_csv(header=$correlated_events_fields)
+    $paloalto = {...$input.parse_csv(header=$correlated_events_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.correlation"
   }
   "GTP" => {
-    this = $field.parse_csv(header=$gtp_fields)
+    $paloalto = {...$input.parse_csv(header=$gtp_fields), serial_number: $input.split(",", max=3)[2]?}
     @name = "paloalto.gtp"
   }
   "AUDIT" => {
-    this = $field.parse_csv(header=$audit_fields)
+    $paloalto = {...$input.parse_csv(header=$audit_fields), serial_number: $input.split(",", max=2)[0]?}
     @name = "paloalto.audit"
   }
-  _ if _panos.audit_type == "AUDIT" => {
-    this = $field.parse_csv(header=$audit_fields)
+  _ if $input.split(",", max=5)[2]? == "AUDIT" => {
+    $paloalto = {...$input.parse_csv(header=$audit_fields), serial_number: $input.split(",", max=2)[0]?}
     @name = "paloalto.audit"
   }
   _ => {
+    $paloalto = null
     @name = "paloalto.unknown"
   }
 }
 
-if @name != "paloalto.unknown" {
-  this = this.drop_matching("^future_use")
+if $paloalto != null {
+  $paloalto = $paloalto.drop_matching("^future_use")
+  if $paloalto.receive_time? != null {
+    $paloalto.receive_time = $paloalto.receive_time.parse_time("%Y/%m/%d %H:%M:%S")
+  }
+  if $paloalto.generated_time? != null {
+    $paloalto.generated_time = $paloalto.generated_time.parse_time("%Y/%m/%d %H:%M:%S")
+  }
+  if $paloalto.generate_time? != null {
+    $paloalto.generate_time = $paloalto.generate_time.parse_time("%Y/%m/%d %H:%M:%S")
+  }
+  if $paloalto.start_time? != null {
+    $paloalto.start_time = $paloalto.start_time.parse_time("%Y/%m/%d %H:%M:%S")
+  }
+  if $paloalto.parent_start_time? != null {
+    $paloalto.parent_start_time = $paloalto.parent_start_time.parse_time("%Y/%m/%d %H:%M:%S")
+  }
 }
-
-drop _panos?

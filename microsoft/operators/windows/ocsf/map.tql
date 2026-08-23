@@ -1,14 +1,17 @@
 ---
-description: Structured Microsoft Windows Event Log → OCSF
+description: Maps a structured Windows Event Log event to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the structured Windows event to map.
       type: field
-      default: this
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, windows: $event, ocsf: {}}
+
+$event = {windows: $event, ocsf: {}}
 
 $event.ocsf.metadata = {
   event_code: $event.windows.System.EventID.string(),
@@ -26,7 +29,7 @@ $event.ocsf.metadata = {
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
-  version: "1.8.0",
+  version: "1.9.0",
 }
 $event.windows.System.EventID = $event.windows.System.EventID.int()
 drop $event.windows.System.Provider
@@ -43,7 +46,7 @@ $event.ocsf.device = {
 }
 
 // "-" is the universal Windows sentinel for "not applicable/empty".
-replace what="-", with=null
+replace $event.windows, what="-", with=null
 
 match $event.windows.System.EventID {
   99..103 | 129 | 199..202 => {
@@ -145,4 +148,6 @@ match $event.windows.System.EventID {
 }
 drop $event.windows.System.EventID
 
-$event = {...$event.ocsf, unmapped: $event.windows}
+
+
+$ocsf = {...$event.ocsf, unmapped: $event.windows}

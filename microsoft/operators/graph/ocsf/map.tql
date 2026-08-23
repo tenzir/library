@@ -1,14 +1,17 @@
 ---
-description: Microsoft Graph → OCSF
+description: Maps a structured Microsoft Graph event to OCSF 1.9.
 args:
-  named:
+  positional:
     - name: event
-      description: The field that holds the Microsoft Graph event to map.
       type: field
-      default: this
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
 ---
 
-$event = {...$event, graph: $event, ocsf: {}}
+
+$event = {graph: $event, ocsf: {}}
 
 $event.ocsf.cloud = {
   provider: "Azure",
@@ -22,17 +25,11 @@ $event.ocsf.metadata = {
     },
   },
   profiles: ["cloud"],
-  version: "1.8.0",
+  version: "1.9.0",
 }
-if $event.graph.tenantId? != null {
-  $event.ocsf.metadata.tenant_uid = move $event.graph.tenantId
-}
-if $event.graph.correlationId? != null {
-  $event.ocsf.metadata.correlation_uid = move $event.graph.correlationId
-}
-if $event.graph.id? != null {
-  $event.ocsf.metadata.original_event_uid = move $event.graph.id
-}
+$event.ocsf.metadata.tenant_uid = move $event.graph.tenantId?
+$event.ocsf.metadata.correlation_uid = move $event.graph.correlationId?
+$event.ocsf.metadata.original_event_uid = move $event.graph.id?
 
 $event.ocsf.severity_id = 1
 
@@ -69,4 +66,4 @@ match @name {
   }
 }
 
-$event = {...$event.ocsf, unmapped: $event.graph}
+$ocsf = {...$event.ocsf, unmapped: $event.graph}

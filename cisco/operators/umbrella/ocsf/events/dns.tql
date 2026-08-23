@@ -1,40 +1,32 @@
 ---
 description: Cisco Umbrella DNS logs → OCSF DNS Activity
 args:
-  named:
+  positional:
     - name: event
       description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
 @name = "ocsf.dns_activity"
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4003
-$event.ocsf.activity_id = 1
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4003
+$ocsf.activity_id = 1
+$ocsf.opcode_id = 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-if $event.umbrella.timestamp? != null {
-  $event.ocsf.time = move $event.umbrella.timestamp
-  $event.ocsf.query_time = $event.ocsf.time
-}
-
-if $event.umbrella.external_ip? != null {
-  $event.ocsf.src_endpoint.ip = move $event.umbrella.external_ip
-}
-if $event.umbrella.internal_ip? != null {
-  $event.ocsf.device.ip = move $event.umbrella.internal_ip
-}
-$event.ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
-
-if $event.umbrella.domain? != null {
-  $event.ocsf.query.hostname = move $event.umbrella.domain
-}
-if $event.umbrella.query_type? != null {
-  $event.query_type = $event.umbrella.query_type.parse_grok(r"%{NUMBER:value} \(%{WORD:name}\)")
-  $event.ocsf.query.type = $event.query_type.name
-  drop $event.query_type
-  drop $event.umbrella.query_type
-}
+$ocsf.time = move $event.timestamp?
+$ocsf.query_time = $ocsf.time
+$ocsf.src_endpoint.ip = move $event.external_ip?
+$ocsf.device.ip = move $event.internal_ip?
+$ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
+$ocsf.query.hostname = move $event.domain?
+$event.query_type = $event.query_type?.parse_grok(
+  r"%{NUMBER:value} \(%{WORD:name}\)",
+)
+$ocsf.query.type = move $event.query_type?.name?
 
 let $rcode_mapping = {
   NOERROR: {rcode_id: 0, rcode: "NoError"},
@@ -50,7 +42,7 @@ let $rcode_mapping = {
   NOTAUTH: {rcode_id: 9, rcode: "NotAuth"},
   NOTZONE: {rcode_id: 10, rcode: "NotZone"},
   DSOTYPENI: {rcode_id: 11, rcode: "DSOTYPENI"},
-  BADSIG_VERS: {rcode_id: 16, rcode: "BADSIG_VERS"},
+  BADSIG_VERS: {rcode_id: 99, rcode: "BADSIG_VERS"},
   BADKEY: {rcode_id: 17, rcode: "BADKEY"},
   BADTIME: {rcode_id: 18, rcode: "BADTIME"},
   BADMODE: {rcode_id: 19, rcode: "BADMODE"},
@@ -59,25 +51,23 @@ let $rcode_mapping = {
   BADTRUNC: {rcode_id: 22, rcode: "BADTRUNC"},
   BADCOOKIE: {rcode_id: 23, rcode: "BADCOOKIE"},
 }
-if $event.umbrella.response_code? != null {
-  $event.ocsf.rcode_id = $rcode_mapping[$event.umbrella.response_code]?.rcode_id else 99
-  $event.ocsf.rcode = $rcode_mapping[$event.umbrella.response_code]?.rcode else $event.umbrella.response_code
-  drop $event.umbrella.response_code
+if $event.response_code? != null {
+  $ocsf.rcode_id = $rcode_mapping[$event.response_code]?.rcode_id else 99
+  $ocsf.rcode = $rcode_mapping[$event.response_code]?.rcode else $event.response_code
+  drop $event.response_code
 }
 
-match $event.umbrella.action? {
+match $event.action? {
   "Allowed" => {
-    $event.ocsf.action_id = 1
+    $ocsf.action_id = 1
   }
   "Denied" => {
-    $event.ocsf.action_id = 2
+    $ocsf.action_id = 2
   }
   _ => {
-    $event.ocsf.action_id = 0
+    $ocsf.action_id = 0
   }
 }
-if $event.umbrella.action? != null {
-  $event.ocsf.action = move $event.umbrella.action
-}
+$ocsf.action = move $event.action?
 
-$event.ocsf.status_id = 1
+$ocsf.status_id = 1

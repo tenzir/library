@@ -15,27 +15,30 @@ $event._target_obj = move $event.sysmon.EventData.TargetObject
 
 $event.ocsf.category_uid = 1
 
-if $event._event_type == "DeleteValue" {
-  // Registry Value Activity — the value itself was deleted.
-  @name = "ocsf.registry_value_activity"
-  $event.ocsf.class_uid = 201002
-  $event.ocsf.activity_id = 4  // Delete
-  $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+match $event._event_type {
+  "DeleteValue" => {
+    // Registry Value Activity — the value itself was deleted.
+    @name = "ocsf.registry_value_activity"
+    $event.ocsf.class_uid = 201002
+    $event.ocsf.activity_id = 4  // Delete
+    $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-  $event._parts = $event._target_obj.split("\\")
-  $event.ocsf.reg_value = {
-    path: $event._parts.slice(end=-1).join("\\"),
-    name: $event._parts[-1],
+    $event._parts = $event._target_obj.split("\\")
+    $event.ocsf.reg_value = {
+      path: $event._parts.slice(end=-1).join("\\"),
+      name: $event._parts[-1],
+    }
+    drop $event._parts
   }
-  drop $event._parts
-} else {
-  // Registry Key Activity — key created or deleted.
-  @name = "ocsf.registry_key_activity"
-  $event.ocsf.class_uid = 201001
-  $event.ocsf.activity_id = 4 if $event._event_type == "DeleteKey" else 1  // Delete / Create
-  $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+  _ => {
+    // Registry Key Activity — key created or deleted.
+    @name = "ocsf.registry_key_activity"
+    $event.ocsf.class_uid = 201001
+    $event.ocsf.activity_id = 4 if $event._event_type == "DeleteKey" else 1  // Delete / Create
+    $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
-  $event.ocsf.reg_key = { path: $event._target_obj }
+    $event.ocsf.reg_key = { path: $event._target_obj }
+  }
 }
 drop $event._event_type, $event._target_obj
 

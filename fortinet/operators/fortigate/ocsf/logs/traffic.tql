@@ -54,10 +54,14 @@ $event.ocsf.connection_info = {
   uid: (move $event.fortinet.sessionid).string(),
   direction_id: 0,
 }
-if $event.fortinet.srcintfrole? == "lan" and $event.fortinet.dstintfrole? == "wan" {
-  $event.ocsf.connection_info.direction_id = 2  // Outbound
-} else if $event.fortinet.srcintfrole? == "wan" and $event.fortinet.dstintfrole? == "lan" {
-  $event.ocsf.connection_info.direction_id = 1  // Inbound
+match [$event.fortinet.srcintfrole?, $event.fortinet.dstintfrole?] {
+  ["lan", "wan"] => {
+    $event.ocsf.connection_info.direction_id = 2  // Outbound
+  }
+  ["wan", "lan"] => {
+    $event.ocsf.connection_info.direction_id = 1  // Inbound
+  }
+  _ => {}
 }
 drop $event.fortinet.srcintfrole?
 drop $event.fortinet.dstintfrole?
@@ -118,11 +122,7 @@ $event.ocsf.firewall_rule = {
 // `utmaction` is the outcome of the UTM/IPS engine, distinct from `action`
 // which reflects how the TCP/UDP session itself ended.
 if $event.fortinet.utmaction? != null {
-  let $dispositions = {
-    allow: 1,
-    block: 2,
-  }
-  $event.ocsf.disposition_id = $dispositions[move $event.fortinet.utmaction]? else 0
+  $event.ocsf.disposition_id = fortinet::$disposition_ids[move $event.fortinet.utmaction]? else 0
 }
 
 // `crscore`/`crlevel` are the composite UTM risk score and level.
