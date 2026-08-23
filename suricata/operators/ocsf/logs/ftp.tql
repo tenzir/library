@@ -71,16 +71,18 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // --- OCSF: primary attributes -----------------
 
 if $event.ftp.completion_code? != null {
-  $event.ftp._completion_code = $event.ftp.completion_code[0]
   $ocsf.codes = $event.ftp.completion_code.map(code => int(code))
-  if $event.ftp._completion_code.starts_with("2") or $event.ftp._completion_code.starts_with("3") {
-    $ocsf.status_id = 1
-  } else if $event.ftp._completion_code.starts_with("4") or $event.ftp._completion_code.starts_with("5") {
-    $ocsf.status_id = 2
-  } else {
-    $ocsf.status_id = 0
+  match $ocsf.codes[0] {
+    199..400 => {
+      $ocsf.status_id = 1
+    }
+    399..600 => {
+      $ocsf.status_id = 2
+    }
+    _ => {
+      $ocsf.status_id = 0
+    }
   }
-  drop $event.ftp._completion_code
   drop $event.ftp.completion_code
 } else {
   $ocsf.status_id = 0
