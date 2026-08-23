@@ -1,22 +1,18 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
   - codex
-created: 2026-06-13T07:58:18.011303Z
+created: 2026-06-13T07:58:17.982827Z
 ---
 
-The FoxIO OCSF mapper takes the structured source and OCSF output fields positionally.
-
-Before:
-
-```tql
-pkg::ocsf::map source
-```
-
-After:
+Use `foxio::ocsf::normalize` to normalize structured FoxIO JA4+ records to
+OCSF 1.9:
 
 ```tql
-pkg::ocsf::map event=source
+foxio::ocsf::normalize
 ```
+
+The lower-level `foxio::ocsf::map` operator remains available for pipelines
+that need separate structured source and OCSF output fields.
