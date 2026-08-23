@@ -77,46 +77,54 @@ drop $event.outcome?
 // Route entity extraction by event type prefix since target[] contains
 // different object types depending on the Okta event category.
 if $event.target? != null {
-  if $ocsf.metadata.event_code.starts_with("policy.") {
-    $ocsf.entity = $event.target.where(t => t.type == "PolicyEntity").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 5
-    $ocsf.entity.policy = {
-      desc: move $event.debugContext.debugData.policyType?,
+  match $ocsf.metadata.event_code.split(".")[0] {
+    "policy" => {
+      $ocsf.entity = $event.target.where(t => t.type == "PolicyEntity").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 5
+      $ocsf.entity.policy = {
+        desc: move $event.debugContext.debugData.policyType?,
+      }
     }
-  } else if $ocsf.metadata.event_code.starts_with("application.") {
-    $ocsf.entity = $event.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 6
-  } else if $ocsf.metadata.event_code.starts_with("device.") {
-    $ocsf.entity = $event.target.where(t => t.type == "UDDevice").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 1
-  } else if $ocsf.metadata.event_code.starts_with("zone.") {
-    $ocsf.entity = $event.target.where(t => t.type == "NetworkZoneEntity").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 9
-    $ocsf.entity.data = move $event.debugContext.debugData.zoneData?
-  } else if $ocsf.metadata.event_code.starts_with("directory.") {
-    $ocsf.entity = $event.target.where(t => t.type == "AppUser").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 99
-  } else if $ocsf.metadata.event_code.starts_with("security.trusted_origin.") {
-    $ocsf.entity = $event.target.where(t => t.type == "TrustedOrigin").map(t => {
-      uid: t.id,
-      name: t.displayName,
-    })[0]?
-    $ocsf.entity.type_id = 7
+    "application" => {
+      $ocsf.entity = $event.target.where(t => t.type == "AppInstance" or t.type == "AppUser").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 6
+    }
+    "device" => {
+      $ocsf.entity = $event.target.where(t => t.type == "UDDevice").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 1
+    }
+    "zone" => {
+      $ocsf.entity = $event.target.where(t => t.type == "NetworkZoneEntity").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 9
+      $ocsf.entity.data = move $event.debugContext.debugData.zoneData?
+    }
+    "directory" => {
+      $ocsf.entity = $event.target.where(t => t.type == "AppUser").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 99
+    }
+    "security" => {
+      $ocsf.entity = $event.target.where(t => t.type == "TrustedOrigin").map(t => {
+        uid: t.id,
+        name: t.displayName,
+      })[0]?
+      $ocsf.entity.type_id = 7
+    }
+    _ => {}
   }
 }
 
