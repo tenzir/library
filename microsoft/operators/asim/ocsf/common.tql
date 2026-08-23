@@ -43,17 +43,21 @@ match $event.ocsf.severity_id? {
     $event.asim.EventSeverity = "High"
     $event.asim.EventOriginalSeverity = $event.ocsf.severity? else "Fatal"
   }
-  _ if $event.ocsf.severity? == "Critical" or $event.ocsf.severity? == "Fatal" => {
-    $event.asim.EventSeverity = "High"
-    $event.asim.EventOriginalSeverity = $event.ocsf.severity
+  _ => {
+    match $event.ocsf.severity? {
+      "Critical" | "Fatal" => {
+        $event.asim.EventSeverity = "High"
+        $event.asim.EventOriginalSeverity = $event.ocsf.severity
+      }
+      "Informational" | "Low" | "Medium" | "High" => {
+        $event.asim.EventSeverity = $event.ocsf.severity
+      }
+      null => {}
+      _ => {
+        $event.asim.EventOriginalSeverity = $event.ocsf.severity
+      }
+    }
   }
-  _ if $event.ocsf.severity? in ["Informational", "Low", "Medium", "High"] => {
-    $event.asim.EventSeverity = $event.ocsf.severity
-  }
-  _ if $event.ocsf.severity? != null => {
-    $event.asim.EventOriginalSeverity = $event.ocsf.severity
-  }
-  _ => {}
 }
 
 match $event.ocsf.status? {
@@ -68,8 +72,12 @@ match $event.ocsf.status? {
   }
   _ => {
     match $event.ocsf.status_id? {
-      1 if $event.ocsf.class_uid != 2003 and $event.ocsf.class_uid != 2004 and $event.ocsf.class_uid != 2005 => {
-        $event.asim.EventResult = "Success"
+      1 => {
+        if $event.ocsf.class_uid not in [2003, 2004, 2005] {
+          $event.asim.EventResult = "Success"
+        } else {
+          $event.asim.EventResult = "NA"
+        }
       }
       2 => {
         $event.asim.EventResult = "Failure"

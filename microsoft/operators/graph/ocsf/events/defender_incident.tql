@@ -41,11 +41,12 @@ match $event.ocsf.status_id {
   4 | 5 => {
     $event.ocsf.activity_id = 3  // Close
   }
-  _ if $event.ocsf.end_time != null and $event.ocsf.end_time != $event.ocsf.time => {
-    $event.ocsf.activity_id = 2  // Update
-  }
   _ => {
-    $event.ocsf.activity_id = 1  // Create
+    if $event.ocsf.end_time != null and $event.ocsf.end_time != $event.ocsf.time {
+      $event.ocsf.activity_id = 2  // Update
+    } else {
+      $event.ocsf.activity_id = 1  // Create
+    }
   }
 }
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
@@ -73,14 +74,13 @@ if $event.graph.customTags? != null or $event.graph.systemTags? != null {
     drop $event.ocsf.metadata.labels
   }
 }
-match $event.graph.determination {
-  "unknown" | "unknownFutureValue" => {}
-  _ if $event.graph.determination? != null => {
+match $event.graph.determination? {
+  null | "unknown" | "unknownFutureValue" => {}
+  _ => {
     $event.graph._finding_types = {
       types: [move $event.graph.determination],
     }
   }
-  _ => {}
 }
 if $event.graph.redirectIncidentId? != null {
   $event.graph._related_events = {
