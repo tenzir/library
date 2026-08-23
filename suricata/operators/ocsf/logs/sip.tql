@@ -16,16 +16,30 @@ args:
  * - BYE: Network connection closed = activity_id 2
  * - Response codes 4xx/5xx/6xx: Connection failed = activity_id 4
  */
-if $event.sip.has("method") and $event.sip.method == "INVITE" {
-  $ocsf.activity_id = 1
-} else if $event.sip.has("method") and $event.sip.method == "BYE" {
-  $ocsf.activity_id = 2
-} else if $event.sip.has("code") and int($event.sip.code) >= 400 and int($event.sip.code) < 700 {
-  $ocsf.activity_id = 4
-} else if $event.sip.has("method") or $event.sip.has("code") {
-  $ocsf.activity_id = 6
-} else {
-  $ocsf.activity_id = 0
+match $event.sip.method? {
+  "INVITE" => {
+    $ocsf.activity_id = 1
+  }
+  "BYE" => {
+    $ocsf.activity_id = 2
+  }
+  null => {
+    if $event.sip.code? != null {
+      match int($event.sip.code) {
+        399..700 => {
+          $ocsf.activity_id = 4
+        }
+        _ => {
+          $ocsf.activity_id = 6
+        }
+      }
+    } else {
+      $ocsf.activity_id = 0
+    }
+  }
+  _ => {
+    $ocsf.activity_id = 6
+  }
 }
 
 $ocsf.category_uid = 4
