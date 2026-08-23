@@ -32,10 +32,8 @@ A package lives in a directory with these building blocks:
 ## 🤝 Contribute a package
 
 Join us on our mission to democratize the world of security data integrations.
-
-Follow the [write-a-package
-tutorial](https://tenzir.com/docs/tutorials/write-a-package/) to scaffold, test,
-and document a new idea, then:
+Follow our [tutorials](https://tenzir.com/docs/tutorials) to learn how to
+package up use cases. Then:
 
 - Share it on the [Community Discord](https://discord.tenzir.com) to gather
   feedback.
