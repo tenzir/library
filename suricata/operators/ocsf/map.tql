@@ -37,19 +37,35 @@ $ocsf.metadata = {
   },
   version: "1.9.0",
 }
-$ocsf.metadata.sequence = move $event.pcap_cnt?
-$ocsf.metadata.original_event_uid = $event.flow_id?.string()
-$ocsf.metadata.correlation_uid = $event.flow_id?.string()
+if $event.pcap_cnt? != null {
+  $ocsf.metadata.sequence = move $event.pcap_cnt
+}
+if $event.flow_id? != null {
+  $ocsf.metadata.original_event_uid = $event.flow_id.string()
+  $ocsf.metadata.correlation_uid = $event.flow_id.string()
+}
 
 // Prefer flow initiator/responder fields when Suricata provides them. Alert
 // packets can point in the opposite direction of the flow that triggered them.
-$ocsf.src_endpoint = {
-  ip: move $event.flow?.src_ip? else move $event.src_ip?,
-  port: move $event.flow?.src_port? else move $event.src_port?,
+if $event.flow?.src_ip? != null {
+  $ocsf.src_endpoint.ip = move $event.flow.src_ip
+} else if $event.src_ip? != null {
+  $ocsf.src_endpoint.ip = move $event.src_ip
 }
-$ocsf.dst_endpoint = {
-  ip: move $event.flow?.dest_ip? else move $event.dest_ip?,
-  port: move $event.flow?.dest_port? else move $event.dest_port?,
+if $event.flow?.dest_ip? != null {
+  $ocsf.dst_endpoint.ip = move $event.flow.dest_ip
+} else if $event.dest_ip? != null {
+  $ocsf.dst_endpoint.ip = move $event.dest_ip
+}
+if $event.flow?.src_port? != null {
+  $ocsf.src_endpoint.port = move $event.flow.src_port
+} else if $event.src_port? != null {
+  $ocsf.src_endpoint.port = move $event.src_port
+}
+if $event.flow?.dest_port? != null {
+  $ocsf.dst_endpoint.port = move $event.flow.dest_port
+} else if $event.dest_port? != null {
+  $ocsf.dst_endpoint.port = move $event.dest_port
 }
 
 if $event.event_type != "krb5" and $event.event_type != "smtp" {
@@ -77,7 +93,9 @@ if $event.event_type != "krb5" and $event.event_type != "smtp" {
     drop $event.proto
   }
 
-  $ocsf.connection_info.community_uid = move $event.community_id?
+  if $event.community_id? != null {
+    $ocsf.connection_info.community_uid = move $event.community_id
+  }
 }
 
 let $event_types_without_app_proto = ["alert", "krb5", "smtp"]
@@ -145,5 +163,6 @@ match $event.event_type {
 // --- Epilogue ---------------------------------
 
 drop $event.event_type
+
 
 $ocsf.unmapped = move $event
