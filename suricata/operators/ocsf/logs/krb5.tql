@@ -25,13 +25,12 @@ let $krb5_activity_map = {
 }
 
 match $event.krb5.msg_type {
+  "KRB_ERROR" if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
+    $ocsf.activity_id = 6
+  }
   "KRB_ERROR" => {
-    if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" {
-      $ocsf.activity_id = 6
-    } else {
-      // For other errors, map based on the failed_request field.
-      $ocsf.activity_id = $krb5_activity_map[$event.krb5.failed_request?]? else 99
-    }
+    // For other errors, map based on the failed_request field.
+    $ocsf.activity_id = $krb5_activity_map[$event.krb5.failed_request?]? else 99
   }
   _ => {
     $ocsf.activity_id = $krb5_activity_map[$event.krb5.msg_type]? else 99
