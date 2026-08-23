@@ -12,6 +12,3 @@ Use `sysmon::ocsf::normalize` to normalize structured Microsoft Sysmon events to
 ```tql
 sysmon::ocsf::normalize
 ```
-
-The lower-level `sysmon::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
