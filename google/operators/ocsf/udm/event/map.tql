@@ -405,33 +405,38 @@ if $event.udm.network? != null {
   }
 }
 
-if $event.ocsf.class_uid == 4002 {
-  $event.ocsf.http_request.http_method = $event.udm.network?.http?.method?
-  $event.ocsf.http_request.user_agent = $event.udm.network?.http?.userAgent?
-  $event.ocsf.http_request.url.url_string = $event.udm.target?.url?
-  $event.ocsf.http_response.code = $event.udm.network?.http?.responseCode?
-}
-if $event.ocsf.class_uid == 4003 {
-  $event.ocsf.query.hostname = $event.udm.network?.dns?.questions?[0]?.name? else $event.udm.target?.hostname?
-  $event.ocsf.query.type = $event.udm.network?.dns?.questions?[0]?.type?
-  $event.ocsf.rcode_id = $event.udm.network?.dns?.responseCode?
-}
-if $event.ocsf.class_uid == 3002 {
-  $event.ocsf.service.name = $event.udm.target?.application? else $event.udm.metadata.productName?
-}
-if $event.ocsf.class_uid == 4004 {
-  $event.ocsf.lease_dur = $event.udm.network?.dhcp?.leaseTimeSeconds?
-}
-if $event.ocsf.class_uid == 4008 {
-  $event.ocsf.command = $event.udm.network?.ftp?.command?
-}
-if $event.ocsf.class_uid == 4009 and $event.udm.network?.email? != null {
-  $event.ocsf.email = {
-    from: $event.udm.network.email.from?,
-    message_uid: $event.udm.network.email.mailId?,
-    subject: $event.udm.network.email.subject?[0]?,
-    to: $event.udm.network.email.to?,
+match $event.ocsf.class_uid {
+  4002 => {
+    $event.ocsf.http_request.http_method = $event.udm.network?.http?.method?
+    $event.ocsf.http_request.user_agent = $event.udm.network?.http?.userAgent?
+    $event.ocsf.http_request.url.url_string = $event.udm.target?.url?
+    $event.ocsf.http_response.code = $event.udm.network?.http?.responseCode?
   }
+  4003 => {
+    $event.ocsf.query.hostname = $event.udm.network?.dns?.questions?[0]?.name? else $event.udm.target?.hostname?
+    $event.ocsf.query.type = $event.udm.network?.dns?.questions?[0]?.type?
+    $event.ocsf.rcode_id = $event.udm.network?.dns?.responseCode?
+  }
+  3002 => {
+    $event.ocsf.service.name = $event.udm.target?.application? else $event.udm.metadata.productName?
+  }
+  4004 => {
+    $event.ocsf.lease_dur = $event.udm.network?.dhcp?.leaseTimeSeconds?
+  }
+  4008 => {
+    $event.ocsf.command = $event.udm.network?.ftp?.command?
+  }
+  4009 => {
+    if $event.udm.network?.email? != null {
+      $event.ocsf.email = {
+        from: $event.udm.network.email.from?,
+        message_uid: $event.udm.network.email.mailId?,
+        subject: $event.udm.network.email.subject?[0]?,
+        to: $event.udm.network.email.to?,
+      }
+    }
+  }
+  _ => {}
 }
 if $event.ocsf.class_uid >= 2001 and $event.ocsf.class_uid <= 2004 {
   $event.ocsf.finding_info = {
