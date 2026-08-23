@@ -36,16 +36,6 @@ if $event.uri? != null {
 } else {
   $ocsf.osint.type_id = 0
 }
-$ocsf.normalized_ip = ip($ocsf.osint.value?)
-match $ocsf.normalized_ip? {
-  null => {}
-  _ => {
-    $ocsf.osint.value = $ocsf.normalized_ip.string()
-    $ocsf.osint.type_id = 1
-  }
-}
-drop $ocsf.normalized_ip
-
 if $event.score? != null {
   $ocsf.osint.reputation = {base_score: move $event.score, provider: "alphaMountain"}
 } else if $event.threat?.score? != null {
@@ -108,12 +98,13 @@ if $ocsf.osint.reputation?.base_score? != null {
 $ocsf.confidence_value = $event.confidence? else
                          $event.category?.confidence? else
                          $event.sections?.category?.confidence?
-match $ocsf.confidence_value? {
+$ocsf.confidence_decile = ($ocsf.confidence_value * 10).int()
+match $ocsf.confidence_decile? {
   null => {}
-  _ if $ocsf.confidence_value >= 0.8 => {
+  8 | 9 | 10 => {
     $ocsf.osint.confidence_id = 3
   }
-  _ if $ocsf.confidence_value >= 0.5 => {
+  5 | 6 | 7 => {
     $ocsf.osint.confidence_id = 2
   }
   _ => {
@@ -121,6 +112,7 @@ match $ocsf.confidence_value? {
   }
 }
 drop $ocsf.confidence_value,
+     $ocsf.confidence_decile,
      $event.confidence?,
      $event.category?.confidence?,
      $event.sections?.category?.confidence?
