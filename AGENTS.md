@@ -1,43 +1,21 @@
 # Tenzir Library
 
-This repository hosts the Tenzir Library, a collection of
-[packages](https://tenzir.com/docs/explanations/packages.md) that
-contain user-defined operators, pipelines, examples, and context definitions.
+This repository hosts the official Tenzir Library. Every directory (except those
+leading with `.`) is a package.
 
-Every top-level directory that does not start with `.` is a package.
+## Authoring
 
-Integration packages typically have the name of the primary vendor, like
-`amazon`, `google`, or `microsoft`.
+Always load the `tenzir` skill when producing or changing TQL. Stop and inform
+the user if the skill is not available.
 
-## Workflows
+Write clear and idiomatic TQL by default unless the user provides a specific
+reason to do otherwise.
 
-All key workflows are well-supported by agents. See
-<https://tenzir.com/docs/guides/ai-workbench/use-agent-skills.md> for a list
-of relevant agent skills during package development.
+## Testing
 
-Always load the `tenzir` skill when working with TQL content.
-
-Prefer running the following commands through `uvx` instead of executing them
-locally, unless you are testing a specific feature that's not available in the
-respective latest release:
-
-- `tenzir`
-- `tenzir-node`
-- `tenzir-test`
-- `tenzir-ship`
-
-E.g., run `uvx tenzir -f path/to/pipe.tql` to execute a TQL program.
-
-### Evolve a package
-
-Use the `tenzir-manage-packages` skill to manage the lifecycle of a package.
-
-### Test packages
-
-Use [tenzir-test](https://tenzir.com/docs/reference/test-framework.md) for
-testing packages.
-
-Primary operations:
+Use `tenzir-test` for testing packages:
 
 - `uvx tenzir-test` runs all tests on every package in the library
 - `uvx tenzir-test <pkg>` runs all tests for the package
+
+Use `uvx tenzir -f pipeline.tql` for one-shot TQL program execution. 
