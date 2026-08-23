@@ -13,6 +13,3 @@ to OCSF 1.9:
 ```tql
 alphamountain::ocsf::normalize
 ```
-
-The lower-level `alphamountain::ocsf::map` operator remains available for
-pipelines that need separate structured source and OCSF output fields.
