@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,16 +7,11 @@ authors:
 created: 2026-06-13T07:58:19.553916Z
 ---
 
-The Okta OCSF mapper takes the structured source and OCSF output fields positionally.
-
-Before:
+Use `okta::ocsf::normalize` to normalize structured Okta System Log events to OCSF 1.9:
 
 ```tql
-pkg::ocsf::map source
+okta::ocsf::normalize
 ```
 
-After:
-
-```tql
-pkg::ocsf::map event=source
-```
+The lower-level `okta::ocsf::map` operator remains available for pipelines that need
+separate structured source and OCSF output fields.
