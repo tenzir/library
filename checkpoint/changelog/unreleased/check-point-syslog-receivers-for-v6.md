@@ -18,7 +18,7 @@ from "udp://0.0.0.0:514" {
   read_syslog
 }
 checkpoint::syslog::parse_structured_data
-checkpoint::ocsf::map this, this
+checkpoint::ocsf::normalize
 ```
 
 This keeps the Check Point onboarding examples compatible with the v6 executor.
