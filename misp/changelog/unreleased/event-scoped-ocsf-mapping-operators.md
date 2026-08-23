@@ -12,6 +12,3 @@ Use `misp::event::ocsf::normalize` to normalize structured MISP events to OCSF 1
 ```tql
 misp::event::ocsf::normalize
 ```
-
-The lower-level `misp::event::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
