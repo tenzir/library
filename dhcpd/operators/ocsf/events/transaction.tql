@@ -75,13 +75,11 @@ $ocsf = {
   },
 }
 
-if $event.message_type.to_lower() in ["renew", "rebind"] {
-  $ocsf.is_renewal = true
-}
-
-if $event.client_action? != null {
-  $ocsf.activity_id = $activity_ids.get($event.client_action.to_lower(), 99)
-}
+$ocsf.is_renewal = $event.message_type.to_lower() in ["renew", "rebind"]
+$ocsf.activity_id = $activity_ids.get(
+  $event.client_action?.to_lower(),
+  $ocsf.activity_id,
+)
 
 match $ocsf.activity_id {
   2 | 5 => {
@@ -95,27 +93,15 @@ match $ocsf.activity_id {
   }
 }
 
-if $event.reason? != null {
-  $ocsf.status_detail = move $event.reason
-}
-if $ocsf.status_detail? == null and $event.status_text? != null {
-  $ocsf.status_detail = move $event.status_text
-}
-if $event.identity_association?.valid_for_seconds? != null {
-  $ocsf.lease_dur = move $event.identity_association.valid_for_seconds
-}
-if $event.transaction_id? != null {
-  $ocsf.transaction_uid = move $event.transaction_id
-}
+$ocsf.status_detail = $event.reason? else $event.status_text?
+drop $event.reason?, $event.status_text?
+$ocsf.lease_dur = move $event.identity_association?.valid_for_seconds?
+$ocsf.transaction_uid = move $event.transaction_id?
 if $ocsf.activity_id == 99 {
   $ocsf.activity_name = $event.client_event? else $event.client_action? else $event.message_type
 }
-if $event.via_ip? != null or $event.via_interface? != null {
-  if $event.via_ip? != null {
-    $ocsf.relay.ip = move $event.via_ip
-  }
-  if $event.via_interface? != null {
-    $ocsf.relay.name = move $event.via_interface
-  }
+$ocsf.relay = {
+  ip: move $event.via_ip?,
+  name: move $event.via_interface?,
 }
 $ocsf.type_uid = 400400 + $ocsf.activity_id

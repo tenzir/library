@@ -47,53 +47,32 @@ if $source.match_regex($dhcpv4_classifier_pattern) {
     $event.family = "dhcpv4"
     $event.category = "transaction"
     $event.dhcp4o6 = $source.starts_with("DHCP4o6 ")
+    $event.template = $event.message_type.to_lower()
     if $event.release_requested_address? != null {
       $event.template = "release_requested_address"
       $event.requested_address = move $event.release_requested_address
-    } else {
-      $event.template = $event.message_type.to_lower()
-      if $event.requested_address? != null {
-        $event.client_ip = move $event.requested_address
-      }
-      if $event.server_identifier? != null {
-        $event.server_ip = move $event.server_identifier
-      }
-      if $event.lease_ip? != null {
-        $event.client_ip = move $event.lease_ip
-      }
-      if $event.declined_ip? != null {
-        $event.client_ip = move $event.declined_ip
-      }
     }
-    if $event.via? != null {
-      $event.via = $event.via.string()
-      $event.via_ip = $event.via.ip()
-      $event.via_interface = $event.via if $event.via_ip == null
+    $event.via = $event.via?.string()
+    $event.via_ip = $event.via?.ip()
+    $event.via_interface = $event.via if $event.via_ip == null
+    $event.client = {
+      uid: $event.client_hardware? else $event.client_id? else $event.client_mac?,
+      mac: move $event.client_mac?,
+      hostname: move $event.client_hostname?,
+      ip: ($event.declined_ip? else $event.lease_ip? else $event.requested_address? else $event.client_ip?) if $event.template != "release_requested_address",
     }
-    if $event.client_mac? != null {
-      $event.client.uid = $event.client_mac
-      $event.client.mac = move $event.client_mac
+    $event.server = {
+      ip: $event.server_identifier? else $event.server_ip?,
     }
-    if $event.client_hostname? != null {
-      $event.client.hostname = move $event.client_hostname
+    $event.lease = {
+      found: $event.lease_found? == "found",
+      status: move $event.lease_found?,
     }
-    if $event.client_ip? != null {
-      $event.client.ip = move $event.client_ip
-    }
-    if $event.client_id? != null {
-      $event.client.uid = move $event.client_id
-    }
-    if $event.client_hardware? != null {
-      $event.client.uid = move $event.client_hardware
-    }
-    if $event.server_ip? != null {
-      $event.server.ip = move $event.server_ip
-    }
-    if $event.lease_found? != null {
-      $event.lease = {
-        found: $event.lease_found == "found",
-        status: move $event.lease_found,
-      }
+    drop $event.client_hardware?, $event.client_id?, $event.declined_ip?,
+      $event.lease_ip?, $event.client_ip?, $event.server_identifier?,
+      $event.server_ip?
+    if $event.template != "release_requested_address" {
+      drop $event.requested_address?
     }
   }
 }

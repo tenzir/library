@@ -36,27 +36,13 @@ if $source.starts_with("BOOT") or $source.starts_with("DHCP4o6 BOOT") {
     $event.via_ip = $event.via.ip()
     $event.via_interface = $event.via if $event.via_ip == null
     $event.dhcp4o6 = $source.starts_with("DHCP4o6 ")
-    if $event.lease_ip? != null {
-      $event.client_ip = move $event.lease_ip
+    $event.client = {
+      uid: $event.client_hardware? else $event.client_id? else $event.client_mac?,
+      mac: move $event.client_mac?,
+      hostname: $event.host_name? else $event.client_hostname?,
+      ip: $event.lease_ip? else $event.client_ip?,
     }
-    if $event.host_name? != null {
-      $event.client_hostname = move $event.host_name
-    }
-    if $event.client_mac? != null {
-      $event.client.uid = $event.client_mac
-      $event.client.mac = move $event.client_mac
-    }
-    if $event.client_hostname? != null {
-      $event.client.hostname = move $event.client_hostname
-    }
-    if $event.client_ip? != null {
-      $event.client.ip = move $event.client_ip
-    }
-    if $event.client_id? != null {
-      $event.client.uid = move $event.client_id
-    }
-    if $event.client_hardware? != null {
-      $event.client.uid = move $event.client_hardware
-    }
+    drop $event.client_hardware?, $event.client_id?, $event.host_name?,
+      $event.client_hostname?, $event.lease_ip?, $event.client_ip?
   }
 }
