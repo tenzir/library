@@ -12,6 +12,3 @@ Use `zeek::ocsf::normalize` to normalize structured Zeek events to OCSF 1.9:
 ```tql
 zeek::ocsf::normalize
 ```
-
-The lower-level `zeek::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
