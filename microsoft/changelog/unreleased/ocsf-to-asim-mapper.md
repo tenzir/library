@@ -14,14 +14,15 @@ validated OCSF 1.9 events into flat Microsoft Sentinel ASIM records. It takes an
 optional positional source field and a named `into` output, both defaulting to
 `this`.
 
-Windows Event Log and Microsoft Graph source mappings take positional source
-and OCSF output fields:
+Normalize a structured Windows Event Log or Microsoft Graph record before
+translating it to ASIM:
 
 ```tql
-microsoft::windows::ocsf::map windows, ocsf
-microsoft::graph::ocsf::map graph, ocsf
-microsoft::asim::from_ocsf ocsf, into=asim
+microsoft::windows::ocsf::normalize
+microsoft::asim::from_ocsf
 ```
+
+Use `microsoft::graph::ocsf::normalize` instead for Microsoft Graph records.
 
 The ASIM translator covers authentication, process, audit, user-management,
 alert, file, network, DNS, DHCP, and web session schemas.
