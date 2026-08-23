@@ -10,94 +10,195 @@ args:
       description: The field that receives the OCSF event.
 ---
 
+
 $ocsf = {
-  activity_id: 2,
-  actor: {app_name: "Tenzir"},
-  category_uid: 5,
-  class_uid: 5021,
-  metadata: {
-    product: {
-      name: "alphaMountain API",
-      vendor_name: "alphaMountain",
-    },
-    version: "1.9.0",
-  },
-  osint: [{
+  osint: {
     src_url: "https://www.alphamountain.ai/api/",
     vendor_name: "alphaMountain",
-    value: ip($event.uri? else $event.hostname? else $event.domain? else $event.sections?.whois?.domain? else $event.url?).string()
-      if ip($event.uri? else $event.hostname? else $event.domain? else $event.sections?.whois?.domain? else $event.url?) != null
-      else ($event.uri? else $event.hostname? else $event.domain? else $event.sections?.whois?.domain? else $event.url?),
-    type_id: 1
-      if ip($event.uri? else $event.hostname? else $event.domain? else $event.sections?.whois?.domain? else $event.url?) != null
-      else 5 if $event.uri? != null
-      else 2 if $event.hostname? != null or $event.domain? != null or $event.sections?.whois?.domain? != null
-      else 5 if $event.url? != null
-      else 0,
-    ...({
-      reputation: {
-        base_score: $event.score? else $event.threat?.score? else $event.sections?.threat?.score?,
-        provider: "alphaMountain",
-        score_id: 10 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() >= 9
-          else 9 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 8
-          else 8 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 7
-          else 7 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 6
-          else 6 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 5
-          else 5 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 4
-          else 4 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 3
-          else 3 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() == 2
-          else 2 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?) > 0
-          else 1,
-      },
-      risk_score: ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).round().int(),
-      severity_id: 4 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() >= 8
-        else 3 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() >= 6
-        else 2 if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?).int() >= 3
-        else 1,
-    } if ($event.score? else $event.threat?.score? else $event.sections?.threat?.score?) != null else {severity_id: 1}),
-    confidence_id: 3 if (($event.confidence? else $event.category?.confidence? else $event.sections?.category?.confidence?) * 10).int() >= 8
-      else 2 if (($event.confidence? else $event.category?.confidence? else $event.sections?.category?.confidence?) * 10).int() >= 5
-      else 1 if ($event.confidence? else $event.category?.confidence? else $event.sections?.category?.confidence?) != null
-      else 0,
-    ...({
-      category: ($event.category_ids? else $event.categories? else $event.category?.categories? else $event.sections?.category?.categories?).map(id => id.string()).join(","),
-      labels: $event.category_labels? else ($event.category_ids? else $event.categories? else $event.category?.categories? else $event.sections?.category?.categories?).map(id => f"alphaMountain category {id}"),
-    } if ($event.category_ids? else $event.categories? else $event.category?.categories? else $event.sections?.category?.categories?) != null else {}),
-    ...({answers: [
-      ...$event.sections?.dns?.ipv4?.map(x => {class: "IN", type: "A", rdata: x.string()}),
-      ...$event.sections?.dns?.ipv6?.map(x => {class: "IN", type: "AAAA", rdata: x.string()}),
-      ...$event.sections?.pdns?.where(x => x.ip? != null).map(x => {class: "IN", type: "A", rdata: x.ip.string()}),
-    ]} if ($event.sections?.dns?.ipv4?.length() else 0) + ($event.sections?.dns?.ipv6?.length() else 0) + ($event.sections?.pdns?.where(x => x.ip? != null).length() else 0) > 0 else {}),
-    ...({
-      location: {
-        country: $event.sections.geo.ipv4[0].isoCode,
-        lat: $event.sections.geo.ipv4[0].latLng[0],
-        long: $event.sections.geo.ipv4[0].latLng[1],
-        provider: "alphaMountain",
-      },
-      ...({autonomous_system: {
-        number: $event.sections.geo.ipv4[0].asn.number,
-        name: $event.sections.geo.ipv4[0].asn.organization,
-      }} if $event.sections.geo.ipv4[0].asn? != null else {}),
-    } if $event.sections?.geo?.ipv4?.length() > 0 else {}),
-    ...({
-      whois: {
-        domain: $event.sections.whois.domain?,
-        registrar: $event.sections.whois.registrar?,
-        created_time: time($event.sections.whois.created?),
-        last_seen_time: time($event.sections.whois.updated?),
-      },
-      expiration_time: time($event.sections.whois.expires?),
-    } if $event.sections?.whois? != null else {}),
-  }],
-  severity_id: 1,
-  time: now(),
-  type_uid: 502102,
+  },
 }
 
+if $event.uri? != null {
+  $ocsf.osint.value = move $event.uri
+  $ocsf.osint.type_id = 5
+} else if $event.hostname? != null {
+  $ocsf.osint.value = move $event.hostname
+  $ocsf.osint.type_id = 2
+} else if $event.domain? != null {
+  $ocsf.osint.value = move $event.domain
+  $ocsf.osint.type_id = 2
+} else if $event.sections?.whois?.domain? != null {
+  $ocsf.osint.value = $event.sections.whois.domain
+  $ocsf.osint.type_id = 2
+} else if $event.url? != null {
+  $ocsf.osint.value = move $event.url
+  $ocsf.osint.type_id = 5
+} else {
+  $ocsf.osint.type_id = 0
+}
+if ip($ocsf.osint.value?) != null {
+  $ocsf.osint.value = ip($ocsf.osint.value).string()
+  $ocsf.osint.type_id = 1
+}
+
+if $event.score? != null {
+  $ocsf.osint.reputation = {base_score: move $event.score, provider: "alphaMountain"}
+} else if $event.threat?.score? != null {
+  $ocsf.osint.reputation = {base_score: move $event.threat.score, provider: "alphaMountain"}
+} else if $event.sections?.threat?.score? != null {
+  $ocsf.osint.reputation = {base_score: move $event.sections.threat.score, provider: "alphaMountain"}
+}
+
+if $ocsf.osint.reputation?.base_score? != null {
+  match $ocsf.osint.reputation.base_score.int() {
+    9 | 10 => {
+      $ocsf.osint.reputation.score_id = 10
+    }
+    8 => {
+      $ocsf.osint.reputation.score_id = 9
+    }
+    7 => {
+      $ocsf.osint.reputation.score_id = 8
+    }
+    6 => {
+      $ocsf.osint.reputation.score_id = 7
+    }
+    5 => {
+      $ocsf.osint.reputation.score_id = 6
+    }
+    4 => {
+      $ocsf.osint.reputation.score_id = 5
+    }
+    3 => {
+      $ocsf.osint.reputation.score_id = 4
+    }
+    2 => {
+      $ocsf.osint.reputation.score_id = 3
+    }
+    0 | 1 if $ocsf.osint.reputation.base_score > 0 => {
+      $ocsf.osint.reputation.score_id = 2
+    }
+    _ => {
+      $ocsf.osint.reputation.score_id = 1
+    }
+  }
+
+  $ocsf.osint.risk_score = $ocsf.osint.reputation.base_score.round().int()
+  match $ocsf.osint.reputation.base_score.int() {
+    8 | 9 | 10 => {
+      $ocsf.osint.severity_id = 4
+    }
+    6 | 7 => {
+      $ocsf.osint.severity_id = 3
+    }
+    3 | 4 | 5 => {
+      $ocsf.osint.severity_id = 2
+    }
+    _ => {
+      $ocsf.osint.severity_id = 1
+    }
+  }
+}
+
+if $event.confidence? != null {
+  $ocsf.osint.confidence_id = 3 if $event.confidence >= 0.8 else 2 if $event.confidence >= 0.5 else 1
+  drop $event.confidence
+} else if $event.category?.confidence? != null {
+  $ocsf.osint.confidence_id = 3 if $event.category.confidence >= 0.8 else 2 if $event.category.confidence >= 0.5 else 1
+  drop $event.category.confidence
+} else if $event.sections?.category?.confidence? != null {
+  $ocsf.osint.confidence_id = 3 if $event.sections.category.confidence >= 0.8 else 2 if $event.sections.category.confidence >= 0.5 else 1
+  drop $event.sections.category.confidence
+}
+
+if $event.category_ids? != null {
+  $ocsf.osint.category = $event.category_ids.map(id => id.string()).join(",")
+  $ocsf.osint.labels = move $event.category_labels? else $event.category_ids.map(id => f"alphaMountain category {id}")
+  drop $event.category_ids
+} else if $event.categories? != null {
+  $ocsf.osint.category = $event.categories.map(id => id.string()).join(",")
+  $ocsf.osint.labels = $event.categories.map(id => f"alphaMountain category {id}")
+  drop $event.categories
+} else if $event.category?.categories? != null {
+  $ocsf.osint.category = $event.category.categories.map(id => id.string()).join(",")
+  $ocsf.osint.labels = $event.category.categories.map(id => f"alphaMountain category {id}")
+  drop $event.category.categories
+} else if $event.sections?.category?.categories? != null {
+  $ocsf.osint.category = $event.sections.category.categories.map(id => id.string()).join(",")
+  $ocsf.osint.labels = $event.sections.category.categories.map(id => f"alphaMountain category {id}")
+  drop $event.sections.category.categories
+}
+
+$ocsf.osint.answers = [
+  ...$event.sections?.dns?.ipv4?.map(ip => {
+    class: "IN",
+    type: "A",
+    rdata: ip.string(),
+  }),
+  ...$event.sections?.dns?.ipv6?.map(ip => {
+    class: "IN",
+    type: "AAAA",
+    rdata: ip.string(),
+  }),
+  ...$event.sections?.pdns?.where(x => x.ip? != null).map(x => {
+    class: "IN",
+    type: "A",
+    rdata: x.ip.string(),
+  }),
+]
+if $event.sections?.geo?.ipv4?.length() > 0 {
+  $ocsf.osint.location = {
+    country: $event.sections.geo.ipv4[0].isoCode,
+    lat: $event.sections.geo.ipv4[0].latLng[0],
+    long: $event.sections.geo.ipv4[0].latLng[1],
+    provider: "alphaMountain",
+  }
+  if $event.sections.geo.ipv4[0].asn? != null {
+    $ocsf.osint.autonomous_system = {
+      number: $event.sections.geo.ipv4[0].asn.number,
+      name: $event.sections.geo.ipv4[0].asn.organization,
+    }
+  }
+}
+
+if $event.sections?.whois? != null {
+  $ocsf.osint.whois = {
+    domain: move $event.sections.whois.domain?,
+    registrar: move $event.sections.whois.registrar?,
+    created_time: time(move $event.sections.whois.created?),
+    last_seen_time: time(move $event.sections.whois.updated?),
+  }
+  $ocsf.osint.expiration_time = time(move $event.sections.whois.expires?)
+}
+
+$ocsf.osint.severity_id = $ocsf.osint.severity_id? else 1
+$ocsf.osint.confidence_id = $ocsf.osint.confidence_id? else 0
+
+$ocsf.osint = [$ocsf.osint]
+$ocsf.activity_id = 2
+$ocsf.actor = {
+  app_name: "Tenzir",
+}
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5021
+$ocsf.metadata = {
+  product: {
+    name: "alphaMountain API",
+    vendor_name: "alphaMountain",
+  },
+  version: "1.9.0",
+}
+$ocsf.severity_id = 1
 if $event.status? != null and type_of($event.status).kind == "string" {
   $ocsf.status = move $event.status
-  $ocsf.status_id = 1 if $ocsf.status == "Success" else 2
+  match $ocsf.status {
+    "Success" => {
+      $ocsf.status_id = 1
+    }
+    _ => {
+      $ocsf.status_id = 2
+    }
+  }
 }
 if $event.error? != null {
   $ocsf.status_id = 2
@@ -109,44 +210,9 @@ if ($event.has("score") and $event.score == null) or
   $ocsf.status = "Removed"
   $ocsf.status_detail = "alphaMountain feed removal"
 }
+$ocsf.time = now()
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-if $event.uri? != null {
-  drop $event.uri
-} else if $event.hostname? != null {
-  drop $event.hostname
-} else if $event.domain? != null {
-  drop $event.domain
-} else if $event.sections?.whois?.domain? == null and $event.url? != null {
-  drop $event.url
-}
-if $event.score? != null {
-  drop $event.score
-} else if $event.threat?.score? != null {
-  drop $event.threat.score
-} else if $event.sections?.threat?.score? != null {
-  drop $event.sections.threat.score
-}
-if $event.confidence? != null {
-  drop $event.confidence
-} else if $event.category?.confidence? != null {
-  drop $event.category.confidence
-} else if $event.sections?.category?.confidence? != null {
-  drop $event.sections.category.confidence
-}
-if $event.category_ids? != null {
-  drop $event.category_ids, $event.category_labels?
-} else if $event.categories? != null {
-  drop $event.categories
-} else if $event.category?.categories? != null {
-  drop $event.category.categories
-} else if $event.sections?.category?.categories? != null {
-  drop $event.sections.category.categories
-}
-if $event.sections?.whois? != null {
-  drop $event.sections.whois.domain?, $event.sections.whois.registrar?,
-       $event.sections.whois.created?, $event.sections.whois.updated?,
-       $event.sections.whois.expires?
-}
 
 @name = "ocsf.osint_inventory_info"
 
