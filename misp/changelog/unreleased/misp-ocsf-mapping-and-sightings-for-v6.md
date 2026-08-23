@@ -15,7 +15,7 @@ Use the reusable OCSF mapper for fetched MISP events, and submit sightings with
 `each` and `from_http` in your own pipeline:
 
 ```tql
-misp::event::ocsf::map this, this
+misp::event::ocsf::normalize
 ```
 
 Existing pipelines that relied on packaged sighting submission should move that
