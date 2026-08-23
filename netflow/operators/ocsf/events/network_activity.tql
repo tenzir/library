@@ -1,9 +1,12 @@
 ---
 description: NetFlow or IPFIX flow record to OCSF Network Activity.
 args:
-  named:
+  positional:
     - name: event
-      description: The mapper working record.
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
       type: field
 ---
 
@@ -13,141 +16,141 @@ let $sys_uptime_period = 4294967296ms
 // --- OCSF: classification attributes ----------
 
 @name = "ocsf.network_activity"
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4001
-$event.ocsf.activity_id = 6
-$event.ocsf.severity_id = 1
-$event.ocsf.status_id = 0
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.initiator_id = 0
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 6
+$ocsf.severity_id = 1
+$ocsf.status_id = 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.initiator_id = 0
 
 // --- OCSF: occurrence attributes --------------
 
-$event.ocsf.traffic.start_time = (
-  (move $event.source.flow_start?) else
-  (move $event.source.flow_start_nanoseconds?) else
-  (move $event.source.flow_start_microseconds?) else
-  (move $event.source.flow_start_milliseconds?) else
-  (move $event.source.flow_start_seconds?)
+$ocsf.traffic.start_time = (
+  (move $event.flow_start?) else
+  (move $event.flow_start_nanoseconds?) else
+  (move $event.flow_start_microseconds?) else
+  (move $event.flow_start_milliseconds?) else
+  (move $event.flow_start_seconds?)
 )
-$event.ocsf.traffic.end_time = (
-  (move $event.source.flow_end?) else
-  (move $event.source.flow_end_nanoseconds?) else
-  (move $event.source.flow_end_microseconds?) else
-  (move $event.source.flow_end_milliseconds?) else
-  (move $event.source.flow_end_seconds?)
+$ocsf.traffic.end_time = (
+  (move $event.flow_end?) else
+  (move $event.flow_end_nanoseconds?) else
+  (move $event.flow_end_microseconds?) else
+  (move $event.flow_end_milliseconds?) else
+  (move $event.flow_end_seconds?)
 )
 
 // Account for the 32-bit exporter uptime counter wrapping every 49.7 days.
-$event.ocsf.traffic.start_time = $event.ocsf.traffic.start_time else (
-  $event.source.netflow.export_time? - (
-    $event.source.netflow.sys_uptime? -
-      (move $event.source.flow_start_sys_up_time?).milliseconds()
-    if $event.source.netflow.sys_uptime? >=
-       $event.source.flow_start_sys_up_time?.milliseconds()
+$ocsf.traffic.start_time = $ocsf.traffic.start_time else (
+  $event.netflow.export_time? - (
+    $event.netflow.sys_uptime? -
+      (move $event.flow_start_sys_up_time?).milliseconds()
+    if $event.netflow.sys_uptime? >=
+       $event.flow_start_sys_up_time?.milliseconds()
     else $sys_uptime_period -
-         (move $event.source.flow_start_sys_up_time?).milliseconds() +
-         $event.source.netflow.sys_uptime?
+         (move $event.flow_start_sys_up_time?).milliseconds() +
+         $event.netflow.sys_uptime?
   )
 )
-$event.ocsf.traffic.end_time = $event.ocsf.traffic.end_time else (
-  $event.source.netflow.export_time? - (
-    $event.source.netflow.sys_uptime? -
-      (move $event.source.flow_end_sys_up_time?).milliseconds()
-    if $event.source.netflow.sys_uptime? >=
-       $event.source.flow_end_sys_up_time?.milliseconds()
+$ocsf.traffic.end_time = $ocsf.traffic.end_time else (
+  $event.netflow.export_time? - (
+    $event.netflow.sys_uptime? -
+      (move $event.flow_end_sys_up_time?).milliseconds()
+    if $event.netflow.sys_uptime? >=
+       $event.flow_end_sys_up_time?.milliseconds()
     else $sys_uptime_period -
-         (move $event.source.flow_end_sys_up_time?).milliseconds() +
-         $event.source.netflow.sys_uptime?
+         (move $event.flow_end_sys_up_time?).milliseconds() +
+         $event.netflow.sys_uptime?
   )
 )
 
-$event.ocsf.time = $event.ocsf.traffic.start_time else
-                   $event.ocsf.traffic.end_time else
-                   $event.source.netflow.export_time?
-$event.ocsf.traffic.timespan.duration = count_milliseconds(
-  $event.ocsf.traffic.end_time? - $event.ocsf.traffic.start_time?
+$ocsf.time = $ocsf.traffic.start_time else
+                   $ocsf.traffic.end_time else
+                   $event.netflow.export_time?
+$ocsf.traffic.timespan.duration = count_milliseconds(
+  $ocsf.traffic.end_time? - $ocsf.traffic.start_time?
 ).round()
 
 // --- OCSF: primary attributes -----------------
 
-$event.ocsf.src_endpoint = {
+$ocsf.src_endpoint = {
   ip: (
-    (move $event.source.source_ipv6_address?)
-    if $event.source.ip_version? == 6
-  ) else (move $event.source.source_ipv4_address?) else
-         (move $event.source.source_ipv6_address?),
-  port: move $event.source.source_transport_port?,
-  mac: move $event.source.source_mac_address?,
+    (move $event.source_ipv6_address?)
+    if $event.ip_version? == 6
+  ) else (move $event.source_ipv4_address?) else
+         (move $event.source_ipv6_address?),
+  port: move $event.source_transport_port?,
+  mac: move $event.source_mac_address?,
   autonomous_system: {
-    number: move $event.source.bgp_source_as_number?,
+    number: move $event.bgp_source_as_number?,
   },
   proxy_endpoint: {
     ip: (
-      (move $event.source.post_nat_source_ipv6_address?)
-      if $event.source.ip_version? == 6
-    ) else (move $event.source.post_nat_source_ipv4_address?) else
-           (move $event.source.post_nat_source_ipv6_address?),
-    port: move $event.source.post_napt_source_transport_port?,
+      (move $event.post_nat_source_ipv6_address?)
+      if $event.ip_version? == 6
+    ) else (move $event.post_nat_source_ipv4_address?) else
+           (move $event.post_nat_source_ipv6_address?),
+    port: move $event.post_napt_source_transport_port?,
   },
 }
 
-$event.ocsf.dst_endpoint = {
+$ocsf.dst_endpoint = {
   ip: (
-    (move $event.source.destination_ipv6_address?)
-    if $event.source.ip_version? == 6
-  ) else (move $event.source.destination_ipv4_address?) else
-         (move $event.source.destination_ipv6_address?),
-  port: move $event.source.destination_transport_port?,
-  mac: move $event.source.destination_mac_address?,
+    (move $event.destination_ipv6_address?)
+    if $event.ip_version? == 6
+  ) else (move $event.destination_ipv4_address?) else
+         (move $event.destination_ipv6_address?),
+  port: move $event.destination_transport_port?,
+  mac: move $event.destination_mac_address?,
   autonomous_system: {
-    number: move $event.source.bgp_destination_as_number?,
+    number: move $event.bgp_destination_as_number?,
   },
   proxy_endpoint: {
     ip: (
-      (move $event.source.post_nat_destination_ipv6_address?)
-      if $event.source.ip_version? == 6
-    ) else (move $event.source.post_nat_destination_ipv4_address?) else
-           (move $event.source.post_nat_destination_ipv6_address?),
-    port: move $event.source.post_napt_destination_transport_port?,
+      (move $event.post_nat_destination_ipv6_address?)
+      if $event.ip_version? == 6
+    ) else (move $event.post_nat_destination_ipv4_address?) else
+           (move $event.post_nat_destination_ipv6_address?),
+    port: move $event.post_napt_destination_transport_port?,
   },
 }
 
 // IPFIX `flow_direction` is relative to the observation point, whereas OCSF
 // direction is relative to the monitored network boundary. Preserve the source
 // value in `unmapped` because the latter cannot be inferred here.
-$event.ocsf.connection_info = {
+$ocsf.connection_info = {
   direction_id: 0,
-  protocol_num: move $event.source.protocol_identifier?,
-  tcp_flags: move $event.source.tcp_control_bits?,
-  uid: (move $event.source.flow_id?).string(),
+  protocol_num: move $event.protocol_identifier?,
+  tcp_flags: move $event.tcp_control_bits?,
+  uid: (move $event.flow_id?).string(),
 }
-$event.ocsf.connection_info.protocol_ver_id = (
-  (move $event.source.ip_version?).int()
-  if $event.source.ip_version? in [4, 6]
-  else 6 if $event.ocsf.src_endpoint.ip?.is_v6() or
-            $event.ocsf.dst_endpoint.ip?.is_v6()
-  else 4 if $event.ocsf.src_endpoint.ip? != null or
-            $event.ocsf.dst_endpoint.ip? != null
+$ocsf.connection_info.protocol_ver_id = (
+  (move $event.ip_version?).int()
+  if $event.ip_version? in [4, 6]
+  else 6 if $ocsf.src_endpoint.ip?.is_v6() or
+            $ocsf.dst_endpoint.ip?.is_v6()
+  else 4 if $ocsf.src_endpoint.ip? != null or
+            $ocsf.dst_endpoint.ip? != null
   else 0
 )
 // A NetFlow or IPFIX flow record is unidirectional: its counters describe
 // packets flowing from the record's source to its destination. Biflow
 // exporters instead report both directions with the initiator and responder
 // elements from RFC 5103.
-$event.ocsf.traffic.bytes_out = (move $event.source.initiator_octets?) else
-                                (move $event.source.octet_delta_count?)
-$event.ocsf.traffic.bytes_in = move $event.source.responder_octets?
-$event.ocsf.traffic.packets_out = (move $event.source.initiator_packets?) else
-                                  (move $event.source.packet_delta_count?)
-$event.ocsf.traffic.packets_in = move $event.source.responder_packets?
-$event.ocsf.traffic.bytes = (
-  $event.ocsf.traffic.bytes_out + $event.ocsf.traffic.bytes_in
-) else $event.ocsf.traffic.bytes_out else $event.ocsf.traffic.bytes_in
-$event.ocsf.traffic.packets = (
-  $event.ocsf.traffic.packets_out + $event.ocsf.traffic.packets_in
-) else $event.ocsf.traffic.packets_out else $event.ocsf.traffic.packets_in
-$event.ocsf.cumulative_traffic = {
-  bytes: move $event.source.octet_total_count?,
-  packets: move $event.source.packet_total_count?,
+$ocsf.traffic.bytes_out = (move $event.initiator_octets?) else
+                                (move $event.octet_delta_count?)
+$ocsf.traffic.bytes_in = move $event.responder_octets?
+$ocsf.traffic.packets_out = (move $event.initiator_packets?) else
+                                  (move $event.packet_delta_count?)
+$ocsf.traffic.packets_in = move $event.responder_packets?
+$ocsf.traffic.bytes = (
+  $ocsf.traffic.bytes_out + $ocsf.traffic.bytes_in
+) else $ocsf.traffic.bytes_out else $ocsf.traffic.bytes_in
+$ocsf.traffic.packets = (
+  $ocsf.traffic.packets_out + $ocsf.traffic.packets_in
+) else $ocsf.traffic.packets_out else $ocsf.traffic.packets_in
+$ocsf.cumulative_traffic = {
+  bytes: move $event.octet_total_count?,
+  packets: move $event.packet_total_count?,
 }
