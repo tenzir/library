@@ -17,27 +17,16 @@ $ocsf.activity_id = 1
 $ocsf.opcode_id = 0
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-if $event.timestamp? != null {
-  $ocsf.time = move $event.timestamp
-  $ocsf.query_time = $ocsf.time
-}
-
-if $event.external_ip? != null {
-  $ocsf.src_endpoint.ip = move $event.external_ip
-}
-if $event.internal_ip? != null {
-  $ocsf.device.ip = move $event.internal_ip
-}
+$ocsf.time = move $event.timestamp?
+$ocsf.query_time = $ocsf.time
+$ocsf.src_endpoint.ip = move $event.external_ip?
+$ocsf.device.ip = move $event.internal_ip?
 $ocsf.dst_endpoint.name = "Cisco Umbrella DNS"
-
-if $event.domain? != null {
-  $ocsf.query.hostname = move $event.domain
-}
-if $event.query_type? != null {
-  $event.query_type = $event.query_type.parse_grok(r"%{NUMBER:value} \(%{WORD:name}\)")
-  $ocsf.query.type = $event.query_type.name
-  drop $event.query_type
-}
+$ocsf.query.hostname = move $event.domain?
+$event.query_type = $event.query_type?.parse_grok(
+  r"%{NUMBER:value} \(%{WORD:name}\)",
+)
+$ocsf.query.type = move $event.query_type?.name?
 
 let $rcode_mapping = {
   NOERROR: {rcode_id: 0, rcode: "NoError"},
@@ -79,8 +68,6 @@ match $event.action? {
     $ocsf.action_id = 0
   }
 }
-if $event.action? != null {
-  $ocsf.action = move $event.action
-}
+$ocsf.action = move $event.action?
 
 $ocsf.status_id = 1
