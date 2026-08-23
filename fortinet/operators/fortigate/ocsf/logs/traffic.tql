@@ -54,10 +54,14 @@ $event.ocsf.connection_info = {
   uid: (move $event.fortinet.sessionid).string(),
   direction_id: 0,
 }
-if $event.fortinet.srcintfrole? == "lan" and $event.fortinet.dstintfrole? == "wan" {
-  $event.ocsf.connection_info.direction_id = 2  // Outbound
-} else if $event.fortinet.srcintfrole? == "wan" and $event.fortinet.dstintfrole? == "lan" {
-  $event.ocsf.connection_info.direction_id = 1  // Inbound
+match [$event.fortinet.srcintfrole?, $event.fortinet.dstintfrole?] {
+  ["lan", "wan"] => {
+    $event.ocsf.connection_info.direction_id = 2  // Outbound
+  }
+  ["wan", "lan"] => {
+    $event.ocsf.connection_info.direction_id = 1  // Inbound
+  }
+  _ => {}
 }
 drop $event.fortinet.srcintfrole?
 drop $event.fortinet.dstintfrole?
