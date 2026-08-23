@@ -339,22 +339,26 @@ if $event.ocsf.category_uid == 1 and $event.udm.principal?.process? != null {
 }
 
 if $event.udm.target?.process? != null {
-  if $event.ocsf.class_uid == 1007 {
-    if $event.udm.target.process.pid? != null and $event.udm.target.process.pid.string().is_numeric() {
-      $event.ocsf.process.pid = int($event.udm.target.process.pid)
+  match $event.ocsf.class_uid {
+    1007 => {
+      if $event.udm.target.process.pid? != null and $event.udm.target.process.pid.string().is_numeric() {
+        $event.ocsf.process.pid = int($event.udm.target.process.pid)
+      }
+      $event.ocsf.process.cmd_line = $event.udm.target.process.commandLine?
+      $event.ocsf.process.file.path = $event.udm.target.process.file?.fullPath?
+      $event.ocsf.process.file.name = $event.udm.target.process.file?.names?[0]?
     }
-    $event.ocsf.process.cmd_line = $event.udm.target.process.commandLine?
-    $event.ocsf.process.file.path = $event.udm.target.process.file?.fullPath?
-    $event.ocsf.process.file.name = $event.udm.target.process.file?.names?[0]?
-  } else if $event.ocsf.class_uid == 1005 {
-    $event.ocsf.module.file.path = $event.udm.target.process.file?.fullPath?
-    $event.ocsf.module.file.name = $event.udm.target.process.file?.names?[0]?
-    if $event.udm.target.process.file?.sha256? != null {
-      $event.ocsf.module.file.hashes = [{
-        algorithm_id: 3,
-        value: $event.udm.target.process.file.sha256,
-      }]
+    1005 => {
+      $event.ocsf.module.file.path = $event.udm.target.process.file?.fullPath?
+      $event.ocsf.module.file.name = $event.udm.target.process.file?.names?[0]?
+      if $event.udm.target.process.file?.sha256? != null {
+        $event.ocsf.module.file.hashes = [{
+          algorithm_id: 3,
+          value: $event.udm.target.process.file.sha256,
+        }]
+      }
     }
+    _ => {}
   }
 }
 
