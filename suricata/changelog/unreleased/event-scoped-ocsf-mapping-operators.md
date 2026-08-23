@@ -12,6 +12,3 @@ Use `suricata::ocsf::normalize` to normalize structured Suricata EVE events to O
 ```tql
 suricata::ocsf::normalize
 ```
-
-The lower-level `suricata::ocsf::map` operator remains available for pipelines that need
-separate structured source and OCSF output fields.
