@@ -13,6 +13,3 @@ events to OCSF 1.9:
 ```tql
 fortinet::fortigate::ocsf::normalize
 ```
-
-The lower-level `fortinet::fortigate::ocsf::map` operator remains available for
-pipelines that need separate structured source and OCSF output fields.
