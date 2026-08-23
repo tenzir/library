@@ -1,5 +1,5 @@
 ---
-title: Event-scoped OCSF mapping operators
+title: OCSF 1.9 normalization contract
 type: breaking
 authors:
   - mavam
@@ -7,12 +7,11 @@ authors:
 created: 2026-06-13T07:58:15.702248Z
 ---
 
-`checkpoint::ocsf::map` takes the structured source and OCSF output fields
-positionally:
+Use `checkpoint::ocsf::normalize` to normalize structured Check Point events to OCSF 1.9:
 
 ```tql
-checkpoint::ocsf::map source, ocsf
+checkpoint::ocsf::normalize
 ```
 
-The mapper targets OCSF 1.9. URL and Application Control records now use HTTP
-Activity because OCSF deprecated Web Resource Access Activity.
+The lower-level `checkpoint::ocsf::map` operator remains available for pipelines that need
+separate structured source and OCSF output fields.
