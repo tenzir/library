@@ -10,57 +10,38 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-
-$ocsf = {}
-
-$event._osint = {}
-$event._osint.category = move $event.threat?
-$event._osint.confidence_id = 3
-$event._osint.created_time = time($event.dateadded)
-drop $event.dateadded
-$event._osint.external_uid = string(move $event.id)
-if $event.last_online? != null {
-  $event._osint.modified_time = time($event.last_online)
-  drop $event.last_online
-}
-if $event.reporter? != null {
-  $event._osint.creator = {
-    name: move $event.reporter,
-  }
-}
-if $event.tags? != null {
-  $event._osint.labels = (move $event.tags).split(",")
-}
-if $event.urlhaus_link? != null {
-  $event._osint.references = [$event.urlhaus_link]
-  $event._osint.src_url = move $event.urlhaus_link
-} else {
-  $event._osint.src_url = "https://urlhaus.abuse.ch/"
-}
-$event._osint.severity_id = 4
-$event._osint.type_id = 5
-$event._osint.value = move $event.url
-$event._osint.vendor_name = "abuse.ch"
-
-$ocsf = {}
-$ocsf.activity_id = 2
-$ocsf.actor = {
-  app_name: "Tenzir",
-}
-$ocsf.category_uid = 5
-$ocsf.class_uid = 5021
-$ocsf.metadata = {
-  product: {
-    name: "URLhaus",
-    vendor_name: "abuse.ch",
+$ocsf = {
+  activity_id: 2,
+  actor: {app_name: "Tenzir"},
+  category_uid: 5,
+  class_uid: 5021,
+  metadata: {
+    product: {
+      name: "URLhaus",
+      vendor_name: "abuse.ch",
+    },
+    version: "1.9.0",
   },
-  version: "1.9.0",
+  osint: [{
+    category: move $event.threat?,
+    confidence_id: 3,
+    created_time: time($event.dateadded),
+    creator: {name: move $event.reporter} if $event.reporter? != null,
+    external_uid: string(move $event.id),
+    labels: (move $event.tags).split(",") if $event.tags? != null,
+    modified_time: time($event.last_online) if $event.last_online? != null,
+    references: [$event.urlhaus_link] if $event.urlhaus_link? != null,
+    severity_id: 4,
+    src_url: move $event.urlhaus_link if $event.urlhaus_link? != null else "https://urlhaus.abuse.ch/",
+    type_id: 5,
+    value: move $event.url,
+    vendor_name: "abuse.ch",
+  }],
+  severity_id: 1,
+  time: time(move $event.dateadded),
+  type_uid: 502102,
 }
-$ocsf = {...$ocsf, osint: [move $event._osint]}
-$ocsf.severity_id = 1
-$ocsf.time = $ocsf.osint[0].created_time
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
+drop $event.last_online?
 
 @name = "ocsf.osint_inventory_info"
 

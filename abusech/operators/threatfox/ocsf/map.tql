@@ -10,9 +10,6 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-
-$ocsf = {}
-
 let $type_ids = {
   domain: 2,
   hostname: 3,
@@ -24,69 +21,43 @@ let $type_ids = {
   url: 5,
 }
 
-$event._osint = {}
-if $event.confidence_level? != null {
-  match $event.confidence_level {
-    -1..30 => {
-      $event._osint.confidence_id = 1
-    }
-    29..70 => {
-      $event._osint.confidence_id = 2
-    }
-    _ => {
-      $event._osint.confidence_id = 3
-    }
-  }
-  $event._osint.risk_score = move $event.confidence_level
-}
-if $event.first_seen? != null {
-  $event._osint.created_time = $event.first_seen
-  drop $event.first_seen
-}
-if $event.last_seen? != null {
-  $event._osint.modified_time = time($event.last_seen)
-  drop $event.last_seen
-}
-if $event.malware_printable? != null or $event.malware? != null {
-  $event._osint.malware = [{
-    classification_ids: [0],
-    name: move $event.malware_printable? else move $event.malware?,
-    provider: "ThreatFox",
-  }]
-}
-$event._osint.category = move $event.threat_type?
-$event._osint.desc = move $event.threat_type_desc?
-$event._osint.labels = move $event.tags?
-$event._osint.references = [move $event.reference] if $event.reference? != null
-$event._osint.src_url = "https://threatfox.abuse.ch/ioc/" + encode_url($event.ioc)
-$event._osint.type_id = $type_ids[$event.ioc_type]? else 99
-if $event._osint.type_id == 99 {
-  $event._osint.type = move $event.ioc_type
-} else {
-  drop $event.ioc_type
-}
-$event._osint.value = move $event.ioc
-$event._osint.vendor_name = "abuse.ch"
-
-$ocsf = {}
-$ocsf.activity_id = 2
-$ocsf.actor = {
-  app_name: "Tenzir",
-}
-$ocsf.category_uid = 5
-$ocsf.class_uid = 5021
-$ocsf.metadata = {
-  product: {
-    name: "ThreatFox",
-    vendor_name: "abuse.ch",
+$ocsf = {
+  activity_id: 2,
+  actor: {app_name: "Tenzir"},
+  category_uid: 5,
+  class_uid: 5021,
+  metadata: {
+    product: {
+      name: "ThreatFox",
+      vendor_name: "abuse.ch",
+    },
+    version: "1.9.0",
   },
-  version: "1.9.0",
+  osint: [{
+    category: move $event.threat_type?,
+    confidence_id: 1 if $event.confidence_level? <= 30 else 2 if $event.confidence_level? <= 70 else 3 if $event.confidence_level? != null,
+    created_time: $event.first_seen?,
+    desc: move $event.threat_type_desc?,
+    labels: move $event.tags?,
+    malware: [{
+      classification_ids: [0],
+      name: move $event.malware_printable? else move $event.malware?,
+      provider: "ThreatFox",
+    }] if $event.malware_printable? != null or $event.malware? != null,
+    ...({modified_time: time(move $event.last_seen)} if $event.last_seen? != null else {}),
+    ...({references: [move $event.reference]} if $event.reference? != null else {}),
+    risk_score: move $event.confidence_level?,
+    src_url: "https://threatfox.abuse.ch/ioc/" + encode_url($event.ioc),
+    type_id: $type_ids[$event.ioc_type]? else 99,
+    ...({type: move $event.ioc_type} if $type_ids[$event.ioc_type]? == null or $type_ids[$event.ioc_type] == 99 else {}),
+    value: move $event.ioc,
+    vendor_name: "abuse.ch",
+  }],
+  severity_id: 1,
+  time: $event.first_seen? else now(),
+  type_uid: 502102,
 }
-$ocsf = {...$ocsf, osint: [move $event._osint]}
-$ocsf.severity_id = 1
-$ocsf.time = $ocsf.osint[0].created_time? else now()
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
+drop $event.first_seen?, $event.ioc_type?
 
 @name = "ocsf.osint_inventory_info"
 
