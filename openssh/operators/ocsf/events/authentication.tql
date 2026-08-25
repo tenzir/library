@@ -13,35 +13,124 @@ args:
 let $activity_ids = {
   logon: 1,
   logoff: 2,
+  preauth: 6,
 }
-let $status_details = {
-  failed: "INVALID_CREDENTIALS",
-  invalid_user: "USER_DOES_NOT_EXIST",
-  max_auth_attempts: "MAX_ATTEMPTS_EXCEEDED",
-}
-
 @name = "ocsf.authentication"
 
-$ocsf.status_detail = $status_details[$openssh.template]?
-// A login against an account that does not exist fails for that reason, unless
-// OpenSSH already gave a more specific one.
-if $openssh.user.is_invalid and $openssh.template != "max_auth_attempts" {
-  $ocsf.status_detail = "USER_DOES_NOT_EXIST"
+if $openssh.template in [
+  "account_locked",
+  "connection_closed",
+  "failed",
+  "invalid_user",
+  "max_auth_attempts",
+  "missing_login_user",
+  "pam_authentication_failure",
+  "too_many_authentication_failures",
+] {
+  $openssh.failure_reason = $openssh.template
 }
 
 $ocsf.category_uid = 3
 $ocsf.class_uid = 3002
 $ocsf.activity_id = $activity_ids[move $openssh.activity]
-$ocsf.user.name = move $openssh.user.name
-$ocsf.src_endpoint.ip = move $openssh.source.ip
-$ocsf.src_endpoint.port = move $openssh.source.port
+if $openssh.user.name? != null {
+  $ocsf.user.name = move $openssh.user.name
+}
+if $openssh.user.uid? != null {
+  $ocsf.user.uid = move $openssh.user.uid
+}
+if $openssh.credential? != null and $openssh.method? == "publickey" {
+  $ocsf.user.credential_uid = $openssh.credential.split(" ")[1]
+}
+if $openssh.source.ip? != null {
+  $ocsf.src_endpoint.ip = move $openssh.source.ip?
+}
+if $openssh.source.port? != null {
+  $ocsf.src_endpoint.port = move $openssh.source.port?
+}
 $ocsf.dst_endpoint.hostname = move $openssh.hostname?
+if $openssh.destination?.ip? != null {
+  $ocsf.dst_endpoint.ip = move $openssh.destination.ip?
+}
+if $openssh.destination?.port? != null {
+  $ocsf.dst_endpoint.port = move $openssh.destination.port?
+}
+if $openssh.failure_reason? != null {
+  $ocsf.status_detail = move $openssh.failure_reason
+}
+if $openssh.certificate_error? != null {
+  $ocsf.status_detail = move $openssh.certificate_error
+}
+if $openssh.disconnect_code? != null {
+  $ocsf.status_code = $openssh.disconnect_code.string()
+  drop $openssh.disconnect_code
+}
+if $openssh.disconnect_reason? != null {
+  $ocsf.status_detail = move $openssh.disconnect_reason
+}
+if $openssh.session? != null {
+  $ocsf.session = {
+    created_time: move $openssh.session.time?,
+    expiration_time: move $openssh.session.expiration_time?,
+    is_remote: true,
+    issuer: "sshd",
+    uid: f"{$ocsf.device.hostname?}:{$openssh.child_process_id?}:{$openssh.session.session_id?}",
+  }
+  drop $openssh.session.user?, $openssh.session.source_ip?, $openssh.session.source_port?, $openssh.session.session_id?, $openssh.session.activity?, $openssh.session.template?, $openssh.session.closed?
+  $openssh.session = drop_null_fields($openssh.session)
+}
+if $openssh.child_process_id? != null {
+  $openssh.session_process_id = move $openssh.child_process_id
+}
+certificate_records = $openssh.accepted_keys?.where(item => item.template? == "accepted_certificate")
+key_records = $openssh.accepted_keys?.where(item => item.template? == "accepted_key")
+if certificate_records?.length() > 0 {
+  certificate_record = certificate_records[0]
+  $ocsf.certificate = {
+    issuer: f"{certificate_record.certificate_ca_type} CA {certificate_record.certificate_ca_fingerprint}",
+    serial_number: certificate_record.certificate_serial.string(),
+    uid: certificate_record.certificate_id,
+  }
+}
+authorized_key_locations = distinct(key_records?.map(item => item.key_location?))
+if authorized_key_locations.length() > 0 {
+  $openssh.authorized_key_locations = authorized_key_locations
+}
+certificate_ca_files = distinct(certificate_records?.map(item => item.certificate_ca_file?))
+if certificate_ca_files.length() > 0 {
+  $openssh.certificate_ca_files = certificate_ca_files
+}
+drop $openssh.accepted_keys?
 $ocsf.service.name = "sshd"
 $ocsf.auth_protocol_id = 99
 $ocsf.auth_protocol = "SSH"
-$ocsf.logon_type_id = 10
+$ocsf.logon_type_id = 3
 $ocsf.is_remote = true
 // SSH encrypts the transport regardless of the credential method.
 $ocsf.is_cleartext = false
+if $openssh.auth_methods? == null and $openssh.method? != null {
+  $openssh.auth_methods = [move $openssh.method]
+}
+if $openssh.auth_methods? != null {
+  $ocsf.auth_factors = $openssh.auth_methods.map(method => {
+    factor_type: {password: "Password"}[method]? else method,
+    factor_type_id: {password: 11}[method]? else 99,
+  })
+  has_public_key = $openssh.auth_methods.contains("publickey")
+  has_password = $openssh.auth_methods.contains("password")
+  has_interactive = $openssh.auth_methods.where(method => method.starts_with("keyboard-interactive")).length() > 0
+  $ocsf.is_mfa = has_public_key and (has_password or has_interactive)
+  drop $openssh.auth_methods, $openssh.method?
+}
 
-drop $openssh.template, $openssh.user, $openssh.source
+if $openssh.user.is_invalid? == false {
+  drop $openssh.user.is_invalid
+}
+if $openssh.preauth? == false {
+  drop $openssh.preauth
+}
+drop $openssh.template, $openssh.user.name?, $openssh.user.uid?, $openssh.source, $openssh.destination?, certificate_records?, certificate_record?, key_records?, authorized_key_locations?, certificate_ca_files?, has_public_key?, has_password?, has_interactive?
+$openssh.user = drop_null_fields($openssh.user)
+if $openssh.user.keys().length() == 0 {
+  drop $openssh.user
+}

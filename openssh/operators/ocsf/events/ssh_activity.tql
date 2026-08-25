@@ -1,0 +1,45 @@
+---
+description: Structured OpenSSH connection event → OCSF SSH Activity (4007).
+args:
+  positional:
+    - name: openssh
+      type: field
+    - name: ocsf
+      type: field
+---
+
+let $activity_ids = {
+  open: 1,
+  fail: 4,
+  refuse: 5,
+}
+@name = "ocsf.ssh_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4007
+$ocsf.activity_id = $activity_ids[$openssh.activity]
+$ocsf.status_detail = move $openssh.network_reason?
+if $openssh.source?.ip? != null {
+  $ocsf.src_endpoint.ip = move $openssh.source.ip?
+}
+if $openssh.source?.port? != null {
+  $ocsf.src_endpoint.port = move $openssh.source.port?
+}
+$ocsf.dst_endpoint.hostname = move $openssh.hostname?
+if $openssh.destination?.ip? != null {
+  $ocsf.dst_endpoint.ip = move $openssh.destination.ip?
+}
+if $openssh.destination?.port? != null {
+  $ocsf.dst_endpoint.port = move $openssh.destination.port?
+}
+$ocsf.dst_endpoint.svc_name = "sshd"
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
+$ocsf.connection_info.direction_id = 1
+
+if $openssh.user?.is_invalid? == false {
+  drop $openssh.user
+}
+if $openssh.preauth? == false {
+  drop $openssh.preauth
+}
+drop $openssh.template, $openssh.activity, $openssh.outcome?, $openssh.source, $openssh.destination?

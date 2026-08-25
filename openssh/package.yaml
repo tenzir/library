@@ -5,23 +5,33 @@ author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
 package_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
 
 description: |
-  [OpenSSH](https://www.openssh.com/) is the SSH implementation that ships with
-  virtually every Unix system. Its `sshd` daemon writes free-form messages to
-  Syslog, which makes remote logins one of the most widely deployed and least
-  structured security-relevant log sources.
+  [OpenSSH](https://www.openssh.com/) provides SSH client and server programs
+  for Unix-like systems. Its `sshd` daemon writes free-form messages to Syslog.
+  This package parses those messages and maps them to OCSF.
 
   Operators:
-  - `openssh::ocsf::normalize` - Normalize one raw `sshd` message to OCSF
-    Authentication (class 3002)
-  - `openssh::parse` - Parse one raw `sshd` message
-  - `openssh::ocsf::map` - Map a structured OpenSSH event to OCSF
-    Authentication (class 3002)
 
-  `openssh::ocsf::normalize` takes a Syslog event all the way, in one call with
-  no arguments. It parses the `sshd` message, takes the timestamp and host from
-  the envelope around it, maps the result, and stores the message as provenance.
-  Pipelines that already hold a structured OpenSSH event call
-  `openssh::ocsf::map` instead.
+  - `openssh::ocsf::normalize` normalizes one `sshd` Syslog message to OCSF
+    Authentication (class 3002), SSH Activity (class 4007), Network Activity
+    (class 4001), or Application Lifecycle (class 6002).
+  - `openssh::parse` parses one `sshd` message body.
+  - `openssh::aggregate` optionally combines related parsed records.
+  - `openssh::ocsf::map` maps a structured OpenSSH event to OCSF.
+
+  Call `openssh::ocsf::normalize` without arguments on a stream of Syslog
+  events. The operator parses and maps each record and retains the original
+  Syslog record in `raw_data`.
+
+  The normalizer combines related records with `openssh::aggregate` before
+  mapping. In a staged pipeline, call `openssh::aggregate` between parsing
+  and mapping to get the same behavior, or leave it out for strict
+  one-message-in, one-event-out processing. The aggregator groups records by
+  host, process ID, and event phase in bounded event-time windows. For
+  example, it combines an accepted-key record with its PAM session-open
+  record.
+
+  Use `openssh::ocsf::map` when your pipeline already contains a structured
+  OpenSSH event.
 
   `openssh::parse` and `openssh::ocsf::map` each take the field they read and
   the field they write, in that order, so a staged pipeline reads from left to
@@ -32,19 +42,51 @@ description: |
   openssh::ocsf::map event, ocsf
   ```
 
-  An `sshd` message body carries neither a timestamp nor a host, which is why
-  the normalizer works on the Syslog event rather than the message alone.
+  An `sshd` message body contains neither a timestamp nor a host. The
+  normalizer takes both fields from the Syslog envelope.
 
-  The parser covers the authentication lifecycle that matters for detection:
-  accepted and failed logins, unknown accounts, exhausted authentication
-  attempts, and session termination. It does not structurally parse PAM session
-  messages, key exchange and cipher negotiation, subsystem and SFTP activity, or
-  daemon diagnostics. Those messages become OCSF Base Event records that carry
-  their payload, so downstream pipelines can route them without mistaking them
-  for authentication activity.
+  ## OpenSSH log levels
 
-  The examples show both forms: one call to the normalizer, and the staged
-  version that parses, maps, and adds provenance separately.
+  The package supports OpenSSH's default `INFO` log level. You do not need to
+  change `LogLevel` in `sshd_config`. At `INFO`, the normalizer covers
+  successful and failed authentication, invalid users, exhausted
+  authentication attempts, PAM session events, disconnects, connection
+  failures, MaxStartups refusals, refused forwarding, and protocol errors.
+
+  `VERBOSE` adds optional context, including initial connection records, the
+  authenticated child PID, and session types such as an interactive shell, a
+  remote command, or SFTP.
+
+  Messages without a specific OCSF mapping become OCSF Base Events. The
+  normalizer preserves the full Syslog records in `raw_data`. Source-specific
+  details without an OCSF attribute remain under `unmapped`.
+
+  ## Tested systems
+
+  The raw fixtures exercise the OpenSSH and Syslog packages shipped by:
+
+  - Alpine Linux 3.22
+  - Arch Linux
+  - Debian 13
+  - openSUSE Leap 15.6
+  - Red Hat Universal Base Image 9, representing the RHEL 9 package family
+  - Ubuntu 24.04 LTS
+
+  OpenSSH uses many of the same message formats across Unix-like systems. The
+  package may parse logs from other Linux and BSD variants, but its generated
+  fixtures do not cover them.
+
+  Across all six systems, the fixtures exercise password,
+  keyboard-interactive, ED25519, ECDSA, RSA, OpenSSH user certificates, and
+  the `publickey,password`, `publickey,keyboard-interactive`, and
+  `publickey,publickey` authentication chains. They also cover wrong keys and
+  passwords, expired certificates, invalid users, and denied root logins.
+
+  The fixtures do not claim coverage for GSSAPI or host-based authentication.
+  Those methods need Kerberos or host trust infrastructure. FIDO-backed key
+  authentication needs a security key or authenticator emulator.
+
+  The examples show the normalizer and the staged parse-and-map form.
 categories:
 - sources
 - mappings
