@@ -1,12 +1,9 @@
 ---
 name: Map an OpenSSH message to OCSF in stages
 description: |
-  Runs the same transformation as `openssh::ocsf::normalize`, but one step at a
-  time: parse the message body into an OpenSSH event, add the Syslog envelope
-  fields, map the event to OCSF Authentication, then store the body as
-  provenance. Use this form when a pipeline has to inspect, enrich, or route the
-  parsed event before mapping, or when it picks which representation becomes
-  `raw_data`.
+  Parses an OpenSSH message, adds fields from its Syslog envelope, maps the
+  result to OCSF, and stores the message body in `raw_data`. Use this pipeline
+  when you need to inspect or route the parsed event before mapping it.
 ---
 
 from {
@@ -14,14 +11,10 @@ from {
   hostname: "bastion-01",
   message: "Failed password for invalid user admin from 198.51.100.42 port 49152 ssh2",
 }
-// 1. Parse: the opaque message becomes a structured OpenSSH event.
 openssh::parse message, event
-// 2. Stage: the envelope contributes what the message body cannot carry.
 event.time = move timestamp
 event.hostname = move hostname
-// 3. Map: the OpenSSH event becomes minimal OCSF Authentication.
 openssh::ocsf::map event, ocsf
-// 4. Embed: the caller decides that the message is the event's provenance.
 this = {
   ...ocsf,
   raw_data: message,

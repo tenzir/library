@@ -3,7 +3,8 @@ description: |
   OpenSSH `sshd` events → OCSF.
 
   Reads a structured OpenSSH event, as `openssh::parse` produces it, and builds
-  OCSF Authentication (class 3002) in the second field:
+  the corresponding OCSF Authentication, SSH Activity, Network Activity, or
+  Application Lifecycle event in the second field:
 
   ```tql
   openssh::ocsf::map openssh, ocsf
@@ -13,9 +14,9 @@ description: |
   does not model, becomes an OCSF Base Event.
 
   The operator consumes the source event: what it maps becomes OCSF, and what it
-  cannot map becomes `unmapped` inside the OCSF event. Callers stage the Syslog
-  envelope's `time` and `hostname` into the source event beforehand, and own
-  provenance afterwards.
+  cannot map becomes `unmapped` inside the OCSF event. Callers can add context
+  such as `time` and `hostname` to the source event before mapping. The operator
+  does not preserve the original log record.
 args:
   positional:
     - name: openssh
@@ -34,17 +35,29 @@ let $status_ids = {
 // --- OCSF: shared attributes ------------------
 
 $ocsf = {
-  time: move $openssh.time?,
+  time: move $openssh.time? else $openssh.syslog?.timestamp?,
+  start_time: move $openssh.start_time?,
+  end_time: move $openssh.end_time?,
+  duration: move $openssh.duration?,
+  count: move $openssh.count?,
   severity_id: 1,
   metadata: {
     version: "1.9.0",
-    log_name: "sshd",
     log_provider: "OpenSSH",
+    profiles: ["host"],
     product: {
       name: "OpenSSH",
       vendor_name: "OpenBSD",
     },
   },
+}
+if $openssh.raw_data? != null {
+  $ocsf.raw_data = move $openssh.raw_data
+  $ocsf.raw_data_size = move $openssh.raw_data_size
+}
+$openssh.hostname = move $openssh.hostname? else $openssh.syslog?.hostname?
+if $openssh.hostname? != null {
+  $ocsf.device.hostname = $openssh.hostname
 }
 if $openssh.outcome? != null {
   $ocsf.status_id = $status_ids[move $openssh.outcome]?
@@ -54,6 +67,15 @@ match $openssh.category? {
   "authentication" => {
     openssh::ocsf::events::authentication $openssh, $ocsf
   }
+  "network" => {
+    openssh::ocsf::events::network_activity $openssh, $ocsf
+  }
+  "ssh" => {
+    openssh::ocsf::events::ssh_activity $openssh, $ocsf
+  }
+  "application_lifecycle" => {
+    openssh::ocsf::events::application_lifecycle $openssh, $ocsf
+  }
   _ => {
     @name = "ocsf.base_event"
     $ocsf.category_uid = 0
@@ -62,11 +84,150 @@ match $openssh.category? {
   }
 }
 
+if $openssh.syslog? != null {
+  $ocsf.metadata.log_format = "syslog"
+  if $openssh.syslog.version? != null {
+    $ocsf.metadata.log_version = $openssh.syslog.version.string()
+  }
+  if $openssh.syslog.message_id? != null {
+    $ocsf.metadata.event_code = $openssh.syslog.message_id
+  }
+  if $openssh.syslog.app_name? != null {
+    $ocsf.metadata.log_source = $openssh.syslog.app_name
+  }
+  if $ocsf.class_uid == 0 {
+    $ocsf.message = $openssh.syslog.message.trim_start()
+  }
+  match $openssh.syslog.severity? {
+    0 => {
+      $ocsf.severity_id = 6
+      $ocsf.metadata.log_level = "Emergency"
+    }
+    1 | 2 => {
+      $ocsf.severity_id = 5
+      $ocsf.metadata.log_level = "Alert"
+      if $openssh.syslog.severity == 2 {
+        $ocsf.metadata.log_level = "Critical"
+      }
+    }
+    3 => {
+      $ocsf.severity_id = 4
+      $ocsf.metadata.log_level = "Error"
+    }
+    4 => {
+      $ocsf.severity_id = 3
+      $ocsf.metadata.log_level = "Warning"
+    }
+    5 => {
+      $ocsf.severity_id = 2
+      $ocsf.metadata.log_level = "Notice"
+    }
+    6 => {
+      $ocsf.severity_id = 1
+      $ocsf.metadata.log_level = "Informational"
+    }
+    7 => {
+      $ocsf.severity_id = 1
+      $ocsf.metadata.log_level = "Debug"
+    }
+    _ => {}
+  }
+  if $ocsf.class_uid == 3002 and $openssh.syslog.app_name? != null {
+    $ocsf.logon_process.name = $openssh.syslog.app_name
+  }
+  if $ocsf.class_uid == 3002 and $openssh.syslog.process_id? != null {
+    $ocsf.logon_process.pid = $openssh.syslog.process_id.int()
+  }
+  if $openssh.syslog.structured_data?.keys().length() == 0 {
+    drop $openssh.syslog.structured_data
+  }
+  if $openssh.syslog.facility? != null or $openssh.syslog.structured_data? != null {
+    $openssh.syslog = drop_null_fields({
+      facility: $openssh.syslog.facility?,
+      structured_data: $openssh.syslog.structured_data?,
+    })
+  } else {
+    drop $openssh.syslog
+  }
+}
+
+// OCSF recommends a concise, human-readable summary for display in UIs and
+// alerts. Keep the exact source records in `raw_data`.
+if $ocsf.class_uid == 3002 {
+  if $ocsf.activity_id == 1 and $ocsf.status_id? == 1 {
+    if $ocsf.user?.name? != null and $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"User {$ocsf.user.name} logged in from {$ocsf.src_endpoint.ip}"
+    } else if $ocsf.user?.name? != null {
+      $ocsf.message = f"User {$ocsf.user.name} logged in"
+    } else if $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"An SSH user logged in from {$ocsf.src_endpoint.ip}"
+    } else {
+      $ocsf.message = "An SSH user logged in"
+    }
+    if $ocsf.auth_factors?.length() > 0 {
+      $ocsf.message = f"{$ocsf.message} using {$ocsf.auth_factors.map(factor => factor.factor_type.to_lower()).join(" and ")}"
+    }
+    $ocsf.message = f"{$ocsf.message}."
+  } else if $ocsf.activity_id == 1 and $ocsf.status_id? == 2 {
+    if $ocsf.user?.name? != null and $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"Login for user {$ocsf.user.name} from {$ocsf.src_endpoint.ip} failed."
+    } else if $ocsf.user?.name? != null {
+      $ocsf.message = f"Login for user {$ocsf.user.name} failed."
+    } else if $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"SSH login from {$ocsf.src_endpoint.ip} failed."
+    } else {
+      $ocsf.message = "SSH login failed."
+    }
+  } else if $ocsf.activity_id == 2 {
+    if $ocsf.user?.name? != null and $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"User {$ocsf.user.name} logged out from {$ocsf.src_endpoint.ip}."
+    } else if $ocsf.user?.name? != null {
+      $ocsf.message = f"User {$ocsf.user.name} logged out."
+    } else {
+      $ocsf.message = "An SSH user logged out."
+    }
+  } else if $ocsf.activity_id == 6 {
+    if $ocsf.user?.name? != null and $ocsf.src_endpoint?.ip? != null {
+      $ocsf.message = f"Authentication for user {$ocsf.user.name} from {$ocsf.src_endpoint.ip} is pending."
+    } else {
+      $ocsf.message = "SSH authentication is pending."
+    }
+  }
+} else if $ocsf.class_uid == 4001 {
+  if $ocsf.activity_id == 2 {
+    $ocsf.message = "SSH connection closed."
+  } else if $ocsf.activity_id == 3 {
+    $ocsf.message = "SSH connection reset."
+  } else if $ocsf.activity_id == 4 {
+    $ocsf.message = "SSH connection failed."
+  } else if $ocsf.activity_id == 5 {
+    $ocsf.message = "SSH connection refused."
+  }
+  if $ocsf.src_endpoint?.ip? != null {
+    $ocsf.message = $ocsf.message.trim_end(".") + f" from {$ocsf.src_endpoint.ip}."
+  }
+} else if $ocsf.class_uid == 4007 {
+  if $ocsf.activity_id == 5 {
+    $ocsf.message = "SSH request refused."
+  } else if $ocsf.activity_id == 4 {
+    $ocsf.message = "SSH request failed."
+  } else if $ocsf.activity_id == 1 {
+    $ocsf.message = "SSH connection opened."
+  }
+  if $ocsf.src_endpoint?.ip? != null {
+    $ocsf.message = $ocsf.message.trim_end(".") + f" from {$ocsf.src_endpoint.ip}."
+  }
+} else if $ocsf.class_uid == 6002 {
+  if $ocsf.activity_id == 3 {
+    $ocsf.message = "OpenSSH server started."
+  } else if $ocsf.activity_id == 4 {
+    $ocsf.message = "OpenSSH server stopped."
+  }
+}
+
 // --- Finalize ---------------------------------
-// The event type derives from what the arm set, and whatever the mapping did
-// not consume becomes the residue. The envelope fields the caller staged are
-// not residue, so they go first.
 
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 drop $openssh.category?, $openssh.hostname?
+$openssh = drop_null_fields($openssh)
 $ocsf.unmapped = move $openssh

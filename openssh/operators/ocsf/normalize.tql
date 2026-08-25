@@ -1,24 +1,15 @@
 ---
 description: |
-  Normalizes a Syslog event carrying an OpenSSH `sshd` message to OCSF
-  Authentication (class 3002).
-
-  One call takes the event all the way. It parses the `sshd` message, takes the
-  timestamp and host from the envelope around it, maps the structured event, and
-  stores the message as provenance:
+  Normalizes a Syslog event carrying an OpenSSH `sshd` message to OCSF.
 
   ```tql
-  where app_name == "sshd"
+  where app_name in ["sshd", "sshd-session", "sshd.pam", "sshd-session.pam"]
   openssh::ocsf::normalize
   ```
 
-  The input is a Syslog event as `read_syslog` or `parse_syslog` yields it, which
-  is the shape `sshd` messages arrive in, and it defaults to the whole event. A
-  message template the package does not model becomes an OCSF Base Event that
-  carries the payload.
-
-  Callers that hold an `sshd` message without its envelope use `openssh::parse`
-  and `openssh::ocsf::map` directly.
+  The operator parses the message, combines related records from the same
+  host, process, and event phase, maps the result to OCSF, and preserves the
+  original Syslog records as provenance.
 args:
   positional:
     - name: syslog
@@ -32,15 +23,22 @@ args:
       default: this
 ---
 
-openssh::parse $syslog.message, $into.openssh
-// An `sshd` message carries neither a timestamp nor a host, so the envelope
-// supplies both.
-$into.openssh.time = $syslog.timestamp
-$into.openssh.hostname = $syslog.hostname
-openssh::ocsf::map $into.openssh, $into.ocsf
-
-$into = {
-  ...$into.ocsf,
-  raw_data: $syslog.message,
-  raw_data_size: $syslog.message.length_bytes(),
+$into.syslog = $syslog
+// RFC 5424 calls the body `message`, while RFC 3164 calls it `content`.
+// RFC 3164 also omits the year and timezone from its timestamp. Resolve it
+// relative to ingestion time, as `read_syslog` recommends for live input.
+if $into.syslog.message? == null {
+  $into.syslog.message = move $into.syslog.content?
 }
+if $into.syslog.timestamp?.type_id() == type_id("") {
+  if $into.syslog.timestamp.split(" ")[0] in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] {
+    $into.syslog.timestamp = $into.syslog.timestamp.parse_time("%b %e %H:%M:%S", reference=now())
+  } else {
+    $into.syslog.timestamp = time($into.syslog.timestamp)
+  }
+}
+openssh::parse $into.syslog.message, $into.openssh
+$into.openssh.syslog = $into.syslog
+openssh::aggregate $into.syslog.message, $into.openssh
+openssh::ocsf::map $into.openssh, $into.ocsf
+$into = $into.ocsf

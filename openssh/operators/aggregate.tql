@@ -1,0 +1,335 @@
+---
+description: |
+  Combines related parsed OpenSSH records.
+
+  The operator uses the Syslog envelope attached to the parsed OpenSSH record
+  to combine related records. It updates the OpenSSH field in place:
+
+  ```tql
+  openssh::aggregate syslog.message, openssh
+  ```
+args:
+  positional:
+    - name: log
+      description: The field holding the raw OpenSSH message body.
+      type: field
+    - name: openssh
+      description: The parsed OpenSSH record to update in place.
+      type: field
+---
+
+$openssh = {
+  _openssh: $openssh,
+  _syslog: $openssh.syslog,
+  _message: $log,
+}
+drop $openssh._openssh.syslog
+$openssh._process_id = $openssh._syslog.process_id?
+if $openssh._process_id == null {
+  $openssh._process_id = $openssh._syslog.timestamp.string()
+}
+
+$openssh._phase = f"unmodeled-{$openssh._syslog.timestamp}-{$openssh._message}"
+if $openssh._openssh.template? in ["accepted", "accepted_certificate", "accepted_key", "partial", "pam_session_opened", "session_closed", "session_started", "ssh_connection", "user_child"] {
+  $openssh._phase = "logon"
+} else if $openssh._openssh.template? in ["invalid_user", "missing_login_user"] {
+  $openssh._phase = "invalid_logon"
+} else if $openssh._openssh.template? in ["received_disconnect", "disconnected"] {
+  $openssh._phase = "network_logoff"
+} else if $openssh._openssh.template? in ["certificate_invalid", "pam_authentication_failure", "failed", "account_locked", "max_auth_attempts", "too_many_authentication_failures"] {
+  $openssh._phase = "authentication_failure"
+} else if $openssh._openssh.template? == "connection_closed" and $openssh._openssh.outcome? == "failure" {
+  $openssh._phase = "authentication_failure"
+} else if $openssh._openssh.template? == "postponed" {
+  $openssh._phase = "logon"
+}
+group {
+  hostname: $openssh._syslog.hostname,
+  process_id: $openssh._process_id,
+  phase: $openssh._phase,
+} {
+  window size=1min, on=$openssh._syslog.timestamp, tolerance=10s, idle_timeout=30s {
+    sort $openssh._syslog.timestamp
+    $openssh._primary = $openssh._openssh
+    if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] {
+      $openssh._primary = null
+    }
+    $openssh._primary_syslog = null
+    if $openssh._primary != null {
+      $openssh._primary_syslog = $openssh._syslog
+    }
+    $openssh._auth_method = null
+    if $openssh._openssh.template? in ["accepted", "partial"] {
+      $openssh._auth_method = {
+        timestamp: $openssh._syslog.timestamp,
+        method: $openssh._openssh.method?,
+      }
+    }
+    $openssh._pam = null
+    if $openssh._openssh.template? == "pam_session_opened" {
+      $openssh._pam = $openssh._openssh
+    }
+    $openssh._disconnect = null
+    if $openssh._openssh.template? == "received_disconnect" {
+      $openssh._disconnect = $openssh._openssh
+    }
+    $openssh._postponed = null
+    if $openssh._openssh.template? == "postponed" {
+      $openssh._postponed = $openssh._openssh
+    }
+    $openssh._failure = null
+    if $openssh._openssh.template? == "failed" {
+      $openssh._failure = $openssh._openssh
+    }
+    $openssh._certificate = null
+    if $openssh._openssh.template? == "certificate_invalid" {
+      $openssh._certificate = $openssh._openssh
+    }
+    $openssh._locked = null
+    $openssh._locked_syslog = null
+    if $openssh._openssh.template? == "account_locked" {
+      $openssh._locked = $openssh._openssh
+      $openssh._locked_syslog = $openssh._syslog
+    }
+    $openssh._close = null
+    if $openssh._openssh.template? == "connection_closed" {
+      $openssh._close = $openssh._openssh
+    }
+    $openssh._accepted_key = null
+    if $openssh._openssh.template? in ["accepted_certificate", "accepted_key"] {
+      $openssh._accepted_key = $openssh._openssh
+    }
+    $openssh._child_process_id = null
+    if $openssh._openssh.template? == "user_child" {
+      $openssh._child_process_id = $openssh._openssh.child_process_id?
+    }
+    $openssh._session_start = null
+    if $openssh._openssh.template? == "session_started" {
+      $openssh._session_start = {
+        ...$openssh._openssh,
+        time: $openssh._syslog.timestamp,
+      }
+    }
+    $openssh._session_close = null
+    if $openssh._openssh.template? == "session_closed" {
+      $openssh._session_close = {
+        ...$openssh._openssh,
+        time: $openssh._syslog.timestamp,
+      }
+    }
+    $openssh._connection = null
+    if $openssh._openssh.template? == "ssh_connection" {
+      $openssh._connection = $openssh._openssh
+    }
+    // SSH lets a client switch usernames between attempts on one connection.
+    // Track every identity a failure names, so a merged event cannot silently
+    // drop all but the last user.
+    $openssh._attempt_user = null
+    if $openssh._phase in ["authentication_failure", "invalid_logon"] {
+      $openssh._attempt_user = $openssh._openssh.user.name?
+    }
+    summarize \
+      primary=last($openssh._primary),
+      auth_methods=collect($openssh._auth_method),
+      pam=last($openssh._pam),
+      disconnect=last($openssh._disconnect),
+      postponed=last($openssh._postponed),
+      failure=last($openssh._failure),
+      certificate=last($openssh._certificate),
+      locked=last($openssh._locked),
+      locked_envelope=last($openssh._locked_syslog),
+      close=last($openssh._close),
+      accepted_keys=collect($openssh._accepted_key),
+      child_process_id=last($openssh._child_process_id),
+      session_start=last($openssh._session_start),
+      session_close=last($openssh._session_close),
+      connection=last($openssh._connection),
+      attempt_users=distinct($openssh._attempt_user),
+      fallback=first($openssh._openssh),
+      envelope=last($openssh._primary_syslog),
+      fallback_envelope=first($openssh._syslog),
+      sources=collect({
+        timestamp: $openssh._syslog.timestamp,
+        raw: $openssh._syslog.raw?,
+        message: $openssh._message,
+      }),
+      start_time=min($openssh._syslog.timestamp),
+      end_time=max($openssh._syslog.timestamp),
+      syslog_severity=min($openssh._syslog.severity?),
+      event_count=count()
+  }
+}
+
+if primary == null {
+  primary = fallback
+}
+if envelope == null {
+  envelope = fallback_envelope
+}
+if syslog_severity != null {
+  envelope.severity = syslog_severity
+}
+attempt_users = attempt_users.where(item => item != null)
+if attempt_users.length() > 1 {
+  primary.attempted_users = attempt_users
+}
+auth_methods = auth_methods.where(item => item.method != null)
+auth_methods = auth_methods.sort(cmp=(left, right) => left.timestamp < right.timestamp)
+auth_methods = auth_methods.map(item => item.method)
+if auth_methods.length() > 0 {
+  primary.auth_methods = auth_methods
+}
+if locked != null {
+  primary = locked
+  envelope = locked_envelope
+}
+if pam != null {
+  primary.user.uid = pam.user.uid?
+  if pam.pam_actor? != null {
+    primary.pam_actor = pam.pam_actor
+  }
+}
+if disconnect != null {
+  primary.disconnect_code = disconnect.disconnect_code?
+  primary.disconnect_reason = disconnect.disconnect_reason?
+}
+if postponed != null and primary.template != "postponed" {
+  primary.method = postponed.method?
+  primary.protocol = postponed.protocol?
+  primary.source.port = postponed.source.port?
+}
+if failure != null and primary.template == "connection_closed" {
+  primary.template = failure.template
+  primary.method = failure.method?
+  primary.protocol = failure.protocol?
+  primary.credential = failure.credential?
+  primary.source = failure.source
+  primary.user = failure.user
+  primary.preauth = failure.preauth?
+}
+if certificate != null {
+  primary.certificate_error = certificate.certificate_reason?
+}
+if failure != null and primary.template == "account_locked" {
+  primary.method = failure.method?
+  primary.protocol = failure.protocol?
+  primary.credential = failure.credential?
+  primary.source = failure.source
+}
+if close != null and primary.template == "account_locked" {
+  primary.preauth = close.preauth?
+}
+accepted_keys = accepted_keys.where(item => item != null)
+if accepted_keys.length() > 0 {
+  primary.accepted_keys = accepted_keys
+}
+if child_process_id != null {
+  primary.child_process_id = child_process_id
+}
+if session_start != null {
+  primary.session = session_start
+  if session_close != null {
+    primary.session.closed = true
+    primary.session.expiration_time = session_close.time
+  }
+}
+if connection != null and primary.category? == "authentication" {
+  primary.destination = connection.destination?
+  if primary.source? == null {
+    primary.source = connection.source?
+  }
+  if connection.rdomain? != null and connection.rdomain != "" {
+    primary.rdomain = connection.rdomain
+  }
+}
+
+if primary != null {
+  preauth = primary.preauth?
+  drop primary.preauth?
+  primary.preauth = preauth
+}
+
+sources = sources.sort(cmp=(left, right) => left.timestamp < right.timestamp)
+messages = sources.map(source => source.message)
+raws = sources.where(source => source.raw? != null).map(source => source.raw)
+raw_data = messages.join("\n")
+if raws.length() > 0 {
+  raw_data = raws.join("\n")
+}
+
+primary.syslog = envelope
+if event_count > 1 {
+  primary.count = event_count
+  primary.start_time = start_time
+  primary.end_time = end_time
+  primary.duration = count_milliseconds(end_time - start_time).round()
+  primary.time = start_time
+}
+
+$openssh = {
+  ...primary,
+  raw_data: raw_data,
+  raw_data_size: raw_data.length_bytes(),
+}
+
+// A transport open contributes endpoint and timing context to a matching
+// authentication event. Without a login attempt, retain it as a Base Event.
+if $openssh.template? == "ssh_connection" {
+  drop $openssh.category
+  drop $openssh.user?, $openssh.preauth?
+}
+
+// At VERBOSE, the authentication process announces the child process that
+// owns the session. Re-key only those parent and child aggregates. Other
+// phases that happen to share a PID must remain separate events.
+if $openssh.child_process_id? != null or $openssh.template? in ["session_closed", "session_started"] {
+  $openssh._correlation_process_id = $openssh.child_process_id?.string() else $openssh.syslog.process_id?
+  $openssh._correlation_process_id = $openssh._correlation_process_id else $openssh.syslog.timestamp.string()
+  group {
+  hostname: $openssh.syslog.hostname,
+  process_id: $openssh._correlation_process_id,
+  } {
+    window size=1min, on=$openssh.syslog.timestamp, tolerance=10s, idle_timeout=30s {
+    sort $openssh.syslog.timestamp
+    _authentication = null
+    if $openssh.category? == "authentication" {
+      _authentication = $openssh
+    }
+    _session = null
+    if $openssh.template? in ["session_closed", "session_started"] {
+      _session = $openssh
+    }
+    summarize \
+      authentication=last(_authentication),
+      session=last(_session),
+      fallback=first($openssh),
+      raw_parts=collect({
+        timestamp: $openssh.start_time? else $openssh.syslog.timestamp,
+        raw: $openssh.raw_data,
+      }),
+      start_time=min($openssh.start_time? else $openssh.syslog.timestamp),
+      end_time=max($openssh.end_time? else $openssh.syslog.timestamp),
+      event_count=sum($openssh.count? else 1)
+    }
+  }
+  if authentication != null {
+    result = authentication
+    if session != null {
+      result.session = session.session? else session
+    }
+  } else {
+    result = fallback
+  }
+  raw_parts = raw_parts.sort(cmp=(left, right) => left.timestamp < right.timestamp)
+  result.raw_data = raw_parts.map(part => part.raw).join("\n")
+  result.raw_data_size = result.raw_data.length_bytes()
+  if event_count > 1 {
+    result.count = event_count
+    result.start_time = start_time
+    result.end_time = end_time
+    result.duration = count_milliseconds(end_time - start_time).round()
+    result.time = start_time
+  }
+  drop result._correlation_process_id
+  $openssh = result
+}
