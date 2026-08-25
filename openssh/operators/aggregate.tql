@@ -43,108 +43,62 @@ if $openssh._openssh.template? in ["accepted", "accepted_certificate", "accepted
 } else if $openssh._openssh.template? == "postponed" {
   $openssh._phase = "logon"
 }
+if $openssh._phase in ["logon", "invalid_logon", "network_logoff", "authentication_failure"] {
 window size=1min, on=$openssh._syslog.timestamp, tolerance=10s, idle_timeout=30s {
     sort $openssh._syslog.timestamp
-    $openssh._primary = $openssh._openssh
-    if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] {
-      $openssh._primary = null
-    }
-    $openssh._primary_syslog = null
-    if $openssh._primary != null {
-      $openssh._primary_syslog = $openssh._syslog
-    }
-    $openssh._auth_method = null
-    if $openssh._openssh.template? in ["accepted", "partial"] {
-      $openssh._auth_method = {
+    $openssh._candidate = {
+      primary: null if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] else $openssh._openssh,
+      primary_syslog: null if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] else $openssh._syslog,
+      auth_method: {
         timestamp: $openssh._syslog.timestamp,
         method: $openssh._openssh.method?,
-      }
-    }
-    $openssh._pam = null
-    if $openssh._openssh.template? == "pam_session_opened" {
-      $openssh._pam = $openssh._openssh
-    }
-    $openssh._disconnect = null
-    if $openssh._openssh.template? == "received_disconnect" {
-      $openssh._disconnect = $openssh._openssh
-    }
-    $openssh._postponed = null
-    if $openssh._openssh.template? == "postponed" {
-      $openssh._postponed = $openssh._openssh
-    }
-    $openssh._failure = null
-    if $openssh._openssh.template? == "failed" {
-      $openssh._failure = $openssh._openssh
-    }
-    $openssh._certificate = null
-    if $openssh._openssh.template? == "certificate_invalid" {
-      $openssh._certificate = $openssh._openssh
-    }
-    $openssh._locked = null
-    $openssh._locked_syslog = null
-    if $openssh._openssh.template? == "account_locked" {
-      $openssh._locked = $openssh._openssh
-      $openssh._locked_syslog = $openssh._syslog
-    }
-    $openssh._close = null
-    if $openssh._openssh.template? == "connection_closed" {
-      $openssh._close = $openssh._openssh
-    }
-    $openssh._accepted_key = null
-    if $openssh._openssh.template? in ["accepted_certificate", "accepted_key"] {
-      $openssh._accepted_key = $openssh._openssh
-    }
-    $openssh._child_process_id = null
-    if $openssh._openssh.template? == "user_child" {
-      $openssh._child_process_id = $openssh._openssh.child_process_id?
-    }
-    $openssh._session_start = null
-    if $openssh._openssh.template? == "session_started" {
-      $openssh._session_start = {
+      } if $openssh._openssh.template? in ["accepted", "partial"] else null,
+      pam: $openssh._openssh if $openssh._openssh.template? == "pam_session_opened" else null,
+      disconnect: $openssh._openssh if $openssh._openssh.template? == "received_disconnect" else null,
+      postponed: $openssh._openssh if $openssh._openssh.template? == "postponed" else null,
+      failure: $openssh._openssh if $openssh._openssh.template? == "failed" else null,
+      certificate: $openssh._openssh if $openssh._openssh.template? == "certificate_invalid" else null,
+      locked: $openssh._openssh if $openssh._openssh.template? == "account_locked" else null,
+      locked_syslog: $openssh._syslog if $openssh._openssh.template? == "account_locked" else null,
+      close: $openssh._openssh if $openssh._openssh.template? == "connection_closed" else null,
+      accepted_key: $openssh._openssh if $openssh._openssh.template? in ["accepted_certificate", "accepted_key"] else null,
+      child_process_id: $openssh._openssh.child_process_id? if $openssh._openssh.template? == "user_child" else null,
+      session_start: {
         ...$openssh._openssh,
         time: $openssh._syslog.timestamp,
-      }
-    }
-    $openssh._session_close = null
-    if $openssh._openssh.template? == "session_closed" {
-      $openssh._session_close = {
+      } if $openssh._openssh.template? == "session_started" else null,
+      session_close: {
         ...$openssh._openssh,
         time: $openssh._syslog.timestamp,
-      }
-    }
-    $openssh._connection = null
-    if $openssh._openssh.template? == "ssh_connection" {
-      $openssh._connection = $openssh._openssh
-    }
-    // SSH lets a client switch usernames between attempts on one connection.
-    // Track every identity a failure names, so a merged event cannot silently
-    // drop all but the last user.
-    $openssh._attempt_user = null
-    if $openssh._phase in ["authentication_failure", "invalid_logon"] {
-      $openssh._attempt_user = $openssh._openssh.user.name?
+      } if $openssh._openssh.template? == "session_closed" else null,
+      connection: $openssh._openssh if $openssh._openssh.template? == "ssh_connection" else null,
+      // SSH lets a client switch usernames between attempts on one connection.
+      // Track every identity a failure names, so a merged event cannot silently
+      // drop all but the last user.
+      attempt_user: $openssh._openssh.user.name? if $openssh._phase in ["authentication_failure", "invalid_logon"] else null,
     }
     summarize \
       hostname=$openssh._syslog.hostname,
       process_id=$openssh._process_id,
       phase=$openssh._phase,
-      primary=last($openssh._primary),
-      auth_methods=collect($openssh._auth_method),
-      pam=last($openssh._pam),
-      disconnect=last($openssh._disconnect),
-      postponed=last($openssh._postponed),
-      failure=last($openssh._failure),
-      certificate=last($openssh._certificate),
-      locked=last($openssh._locked),
-      locked_envelope=last($openssh._locked_syslog),
-      close=last($openssh._close),
-      accepted_keys=collect($openssh._accepted_key),
-      child_process_id=last($openssh._child_process_id),
-      session_start=last($openssh._session_start),
-      session_close=last($openssh._session_close),
-      connection=last($openssh._connection),
-      attempt_users=distinct($openssh._attempt_user),
+      primary=last($openssh._candidate.primary),
+      auth_methods=collect($openssh._candidate.auth_method),
+      pam=last($openssh._candidate.pam),
+      disconnect=last($openssh._candidate.disconnect),
+      postponed=last($openssh._candidate.postponed),
+      failure=last($openssh._candidate.failure),
+      certificate=last($openssh._candidate.certificate),
+      locked=last($openssh._candidate.locked),
+      locked_envelope=last($openssh._candidate.locked_syslog),
+      close=last($openssh._candidate.close),
+      accepted_keys=collect($openssh._candidate.accepted_key),
+      child_process_id=last($openssh._candidate.child_process_id),
+      session_start=last($openssh._candidate.session_start),
+      session_close=last($openssh._candidate.session_close),
+      connection=last($openssh._candidate.connection),
+      attempt_users=distinct($openssh._candidate.attempt_user),
       fallback=first($openssh._openssh),
-      envelope=last($openssh._primary_syslog),
+      envelope=last($openssh._candidate.primary_syslog),
       fallback_envelope=first($openssh._syslog),
       sources=collect({
         timestamp: $openssh._syslog.timestamp,
@@ -269,6 +223,15 @@ $openssh = {
   ...primary,
   raw_data: raw_data,
   raw_data_size: raw_data.length_bytes(),
+}
+} else {
+  raw_data = $openssh._syslog.raw? else $openssh._message
+  $openssh = {
+    ...$openssh._openssh,
+    syslog: $openssh._syslog,
+    raw_data: raw_data,
+    raw_data_size: raw_data.length_bytes(),
+  }
 }
 
 // A transport open contributes endpoint and timing context to a matching
