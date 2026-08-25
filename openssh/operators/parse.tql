@@ -154,193 +154,148 @@ let $session_states = {
 $openssh = $log.parse_grok(
   $pattern,
   pattern_definitions=$pattern_definitions,
+  _merge=true,
 )
 // Supported patterns populate at least one marker field. The catch-all accepts
-// other `sshd` messages without producing a parse warning.
-if $openssh.verb == null and $openssh.pam_action == null and $openssh.auth_kind == null and $openssh.network_action == null and $openssh.ssh_action == null and $openssh.server_action == null and $openssh.verbose_action == null {
-  $openssh = null
-} else {
-  @name = "openssh.authentication"
-  if $openssh.verbose_action != null {
-    $openssh = {
-      ...$openssh,
-      activity: "logon",
-      template: "accepted_key",
-    }
-    if $openssh.verbose_action == "Accepted certificate" {
-      $openssh.template = "accepted_certificate"
-    } else if $openssh.verbose_action == "User child is on pid" {
-      $openssh.template = "user_child"
-    } else if $openssh.verbose_action == "Starting session" {
-      $openssh.template = "session_started"
-    } else if $openssh.verbose_action == "Close session" {
-      $openssh.template = "session_closed"
-    }
-  } else if $openssh.server_action != null {
-    $openssh = {
-      ...$openssh,
-      category: "application_lifecycle",
-      template: "server_terminating",
-      activity: "stop",
-    }
-    if $openssh.server_action == "Server listening" {
-      $openssh.template = "server_listening"
-      $openssh.activity = "start"
-      $openssh.outcome = "success"
-    }
-  } else if $openssh.ssh_action != null {
-    $openssh = {
-      ...$openssh,
-      category: "ssh",
-      template: "ssh_connection",
-      activity: "open",
-      outcome: "success",
-    }
-    if $openssh.ssh_action == "drop connection" {
-      $openssh.template = "maxstartups_drop"
-      $openssh.activity = "refuse"
-      $openssh.outcome = "failure"
-      $openssh.connection_number = $openssh.connection_number_text.int()
-      $openssh.source_ip = ip($openssh.source_ip_text)
-      $openssh.destination_ip = ip($openssh.destination_ip_text)
-    } else if $openssh.ssh_action == "banner exchange" {
-      $openssh.template = "protocol_error"
-      $openssh.activity = "fail"
-      $openssh.outcome = "failure"
-    } else if $openssh.ssh_action in ["Received request", "refused local port forward"] {
-      $openssh.template = "forward_denied"
-      $openssh.activity = "refuse"
-      $openssh.outcome = "failure"
-      $openssh.network_reason = "forward request denied"
-    }
-  } else if $openssh.network_action in ["Read error", "Timeout before authentication", "drop connection", "kex_exchange_identification"] {
-    $openssh = {
-      ...$openssh,
-      template: "read_error",
-      activity: "fail",
-      outcome: "failure",
-      category: "network",
-    }
-    if $openssh.network_action == "Read error" and $openssh.network_reason.contains("reset") {
-      $openssh.activity = "reset"
-    }
-    if $openssh.network_action == "Timeout before authentication" {
-      $openssh.template = "authentication_timeout"
-      $openssh.network_reason = "Timeout before authentication"
-    }
-    if $openssh.network_action == "drop connection" {
-      $openssh.template = "penalty_drop"
-      $openssh.activity = "refuse"
-      $openssh.connection_number = $openssh.connection_number_text.int()
-      $openssh.source_ip = ip($openssh.source_ip_text)
-      $openssh.destination_ip = ip($openssh.destination_ip_text)
-    } else if $openssh.network_action == "kex_exchange_identification" {
-      $openssh.template = "kex_diagnostic"
-      if $openssh.network_reason == "Connection closed by remote host" {
-        $openssh.activity = "close"
-        $openssh.outcome = "success"
-      }
-    }
-  } else if $openssh.auth_kind == "Certificate invalid" {
-    $openssh = {
-      ...$openssh,
-      template: "certificate_invalid",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind == "Cannot find user" {
-    $openssh = {
-      ...$openssh,
-      template: "missing_login_user",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-    $openssh.invalid = "invalid user"
-  } else if $openssh.auth_kind == "temporarily locked" {
-    $openssh = {
-      ...$openssh,
-      template: "account_locked",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind in ["authentication failure", "Authentication failure"] {
-    $openssh = {
-      ...$openssh,
-      template: "pam_authentication_failure",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind == "Postponed" {
-    $openssh = {
-      ...$openssh,
-      template: "postponed",
-      activity: "preauth",
-      category: "authentication",
-    }
-  } else if $openssh.pam_action == "opened" {
-    $openssh = {
-      ...$openssh,
-      template: "pam_session_opened",
-      activity: "logon",
-      outcome: "success",
-      category: "authentication",
-    }
-  } else if $openssh.pam_action == "closed" {
-    $openssh = {
-      ...$openssh,
-      template: "pam_session_closed",
-      activity: "logoff",
-      outcome: "success",
-      category: "authentication",
-    }
-  } else {
-    $openssh = {
-      ...$openssh,
-      ...$verbs[$openssh.verb]?,
-      ...$session_states[$openssh.user_state]?,
-      category: "authentication",
-    }
-  }
-  // A close without an account is transport activity, not evidence of an
-  // authentication outcome.
-  if $openssh.template == "connection_closed" and $openssh.user? == null {
-    $openssh.category = "network"
-    $openssh.activity = "close"
-    $openssh.outcome = "success"
-  }
-  if $openssh.category? != null and $openssh.category != "application_lifecycle" {
-    $openssh.user = {
-      name: move $openssh.user,
-      uid: $openssh.user_id?.string(),
-      is_invalid: $openssh.invalid != null
-        or $openssh.user_state == "invalid user"
-        or $openssh.template in ["invalid_user", "missing_login_user"],
-    }
-    if $openssh.template in ["failed", "connection_closed"] and $openssh.user.is_invalid {
-      $openssh.template = "invalid_user"
-    }
-    if $openssh.actor_user_id? != null {
-      $openssh.pam_actor = {
-        name: move $openssh.actor_user_name?,
-        uid: $openssh.actor_user_id.string(),
-      }
-    }
-    $openssh.source = {
-      ip: move $openssh.source_ip,
-      port: move $openssh.source_port,
-    }
-    if $openssh.destination_ip? != null {
-      $openssh.destination = {
-        ip: move $openssh.destination_ip,
-        port: move $openssh.destination_port?,
-      }
-    }
-    $openssh.preauth = $openssh.phase == "preauth"
-  }
-  drop $openssh.verb, $openssh.invalid, $openssh.user_state, $openssh.phase, $openssh.pam_action, $openssh.auth_kind, $openssh.network_action, $openssh.ssh_action, $openssh.server_action, $openssh.verbose_action, $openssh.user_id?, $openssh.actor_user_id?, $openssh.actor_user_name?, $openssh.pam_context?, $openssh.connection_number_text?, $openssh.source_ip_text?, $openssh.destination_ip_text?, $openssh.destination_ip?, $openssh.destination_port?, $openssh.other
-  $openssh = drop_null_fields($openssh)
+$openssh._recognized = not (
+  $openssh.verb == null
+  and $openssh.pam_action == null
+  and $openssh.auth_kind == null
+  and $openssh.network_action == null
+  and $openssh.ssh_action == null
+  and $openssh.server_action == null
+  and $openssh.verbose_action == null
+)
+$openssh._raw_user = $openssh.user?
+$openssh._raw_source_ip = $openssh.source_ip?
+$openssh._raw_source_port = $openssh.source_port?
+@name = "openssh.authentication"
+$openssh._classification = {
+  activity: "logon",
+  template: "accepted_certificate" if $openssh.verbose_action == "Accepted certificate"
+    else "user_child" if $openssh.verbose_action == "User child is on pid"
+    else "session_started" if $openssh.verbose_action == "Starting session"
+    else "session_closed" if $openssh.verbose_action == "Close session"
+    else "accepted_key",
+} if $openssh.verbose_action != null else {
+  category: "application_lifecycle",
+  template: "server_listening" if $openssh.server_action == "Server listening" else "server_terminating",
+  activity: "start" if $openssh.server_action == "Server listening" else "stop",
+  outcome: "success" if $openssh.server_action == "Server listening" else null,
+} if $openssh.server_action != null else {
+  category: "ssh",
+  template: "maxstartups_drop" if $openssh.ssh_action == "drop connection"
+    else "protocol_error" if $openssh.ssh_action == "banner exchange"
+    else "forward_denied" if $openssh.ssh_action in ["Received request", "refused local port forward"]
+    else "ssh_connection",
+  activity: "refuse" if $openssh.ssh_action == "drop connection"
+    or $openssh.ssh_action in ["Received request", "refused local port forward"]
+    else "fail" if $openssh.ssh_action == "banner exchange"
+    else "open",
+  outcome: "failure" if $openssh.ssh_action == "drop connection"
+    or $openssh.ssh_action == "banner exchange"
+    or $openssh.ssh_action in ["Received request", "refused local port forward"]
+    else "success",
+  connection_number: $openssh.connection_number_text?.int() if $openssh.ssh_action == "drop connection" else null,
+  source_ip: ip($openssh.source_ip_text) if $openssh.ssh_action == "drop connection" else $openssh.source_ip?,
+  destination_ip: ip($openssh.destination_ip_text) if $openssh.ssh_action == "drop connection" else $openssh.destination_ip?,
+  network_reason: "forward request denied" if $openssh.ssh_action in ["Received request", "refused local port forward"] else $openssh.network_reason?,
+} if $openssh.ssh_action != null else {
+  template: "authentication_timeout" if $openssh.network_action == "Timeout before authentication"
+    else "penalty_drop" if $openssh.network_action == "drop connection"
+    else "kex_diagnostic" if $openssh.network_action == "kex_exchange_identification"
+    else "read_error",
+  activity: "reset" if $openssh.network_action == "Read error" and $openssh.network_reason.contains("reset")
+    else "refuse" if $openssh.network_action == "drop connection"
+    else "close" if $openssh.network_action == "kex_exchange_identification"
+      and $openssh.network_reason == "Connection closed by remote host"
+    else "fail",
+  outcome: "success" if $openssh.network_action == "kex_exchange_identification"
+      and $openssh.network_reason == "Connection closed by remote host"
+    else "failure",
+  category: "network",
+  connection_number: $openssh.connection_number_text?.int() if $openssh.network_action == "drop connection" else null,
+  source_ip: ip($openssh.source_ip_text) if $openssh.network_action == "drop connection" else $openssh.source_ip?,
+  destination_ip: ip($openssh.destination_ip_text) if $openssh.network_action == "drop connection" else $openssh.destination_ip?,
+  network_reason: "Timeout before authentication" if $openssh.network_action == "Timeout before authentication" else $openssh.network_reason?,
+} if $openssh.network_action in ["Read error", "Timeout before authentication", "drop connection", "kex_exchange_identification"] else {
+  template: "certificate_invalid",
+  activity: "logon",
+  outcome: "failure",
+  category: "authentication",
+} if $openssh.auth_kind == "Certificate invalid" else {
+  template: "missing_login_user",
+  activity: "logon",
+  outcome: "failure",
+  category: "authentication",
+  invalid: "invalid user",
+} if $openssh.auth_kind == "Cannot find user" else {
+  template: "account_locked",
+  activity: "logon",
+  outcome: "failure",
+  category: "authentication",
+} if $openssh.auth_kind == "temporarily locked" else {
+  template: "pam_authentication_failure",
+  activity: "logon",
+  outcome: "failure",
+  category: "authentication",
+} if $openssh.auth_kind in ["authentication failure", "Authentication failure"] else {
+  template: "postponed",
+  activity: "preauth",
+  category: "authentication",
+} if $openssh.auth_kind == "Postponed" else {
+  template: "pam_session_opened" if $openssh.pam_action == "opened" else "pam_session_closed",
+  activity: "logon" if $openssh.pam_action == "opened" else "logoff",
+  outcome: "success",
+  category: "authentication",
+} if $openssh.pam_action in ["opened", "closed"] else {
+  ...$verbs[$openssh.verb]?,
+  ...$session_states[$openssh.user_state]?,
+  category: "authentication",
 }
+$openssh = {
+  ...$openssh,
+  ...$openssh._classification,
+}
+$openssh._anonymous_close = $openssh.template? == "connection_closed" and $openssh.user? == null
+$openssh.category = "network" if $openssh._anonymous_close else $openssh.category?
+$openssh.activity = "close" if $openssh._anonymous_close else $openssh.activity?
+$openssh.outcome = "success" if $openssh._anonymous_close else $openssh.outcome?
+$openssh._has_principal = $openssh.category? != null and $openssh.category != "application_lifecycle"
+$openssh.user = {
+  name: move $openssh.user,
+  uid: $openssh.user_id?.string(),
+  is_invalid: $openssh.invalid != null
+    or $openssh.user_state == "invalid user"
+    or $openssh.template? in ["invalid_user", "missing_login_user"],
+} if $openssh._has_principal else null
+$openssh.template = "invalid_user" if ($openssh.template? in ["failed", "connection_closed"] and $openssh.user.is_invalid) else $openssh.template?
+$openssh.pam_actor = {
+  name: move $openssh.actor_user_name?,
+  uid: $openssh.actor_user_id.string(),
+} if $openssh._has_principal and $openssh.actor_user_id? != null else null
+$openssh.source = {
+  ip: move $openssh.source_ip,
+  port: move $openssh.source_port,
+} if $openssh._has_principal else null
+$openssh.destination = {
+  ip: move $openssh.destination_ip,
+  port: move $openssh.destination_port?,
+} if $openssh._has_principal and $openssh.destination_ip? != null else null
+$openssh.preauth = $openssh.phase == "preauth" if $openssh._has_principal else null
+drop $openssh._classification, $openssh._anonymous_close, $openssh.verb, $openssh.invalid, $openssh.user_state, $openssh.phase, $openssh.pam_action, $openssh.auth_kind, $openssh.network_action, $openssh.ssh_action, $openssh.server_action, $openssh.verbose_action, $openssh.user_id?, $openssh.actor_user_id?, $openssh.actor_user_name?, $openssh.pam_context?, $openssh.connection_number_text?, $openssh.source_ip_text?, $openssh.destination_ip_text?, $openssh.destination_ip?, $openssh.destination_port?, $openssh.other
+$openssh = drop_null_fields($openssh)
+$openssh = {
+  user: $openssh._raw_user?,
+  source_ip: $openssh._raw_source_ip?,
+  source_port: $openssh._raw_source_port?,
+  ...$openssh,
+} if not $openssh._has_principal else $openssh
+$openssh = null if not $openssh._recognized else {
+  ...$openssh,
+  _recognized: null,
+  _raw_user: null,
+  _raw_source_ip: null,
+  _raw_source_port: null,
+  _has_principal: null,
+}.drop_null_fields()
