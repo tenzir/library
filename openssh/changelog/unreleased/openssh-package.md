@@ -35,9 +35,14 @@ Pipelines that inspect, enrich, or route the structured event stage the steps
 themselves:
 
 ```tql
+// 1. Parse: the opaque message becomes a structured OpenSSH event.
 openssh::parse message, event
+// 2. Stage: the envelope contributes what the message body cannot carry.
 event.time = move timestamp
+event.hostname = move hostname
+// 3. Map: the OpenSSH event becomes minimal OCSF Authentication.
 openssh::ocsf::map event, ocsf
+// 4. Embed: the caller decides that the message is the event's provenance.
 this = {...ocsf, raw_data: message}
 ```
 
