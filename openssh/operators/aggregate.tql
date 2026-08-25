@@ -43,12 +43,7 @@ if $openssh._openssh.template? in ["accepted", "accepted_certificate", "accepted
 } else if $openssh._openssh.template? == "postponed" {
   $openssh._phase = "logon"
 }
-group {
-  hostname: $openssh._syslog.hostname,
-  process_id: $openssh._process_id,
-  phase: $openssh._phase,
-} {
-  window size=1min, on=$openssh._syslog.timestamp, tolerance=10s, idle_timeout=30s {
+window size=1min, on=$openssh._syslog.timestamp, tolerance=10s, idle_timeout=30s {
     sort $openssh._syslog.timestamp
     $openssh._primary = $openssh._openssh
     if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] {
@@ -129,6 +124,9 @@ group {
       $openssh._attempt_user = $openssh._openssh.user.name?
     }
     summarize \
+      hostname=$openssh._syslog.hostname,
+      process_id=$openssh._process_id,
+      phase=$openssh._phase,
       primary=last($openssh._primary),
       auth_methods=collect($openssh._auth_method),
       pam=last($openssh._pam),
@@ -157,7 +155,6 @@ group {
       end_time=max($openssh._syslog.timestamp),
       syslog_severity=min($openssh._syslog.severity?),
       event_count=count()
-  }
 }
 
 if primary == null {
@@ -171,7 +168,9 @@ if syslog_severity != null {
 }
 attempt_users = attempt_users.where(item => item != null)
 if attempt_users.length() > 1 {
+  protocol = move primary.protocol?
   primary.attempted_users = attempt_users
+  primary.protocol = protocol
 }
 auth_methods = auth_methods.where(item => item.method != null)
 auth_methods = auth_methods.sort(cmp=(left, right) => left.timestamp < right.timestamp)
@@ -285,11 +284,7 @@ if $openssh.template? == "ssh_connection" {
 if $openssh.child_process_id? != null or $openssh.template? in ["session_closed", "session_started"] {
   $openssh._correlation_process_id = $openssh.child_process_id?.string() else $openssh.syslog.process_id?
   $openssh._correlation_process_id = $openssh._correlation_process_id else $openssh.syslog.timestamp.string()
-  group {
-  hostname: $openssh.syslog.hostname,
-  process_id: $openssh._correlation_process_id,
-  } {
-    window size=1min, on=$openssh.syslog.timestamp, tolerance=10s, idle_timeout=30s {
+  window size=1min, on=$openssh.syslog.timestamp, tolerance=10s, idle_timeout=30s {
     sort $openssh.syslog.timestamp
     _authentication = null
     if $openssh.category? == "authentication" {
@@ -300,6 +295,8 @@ if $openssh.child_process_id? != null or $openssh.template? in ["session_closed"
       _session = $openssh
     }
     summarize \
+      hostname=$openssh.syslog.hostname,
+      process_id=$openssh._correlation_process_id,
       authentication=last(_authentication),
       session=last(_session),
       fallback=first($openssh),
@@ -310,7 +307,6 @@ if $openssh.child_process_id? != null or $openssh.template? in ["session_closed"
       start_time=min($openssh.start_time? else $openssh.syslog.timestamp),
       end_time=max($openssh.end_time? else $openssh.syslog.timestamp),
       event_count=sum($openssh.count? else 1)
-    }
   }
   if authentication != null {
     result = authentication
