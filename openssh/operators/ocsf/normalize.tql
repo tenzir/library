@@ -3,7 +3,7 @@ description: |
   Normalizes a Syslog event carrying an OpenSSH `sshd` message to OCSF.
 
   ```tql
-  where app_name in ["sshd", "sshd-session", "sshd.pam", "sshd-session.pam"]
+  where app_name in openssh::$app_names
   openssh::ocsf::normalize
   ```
 
@@ -24,20 +24,7 @@ args:
 ---
 
 $into.syslog = $syslog
-// RFC 5424 calls the body `message`, while RFC 3164 calls it `content`.
-// RFC 3164 also omits the year and timezone from its timestamp. Resolve it
-// relative to ingestion time, as `read_syslog` recommends for live input.
-if $into.syslog.message? == null {
-  $into.syslog.message = move $into.syslog.content?
-}
-if $into.syslog.timestamp?.type_id() == type_id("") {
-  if $into.syslog.timestamp.split(" ")[0] in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] {
-    $into.syslog.timestamp = $into.syslog.timestamp.parse_time("%b %e %H:%M:%S", reference=now())
-  } else {
-    $into.syslog.timestamp = time($into.syslog.timestamp)
-  }
-}
-openssh::parse $into.syslog.message, $into.openssh
+openssh::parse $into.syslog.message, $into.openssh, wide=true
 $into.openssh.syslog = $into.syslog
 openssh::aggregate $into.syslog.message, $into.openssh
 openssh::ocsf::map $into.openssh, $into.ocsf

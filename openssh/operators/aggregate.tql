@@ -2,12 +2,20 @@
 description: |
   Combines related parsed OpenSSH records.
 
-  The operator uses the Syslog envelope attached to the parsed OpenSSH record
-  to combine related records. It updates the OpenSSH field in place:
+  The operator expects the wide-schema output of `openssh::parse` with
+  `wide=true` and the Syslog envelope attached, and combines related records
+  in place:
 
   ```tql
+  openssh::parse syslog.message, openssh, wide=true
+  openssh.syslog = syslog
   openssh::aggregate syslog.message, openssh
   ```
+
+  Records correlate per host and daemon process within a bounded time window.
+  The correlation itself runs on the collected record list of each process, so
+  the per-record work stays in one pass regardless of how many message
+  templates participate.
 args:
   positional:
     - name: log
@@ -18,277 +26,319 @@ args:
       type: field
 ---
 
-$openssh = {
-  _openssh: $openssh,
-  _syslog: $openssh.syslog,
-  _message: $log,
-}
-drop $openssh._openssh.syslog
-$openssh._process_id = $openssh._syslog.process_id?
-if $openssh._process_id == null {
-  $openssh._process_id = $openssh._syslog.timestamp.string()
-}
+// Authentication evidence attaches either to the next terminal outcome or to
+// the preceding successful outcome. Terminal records close an attempt.
+$openssh._role = ("before" if $openssh.template in ["accepted_certificate", "accepted_key", "partial", "postponed", "ssh_connection"]
+  else "failure_evidence" if $openssh.template in ["account_locked", "certificate_invalid", "failed", "invalid_user", "max_auth_attempts", "missing_login_user", "pam_authentication_failure"]
+  else "terminal" if $openssh.template in ["accepted", "too_many_authentication_failures"]
+  else "terminal" if $openssh.template == "connection_closed" and $openssh.outcome == "failure"
+  else "after" if $openssh.template in ["pam_session_opened", "session_closed", "session_started", "user_child"]
+  else "network_logoff" if $openssh.template in ["received_disconnect", "disconnected"]
+  else "standalone")
+$openssh._terminal = $openssh._role == "terminal"
+$openssh._terminal_outcome = $openssh.outcome if $openssh._terminal else null
+$openssh._host = $openssh.syslog.hostname
+$openssh._pid = $openssh.syslog.process_id? else $openssh.syslog.timestamp.string()
 
-$openssh._phase = f"unmodeled-{$openssh._syslog.timestamp}-{$openssh._message}"
-if $openssh._openssh.template? in ["accepted", "accepted_certificate", "accepted_key", "partial", "pam_session_opened", "session_closed", "session_started", "ssh_connection", "user_child"] {
-  $openssh._phase = "logon"
-} else if $openssh._openssh.template? in ["invalid_user", "missing_login_user"] {
-  $openssh._phase = "invalid_logon"
-} else if $openssh._openssh.template? in ["received_disconnect", "disconnected"] {
-  $openssh._phase = "network_logoff"
-} else if $openssh._openssh.template? in ["certificate_invalid", "pam_authentication_failure", "failed", "account_locked", "max_auth_attempts", "too_many_authentication_failures"] {
-  $openssh._phase = "authentication_failure"
-} else if $openssh._openssh.template? == "connection_closed" and $openssh._openssh.outcome? == "failure" {
-  $openssh._phase = "authentication_failure"
-} else if $openssh._openssh.template? == "postponed" {
-  $openssh._phase = "logon"
-}
-if $openssh._phase in ["logon", "invalid_logon", "network_logoff", "authentication_failure"] {
-window size=1min, on=$openssh._syslog.timestamp, tolerance=10s, idle_timeout=30s {
-    sort $openssh._syslog.timestamp
-    $openssh._candidate = {
-      primary: null if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] else $openssh._openssh,
-      primary_syslog: null if $openssh._openssh.template? in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"] else $openssh._syslog,
-      auth_method: {
-        timestamp: $openssh._syslog.timestamp,
-        method: $openssh._openssh.method?,
-      } if $openssh._openssh.template? in ["accepted", "partial"] else null,
-      pam: $openssh._openssh if $openssh._openssh.template? == "pam_session_opened" else null,
-      disconnect: $openssh._openssh if $openssh._openssh.template? == "received_disconnect" else null,
-      postponed: $openssh._openssh if $openssh._openssh.template? == "postponed" else null,
-      failure: $openssh._openssh if $openssh._openssh.template? == "failed" else null,
-      certificate: $openssh._openssh if $openssh._openssh.template? == "certificate_invalid" else null,
-      locked: $openssh._openssh if $openssh._openssh.template? == "account_locked" else null,
-      locked_syslog: $openssh._syslog if $openssh._openssh.template? == "account_locked" else null,
-      close: $openssh._openssh if $openssh._openssh.template? == "connection_closed" else null,
-      accepted_key: $openssh._openssh if $openssh._openssh.template? in ["accepted_certificate", "accepted_key"] else null,
-      child_process_id: $openssh._openssh.child_process_id? if $openssh._openssh.template? == "user_child" else null,
-      session_start: {
-        ...$openssh._openssh,
-        time: $openssh._syslog.timestamp,
-      } if $openssh._openssh.template? == "session_started" else null,
-      session_close: {
-        ...$openssh._openssh,
-        time: $openssh._syslog.timestamp,
-      } if $openssh._openssh.template? == "session_closed" else null,
-      connection: $openssh._openssh if $openssh._openssh.template? == "ssh_connection" else null,
-      // SSH lets a client switch usernames between attempts on one connection.
-      // Track every identity a failure names, so a merged event cannot silently
-      // drop all but the last user.
-      attempt_user: $openssh._openssh.user.name? if $openssh._phase in ["authentication_failure", "invalid_logon"] else null,
-    }
-    summarize \
-      hostname=$openssh._syslog.hostname,
-      process_id=$openssh._process_id,
-      phase=$openssh._phase,
-      primary=last($openssh._candidate.primary),
-      auth_methods=collect($openssh._candidate.auth_method),
-      pam=last($openssh._candidate.pam),
-      disconnect=last($openssh._candidate.disconnect),
-      postponed=last($openssh._candidate.postponed),
-      failure=last($openssh._candidate.failure),
-      certificate=last($openssh._candidate.certificate),
-      locked=last($openssh._candidate.locked),
-      locked_envelope=last($openssh._candidate.locked_syslog),
-      close=last($openssh._candidate.close),
-      accepted_keys=collect($openssh._candidate.accepted_key),
-      child_process_id=last($openssh._candidate.child_process_id),
-      session_start=last($openssh._candidate.session_start),
-      session_close=last($openssh._candidate.session_close),
-      connection=last($openssh._candidate.connection),
-      attempt_users=distinct($openssh._candidate.attempt_user),
-      fallback=first($openssh._openssh),
-      envelope=last($openssh._candidate.primary_syslog),
-      fallback_envelope=first($openssh._syslog),
-      sources=collect({
-        timestamp: $openssh._syslog.timestamp,
-        raw: $openssh._syslog.raw?,
-        message: $openssh._message,
-      }),
-      start_time=min($openssh._syslog.timestamp),
-      end_time=max($openssh._syslog.timestamp),
-      syslog_severity=min($openssh._syslog.severity?),
-      event_count=count()
-}
-
-if primary == null {
-  primary = fallback
-}
-if envelope == null {
-  envelope = fallback_envelope
-}
-if syslog_severity != null {
-  envelope.severity = syslog_severity
-}
-attempt_users = attempt_users.where(item => item != null)
-if attempt_users.length() > 1 {
-  protocol = move primary.protocol?
-  primary.attempted_users = attempt_users
-  primary.protocol = protocol
-}
-auth_methods = auth_methods.where(item => item.method != null)
-auth_methods = auth_methods.sort(cmp=(left, right) => left.timestamp < right.timestamp)
-auth_methods = auth_methods.map(item => item.method)
-if auth_methods.length() > 0 {
-  primary.auth_methods = auth_methods
-}
-if locked != null {
-  primary = locked
-  envelope = locked_envelope
-}
-if pam != null {
-  primary.user.uid = pam.user.uid?
-  if pam.pam_actor? != null {
-    primary.pam_actor = pam.pam_actor
-  }
-}
-if disconnect != null {
-  primary.disconnect_code = disconnect.disconnect_code?
-  primary.disconnect_reason = disconnect.disconnect_reason?
-}
-if postponed != null and primary.template != "postponed" {
-  primary.method = postponed.method?
-  primary.protocol = postponed.protocol?
-  primary.source.port = postponed.source.port?
-}
-if failure != null and primary.template == "connection_closed" {
-  primary.template = failure.template
-  primary.method = failure.method?
-  primary.protocol = failure.protocol?
-  primary.credential = failure.credential?
-  primary.source = failure.source
-  primary.user = failure.user
-  primary.preauth = failure.preauth?
-}
-if certificate != null {
-  primary.certificate_error = certificate.certificate_reason?
-}
-if failure != null and primary.template == "account_locked" {
-  primary.method = failure.method?
-  primary.protocol = failure.protocol?
-  primary.credential = failure.credential?
-  primary.source = failure.source
-}
-if close != null and primary.template == "account_locked" {
-  primary.preauth = close.preauth?
-}
-accepted_keys = accepted_keys.where(item => item != null)
-if accepted_keys.length() > 0 {
-  primary.accepted_keys = accepted_keys
-}
-if child_process_id != null {
-  primary.child_process_id = child_process_id
-}
-if session_start != null {
-  primary.session = session_start
-  if session_close != null {
-    primary.session.closed = true
-    primary.session.expiration_time = session_close.time
-  }
-}
-if connection != null and primary.category? == "authentication" {
-  primary.destination = connection.destination?
-  if primary.source? == null {
-    primary.source = connection.source?
-  }
-  if connection.rdomain? != null and connection.rdomain != "" {
-    primary.rdomain = connection.rdomain
-  }
-}
-
-if primary != null {
-  preauth = primary.preauth?
-  drop primary.preauth?
-  primary.preauth = preauth
-}
-
-sources = sources.sort(cmp=(left, right) => left.timestamp < right.timestamp)
-messages = sources.map(source => source.message)
-raws = sources.where(source => source.raw? != null).map(source => source.raw)
-raw_data = messages.join("\n")
-if raws.length() > 0 {
-  raw_data = raws.join("\n")
-}
-
-primary.syslog = envelope
-if event_count > 1 {
-  primary.count = event_count
-  primary.start_time = start_time
-  primary.end_time = end_time
-  primary.duration = count_milliseconds(end_time - start_time).round()
-  primary.time = start_time
-}
-
-$openssh = {
-  ...primary,
-  raw_data: raw_data,
-  raw_data_size: raw_data.length_bytes(),
-}
+if $openssh._role == "standalone" {
+  // Records that cannot contribute to an authentication attempt do not need
+  // correlation state. Preserve the same single-record provenance directly.
+  $openssh.raw_data = $openssh.syslog.raw? else $log
+  $openssh.raw_data_size = $openssh.raw_data.length_bytes()
+  drop $openssh._role, $openssh._terminal, $openssh._terminal_outcome, $openssh._host, $openssh._pid
 } else {
-  raw_data = $openssh._syslog.raw? else $openssh._message
-  $openssh = {
-    ...$openssh._openssh,
-    syslog: $openssh._syslog,
-    raw_data: raw_data,
-    raw_data_size: raw_data.length_bytes(),
-  }
-}
-
-// A transport open contributes endpoint and timing context to a matching
-// authentication event. Without a login attempt, retain it as a Base Event.
-if $openssh.template? == "ssh_connection" {
-  drop $openssh.category
-  drop $openssh.user?, $openssh.preauth?
-}
-
-// At VERBOSE, the authentication process announces the child process that
-// owns the session. Re-key only those parent and child aggregates. Other
-// phases that happen to share a PID must remain separate events.
-if $openssh.child_process_id? != null or $openssh.template? in ["session_closed", "session_started"] {
-  $openssh._correlation_process_id = $openssh.child_process_id?.string() else $openssh.syslog.process_id?
-  $openssh._correlation_process_id = $openssh._correlation_process_id else $openssh.syslog.timestamp.string()
-  window size=1min, on=$openssh.syslog.timestamp, tolerance=10s, idle_timeout=30s {
-    sort $openssh.syslog.timestamp
-    _authentication = null
-    if $openssh.category? == "authentication" {
-      _authentication = $openssh
-    }
-    _session = null
-    if $openssh.template? in ["session_closed", "session_started"] {
-      _session = $openssh
-    }
+  // The window only holds the keyed collection; everything after it computes
+  // on the per-process record lists and therefore instantiates once, not per
+  // window firing.
+  window size=1min, on=$openssh.syslog.timestamp, tolerance=40s, idle_timeout=30s {
     summarize \
-      hostname=$openssh.syslog.hostname,
-      process_id=$openssh._correlation_process_id,
-      authentication=last(_authentication),
-      session=last(_session),
-      fallback=first($openssh),
-      raw_parts=collect({
-        timestamp: $openssh.start_time? else $openssh.syslog.timestamp,
-        raw: $openssh.raw_data,
+      _records=collect({
+        t: $openssh.syslog.timestamp,
+        m: $log,
+        role: $openssh._role,
+        terminal: $openssh._terminal,
+        outcome: $openssh._terminal_outcome,
+        o: $openssh,
       }),
-      start_time=min($openssh.start_time? else $openssh.syslog.timestamp),
-      end_time=max($openssh.end_time? else $openssh.syslog.timestamp),
-      event_count=sum($openssh.count? else 1)
+      _host=$openssh._host,
+      _pid=$openssh._pid
   }
-  if authentication != null {
-    result = authentication
-    if session != null {
-      result.session = session.session? else session
+  batch timeout=1s
+
+  // The timestamped list is the canonical order for this process within the
+  // bounded window, independent of how parser lanes interleaved the records.
+  // The collected record leads with (t, m), so the plain lexicographic sort
+  // establishes exactly that order.
+  _records = _records.sort()
+  // Sorted (t, outcome) pairs of the terminal records: the first entry at a
+  // timestamp is the alphabetically smallest outcome among its ties.
+  _touts = _records.where(r => r.terminal).map(r => {t: r.t, outcome: r.outcome}).sort()
+  _keyed = _records.map(r => {
+    ...r,
+    past: _touts.where(x => x.t? <= r.t).length(),
+    past_outcome: _touts.where(x => x.t? == _touts.where(y => y.t? <= r.t).map(y => y.t?).max()).first().outcome?,
+    next_outcome: _touts.where(x => x.t? == _touts.where(y => y.t? >= r.t).map(y => y.t?).min()).first().outcome?,
+  })
+  _keyed = _keyed.map(r => {
+    ...r,
+    key: (f"attempt:{r.past}" if r.role in ["terminal", "after"]
+      else "network_logoff" if r.role == "network_logoff"
+      else f"attempt:{r.past + 1}" if r.role == "before" and r.next_outcome != null
+      else f"pending:{r.past}" if r.role == "before"
+      else f"attempt:{r.past + 1}" if r.role == "failure_evidence" and r.next_outcome == "failure"
+      else f"attempt:{r.past}" if r.role == "failure_evidence" and r.next_outcome == null and r.past_outcome == "failure"
+      else f"failure:{r.past}" if r.role == "failure_evidence"
+      else f"standalone:{r.t}:{r.m}"),
+  })
+  drop _records, _touts
+
+  // One output event per attempt, ordered by each attempt's first record.
+  _keys = _keyed.map(r => r.key).distinct()
+  _keys = _keys.map(k => {
+    t: _keyed.where(r => r.key == k).first().t,
+    m: _keyed.where(r => r.key == k).first().m,
+    key: k,
+  }).sort().map(x => x.key)
+  unroll _keys
+  batch timeout=1s
+  _arecs = _keyed.where(r => r.key == _keys)
+  drop _keyed, _keys, _host, _pid
+
+  // The record that speaks for the attempt: the latest that names a verdict,
+  // otherwise the earliest record as context carrier. A lock verdict from
+  // pam_faillock outranks both.
+  _sel = [
+    _arecs.where(r => r.o.template == "account_locked").first(),
+    _arecs.where(r => not (r.o.template in ["accepted_certificate", "accepted_key", "certificate_invalid", "pam_session_opened", "partial", "received_disconnect", "postponed", "missing_login_user", "session_closed", "ssh_connection", "user_child"])).last(),
+    _arecs.first(),
+  ].where(c => c != null).first()
+  _locked = _arecs.where(r => r.o.template == "account_locked").first() != null
+  _pam = _arecs.where(r => r.o.template == "pam_session_opened").first()
+  _disc = _arecs.where(r => r.o.template == "received_disconnect").first()
+  _post = _arecs.where(r => r.o.template == "postponed").first()
+  _fail = _arecs.where(r => r.o.template == "failed").last()
+  _cert = _arecs.where(r => r.o.template == "certificate_invalid").first()
+  _close = _arecs.where(r => r.o.template == "connection_closed").first()
+  _child = _arecs.where(r => r.o.template == "user_child").map(r => r.o.child_process_id).where(c => c != null).first()
+  _start = _arecs.where(r => r.o.template == "session_started").first()
+  _end = _arecs.where(r => r.o.template == "session_closed").first()
+  _conn = _arecs.where(r => r.o.template == "ssh_connection").first()
+  _accepted_keys = _arecs.where(r => r.o.template in ["accepted_certificate", "accepted_key"]).map(r => {
+    template: r.o.template,
+    key_type: r.o.key_type,
+    key_fingerprint: r.o.key_fingerprint,
+    key_location: r.o.key_location,
+    certificate_id: r.o.certificate_id,
+    certificate_serial: r.o.certificate_serial,
+    certificate_ca_type: r.o.certificate_ca_type,
+    certificate_ca_fingerprint: r.o.certificate_ca_fingerprint,
+    certificate_ca_file: r.o.certificate_ca_file,
+  }).distinct()
+  _attempt_users = _arecs.where(r => r.role == "failure_evidence"
+    or (r.role == "terminal" and r.outcome == "failure")).map(r => r.o.user.name?).where(u => u != null).distinct()
+  _auth_methods = _arecs.where(r => r.o.template in ["accepted", "partial"]).map(r => r.o.method).where(m => m != null)
+  _raws = _arecs.map(r => r.o.syslog.raw?).where(x => x != null)
+  _severity = _arecs.map(r => r.o.syslog.severity?).where(s => s != null).min()
+  _n = _arecs.length()
+
+  // A failed record folds into a terminal close or lock; a postponed record
+  // contributes the credential context it announced.
+  _fold_close = _fail != null and _sel.o.template == "connection_closed"
+  _fold_lock = _fail != null and _sel.o.template == "account_locked"
+  _fold_postponed = _post != null and _sel.o.template != "postponed"
+
+  $openssh = {
+    method: (_fail.o?.method? if _fold_close or _fold_lock
+      else (_post.o?.method? if _fold_postponed
+      else _sel.o.method)),
+    protocol: (_fail.o?.protocol? if _fold_close or _fold_lock
+      else (_post.o?.protocol? if _fold_postponed
+      else _sel.o.protocol)),
+    credential: _fail.o?.credential? if _fold_close or _fold_lock else _sel.o.credential,
+    disconnect_code: _disc.o?.disconnect_code? if _disc != null else _sel.o.disconnect_code,
+    disconnect_reason: _disc.o?.disconnect_reason? if _disc != null else _sel.o.disconnect_reason,
+    network_reason: _sel.o.network_reason,
+    connection_number: _sel.o.connection_number,
+    connection_pid: _sel.o.connection_pid,
+    rdomain: (_conn.o?.rdomain? if _conn != null and _sel.o.category == "authentication"
+        and _conn.o?.rdomain? != null and _conn.o?.rdomain? != ""
+      else _sel.o.rdomain),
+    listen_ip: _sel.o.listen_ip,
+    listen_port: _sel.o.listen_port,
+    signal: _sel.o.signal,
+    key_type: _sel.o.key_type,
+    key_fingerprint: _sel.o.key_fingerprint,
+    key_location: _sel.o.key_location,
+    certificate_id: _sel.o.certificate_id,
+    certificate_serial: _sel.o.certificate_serial,
+    certificate_ca_type: _sel.o.certificate_ca_type,
+    certificate_ca_fingerprint: _sel.o.certificate_ca_fingerprint,
+    certificate_ca_file: _sel.o.certificate_ca_file,
+    certificate_reason: _sel.o.certificate_reason,
+    certificate_error: _cert.o?.certificate_reason? if _cert != null else null,
+    session_type: _sel.o.session_type,
+    subsystem: _sel.o.subsystem,
+    session_id: _sel.o.session_id,
+    child_process_id: _child if _child != null else _sel.o.child_process_id,
+    auth_failure_reason: _sel.o.auth_failure_reason,
+    template: _fail.o?.template? if _fold_close else _sel.o.template,
+    activity: _sel.o.activity,
+    outcome: _sel.o.outcome,
+    category: _sel.o.category,
+    user: {
+      name: _fail.o?.user?.name? if _fold_close else _sel.o.user.name?,
+      uid: (_fail.o?.user?.uid? if _fold_close
+        else (_pam.o?.user?.uid? if _pam != null
+        else _sel.o.user.uid?)),
+      is_invalid: _fail.o?.user?.is_invalid? if _fold_close else _sel.o.user.is_invalid?,
+    },
+    pam_actor: {
+      name: _pam.o?.pam_actor?.name? if _pam.o?.pam_actor?.uid? != null else _sel.o.pam_actor.name?,
+      uid: _pam.o?.pam_actor?.uid? if _pam.o?.pam_actor?.uid? != null else _sel.o.pam_actor.uid?,
+    },
+    source: {
+      ip: _fail.o?.source?.ip? if _fold_close or _fold_lock else _sel.o.source.ip?,
+      port: (_fail.o?.source?.port? if _fold_close or _fold_lock
+        else (_post.o?.source?.port? if _fold_postponed
+        else _sel.o.source.port?)),
+    },
+    destination: {
+      ip: (_conn.o?.destination?.ip? if _conn != null and _sel.o.category == "authentication"
+        else _sel.o.destination.ip?),
+      port: (_conn.o?.destination?.port? if _conn != null and _sel.o.category == "authentication"
+        else _sel.o.destination.port?),
+    },
+    preauth: (_fail.o?.preauth? if _fold_close
+      else (_close.o?.preauth? if _close != null and _sel.o.template == "account_locked"
+      else _sel.o.preauth)),
+    attempted_users: _attempt_users if not _locked and _attempt_users.length() > 1 else null,
+    auth_methods: _auth_methods if not _locked and _auth_methods.length() > 0 else null,
+    accepted_keys: _accepted_keys if _accepted_keys.length() > 0 else null,
+    session: {
+      user: _start.o?._raw_user?,
+      source_ip: _start.o?._raw_source_ip?,
+      source_port: _start.o?._raw_source_port?,
+      session_type: _start.o?.session_type?,
+      subsystem: _start.o?.subsystem?,
+      session_id: _start.o?.session_id?,
+      activity: _start.o?.activity?,
+      template: _start.o?.template?,
+      time: _start.t?,
+      closed: true if _start != null and _end != null else null,
+      expiration_time: _end.t? if _start != null else null,
+    },
+    _principal: _sel.o._principal,
+    _raw_user: _sel.o._raw_user,
+    _raw_source_ip: _sel.o._raw_source_ip,
+    _raw_source_port: _sel.o._raw_source_port,
+    // A lock verdict keeps its own envelope severity, like the wholesale
+    // envelope replacement it stands for.
+    syslog: {
+      ..._sel.o.syslog,
+      severity: _severity if _severity != null and not _locked else _sel.o.syslog.severity?,
+    },
+    count: _n if _n > 1 else null,
+    start_time: _arecs.first().t? if _n > 1 else null,
+    end_time: _arecs.last().t? if _n > 1 else null,
+    duration: count_milliseconds(_arecs.last().t? - _arecs.first().t?).round() if _n > 1 else null,
+    time: _arecs.first().t? if _n > 1 else null,
+    raw_data: _raws.join("\n") if _raws.length() > 0 else _arecs.map(r => r.m).join("\n"),
+  }
+  $openssh.raw_data_size = $openssh.raw_data.length_bytes()
+  drop _arecs, _sel, _locked, _pam, _disc, _post, _fail, _cert, _close, _child
+  drop _start, _end, _conn, _accepted_keys, _attempt_users, _auth_methods
+  drop _raws, _severity, _n, _fold_close, _fold_lock, _fold_postponed
+
+  // A transport open contributes endpoint and timing context to a matching
+  // authentication event. Without a login attempt, retain it as a Base Event.
+  if $openssh.template == "ssh_connection" {
+    $openssh.category = null
+    $openssh.user.name = null
+    $openssh.user.uid = null
+    $openssh.user.is_invalid = null
+    $openssh.preauth = null
+  }
+
+  // At VERBOSE, the authentication process announces the child process that
+  // owns the session. Re-key only those parent and child aggregates. Other
+  // phases that happen to share a PID must remain separate events.
+  if $openssh.child_process_id != null or $openssh.template in ["session_closed", "session_started"] {
+    $openssh._cpid = $openssh.child_process_id.string() else $openssh.syslog.process_id? else $openssh.syslog.timestamp.string()
+    $openssh._chost = $openssh.syslog.hostname
+    window size=1min, on=$openssh.syslog.timestamp, tolerance=40s, idle_timeout=30s {
+      summarize \
+        _items=collect({
+          t: $openssh.start_time else $openssh.syslog.timestamp,
+          cat: $openssh.category,
+          tmpl: $openssh.template,
+          ev: $openssh,
+        }),
+        _start2=min($openssh.start_time else $openssh.syslog.timestamp),
+        _end2=max($openssh.end_time else $openssh.syslog.timestamp),
+        _n2=sum($openssh.count else 1),
+        _chost=$openssh._chost,
+        _cpid=$openssh._cpid
     }
-  } else {
-    result = fallback
+    batch timeout=1s
+    _items = _items.sort(cmp=(l, r) => l.t < r.t)
+    _auth = _items.where(i => i.cat == "authentication").last()
+    _sess = _items.where(i => i.tmpl in ["session_closed", "session_started"]).last()
+    $openssh = [_auth, _items.first()].where(c => c != null).first().ev?
+    if _auth != null and _sess != null {
+      // The session enrichment never carries its own principal: the merged
+      // authentication event already names the user.
+      $openssh.session = {
+        user: null,
+        source_ip: _sess.ev?.session?.source_ip? if _sess.ev?.session?.template? != null else _sess.ev?._raw_source_ip?,
+        source_port: _sess.ev?.session?.source_port? if _sess.ev?.session?.template? != null else _sess.ev?._raw_source_port?,
+        session_type: _sess.ev?.session?.session_type? if _sess.ev?.session?.template? != null else _sess.ev?.session_type?,
+        subsystem: _sess.ev?.session?.subsystem? if _sess.ev?.session?.template? != null else _sess.ev?.subsystem?,
+        session_id: _sess.ev?.session?.session_id? if _sess.ev?.session?.template? != null else _sess.ev?.session_id?,
+        activity: _sess.ev?.session?.activity? if _sess.ev?.session?.template? != null else _sess.ev?.activity?,
+        template: _sess.ev?.session?.template? if _sess.ev?.session?.template? != null else _sess.ev?.template?,
+        time: _sess.ev?.session?.time?,
+        closed: _sess.ev?.session?.closed?,
+        expiration_time: _sess.ev?.session?.expiration_time?,
+      }
+    }
+    $openssh.raw_data = _items.map(i => i.ev?.raw_data?).join("\n")
+    $openssh.raw_data_size = $openssh.raw_data.length_bytes()
+    if _n2 > 1 {
+      $openssh.count = _n2
+      $openssh.start_time = _start2
+      $openssh.end_time = _end2
+      $openssh.duration = count_milliseconds(_end2 - _start2).round()
+      $openssh.time = _start2
+    }
+    drop _items, _auth, _sess, _start2, _end2, _n2, _chost, _cpid
+    drop $openssh._cpid, $openssh._chost
   }
-  raw_parts = raw_parts.sort(cmp=(left, right) => left.timestamp < right.timestamp)
-  result.raw_data = raw_parts.map(part => part.raw).join("\n")
-  result.raw_data_size = result.raw_data.length_bytes()
-  if event_count > 1 {
-    result.count = event_count
-    result.start_time = start_time
-    result.end_time = end_time
-    result.duration = count_milliseconds(end_time - start_time).round()
-    result.time = start_time
-  }
-  drop result._correlation_process_id
-  $openssh = result
 }
+
+// Restore per-template absence from the wide shape's content sentinels, so
+// the mapper's residue carries only fields the source records populated.
+if $openssh._principal {
+  drop $openssh._principal, $openssh._raw_user, $openssh._raw_source_ip, $openssh._raw_source_port
+  if $openssh.user.is_invalid? == null {
+    drop $openssh.user, $openssh.preauth
+  }
+  if $openssh.pam_actor.uid? == null {
+    drop $openssh.pam_actor
+  }
+  if $openssh.destination.ip? == null {
+    drop $openssh.destination
+  }
+} else {
+  drop $openssh.user, $openssh.pam_actor, $openssh.source, $openssh.destination, $openssh._principal
+  $openssh = {
+    user: $openssh._raw_user,
+    source_ip: $openssh._raw_source_ip,
+    source_port: $openssh._raw_source_port,
+    ...$openssh,
+  }
+  drop $openssh._raw_user, $openssh._raw_source_ip, $openssh._raw_source_port
+}
+if $openssh.session?.template? == null {
+  drop $openssh.session?
+}
+batch timeout=1s

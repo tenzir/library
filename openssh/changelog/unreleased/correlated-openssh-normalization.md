@@ -14,14 +14,16 @@ pre-authentication close, and disconnect records with their reason.
 Correlated OCSF events retain every source record and carry aggregate timing and
 count fields.
 
-The normalizer accepts both RFC 5424 events and classic RFC 3164 records from
-files such as `/var/log/auth.log`:
+The normalizer reads the RFC 5424 `message` and timestamp fields. For classic
+RFC 3164 files such as `/var/log/auth.log`, adapt the Syslog envelope first:
 
 ```tql
 from_file "/var/log/auth.log" {
   read_syslog raw_message=raw
 }
-where app_name in ["sshd", "sshd-session", "sshd.pam", "sshd-session.pam"]
+where app_name in openssh::$app_names
+message = move content
+timestamp = timestamp.parse_time("%b %e %H:%M:%S", reference=now())
 openssh::ocsf::normalize
 ```
 
