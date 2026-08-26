@@ -1,0 +1,54 @@
+---
+description: Unrolls an OTLP/JSON traces export envelope into one event per span.
+args:
+  named:
+    - name: jobs
+      type: int
+      default: 1
+      description: Number of workers used to decode individual spans.
+---
+
+where resourceSpans? != null
+
+unroll resourceSpans
+_resource = resourceSpans.resource
+_scope_spans = resourceSpans.scopeSpans
+
+unroll _scope_spans
+_scope = _scope_spans.scope
+_span = _scope_spans.spans
+
+unroll _span
+
+parallel $jobs {
+  _raw_data = _span.print_json()
+
+  otel::decode_attributes _span.attributes
+  _attributes = move attributes
+
+  otel::decode_attributes _resource.attributes
+  _resource_attributes = move attributes
+
+  select signal = "trace",
+    raw_data = _raw_data,
+    raw_data_size = _raw_data.length_bytes(),
+    event_name = _span.name,
+    time = from_epoch(int(_span.startTimeUnixNano) * 1ns) if _span.startTimeUnixNano? != null else null,
+    start_time = from_epoch(int(_span.startTimeUnixNano) * 1ns) if _span.startTimeUnixNano? != null else null,
+    end_time = from_epoch(int(_span.endTimeUnixNano) * 1ns) if _span.endTimeUnixNano? != null else null,
+    trace_id = _span.traceId,
+    span_id = _span.spanId,
+    parent_span_id = _span.parentSpanId?,
+    span_kind = _span.kind?,
+    status_code = _span.status?.code?,
+    status_message = _span.status?.message?,
+    flags = _span.flags?,
+    scope = {
+      name: _scope.name?,
+      version: _scope.version?,
+    },
+    resource = _resource_attributes,
+    attributes = _attributes
+
+  @name = "otel.span"
+}
