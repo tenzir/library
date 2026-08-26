@@ -18,6 +18,12 @@ description: |
   The parsed event contains no timestamp or provenance because the message body
   contains neither. Callers can add context from an enclosing record before
   mapping the event to OCSF.
+
+  With `wide=true`, every event keeps the complete field set with `null`s in
+  place of absent values, so all messages share one schema. That mode exists
+  for `openssh::aggregate` and `openssh::ocsf::normalize`, which process the
+  stream in large same-schema batches and drop the `null`s only once, at the
+  end of the mapping.
 args:
   positional:
     - name: log
@@ -26,13 +32,18 @@ args:
     - name: openssh
       type: field
       description: The field that receives the structured OpenSSH event.
+  named:
+    - name: wide
+      type: bool
+      default: false
+      description: Keep one wide schema with null fields instead of the compact per-template shape.
 ---
 
 let $attempt = r"(?<verb>Accepted|Failed|Partial) %{NOTSPACE:method} for (?:(?<invalid>invalid user) +)?%{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int}(?: %{NOTSPACE:protocol})?(?:: %{GREEDYDATA:credential})?"
 let $invalid_user = r"(?<verb>Invalid user) +%{NOTSPACE:user} from %{IP:source_ip}(?: port %{POSINT:source_port:int})?(?: \[(?<phase>preauth)\])?"
 let $max_attempts = r"(?:error: )?(?<verb>maximum authentication attempts exceeded) for (?:(?<invalid>invalid user) )?%{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int}(?: %{NOTSPACE:protocol})?(?: \[(?<phase>preauth)\])?"
-let $session_end = r"(?<verb>Disconnected from|Connection closed by)(?: (?<user_state>(?:authenticating |invalid )?user) +%{NOTSPACE:user})? %{IP:source_ip} port %{POSINT:source_port:int}(?: \[(?<phase>preauth)\])?"
-let $received_disconnect = r"(?<verb>Received disconnect) from %{IP:source_ip} port %{POSINT:source_port:int}:%{POSINT:disconnect_code:int}:(?: (?<disconnect_reason>.*?))?(?: \[(?<phase>preauth)\])?"
+let $session_end = r"(?<verb>Disconnected from|Connection closed by)(?: (?<user_state>(?:authenticating |invalid )?user) +%{NOTSPACE:user})? %{IP:source_ip}(?: port %{POSINT:source_port:int})?(?: \[(?<phase>preauth)\])?"
+let $received_disconnect = r"(?:error: )?(?<verb>Received disconnect) from %{IP:source_ip}(?: port %{POSINT:source_port:int})?: ?%{POSINT:disconnect_code:int}:(?: ?(?<disconnect_reason>.*?))?(?: \[(?<phase>preauth)\])?"
 let $pam_open = r"pam_unix\(sshd:session\): session (?<pam_action>opened) for user (?<user>[^ (]+)(?:\(uid=(?<user_id>[0-9]+)\))? by (?:(?<actor_user_name>[^\(]+))?\(uid=(?<actor_user_id>[0-9]+)\)"
 let $pam_close = r"pam_unix\(sshd:session\): session (?<pam_action>closed) for user %{NOTSPACE:user}"
 let $pam_unix_failure = r"pam_unix\(sshd:auth\): (?<auth_kind>authentication failure);%{GREEDYDATA:pam_context}rhost=%{IP:source_ip}(?: +user=%{NOTSPACE:user})? *"
@@ -54,11 +65,12 @@ let $accepted_certificate = r#"(?<verbose_action>Accepted certificate) ID \"(?<c
 let $user_child = r"(?<verbose_action>User child is on pid) %{POSINT:child_process_id:int}"
 let $session_start = r"(?<verbose_action>Starting session): (?<session_type>command|subsystem)(?: '(?<subsystem>[^']+)')? for %{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int} id (?<session_id>[0-9]+)"
 let $session_close = r"(?<verbose_action>Close session): user %{NOTSPACE:user} from %{IP:source_ip} port %{POSINT:source_port:int} id (?<session_id>[0-9]+)"
+let $no_identification = r"(?<network_action>Did not receive identification string) from %{IP:source_ip}(?: port %{POSINT:source_port:int})?"
 let $kex_diagnostic = r"(?<network_action>kex_exchange_identification): (?<network_reason>Connection closed by remote host|client sent invalid protocol identifier .+?)(?: \[(?<phase>preauth)\])?"
 let $too_many_auth = r"(?<verb>Disconnecting authenticating user) %{NOTSPACE:user} %{IP:source_ip} port %{POSINT:source_port:int}: (?<auth_failure_reason>Too many authentication failures)(?: \[(?<phase>preauth)\])?"
 let $forward_denied = r"(?:(?<ssh_action>Received request) from %{IP:source_ip} port %{POSINT:source_port:int} to connect to host %{IP:destination_ip} port %{POSINT:destination_port:int}, but the request was denied\.|(?<ssh_action>refused local port forward): originator %{IP:source_ip} port %{POSINT:source_port:int}, target %{IP:destination_ip} port %{POSINT:destination_port:int})"
 let $certificate_refused = r#"error: Refusing certificate ID \"(?<certificate_id>[^\"]+)\" serial=(?<certificate_serial>[0-9]+) signed by %{NOTSPACE:certificate_ca_type} CA %{NOTSPACE:certificate_ca_fingerprint}: (?<auth_kind>Certificate invalid): %{GREEDYDATA:certificate_reason}"#
-let $pattern = "^ *(?:%{OPENSSH_ATTEMPT}|%{OPENSSH_INVALID_USER}|%{OPENSSH_MAX_ATTEMPTS}|%{OPENSSH_SESSION_END}|%{OPENSSH_RECEIVED_DISCONNECT}|%{OPENSSH_PAM_OPEN}|%{OPENSSH_PAM_CLOSE}|%{OPENSSH_PAM_UNIX_FAILURE}|%{OPENSSH_PAM_FAILURE}|%{OPENSSH_POSTPONED}|%{OPENSSH_READ_ERROR}|%{OPENSSH_AUTHENTICATION_TIMEOUT}|%{OPENSSH_PENALTY_DROP}|%{OPENSSH_CONNECTION_OPEN}|%{OPENSSH_MAXSTARTUPS_DROP}|%{OPENSSH_BANNER_ERROR}|%{OPENSSH_SERVER_LISTENING}|%{OPENSSH_SERVER_TERMINATING}|%{OPENSSH_ACCOUNT_LOCKED}|%{OPENSSH_MISSING_LOGIN_USER}|%{OPENSSH_CERTIFICATE_REFUSED}|%{OPENSSH_CERTIFICATE_INVALID}|%{OPENSSH_ACCEPTED_KEY}|%{OPENSSH_ACCEPTED_CERTIFICATE}|%{OPENSSH_USER_CHILD}|%{OPENSSH_SESSION_START}|%{OPENSSH_SESSION_CLOSE}|%{OPENSSH_KEX_DIAGNOSTIC}|%{OPENSSH_TOO_MANY_AUTH}|%{OPENSSH_FORWARD_DENIED}|%{GREEDYDATA:other})$"
+let $pattern = "^ *(?:%{OPENSSH_ATTEMPT}|%{OPENSSH_INVALID_USER}|%{OPENSSH_MAX_ATTEMPTS}|%{OPENSSH_SESSION_END}|%{OPENSSH_RECEIVED_DISCONNECT}|%{OPENSSH_PAM_OPEN}|%{OPENSSH_PAM_CLOSE}|%{OPENSSH_PAM_UNIX_FAILURE}|%{OPENSSH_PAM_FAILURE}|%{OPENSSH_POSTPONED}|%{OPENSSH_READ_ERROR}|%{OPENSSH_AUTHENTICATION_TIMEOUT}|%{OPENSSH_PENALTY_DROP}|%{OPENSSH_CONNECTION_OPEN}|%{OPENSSH_MAXSTARTUPS_DROP}|%{OPENSSH_BANNER_ERROR}|%{OPENSSH_SERVER_LISTENING}|%{OPENSSH_SERVER_TERMINATING}|%{OPENSSH_ACCOUNT_LOCKED}|%{OPENSSH_MISSING_LOGIN_USER}|%{OPENSSH_CERTIFICATE_REFUSED}|%{OPENSSH_CERTIFICATE_INVALID}|%{OPENSSH_ACCEPTED_KEY}|%{OPENSSH_ACCEPTED_CERTIFICATE}|%{OPENSSH_USER_CHILD}|%{OPENSSH_SESSION_START}|%{OPENSSH_SESSION_CLOSE}|%{OPENSSH_KEX_DIAGNOSTIC}|%{OPENSSH_NO_IDENTIFICATION}|%{OPENSSH_TOO_MANY_AUTH}|%{OPENSSH_FORWARD_DENIED}|%{GREEDYDATA:other})$"
 let $pattern_definitions = {
   OPENSSH_ATTEMPT: $attempt,
   OPENSSH_INVALID_USER: $invalid_user,
@@ -87,6 +99,7 @@ let $pattern_definitions = {
   OPENSSH_SESSION_START: $session_start,
   OPENSSH_SESSION_CLOSE: $session_close,
   OPENSSH_KEX_DIAGNOSTIC: $kex_diagnostic,
+  OPENSSH_NO_IDENTIFICATION: $no_identification,
   OPENSSH_TOO_MANY_AUTH: $too_many_auth,
   OPENSSH_FORWARD_DENIED: $forward_denied,
   OPENSSH_CERTIFICATE_REFUSED: $certificate_refused,
@@ -154,193 +167,252 @@ let $session_states = {
 $openssh = $log.parse_grok(
   $pattern,
   pattern_definitions=$pattern_definitions,
+  _merge=true,
 )
-// Supported patterns populate at least one marker field. The catch-all accepts
-// other `sshd` messages without producing a parse warning.
-if $openssh.verb == null and $openssh.pam_action == null and $openssh.auth_kind == null and $openssh.network_action == null and $openssh.ssh_action == null and $openssh.server_action == null and $openssh.verbose_action == null {
-  $openssh = null
-} else {
-  @name = "openssh.authentication"
-  if $openssh.verbose_action != null {
-    $openssh = {
-      ...$openssh,
-      activity: "logon",
-      template: "accepted_key",
+@name = "openssh.authentication"
+// The alternation yields a different field set per matched branch. Project
+// every branch onto one explicitly typed wide record so that all messages
+// share a single schema: downstream operators then process large batches
+// instead of one schema (and one batch) per message template.
+$openssh = {
+  method: $openssh.method?.string(),
+  protocol: $openssh.protocol?.string(),
+  credential: $openssh.credential?.string(),
+  disconnect_code: $openssh.disconnect_code?.int(),
+  disconnect_reason: $openssh.disconnect_reason?.string(),
+  network_reason: $openssh.network_reason?.string(),
+  connection_pid: $openssh.connection_pid?.int(),
+  rdomain: $openssh.rdomain?.string(),
+  listen_ip: ip($openssh.listen_ip?),
+  listen_port: $openssh.listen_port?.int(),
+  signal: $openssh.signal?.int(),
+  key_type: $openssh.key_type?.string(),
+  key_fingerprint: $openssh.key_fingerprint?.string(),
+  key_location: $openssh.key_location?.string(),
+  certificate_id: $openssh.certificate_id?.string(),
+  certificate_serial: $openssh.certificate_serial?.int(),
+  certificate_ca_type: $openssh.certificate_ca_type?.string(),
+  certificate_ca_fingerprint: $openssh.certificate_ca_fingerprint?.string(),
+  certificate_ca_file: $openssh.certificate_ca_file?.string(),
+  certificate_reason: $openssh.certificate_reason?.string(),
+  session_type: $openssh.session_type?.string(),
+  subsystem: $openssh.subsystem?.string(),
+  session_id: $openssh.session_id?.int(),
+  child_process_id: $openssh.child_process_id?.int(),
+  auth_failure_reason: $openssh.auth_failure_reason?.string(),
+  user: $openssh.user?.string(),
+  user_id: $openssh.user_id?.string(),
+  actor_user_name: $openssh.actor_user_name?.string(),
+  actor_user_id: $openssh.actor_user_id?.string(),
+  source_ip: ip($openssh.source_ip?),
+  source_port: $openssh.source_port?.int(),
+  destination_ip: ip($openssh.destination_ip?),
+  destination_port: $openssh.destination_port?.int(),
+  connection_number: $openssh.connection_number_text?.int(),
+  source_ip_text: ip($openssh.source_ip_text?),
+  destination_ip_text: ip($openssh.destination_ip_text?),
+  verb: $openssh.verb?.string(),
+  invalid: $openssh.invalid?.string(),
+  user_state: $openssh.user_state?.string(),
+  phase: $openssh.phase?.string(),
+  pam_action: $openssh.pam_action?.string(),
+  auth_kind: $openssh.auth_kind?.string(),
+  network_action: $openssh.network_action?.string(),
+  ssh_action: $openssh.ssh_action?.string(),
+  server_action: $openssh.server_action?.string(),
+  verbose_action: $openssh.verbose_action?.string(),
+}
+// The projection above restores one schema, but the events still sit in the
+// per-template micro-batches that the alternation produced. Re-coalesce them
+// so the classification below runs on full batches.
+batch timeout=1s
+
+// Classify the message template. The chains mirror one precedence: verbose
+// session records, then daemon lifecycle, then connection handling, then
+// transport failures, then PAM and authentication verdicts.
+$openssh.template = (
+  ("accepted_certificate" if $openssh.verbose_action == "Accepted certificate"
+    else "user_child" if $openssh.verbose_action == "User child is on pid"
+    else "session_started" if $openssh.verbose_action == "Starting session"
+    else "session_closed" if $openssh.verbose_action == "Close session"
+    else "accepted_key") if $openssh.verbose_action != null
+  else ("server_listening" if $openssh.server_action == "Server listening"
+    else "server_terminating") if $openssh.server_action != null
+  else ("maxstartups_drop" if $openssh.ssh_action == "drop connection"
+    else "protocol_error" if $openssh.ssh_action == "banner exchange"
+    else "forward_denied" if $openssh.ssh_action in ["Received request", "refused local port forward"]
+    else "ssh_connection") if $openssh.ssh_action != null
+  else ("authentication_timeout" if $openssh.network_action == "Timeout before authentication"
+    else "penalty_drop" if $openssh.network_action == "drop connection"
+    else "kex_diagnostic" if $openssh.network_action == "kex_exchange_identification"
+    else "read_error") if $openssh.network_action != null
+  else "certificate_invalid" if $openssh.auth_kind == "Certificate invalid"
+  else "missing_login_user" if $openssh.auth_kind == "Cannot find user"
+  else "account_locked" if $openssh.auth_kind == "temporarily locked"
+  else "pam_authentication_failure" if $openssh.auth_kind in ["authentication failure", "Authentication failure"]
+  else "postponed" if $openssh.auth_kind == "Postponed"
+  else ("pam_session_opened" if $openssh.pam_action == "opened"
+    else "pam_session_closed") if $openssh.pam_action != null
+  else $verbs[$openssh.verb]?.template?)
+$openssh.activity = (
+  "logon" if $openssh.verbose_action != null
+  else ("start" if $openssh.server_action == "Server listening"
+    else "stop") if $openssh.server_action != null
+  else ("refuse" if $openssh.ssh_action == "drop connection"
+      or $openssh.ssh_action in ["Received request", "refused local port forward"]
+    else "fail" if $openssh.ssh_action == "banner exchange"
+    else "open") if $openssh.ssh_action != null
+  else ("reset" if $openssh.network_action == "Read error" and $openssh.network_reason?.contains("reset")
+    else "refuse" if $openssh.network_action == "drop connection"
+    else "close" if $openssh.network_action == "kex_exchange_identification"
+      and $openssh.network_reason == "Connection closed by remote host"
+    else "fail") if $openssh.network_action != null
+  else "preauth" if $openssh.auth_kind == "Postponed"
+  else "logon" if $openssh.auth_kind != null
+  else ("logon" if $openssh.pam_action == "opened"
+    else "logoff") if $openssh.pam_action != null
+  else $session_states[$openssh.user_state]?.activity? else $verbs[$openssh.verb]?.activity?)
+// A conditional chain folds a null-valued arm into the next `else`, so any
+// chain with null arms nests its alternatives explicitly.
+$openssh.outcome = (
+  null if $openssh.verbose_action != null
+  else (
+    ("success" if $openssh.server_action == "Server listening" else null) if $openssh.server_action != null
+    else (
+      ("failure" if $openssh.ssh_action in ["drop connection", "banner exchange", "Received request", "refused local port forward"]
+        else "success") if $openssh.ssh_action != null
+      else (
+        ("success" if $openssh.network_action == "kex_exchange_identification"
+            and $openssh.network_reason == "Connection closed by remote host"
+          else "failure") if $openssh.network_action != null
+        else (
+          null if $openssh.auth_kind == "Postponed"
+          else (
+            "failure" if $openssh.auth_kind != null
+            else (
+              "success" if $openssh.pam_action != null
+              else ($session_states[$openssh.user_state]?.outcome? else $verbs[$openssh.verb]?.outcome?)
+            )
+          )
+        )
+      )
+    )
+  ))
+$openssh.category = (
+  null if $openssh.verbose_action != null
+  else ("application_lifecycle" if $openssh.server_action != null
+  else ("ssh" if $openssh.ssh_action != null
+  else ("network" if $openssh.network_action != null
+  else ("authentication" if $openssh.auth_kind != null
+      or $openssh.pam_action != null
+      or $openssh.verb != null
+  else null)))))
+
+// Anonymous closes and preauth disconnects describe the transport, not a
+// login, so they become Network Activity.
+$openssh._anonymous_close = $openssh.template == "connection_closed" and $openssh.user == null
+$openssh._preauth_disconnect = $openssh.template == "received_disconnect" and $openssh.phase == "preauth"
+$openssh.category = "network" if $openssh._anonymous_close or $openssh._preauth_disconnect else $openssh.category
+$openssh.activity = "close" if $openssh._anonymous_close or $openssh._preauth_disconnect else $openssh.activity
+$openssh.outcome = "success" if $openssh._anonymous_close else $openssh.outcome
+// The penalty and maxstartups messages carry their endpoints in bracketed
+// text rather than plain captures.
+$openssh._drop_connection = $openssh.ssh_action == "drop connection" or $openssh.network_action == "drop connection"
+$openssh.source_ip = $openssh.source_ip_text if $openssh._drop_connection else $openssh.source_ip
+$openssh.destination_ip = $openssh.destination_ip_text if $openssh._drop_connection else $openssh.destination_ip
+$openssh.connection_number = $openssh.connection_number if $openssh._drop_connection else null
+$openssh.network_reason = ("forward request denied" if $openssh.ssh_action in ["Received request", "refused local port forward"]
+  else "Timeout before authentication" if $openssh.network_action == "Timeout before authentication"
+  else $openssh.network_reason)
+$openssh._principal = $openssh.category != null and $openssh.category != "application_lifecycle"
+
+// Project the final wide shape: structured principal fields for events that
+// describe an actor, plus the raw string captures for those that do not.
+$openssh = {
+  method: $openssh.method,
+  protocol: $openssh.protocol,
+  credential: $openssh.credential,
+  disconnect_code: $openssh.disconnect_code,
+  disconnect_reason: $openssh.disconnect_reason,
+  network_reason: $openssh.network_reason,
+  connection_number: $openssh.connection_number,
+  connection_pid: $openssh.connection_pid,
+  rdomain: $openssh.rdomain,
+  listen_ip: $openssh.listen_ip,
+  listen_port: $openssh.listen_port,
+  signal: $openssh.signal,
+  key_type: $openssh.key_type,
+  key_fingerprint: $openssh.key_fingerprint,
+  key_location: $openssh.key_location,
+  certificate_id: $openssh.certificate_id,
+  certificate_serial: $openssh.certificate_serial,
+  certificate_ca_type: $openssh.certificate_ca_type,
+  certificate_ca_fingerprint: $openssh.certificate_ca_fingerprint,
+  certificate_ca_file: $openssh.certificate_ca_file,
+  certificate_reason: $openssh.certificate_reason,
+  session_type: $openssh.session_type,
+  subsystem: $openssh.subsystem,
+  session_id: $openssh.session_id,
+  child_process_id: $openssh.child_process_id,
+  auth_failure_reason: $openssh.auth_failure_reason,
+  template: ("invalid_user" if ($openssh.template in ["failed", "connection_closed"]
+      and ($openssh.invalid != null or $openssh.user_state == "invalid user"))
+    else $openssh.template),
+  activity: $openssh.activity,
+  outcome: $openssh.outcome,
+  category: $openssh.category,
+  // Record fields stay present on every row, with null children when the
+  // message carries no value: record columns that are null on some rows of a
+  // batch corrupt child reads in the current engine. The compact tail and the
+  // mapper restore per-template absence from the content sentinels (`user`
+  // via `_principal`, `pam_actor` via `uid`, `destination` via `ip`).
+  user: {
+    name: $openssh.user,
+    uid: $openssh.user_id,
+    is_invalid: $openssh.invalid != null
+      or $openssh.user_state == "invalid user"
+      or $openssh.template in ["invalid_user", "missing_login_user"],
+  },
+  pam_actor: {
+    name: $openssh.actor_user_name,
+    uid: $openssh.actor_user_id,
+  },
+  source: {
+    ip: $openssh.source_ip,
+    port: $openssh.source_port,
+  },
+  destination: {
+    ip: $openssh.destination_ip,
+    port: $openssh.destination_port,
+  },
+  preauth: $openssh.phase == "preauth" if $openssh._principal else null,
+  _principal: $openssh._principal,
+  _raw_user: $openssh.user if not $openssh._principal else null,
+  _raw_source_ip: $openssh.source_ip if not $openssh._principal else null,
+  _raw_source_port: $openssh.source_port if not $openssh._principal else null,
+}
+
+if $wide == false {
+  // The compact shape drops null fields per event and surfaces the raw
+  // captures under their original names, at the price of one schema per
+  // message template.
+  if $openssh._principal {
+    drop $openssh._principal, $openssh._raw_user, $openssh._raw_source_ip, $openssh._raw_source_port
+    if $openssh.pam_actor.uid == null {
+      drop $openssh.pam_actor
     }
-    if $openssh.verbose_action == "Accepted certificate" {
-      $openssh.template = "accepted_certificate"
-    } else if $openssh.verbose_action == "User child is on pid" {
-      $openssh.template = "user_child"
-    } else if $openssh.verbose_action == "Starting session" {
-      $openssh.template = "session_started"
-    } else if $openssh.verbose_action == "Close session" {
-      $openssh.template = "session_closed"
-    }
-  } else if $openssh.server_action != null {
-    $openssh = {
-      ...$openssh,
-      category: "application_lifecycle",
-      template: "server_terminating",
-      activity: "stop",
-    }
-    if $openssh.server_action == "Server listening" {
-      $openssh.template = "server_listening"
-      $openssh.activity = "start"
-      $openssh.outcome = "success"
-    }
-  } else if $openssh.ssh_action != null {
-    $openssh = {
-      ...$openssh,
-      category: "ssh",
-      template: "ssh_connection",
-      activity: "open",
-      outcome: "success",
-    }
-    if $openssh.ssh_action == "drop connection" {
-      $openssh.template = "maxstartups_drop"
-      $openssh.activity = "refuse"
-      $openssh.outcome = "failure"
-      $openssh.connection_number = $openssh.connection_number_text.int()
-      $openssh.source_ip = ip($openssh.source_ip_text)
-      $openssh.destination_ip = ip($openssh.destination_ip_text)
-    } else if $openssh.ssh_action == "banner exchange" {
-      $openssh.template = "protocol_error"
-      $openssh.activity = "fail"
-      $openssh.outcome = "failure"
-    } else if $openssh.ssh_action in ["Received request", "refused local port forward"] {
-      $openssh.template = "forward_denied"
-      $openssh.activity = "refuse"
-      $openssh.outcome = "failure"
-      $openssh.network_reason = "forward request denied"
-    }
-  } else if $openssh.network_action in ["Read error", "Timeout before authentication", "drop connection", "kex_exchange_identification"] {
-    $openssh = {
-      ...$openssh,
-      template: "read_error",
-      activity: "fail",
-      outcome: "failure",
-      category: "network",
-    }
-    if $openssh.network_action == "Read error" and $openssh.network_reason.contains("reset") {
-      $openssh.activity = "reset"
-    }
-    if $openssh.network_action == "Timeout before authentication" {
-      $openssh.template = "authentication_timeout"
-      $openssh.network_reason = "Timeout before authentication"
-    }
-    if $openssh.network_action == "drop connection" {
-      $openssh.template = "penalty_drop"
-      $openssh.activity = "refuse"
-      $openssh.connection_number = $openssh.connection_number_text.int()
-      $openssh.source_ip = ip($openssh.source_ip_text)
-      $openssh.destination_ip = ip($openssh.destination_ip_text)
-    } else if $openssh.network_action == "kex_exchange_identification" {
-      $openssh.template = "kex_diagnostic"
-      if $openssh.network_reason == "Connection closed by remote host" {
-        $openssh.activity = "close"
-        $openssh.outcome = "success"
-      }
-    }
-  } else if $openssh.auth_kind == "Certificate invalid" {
-    $openssh = {
-      ...$openssh,
-      template: "certificate_invalid",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind == "Cannot find user" {
-    $openssh = {
-      ...$openssh,
-      template: "missing_login_user",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-    $openssh.invalid = "invalid user"
-  } else if $openssh.auth_kind == "temporarily locked" {
-    $openssh = {
-      ...$openssh,
-      template: "account_locked",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind in ["authentication failure", "Authentication failure"] {
-    $openssh = {
-      ...$openssh,
-      template: "pam_authentication_failure",
-      activity: "logon",
-      outcome: "failure",
-      category: "authentication",
-    }
-  } else if $openssh.auth_kind == "Postponed" {
-    $openssh = {
-      ...$openssh,
-      template: "postponed",
-      activity: "preauth",
-      category: "authentication",
-    }
-  } else if $openssh.pam_action == "opened" {
-    $openssh = {
-      ...$openssh,
-      template: "pam_session_opened",
-      activity: "logon",
-      outcome: "success",
-      category: "authentication",
-    }
-  } else if $openssh.pam_action == "closed" {
-    $openssh = {
-      ...$openssh,
-      template: "pam_session_closed",
-      activity: "logoff",
-      outcome: "success",
-      category: "authentication",
+    if $openssh.destination.ip == null {
+      drop $openssh.destination
     }
   } else {
+    drop $openssh.user, $openssh.pam_actor, $openssh.source, $openssh.destination, $openssh._principal
     $openssh = {
+      user: $openssh._raw_user,
+      source_ip: $openssh._raw_source_ip,
+      source_port: $openssh._raw_source_port,
       ...$openssh,
-      ...$verbs[$openssh.verb]?,
-      ...$session_states[$openssh.user_state]?,
-      category: "authentication",
     }
+    drop $openssh._raw_user, $openssh._raw_source_ip, $openssh._raw_source_port
   }
-  // A close without an account is transport activity, not evidence of an
-  // authentication outcome.
-  if $openssh.template == "connection_closed" and $openssh.user? == null {
-    $openssh.category = "network"
-    $openssh.activity = "close"
-    $openssh.outcome = "success"
-  }
-  if $openssh.category? != null and $openssh.category != "application_lifecycle" {
-    $openssh.user = {
-      name: move $openssh.user,
-      uid: $openssh.user_id?.string(),
-      is_invalid: $openssh.invalid != null
-        or $openssh.user_state == "invalid user"
-        or $openssh.template in ["invalid_user", "missing_login_user"],
-    }
-    if $openssh.template in ["failed", "connection_closed"] and $openssh.user.is_invalid {
-      $openssh.template = "invalid_user"
-    }
-    if $openssh.actor_user_id? != null {
-      $openssh.pam_actor = {
-        name: move $openssh.actor_user_name?,
-        uid: $openssh.actor_user_id.string(),
-      }
-    }
-    $openssh.source = {
-      ip: move $openssh.source_ip,
-      port: move $openssh.source_port,
-    }
-    if $openssh.destination_ip? != null {
-      $openssh.destination = {
-        ip: move $openssh.destination_ip,
-        port: move $openssh.destination_port?,
-      }
-    }
-    $openssh.preauth = $openssh.phase == "preauth"
-  }
-  drop $openssh.verb, $openssh.invalid, $openssh.user_state, $openssh.phase, $openssh.pam_action, $openssh.auth_kind, $openssh.network_action, $openssh.ssh_action, $openssh.server_action, $openssh.verbose_action, $openssh.user_id?, $openssh.actor_user_id?, $openssh.actor_user_name?, $openssh.pam_context?, $openssh.connection_number_text?, $openssh.source_ip_text?, $openssh.destination_ip_text?, $openssh.destination_ip?, $openssh.destination_port?, $openssh.other
-  $openssh = drop_null_fields($openssh)
+  $openssh = null if $openssh.template? == null else drop_null_fields($openssh)
 }
