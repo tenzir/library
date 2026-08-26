@@ -1,0 +1,37 @@
+---
+description: >-
+  Generates a continuous stream of OpenSSH Syslog events captured from six
+  Linux distributions, replayed in real time. Use `speed` to control the
+  replay rate.
+args:
+  named:
+    - name: speed
+      type: float
+      default: 1.0
+---
+
+let $first = 2026-08-23T09:35:45Z
+let $last = 2026-08-23T14:26:14Z
+let $default = 3h
+let $period = $default / $speed
+let $factor = ($last - $first) / $period
+
+every $period {
+  let $replay_id = uuid()
+
+  from_http "https://datasets.tenzir.tools/openssh/syslog.log.zst" {
+    decompress_zstd
+    read_syslog raw_message=raw
+  }
+  where $first <= timestamp and timestamp <= $last
+  sort timestamp
+
+  // Compress the capture to the requested replay period and ensure that every
+  // iteration advances event time.
+  timeshift timestamp, start=now(), speed=$factor
+
+  // Prevent repeated host/PID pairs from separate iterations from correlating.
+  hostname = f"{hostname}-replay-{$replay_id}"
+
+  delay timestamp
+}
