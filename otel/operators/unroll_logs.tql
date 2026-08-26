@@ -1,0 +1,51 @@
+---
+description: Unrolls an OTLP/JSON logs export envelope into one event per LogRecord.
+args:
+  named:
+    - name: jobs
+      type: int
+      default: 1
+      description: Number of workers used to decode individual log records.
+---
+
+where resourceLogs? != null
+
+unroll resourceLogs
+_resource = resourceLogs.resource
+_scope_logs = resourceLogs.scopeLogs
+
+unroll _scope_logs
+_scope = _scope_logs.scope
+_log_record = _scope_logs.logRecords
+
+unroll _log_record
+
+parallel $jobs {
+  _raw_data = _log_record.print_json()
+
+  otel::decode_attributes _log_record.attributes
+  _attributes = move attributes
+
+  otel::decode_attributes _resource.attributes
+  _resource_attributes = move attributes
+
+  select signal = "log",
+    raw_data = _raw_data,
+    raw_data_size = _raw_data.length_bytes(),
+    time = from_epoch(int(_log_record.timeUnixNano) * 1ns) if _log_record.timeUnixNano? != null and int(_log_record.timeUnixNano) > 0 else null,
+    observed_time = from_epoch(int(_log_record.observedTimeUnixNano) * 1ns) if _log_record.observedTimeUnixNano? != null and int(_log_record.observedTimeUnixNano) > 0 else null,
+    body = _log_record.body?.stringValue?,
+    trace_id = _log_record.traceId?,
+    span_id = _log_record.spanId?,
+    severity_number = _log_record.severityNumber?,
+    severity_text = _log_record.severityText?,
+    flags = _log_record.flags?,
+    scope = {
+      name: _scope.name?,
+      version: _scope.version?,
+    },
+    resource = _resource_attributes,
+    attributes = _attributes
+
+  @name = "otel.log"
+}

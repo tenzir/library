@@ -1,0 +1,33 @@
+---
+name: List Agent Tool Usage
+description: >
+  Lists every tool invocation by Codex and Claude Code with the approval
+  decision and who authorized it, normalizing the vendor-specific attribute
+  names into one shape.
+---
+
+// Codex and Claude Code disagree on vocabulary: Claude Code says
+// `decision: "accept"` with `source: "config"`, Codex says
+// `decision: "approved"` with `source: "Config"`, and the authorizing party
+// only exists in `raw_data`, not in the mapped OCSF fields.
+
+from_clickhouse sql="SELECT time, metadata.product.name AS product, metadata.event_code AS code, raw_data FROM ocsf_1_9.API_Activity WHERE metadata.event_code IN ('tool_decision', 'codex.tool_decision') ORDER BY time DESC LIMIT 200",
+  host=secret("CLICKHOUSE_HOST"),
+  user=secret("CLICKHOUSE_USERNAME"),
+  password=secret("CLICKHOUSE_PASSWORD"),
+  tls={}
+
+attrs = raw_data.parse_json().attributes
+
+this = {
+  time: time,
+  product: product,
+  tool: attrs["tool_name"]? else "",
+  decision: (attrs["decision"]? else "").to_lower(),
+  authorized_by: (attrs["source"]? else attrs["decision_source"]? else "").to_lower(),
+  call_id: attrs["tool_use_id"]? else attrs["call_id"]? else "",
+  session: attrs["session.id"]? else attrs["conversation.id"]? else "",
+  user: attrs["user.email"]? else "",
+}
+
+sort -time
