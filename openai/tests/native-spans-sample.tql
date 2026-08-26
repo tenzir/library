@@ -1,0 +1,19 @@
+// Captured Codex spans as `subscribe "otlp"` delivers them. Internal
+// implementation spans in this sample must be dropped by
+// `openai::codex::drop_internal_spans` rather than mapped.
+from_file env("TENZIR_INPUT") {
+  read_ndjson
+}
+@name = "otel.span"
+openai::codex::ocsf
+where class_uid != 0
+ocsf_derive
+ocsf_cast
+// Events of different OCSF classes form separate result schemas whose
+// interleaving depends on scheduling. Log records carry no source identifier,
+// so sort on the rendered event: a total order that depends only on content.
+_order = this.print_json()
+sort _order
+drop _order
+select metadata.event_code, class_uid, class_name, activity_name, type_name,
+       severity, status, api?.operation?, process?.name?

@@ -1,0 +1,45 @@
+---
+description: Normalizes native Codex OTLP logs, metrics, and traces.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts, responses, commands, and tool parameters.
+---
+
+if @name == "otel.log" {
+  _raw_data = this.print_json()
+  _transport = receiver.transport?
+  _resource_attributes = resource.attributes
+  _body = body.string_value? else body.json_value?
+  signal = "log"
+  transport = _transport
+  raw_data = _raw_data
+  raw_data_size = _raw_data.length_bytes()
+  body = _body
+  resource = _resource_attributes
+  openai::codex::normalize_event include_content=$include_content
+} else if @name == "otel.span" {
+  // Drop internal spans before serializing anything into `raw_data`: that
+  // print_json call is the dominant cost, and it would run for every span.
+  openai::codex::drop_internal_spans name=name
+  _raw_data = this.print_json()
+  _transport = receiver.transport?
+  _resource_attributes = resource.attributes
+  signal = "trace"
+  transport = _transport
+  raw_data = _raw_data
+  raw_data_size = _raw_data.length_bytes()
+  event_name = name
+  time = start_time
+  span_kind = kind_id
+  status_code = status.code_id
+  status_message = status.message
+  resource = _resource_attributes
+  openai::codex::normalize_event include_content=$include_content
+} else if @name.starts_with("otel.metric.") {
+  openai::codex::normalize_metrics
+} else {
+  discard
+}
