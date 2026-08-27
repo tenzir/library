@@ -1,0 +1,32 @@
+---
+description: |
+  Canonicalizes Microsoft Windows Event Log events in any supported
+  representation. Parses XML, passes through canonical records, and adapts
+  Fluent Bit, NXLog, or Winlogbeat records.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The Windows Event Log event to canonicalize.
+    - name: windows
+      type: field
+      description: The field that receives the canonical Windows Event Log record.
+---
+
+if type_of($input).kind == "string" {
+  $windows = $input.parse_winlog()
+  microsoft::windows::adapters::windows_event_log $windows
+} else if type_of($input.System?).kind == "string" {
+  microsoft::windows::adapters::fluent_bit $input, $windows
+} else if $input.System? != null {
+  $windows = $input
+  microsoft::windows::adapters::windows_event_log $windows
+} else if $input.SourceModuleType? == "im_msvistalog" {
+  microsoft::windows::adapters::nxlog $input, $windows
+} else if $input.winlog?.event_id? != null and $input.winlog?.provider_name? != null {
+  microsoft::windows::adapters::winlogbeat $input, $windows
+} else if $input.ProviderName? != null and $input.EventData? != null {
+  microsoft::windows::adapters::fluent_bit $input, $windows
+} else {
+  $windows = null
+}

@@ -1,0 +1,69 @@
+---
+description: |
+  Adapts a structured Windows Event Log event collected by Winlogbeat to the canonical
+  Windows Event Log structure. The adapter preserves the remaining ECS and
+  Winlogbeat fields as collector metadata.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The structured Winlogbeat event to adapt.
+    - name: windows
+      type: field
+      description: The field that receives the canonical Windows Event Log record.
+---
+
+$windows = {winlogbeat: $input}
+$windows.canonical = {
+  System: {
+    Provider: {
+      Name: move $windows.winlogbeat.winlog.provider_name,
+      Guid: move $windows.winlogbeat.winlog.provider_guid?,
+    },
+    EventID: move $windows.winlogbeat.winlog.event_id,
+    Version: move $windows.winlogbeat.winlog.version?,
+    Level: move $windows.winlogbeat.log.level?,
+    Task: move $windows.winlogbeat.winlog.task?,
+    Opcode: move $windows.winlogbeat.winlog.opcode?,
+    Keywords: move $windows.winlogbeat.winlog.keywords?,
+    TimeCreated: {
+      SystemTime: move $windows.winlogbeat["@timestamp"],
+    },
+    EventRecordID: move $windows.winlogbeat.winlog.record_id,
+    Correlation: {
+      ActivityID: move $windows.winlogbeat.winlog.activity_id?,
+      RelatedActivityID: move $windows.winlogbeat.winlog.related_activity_id?,
+    },
+    Execution: {
+      ProcessID: move $windows.winlogbeat.winlog.process.pid?,
+      ThreadID: move $windows.winlogbeat.winlog.process.thread.id?,
+    },
+    Channel: $windows.winlogbeat.winlog.channel,
+    Computer: move $windows.winlogbeat.winlog.computer_name,
+    Security: {
+      UserID: move $windows.winlogbeat.winlog.user.identifier?,
+    },
+  },
+  EventData: move $windows.winlogbeat.winlog.event_data?,
+  UserData: move $windows.winlogbeat.winlog.user_data?,
+  RenderingInfo: {
+    Message: move $windows.winlogbeat.message?,
+  },
+  Logger: {
+    device: {
+      hostname: $windows.winlogbeat.host?.name?,
+    },
+    log_name: move $windows.winlogbeat.winlog.channel,
+    log_provider: "Winlogbeat",
+    logged_time: move $windows.winlogbeat.event?.created?,
+    name: move $windows.winlogbeat.agent?.name?,
+    product: {
+      name: "Winlogbeat",
+      vendor_name: "Elastic",
+    },
+    uid: move $windows.winlogbeat.agent?.id?,
+    version: move $windows.winlogbeat.agent?.version?,
+  },
+}
+$windows.canonical.Winlogbeat = move $windows.winlogbeat
+$windows = move $windows.canonical

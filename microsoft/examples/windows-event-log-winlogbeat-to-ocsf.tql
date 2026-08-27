@@ -1,0 +1,16 @@
+---
+name: Winlogbeat Windows Event JSON → OCSF
+description: Read Windows Event Log records from Winlogbeat JSON and normalize them to OCSF.
+---
+
+from_file "winlogbeat.ndjson" {
+  read_lines
+}
+event = line.parse_json()
+microsoft::windows::ocsf::normalize event, into=ocsf
+ocsf.metadata.log_format = "json"
+ocsf.raw_data = move line
+ocsf.raw_data_size = ocsf.raw_data.length_bytes()
+this = move ocsf
+ocsf_derive
+ocsf_cast

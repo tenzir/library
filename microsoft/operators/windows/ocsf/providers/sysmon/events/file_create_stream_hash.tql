@@ -1,0 +1,63 @@
+---
+description: Sysmon FileCreateStreamHash (EID 15) → OCSF File System Activity (1001, Create)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.file_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+// TargetFilename format: "C:\path\file.exe:Zone.Identifier"
+// Split on all colons, then rejoin all-but-last to reconstruct the full file path
+// (which itself contains a colon after the drive letter).
+$event._target = move $event.windows.EventData.TargetFilename
+
+$event.ocsf.file = {
+  path: $event._target.split(":").slice(end=-1).join(":"),
+  created_time: move $event.windows.EventData.CreationUtcTime,
+  type_id: 1,  // Regular File
+}
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+
+// The ADS stream name (e.g. "Zone.Identifier") maps to the OCSF component field.
+$event.ocsf.component = $event._target.split(":")[-1]
+
+drop $event._target
+
+// Hash field uses the same comma-separated "ALGO=value" format as Hashes on other EIDs.
+$event.ocsf.file.hashes = ((move $event.windows.EventData.Hash)
+  .split(",")
+  .map(h => h.split("=", max=1))
+  .map(kv => {
+    algorithm_id: microsoft::$sysmon_algorithms[kv[0]?]? else 99,
+    value: kv[1]?,
+  }))
+
+// Contents is the raw ADS content (e.g. Zone.Identifier data) — no OCSF field for it.
+// Left in unmapped.
+
+$event._user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor = {
+  process: {
+    uid: move $event.windows.EventData.ProcessGuid,
+    pid: (move $event.windows.EventData.ProcessId).int(),
+    path: move $event.windows.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1,
+  },
+}
+drop $event._user
+
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path

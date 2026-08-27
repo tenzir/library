@@ -1,0 +1,67 @@
+---
+description: |
+  Adapts a structured Windows Event Log event collected by Fluent Bit's `winevtlog` input
+  to the canonical Windows Event Log structure. Configure Fluent Bit with
+  `event_data_as_map true` so provider fields have names. Records produced with
+  `render_event_as_xml true` are also supported.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The structured Fluent Bit event to adapt.
+    - name: windows
+      type: field
+      description: The field that receives the canonical Windows Event Log record.
+---
+
+$windows = {fluent_bit: $input}
+if type_of($windows.fluent_bit.System?).kind == "string" {
+  $windows.canonical = (move $windows.fluent_bit.System).parse_winlog()
+} else {
+  $windows.canonical = {
+    System: {
+      Provider: {
+        Name: move $windows.fluent_bit.ProviderName,
+        Guid: move $windows.fluent_bit.ProviderGuid?,
+      },
+      EventID: move $windows.fluent_bit.EventID,
+      Version: move $windows.fluent_bit.Version?,
+      Level: move $windows.fluent_bit.Level?,
+      Task: move $windows.fluent_bit.Task?,
+      Opcode: move $windows.fluent_bit.Opcode?,
+      Keywords: move $windows.fluent_bit.Keywords?,
+      TimeCreated: {
+        SystemTime: (move $windows.fluent_bit.TimeCreated).parse_time("%Y-%m-%d %H:%M:%S %z"),
+      },
+      EventRecordID: move $windows.fluent_bit.EventRecordID?,
+      Correlation: {
+        ActivityID: move $windows.fluent_bit.ActivityID?,
+        RelatedActivityID: move $windows.fluent_bit.RelatedActivityID?,
+      },
+      Execution: {
+        ProcessID: move $windows.fluent_bit.ProcessID?,
+        ThreadID: move $windows.fluent_bit.ThreadID?,
+      },
+      Channel: move $windows.fluent_bit.Channel?,
+      Computer: move $windows.fluent_bit.Computer?,
+      Security: {
+        UserID: move $windows.fluent_bit.UserID?,
+      },
+    },
+    EventData: move $windows.fluent_bit.EventData?,
+  }
+}
+$windows.canonical.RenderingInfo.Message = move $windows.fluent_bit.Message?
+$windows.canonical.Logger = {
+  device: {
+    hostname: $windows.canonical.System.Computer,
+  },
+  log_name: $windows.canonical.System.Channel,
+  log_provider: "Fluent Bit",
+  name: "Fluent Bit",
+  product: {
+    name: "Fluent Bit",
+  },
+}
+$windows.canonical.FluentBit = move $windows.fluent_bit
+$windows = move $windows.canonical

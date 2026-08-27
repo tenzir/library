@@ -1,0 +1,111 @@
+---
+description: Sysmon ProcessCreate (EID 1) → OCSF Process Activity (1007, Launch)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.process_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 1  // Launch
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+$event.ocsf.launch_type_id = 1
+
+// Map IntegrityLevel string to its OCSF enum id.
+let $integrity_ids = {
+  Unknown:   0,
+  Untrusted: 1,
+  Low:       2,
+  Medium:    3,
+  High:      4,
+  System:    5,
+  Protected: 6,
+}
+
+$event._user = (move $event.windows.EventData.User).split("\\")
+$event._parent_user = (move $event.windows.EventData.ParentUser).split("\\")
+$event.ocsf.process = {
+  pid: (move $event.windows.EventData.ProcessId).int(),
+  uid: move $event.windows.EventData.ProcessGuid,
+  path: move $event.windows.EventData.Image,
+  cmd_line: move $event.windows.EventData.CommandLine,
+  created_time: $event.ocsf.time,
+  working_directory: move $event.windows.EventData.CurrentDirectory,
+  integrity_id: $integrity_ids[move $event.windows.EventData.IntegrityLevel]? else 0,
+  file: {
+    type_id: 8,  // Executable File
+    version: move $event.windows.EventData.FileVersion,
+    desc: move $event.windows.EventData.Description,
+    company_name: move $event.windows.EventData.Company,
+    internal_name: move $event.windows.EventData.OriginalFileName,
+    product: {
+      name: move $event.windows.EventData.Product,
+    },
+  },
+  user: {
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1,
+  },
+  parent_process: {
+    pid: (move $event.windows.EventData.ParentProcessId).int(),
+    uid: move $event.windows.EventData.ParentProcessGuid,
+    path: move $event.windows.EventData.ParentImage,
+    cmd_line: move $event.windows.EventData.ParentCommandLine,
+    file: {
+      type_id: 8,
+    },
+    user: {
+      name: $event._parent_user[-1],
+      domain: $event._parent_user[0] if $event._parent_user.length() > 1,
+    },
+  },
+}
+drop $event._user, $event._parent_user
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
+$event.ocsf.process.parent_process.file.name = $event.ocsf.process.parent_process.path.split("\\")[-1]
+$event.ocsf.process.parent_process.file.path = $event.ocsf.process.parent_process.path
+
+// Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
+$event.ocsf.process.file.hashes = ((move $event.windows.EventData.Hashes)
+  .split(",")
+  .map(h => h.split("=", max=1))
+  .map(kv => {
+    algorithm_id: microsoft::$sysmon_algorithms[kv[0]?]? else 99,
+    value: kv[1]?,
+  }))
+
+// The actor.process object duplicates process.parent_process per OCSF guidance:
+// for Launch events both actor.process (creator) and process.parent_process (OS
+// parent) should be populated. Sysmon does not distinguish creator from parent,
+// so the same data fills both fields.
+$event.ocsf.actor = {
+  process: {
+    uid: $event.ocsf.process.parent_process.uid,
+    pid: $event.ocsf.process.parent_process.pid,
+    path: $event.ocsf.process.parent_process.path,
+    name: $event.ocsf.process.parent_process.file.name,
+    cmd_line: $event.ocsf.process.parent_process.cmd_line,
+    file: $event.ocsf.process.parent_process.file,
+    user: $event.ocsf.process.parent_process.user,
+  },
+  user: $event.ocsf.process.parent_process.user,
+  // LogonGuid/LogonId are the logon session of the spawned process, not the
+  // creator. They are placed in actor.session because it is the only session
+  // data available and is useful for cross-event correlation; the two sessions
+  // are identical in the common case where the parent did not change the token.
+  // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
+  session: {
+    uid: move $event.windows.EventData.LogonGuid,
+    uid_alt: move $event.windows.EventData.LogonId,
+  },
+}
+
+// EID 1 only fires on successful process creation; there is no failure variant.
+$event.ocsf.status_id = 1

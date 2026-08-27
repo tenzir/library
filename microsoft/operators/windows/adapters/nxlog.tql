@@ -1,0 +1,119 @@
+---
+description: |
+  Adapts a structured Windows Event Log event collected by NXLog to the canonical Windows
+  Event Log structure. Configure NXLog with `AddPrefix TRUE` and read its JSON
+  with `unflatten_separator="."` to preserve provider fields that collide with
+  NXLog metadata, such as `EventType`.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The structured NXLog event to adapt.
+    - name: windows
+      type: field
+      description: The field that receives the canonical Windows Event Log record.
+---
+
+$windows = {nxlog: $input}
+$windows.canonical = {
+  System: {
+    Provider: {
+      Name: move $windows.nxlog.SourceName?,
+      Guid: move $windows.nxlog.ProviderGuid?,
+    },
+    EventID: move $windows.nxlog.EventID,
+    Version: move $windows.nxlog.Version?,
+    Level: move $windows.nxlog.LevelValue?,
+    Task: (
+      move $windows.nxlog.Task?
+    ) else (
+      move $windows.nxlog.TaskValue?
+    ),
+    Opcode: move $windows.nxlog.OpcodeValue?,
+    Keywords: move $windows.nxlog.Keywords?,
+    TimeCreated: {
+      SystemTime: move $windows.nxlog.EventTime?,
+    },
+    EventRecordID: move $windows.nxlog.RecordNumber?,
+    Execution: {
+      ProcessID: (
+        move $windows.nxlog.ProcessID?
+      ) else (
+        move $windows.nxlog.ExecutionProcessID?
+      ),
+      ThreadID: (
+        move $windows.nxlog.ThreadID?
+      ) else (
+        move $windows.nxlog.ExecutionThreadID?
+      ),
+    },
+    Channel: move $windows.nxlog.Channel?,
+    Computer: move $windows.nxlog.Hostname?,
+    Security: {
+      UserID: move $windows.nxlog.UserID?,
+    },
+  },
+  NXLog: {
+    event_received_time: move $windows.nxlog.EventReceivedTime?,
+    message: move $windows.nxlog.Message?,
+    module_name: move $windows.nxlog.SourceModuleName?,
+    module_type: move $windows.nxlog.SourceModuleType?,
+    severity: move $windows.nxlog.Severity?,
+    severity_value: move $windows.nxlog.SeverityValue?,
+    level: move $windows.nxlog.Level?,
+    category: move $windows.nxlog.Category?,
+    opcode: move $windows.nxlog.Opcode?,
+    activity_uid: move $windows.nxlog.ActivityID?,
+    related_activity_uid: move $windows.nxlog.RelatedActivityID?,
+    raw_event: move $windows.nxlog.raw_event?,
+    event_xml: move $windows.nxlog.EventXML?,
+  },
+}
+
+$windows.canonical.Logger = {
+  device: {
+    hostname: $windows.canonical.System.Computer,
+  },
+  log_name: $windows.canonical.System.Channel,
+  log_provider: "NXLog",
+  logged_time: move $windows.canonical.NXLog.event_received_time?,
+  name: move $windows.canonical.NXLog.module_name?,
+  product: {
+    name: "NXLog",
+    vendor_name: "NXLog",
+  },
+}
+
+if (
+  $windows.nxlog.AccountName? != null
+  or $windows.nxlog.Domain? != null
+  or $windows.nxlog.AccountType? != null
+) {
+  $windows.canonical.NXLog.account = {
+    name: move $windows.nxlog.AccountName?,
+    domain: move $windows.nxlog.Domain?,
+    type: move $windows.nxlog.AccountType?,
+  }
+}
+
+// With AddPrefix disabled, NXLog and Sysmon may both emit `EventType` into the
+// same flat field. Preserve a non-severity value as Sysmon EventData, but treat
+// every documented NXLog severity caption as collector metadata.
+if (
+  $windows.nxlog.EventData? != null
+  or $windows.nxlog.EventType? in microsoft::$nxlog_event_types
+) {
+  $windows.canonical.NXLog.event_type = move $windows.nxlog.EventType?
+}
+
+if $windows.nxlog.EventData? != null {
+  $windows.canonical.EventData = move $windows.nxlog.EventData
+  $windows.canonical.NXLog = {
+    ...$windows.canonical.NXLog,
+    ...move $windows.nxlog,
+  }
+} else {
+  $windows.canonical.EventData = move $windows.nxlog
+}
+$windows.canonical.NXLog = drop_null_fields($windows.canonical.NXLog)
+$windows = move $windows.canonical

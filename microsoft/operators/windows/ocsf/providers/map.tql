@@ -1,0 +1,138 @@
+---
+description: Maps a structured Windows Event Log event to OCSF 1.9.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+
+$event = {windows: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  event_code: $event.windows.System.EventID.string(),
+  extensions: [{name: "win"}],
+  log_name: $event.windows.System.Channel,
+  log_level: (move $event.windows.System.Level).string(),
+  log_version: (move $event.windows.System.Version).string(),
+  logged_time: $event.windows.Logger.logged_time?,
+  loggers: [move $event.windows.Logger],
+  original_event_uid: $event.windows.System.EventRecordID.string(),
+  processed_time: now(),
+  product: {
+    name: $event.windows.System.Provider.Name,
+    uid: move $event.windows.System.Provider.Guid?,
+    vendor_name: "Microsoft",
+  },
+  profiles: ["host"],
+  version: "1.9.0",
+}
+$event.windows.System.EventID = $event.windows.System.EventID.int()
+
+$event.ocsf.severity_id = 1
+$event.ocsf.time = move $event.windows.System.TimeCreated.SystemTime
+drop $event.windows.System.TimeCreated
+
+$event.ocsf.device = {
+  hostname: move $event.windows.System.Computer,
+}
+
+// "-" is the universal Windows sentinel for "not applicable/empty".
+replace $event.windows, what="-", with=null
+
+match $event.windows.System.Provider.Name {
+  "Microsoft-Windows-TaskScheduler" => {
+    match $event.windows.System.EventID {
+      99..103 | 129 | 199..202 => { microsoft::windows::ocsf::events::task_run event=$event }
+      106 | 139..142 => { microsoft::windows::ocsf::events::task_lifecycle event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Application Error" => {
+    match $event.windows.System.EventID {
+      1000 => { microsoft::windows::ocsf::events::application_error event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Windows Error Reporting" => {
+    match $event.windows.System.EventID {
+      1001 => { microsoft::windows::ocsf::events::application_crash_report event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Application Hang" => {
+    match $event.windows.System.EventID {
+      1002 => { microsoft::windows::ocsf::events::application_hang event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Microsoft-Windows-Windows Defender" => {
+    match $event.windows.System.EventID {
+      1005..1008 => { microsoft::windows::ocsf::events::defender_threat event=$event }
+      1115..1118 => { microsoft::windows::ocsf::events::defender_detection event=$event }
+      1121 => { microsoft::windows::ocsf::events::defender_asr event=$event }
+      2000 => { microsoft::windows::ocsf::events::defender_signature_update event=$event }
+      5001 | 5007 => { microsoft::windows::ocsf::events::defender_tamper event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Microsoft-Windows-Eventlog" => {
+    match $event.windows.System.EventID {
+      1102 => { microsoft::windows::ocsf::events::eventlog_clear event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Microsoft-Windows-PowerShell" => {
+    match $event.windows.System.EventID {
+      4100 => { microsoft::windows::ocsf::events::powershell_error event=$event }
+      4103 => { microsoft::windows::ocsf::events::powershell_module_logging event=$event }
+      4104 => { microsoft::windows::ocsf::events::powershell_script_block event=$event }
+      4105 | 4106 => { microsoft::windows::ocsf::events::powershell_script_block_invocation event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Microsoft-Windows-Security-Auditing" => {
+    match $event.windows.System.EventID {
+      4624 => { microsoft::windows::ocsf::events::logon event=$event }
+      4625 => { microsoft::windows::ocsf::events::logon_failed event=$event }
+      4648 => { microsoft::windows::ocsf::events::explicit_credential_logon event=$event }
+      4672 => { microsoft::windows::ocsf::events::authorize_session event=$event }
+      4688 => { microsoft::windows::ocsf::events::process_create event=$event }
+      4697 => { microsoft::windows::ocsf::events::service_install event=$event }
+      4698 => { microsoft::windows::ocsf::events::scheduled_task_create event=$event }
+      4720 | 4721..4727 => { microsoft::windows::ocsf::events::account_change event=$event }
+      4726..4735 | 4753..4759 => { microsoft::windows::ocsf::events::group_management event=$event }
+      4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket event=$event }
+      4771 => { microsoft::windows::ocsf::events::kerberos_preauth_failed event=$event }
+      4776 => { microsoft::windows::ocsf::events::ntlm_auth event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "EventLog" => {
+    match $event.windows.System.EventID {
+      6005 => { microsoft::windows::ocsf::events::eventlog_start event=$event }
+      6006 => { microsoft::windows::ocsf::events::eventlog_stop event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  "Service Control Manager" => {
+    match $event.windows.System.EventID {
+      7034 => { microsoft::windows::ocsf::events::service_crashed event=$event }
+      7045 => { microsoft::windows::ocsf::events::service_install_scm event=$event }
+      _ => { microsoft::windows::ocsf::base event=$event }
+    }
+  }
+  _ => { microsoft::windows::ocsf::base event=$event }
+}
+
+drop $event.windows.System.Channel
+drop $event.windows.System.EventID
+drop $event.windows.System.EventRecordID
+drop $event.windows.System.Provider
+
+
+$ocsf = {...$event.ocsf, unmapped: $event.windows}
