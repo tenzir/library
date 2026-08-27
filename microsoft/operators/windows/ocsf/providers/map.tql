@@ -20,20 +20,23 @@ $event.ocsf.metadata = {
   log_level: (move $event.windows.System.Level).string(),
   log_version: (move $event.windows.System.Version).string(),
   logged_time: $event.windows.System.TimeCreated.SystemTime,
-  loggers: [{
-    device: {
-      hostname: $event.windows.System.Computer,
-    },
-    event_uid: $event.windows.System.EventRecordID.string(),
-    log_name: $event.windows.System.Channel,
-    log_provider: $event.windows.System.Provider.Name,
-    logged_time: $event.windows.System.TimeCreated.SystemTime,
-    name: "Windows Event Log",
-    product: {
+  loggers: [
+    {
+      device: {
+        hostname: $event.windows.System.Computer,
+      },
+      event_uid: $event.windows.System.EventRecordID.string(),
+      log_name: $event.windows.System.Channel,
+      log_provider: $event.windows.System.Provider.Name,
+      logged_time: $event.windows.System.TimeCreated.SystemTime,
       name: "Windows Event Log",
-      vendor_name: "Microsoft",
+      product: {
+        name: "Windows Event Log",
+        vendor_name: "Microsoft",
+      },
     },
-  }],
+    move $event.windows.Logger?,
+  ].where(logger => logger != null),
   original_event_uid: $event.windows.System.EventRecordID.string(),
   processed_time: now(),
   product: {
@@ -44,17 +47,11 @@ $event.ocsf.metadata = {
   profiles: ["host"],
   version: "1.9.0",
 }
-if $event.windows.Logger? != null {
-  $event.ocsf.metadata.loggers = [
-    ...$event.ocsf.metadata.loggers,
-    move $event.windows.Logger,
-  ]
-  $event.ocsf.metadata.logged_time = (
-    $event.ocsf.metadata.loggers[-1].logged_time?
-  ) else (
-    $event.ocsf.metadata.logged_time
-  )
-}
+$event.ocsf.metadata.logged_time = (
+  $event.ocsf.metadata.loggers[-1].logged_time?
+) else (
+  $event.ocsf.metadata.logged_time
+)
 $event.windows.System.EventID = $event.windows.System.EventID.int()
 
 $event.ocsf.severity_id = 1
