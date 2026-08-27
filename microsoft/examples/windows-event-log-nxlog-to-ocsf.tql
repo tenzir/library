@@ -1,0 +1,18 @@
+---
+name: NXLog Windows Event JSON → OCSF
+description: |
+  Read Windows Event Log records serialized as JSON by NXLog and normalize them
+  to OCSF. Configure NXLog with `AddPrefix TRUE` to preserve provider fields.
+---
+
+from_file "nxlog.ndjson" {
+  read_lines
+}
+event = line.parse_json(unflatten_separator=".")
+microsoft::windows::ocsf::normalize event, into=ocsf
+ocsf.metadata.log_format = "json"
+ocsf.raw_data = move line
+ocsf.raw_data_size = ocsf.raw_data.length_bytes()
+this = move ocsf
+ocsf_derive
+ocsf_cast

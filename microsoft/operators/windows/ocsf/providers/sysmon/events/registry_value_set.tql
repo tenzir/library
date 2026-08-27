@@ -1,0 +1,44 @@
+---
+description: Sysmon RegistryValueSet (EID 13) → OCSF Registry Value Activity (201002, Set)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.registry_value_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 201002
+$event.ocsf.activity_id = 2  // Set
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+$event._parts = (move $event.windows.EventData.TargetObject).split("\\")
+$event.ocsf.reg_value = {
+  path:            $event._parts.slice(end=-1).join("\\"),
+  name:            $event._parts[-1],
+  reg_string_data: move $event.windows.EventData.Details,
+}
+drop $event._parts
+
+// EventType "SetValue" is redundant with activity_id — drop it.
+drop $event.windows.EventData.EventType
+
+$event._user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor = {
+  process: {
+    uid: move $event.windows.EventData.ProcessGuid,
+    pid: (move $event.windows.EventData.ProcessId).int(),
+    path: move $event.windows.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1,
+  },
+}
+drop $event._user
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path

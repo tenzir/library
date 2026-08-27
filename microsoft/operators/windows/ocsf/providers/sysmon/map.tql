@@ -1,0 +1,153 @@
+---
+description: Maps a structured Microsoft Sysmon event to OCSF 1.9.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+
+$event = {windows: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  event_code: (move $event.windows.System.EventID).string(),
+  extensions: [{name: "win"}],
+  log_name: move $event.windows.System.Channel,
+  log_level: (move $event.windows.System.Level).string(),
+  log_version: (move $event.windows.System.Version).string(),
+  logged_time: move $event.windows.System.TimeCreated.SystemTime,
+  original_event_uid: (move $event.windows.System.EventRecordID).string(),
+  processed_time: now(),
+  product: {
+    name: move $event.windows.System.Provider.Name,
+    uid: move $event.windows.System.Provider.Guid,
+    vendor_name: "Microsoft",
+  },
+  profiles: ["host"],
+  version: "1.9.0",
+}
+
+$event.ocsf.severity_id = 1
+
+$event.ocsf.time = move $event.windows.EventData.UtcTime
+
+$event.ocsf.device = {
+  hostname: move $event.windows.System.Computer,
+}
+
+// ProcessID and ThreadID identify the Sysmon service itself, not the target event.
+drop $event.windows.System.Execution
+drop $event.windows.System.Provider
+drop $event.windows.System.TimeCreated
+
+// Security.UserID is the Sysmon service account SID (typically S-1-5-18 / SYSTEM),
+// not the device owner — leave it in unmapped.
+drop $event.windows.System.Security
+
+// Correlation is always empty for Sysmon (it does not use ETW ActivityIDs),
+// and OCSF's metadata.correlation_uid is for linking OCSF events — a different
+// concept — so there is no valid mapping target.
+drop $event.windows.System.Correlation?
+
+// RuleName is a Sysmon filter-rule tag present on most EIDs. It is not a
+// property of any observed object, so it is dropped centrally here rather
+// than in every individual mapping operator.
+drop $event.windows.EventData.RuleName?
+
+match $event.ocsf.metadata.event_code {
+  "1" => {
+    microsoft::windows::ocsf::providers::sysmon::events::process_create event=$event
+  }
+  "2" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_create_time event=$event
+  }
+  "3" => {
+    microsoft::windows::ocsf::providers::sysmon::events::network_connect event=$event
+  }
+  "4" => {
+    microsoft::windows::ocsf::providers::sysmon::events::service_state_change event=$event
+  }
+  "5" => {
+    microsoft::windows::ocsf::providers::sysmon::events::process_terminate event=$event
+  }
+  "6" => {
+    microsoft::windows::ocsf::providers::sysmon::events::driver_load event=$event
+  }
+  "7" => {
+    microsoft::windows::ocsf::providers::sysmon::events::image_load event=$event
+  }
+  "8" => {
+    microsoft::windows::ocsf::providers::sysmon::events::create_remote_thread event=$event
+  }
+  "9" => {
+    microsoft::windows::ocsf::providers::sysmon::events::raw_access_read event=$event
+  }
+  "10" => {
+    microsoft::windows::ocsf::providers::sysmon::events::process_access event=$event
+  }
+  "11" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_create event=$event
+  }
+  "12" => {
+    microsoft::windows::ocsf::providers::sysmon::events::registry_create_delete event=$event
+  }
+  "13" => {
+    microsoft::windows::ocsf::providers::sysmon::events::registry_value_set event=$event
+  }
+  "14" => {
+    microsoft::windows::ocsf::providers::sysmon::events::registry_rename event=$event
+  }
+  "15" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_create_stream_hash event=$event
+  }
+  "16" => {
+    microsoft::windows::ocsf::providers::sysmon::events::sysmon_config_change event=$event
+  }
+  "17" => {
+    microsoft::windows::ocsf::providers::sysmon::events::pipe_created event=$event
+  }
+  "18" => {
+    microsoft::windows::ocsf::providers::sysmon::events::pipe_connected event=$event
+  }
+  "19" | "20" | "21" => {
+    microsoft::windows::ocsf::providers::sysmon::events::wmi_events event=$event
+  }
+  "22" => {
+    microsoft::windows::ocsf::providers::sysmon::events::dns_query event=$event
+  }
+  "23" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_delete event=$event
+  }
+  "24" => {
+    microsoft::windows::ocsf::providers::sysmon::events::clipboard_change event=$event
+  }
+  "25" => {
+    microsoft::windows::ocsf::providers::sysmon::events::process_tampering event=$event
+  }
+  "26" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_delete event=$event
+  }
+  "27" | "28" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_block event=$event
+  }
+  "29" => {
+    microsoft::windows::ocsf::providers::sysmon::events::file_executable_detected event=$event
+  }
+  "255" => {
+    microsoft::windows::ocsf::providers::sysmon::events::sysmon_error event=$event
+  }
+  _ => {
+    // Base Event — unknown/future Sysmon EID
+    $event.ocsf.category_uid = 0
+    $event.ocsf.class_uid = 0
+    $event.ocsf.activity_id = 0
+    $event.ocsf.type_uid = 0
+  }
+}
+
+
+$ocsf = {...$event.ocsf, unmapped: $event.windows}

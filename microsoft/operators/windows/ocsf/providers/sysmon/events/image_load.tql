@@ -1,0 +1,84 @@
+---
+description: Sysmon ImageLoad (EID 7) → OCSF Module Activity (1005, Load)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.module_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1005
+$event.ocsf.activity_id = 1  // Load
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+// Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
+replace $event.windows.EventData.FileVersion, what="-", with=null
+replace $event.windows.EventData.Description, what="-", with=null
+replace $event.windows.EventData.Product, what="-", with=null
+replace $event.windows.EventData.Company, what="-", with=null
+replace $event.windows.EventData.OriginalFileName, what="-", with=null
+replace $event.windows.EventData.Signature, what="-", with=null
+replace $event.windows.EventData.SignatureStatus, what="-", with=null
+
+$event.ocsf.module = {
+  file: {
+    path: move $event.windows.EventData.ImageLoaded,
+    type_id: 8,  // Executable File (DLLs are PE images)
+    version: move $event.windows.EventData.FileVersion,
+    desc: move $event.windows.EventData.Description,
+    company_name: move $event.windows.EventData.Company,
+    internal_name: move $event.windows.EventData.OriginalFileName,
+    hashes: ((move $event.windows.EventData.Hashes)
+               .split(",")
+               .map(h => h.split("=", max=1))
+               .map(kv => {
+                 algorithm_id: microsoft::$sysmon_algorithms[kv[0]?]? else 99,
+                 value: kv[1]?,
+               })),
+  },
+}
+$event.ocsf.module.file.name = $event.ocsf.module.file.path.split("\\")[-1]
+
+// product.name is a required field — only add the object when the source has a value.
+if $event.windows.EventData.Product != null {
+  $event.ocsf.module.file.product = { name: move $event.windows.EventData.Product }
+}
+drop $event.windows.EventData.Product
+
+// Attach digital-signature details when the module is signed.
+if $event.windows.EventData.Signed {
+  $event.ocsf.module.file.signature = {
+    algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
+    state_id: microsoft::$sysmon_signature_states[$event.windows.EventData.SignatureStatus]?,
+  }
+  if $event.windows.EventData.Signature != null {
+    $event.ocsf.module.file.signature.certificate = {
+      issuer: move $event.windows.EventData.Signature,
+    }
+  }
+}
+drop $event.windows.EventData.Signed
+drop $event.windows.EventData.Signature
+drop $event.windows.EventData.SignatureStatus
+
+// The process that loaded the module.
+$event._user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor = {
+  process: {
+    uid: move $event.windows.EventData.ProcessGuid,
+    pid: (move $event.windows.EventData.ProcessId).int(),
+    path: move $event.windows.EventData.Image,
+    file: { type_id: 8 },
+  },
+  user: {
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1,
+  },
+}
+drop $event._user
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path

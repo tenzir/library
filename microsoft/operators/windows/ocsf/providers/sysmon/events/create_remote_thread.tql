@@ -1,0 +1,76 @@
+---
+description: Sysmon CreateRemoteThread (EID 8) → OCSF Process Activity (1007, Inject)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.process_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1007
+$event.ocsf.activity_id = 4  // Inject
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+$event.ocsf.injection_type_id = 1  // Remote Thread
+
+// The process that injected the thread is the actor.
+$event._src_user = (move $event.windows.EventData.SourceUser).split("\\")
+$event.ocsf.actor = {
+  process: {
+    uid:  move $event.windows.EventData.SourceProcessGuid,
+    pid:  (move $event.windows.EventData.SourceProcessId).int(),
+    path: move $event.windows.EventData.SourceImage,
+    file: { type_id: 8 },
+  },
+  user: {
+    name:   $event._src_user[-1],
+    domain: $event._src_user[0] if $event._src_user.length() > 1,
+  },
+}
+drop $event._src_user
+
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+
+// The target process that received the injected thread.
+$event._tgt_user = (move $event.windows.EventData.TargetUser).split("\\")
+$event.ocsf.process = {
+  uid:  move $event.windows.EventData.TargetProcessGuid,
+  pid:  (move $event.windows.EventData.TargetProcessId).int(),
+  path: move $event.windows.EventData.TargetImage,
+  file: { type_id: 8 },
+  user: {
+    name:   $event._tgt_user[-1],
+    domain: $event._tgt_user[0] if $event._tgt_user.length() > 1,
+  },
+}
+drop $event._tgt_user
+
+$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
+$event.ocsf.process.file.name = $event.ocsf.process.name
+$event.ocsf.process.file.path = $event.ocsf.process.path
+
+
+// The injected module carries the thread's start address and optional module/function.
+// Replace "-" sentinels so absent fields can be handled without branching on strings.
+replace $event.windows.EventData.StartModule,   what="-", with=null
+replace $event.windows.EventData.StartFunction, what="-", with=null
+
+$event.ocsf.module = {
+  base_address: move $event.windows.EventData.StartAddress,
+}
+if $event.windows.EventData.StartModule != null {
+  $event.ocsf.module.file = { name: move $event.windows.EventData.StartModule }
+}
+if $event.windows.EventData.StartFunction != null {
+  $event.ocsf.module.function_name = move $event.windows.EventData.StartFunction
+}
+drop $event.windows.EventData.StartModule
+drop $event.windows.EventData.StartFunction
+
+// Map the new thread's ID to process.ptid (the canonical OCSF thread identifier).
+$event.ocsf.process.ptid = (move $event.windows.EventData.NewThreadId).int()

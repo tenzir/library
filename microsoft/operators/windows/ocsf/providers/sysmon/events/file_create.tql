@@ -1,0 +1,46 @@
+---
+description: Sysmon FileCreate (EID 11) → OCSF File System Activity (1001, Create)
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.file_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+
+$event.ocsf.file = {
+  path: move $event.windows.EventData.TargetFilename,
+  created_time: move $event.windows.EventData.CreationUtcTime,
+  type_id: 1,  // Regular File
+}
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+
+$event._user = (move $event.windows.EventData.User).split("\\")
+$event.ocsf.actor = {
+  process: {
+    uid: move $event.windows.EventData.ProcessGuid,
+    pid: (move $event.windows.EventData.ProcessId).int(),
+    path: move $event.windows.EventData.Image,
+    file: {
+      type_id: 8,
+    },
+  },
+  user: {
+    name: $event._user[-1],
+    domain: $event._user[0] if $event._user.length() > 1,
+  },
+}
+drop $event._user
+
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
+$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+
+
