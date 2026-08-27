@@ -12,7 +12,6 @@ args:
 
 
 $event = {windows: $event, ocsf: {}}
-_provider = $event.windows.System.Provider.Name
 
 $event.ocsf.metadata = {
   event_code: $event.windows.System.EventID.string(),
@@ -24,7 +23,7 @@ $event.ocsf.metadata = {
   original_event_uid: (move $event.windows.System.EventRecordID).string(),
   processed_time: now(),
   product: {
-    name: move $event.windows.System.Provider.Name,
+    name: $event.windows.System.Provider.Name,
     uid: move $event.windows.System.Provider.Guid?,
     vendor_name: "Microsoft",
   },
@@ -32,7 +31,6 @@ $event.ocsf.metadata = {
   version: "1.9.0",
 }
 $event.windows.System.EventID = $event.windows.System.EventID.int()
-drop $event.windows.System.Provider
 drop $event.windows.System.TimeCreated
 
 
@@ -48,7 +46,7 @@ $event.ocsf.device = {
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace $event.windows, what="-", with=null
 
-match _provider {
+match $event.windows.System.Provider.Name {
   "Microsoft-Windows-TaskScheduler" => {
     match $event.windows.System.EventID {
       99..103 | 129 | 199..202 => { microsoft::windows::ocsf::events::task_run event=$event }
@@ -134,7 +132,7 @@ match _provider {
 }
 
 drop $event.windows.System.EventID
-
+drop $event.windows.System.Provider
 
 
 $ocsf = {...$event.ocsf, unmapped: $event.windows}
