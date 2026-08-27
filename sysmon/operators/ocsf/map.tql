@@ -8,31 +8,14 @@ args:
     - name: ocsf
       type: field
       description: The field that receives the OCSF event.
-  named:
-    - name: log_format
-      type: string
-      default: null
-      description: The source format. Defaults to `xml` for Windows Event Log records and `json` for NXLog records.
 ---
 
 
-// `parse_winlog` produces the canonical System/EventData layout. NXLog emits
-// the same information as a flat JSON record, so adapt it before mapping.
-if $event.System? == null and $event.EventData? == null and $event.EventID? != null {
-  sysmon::ocsf::adapt_nxlog $event
-}
-
-$event = {
-  sysmon: $event,
-  ocsf: {},
-  log_format: $log_format,
-}
-$event.log_format = move $event.sysmon._log_format? else "xml" if $event.log_format == null else $event.log_format
+$event = {sysmon: $event, ocsf: {}}
 
 $event.ocsf.metadata = {
   event_code: (move $event.sysmon.System.EventID).string(),
   extensions: [{name: "win"}],
-  log_format: move $event.log_format,
   log_name: move $event.sysmon.System.Channel,
   log_level: (move $event.sysmon.System.Level).string(),
   log_version: (move $event.sysmon.System.Version).string(),

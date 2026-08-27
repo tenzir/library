@@ -12,9 +12,10 @@ Normalize flat Sysmon events from NXLog JSON without rewriting the OCSF mappings
 
 ```tql
 from_file "sysmon-nxlog.ndjson" {
-  read_ndjson
+  read_ndjson unflatten_separator="."
 }
 sysmon::ocsf::normalize
+metadata.log_format = "json"
 ```
 
-The existing structured Windows Event Log input remains supported. You can pass `log_format` when adapting another collector to the `System` and `EventData` layout.
+Configure NXLog with `AddPrefix TRUE` so provider fields remain distinct from collector metadata. The normalizer also accepts Windows Event Log XML directly. Use `sysmon::ocsf::map` when you already have a parsed Windows Event Log record. Add `metadata.log_format`, `raw_data`, and `raw_data_size` in the calling pipeline, where the source format and payload are known.

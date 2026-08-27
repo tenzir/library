@@ -1,22 +1,30 @@
 ---
-description: Normalizes a structured Microsoft Sysmon event to OCSF 1.9.
+description: |
+  Normalizes a Microsoft Sysmon event to OCSF 1.9. One call parses Windows
+  Event Log XML or adapts NXLog records before mapping them. Call
+  `sysmon::ocsf::map` directly when you already have a parsed Windows Event Log
+  record and need the staged path.
 args:
   positional:
     - name: event
       type: field
       default: this
-      description: A parsed Windows Event Log or NXLog JSON event.
+      description: A field containing Windows Event Log XML or an NXLog event.
   named:
     - name: into
       type: field
       default: this
       description: The field that receives the OCSF event.
-    - name: log_format
-      type: string
-      default: null
-      description: The source format. The operator infers XML and NXLog JSON inputs by default.
 ---
 
-$into = {source: $event, ocsf: {}}
-sysmon::ocsf::map $into.source, $into.ocsf, log_format=$log_format
+$into = {source: $event}
+if type_of($into.source).kind == "string" {
+  $into.source = $into.source.parse_winlog()
+} else if (
+  $into.source.System? == null
+  and $into.source.SourceModuleType? == "im_msvistalog"
+) {
+  sysmon::ocsf::adapt_nxlog $into.source
+}
+sysmon::ocsf::map $into.source, $into.ocsf
 $into = move $into.ocsf
