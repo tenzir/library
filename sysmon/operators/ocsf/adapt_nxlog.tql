@@ -1,0 +1,79 @@
+---
+description: Adapts a flat Sysmon NXLog JSON event to the Windows Event Log structure used by the OCSF mapper.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The NXLog event to adapt in place.
+---
+
+$event = {nxlog: move $event}
+$event.canonical = {
+  System: {
+    Provider: {
+      Name: $event.nxlog.SourceName?,
+      Guid: $event.nxlog.ProviderGuid?,
+    },
+    EventID: $event.nxlog.EventID,
+    Version: $event.nxlog.Version?,
+    Level: $event.nxlog.LevelValue? else $event.nxlog.SeverityValue?,
+    Task: $event.nxlog.Task? else $event.nxlog.TaskValue?,
+    Opcode: $event.nxlog.OpcodeValue?,
+    Keywords: $event.nxlog.Keywords?,
+    TimeCreated: {SystemTime: $event.nxlog.EventTime?},
+    EventRecordID: $event.nxlog.RecordNumber?,
+    Execution: {
+      ProcessID: $event.nxlog.ProcessID? else $event.nxlog.ExecutionProcessID?,
+      ThreadID: $event.nxlog.ThreadID? else $event.nxlog.ExecutionThreadID?,
+    },
+    Channel: $event.nxlog.Channel?,
+    Computer: $event.nxlog.Hostname?,
+    Security: {UserID: $event.nxlog.UserID?},
+  },
+  EventData: {...$event.nxlog},
+  NXLog: {
+    event_received_time: $event.nxlog.EventReceivedTime?,
+    event_type: $event.nxlog.EventType?,
+    message: $event.nxlog.Message?,
+    module_name: $event.nxlog.SourceModuleName?,
+    module_type: $event.nxlog.SourceModuleType?,
+    severity: $event.nxlog.Severity?,
+    severity_value: $event.nxlog.SeverityValue?,
+  },
+  _log_format: "json",
+}
+
+drop $event.canonical.EventData.EventTime?
+drop $event.canonical.EventData.Hostname?
+drop $event.canonical.EventData.Keywords?
+drop $event.canonical.EventData.SeverityValue?
+drop $event.canonical.EventData.Severity?
+drop $event.canonical.EventData.EventID?
+drop $event.canonical.EventData.SourceName?
+drop $event.canonical.EventData.ProviderGuid?
+drop $event.canonical.EventData.Version?
+drop $event.canonical.EventData.LevelValue?
+drop $event.canonical.EventData.Task?
+drop $event.canonical.EventData.TaskValue?
+drop $event.canonical.EventData.Opcode?
+drop $event.canonical.EventData.OpcodeValue?
+drop $event.canonical.EventData.RecordNumber?
+drop $event.canonical.EventData.ProcessID?
+drop $event.canonical.EventData.ThreadID?
+drop $event.canonical.EventData.ExecutionProcessID?
+drop $event.canonical.EventData.ExecutionThreadID?
+drop $event.canonical.EventData.Channel?
+drop $event.canonical.EventData.Domain?
+drop $event.canonical.EventData.AccountName?
+drop $event.canonical.EventData.UserID?
+drop $event.canonical.EventData.AccountType?
+drop $event.canonical.EventData.Message?
+drop $event.canonical.EventData.EventReceivedTime?
+drop $event.canonical.EventData.SourceModuleName?
+drop $event.canonical.EventData.SourceModuleType?
+// NXLog uses EventType for its severity label. Sysmon also uses EventType for
+// some event payloads, so retain non-severity values in EventData.
+if $event.canonical.EventData.EventType? in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] {
+  drop $event.canonical.EventData.EventType
+}
+$event = move $event.canonical
