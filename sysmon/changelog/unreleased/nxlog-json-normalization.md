@@ -18,4 +18,4 @@ sysmon::ocsf::normalize
 metadata.log_format = "json"
 ```
 
-Configure NXLog with `AddPrefix TRUE` so provider fields remain distinct from collector metadata. The normalizer also accepts Windows Event Log XML directly. Use `sysmon::ocsf::map` when you already have a parsed Windows Event Log record. Add `metadata.log_format`, `raw_data`, and `raw_data_size` in the calling pipeline, where the source format and payload are known.
+Configure NXLog with `AddPrefix TRUE` so provider fields remain distinct from collector metadata. The normalizer also accepts Windows Event Log XML directly. For staged processing, use `sysmon::canonicalize` to produce the canonical Windows Event Log structure, then pass the result to `sysmon::ocsf::map`. Add `metadata.log_format`, `raw_data`, and `raw_data_size` in the calling pipeline, where the source format and payload are known.
