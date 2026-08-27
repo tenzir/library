@@ -3,6 +3,8 @@ title: NXLog JSON normalization
 type: feature
 authors:
   - mavam
+prs:
+  - 180
 created: 2026-08-27T06:33:48.406501Z
 ---
 
