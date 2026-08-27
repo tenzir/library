@@ -2,7 +2,7 @@
 description: |
   Canonicalizes Microsoft Sysmon events in any representation the package
   supports. Parses Windows Event Log XML, passes through canonical records, and
-  adapts NXLog JSON records.
+  adapts NXLog or Winlogbeat JSON records.
 args:
   positional:
     - name: input
@@ -19,6 +19,11 @@ if type_of($input).kind == "string" {
   $sysmon = $input
 } else if $input.SourceModuleType? == "im_msvistalog" {
   sysmon::adapters::nxlog $input, $sysmon
+} else if (
+  $input.winlog?.event_id? != null
+  and $input.winlog?.provider_name? != null
+) {
+  sysmon::adapters::winlogbeat $input, $sysmon
 } else {
   $sysmon = null
 }

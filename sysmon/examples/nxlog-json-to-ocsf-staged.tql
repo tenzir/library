@@ -1,0 +1,18 @@
+---
+name: Sysmon NXLog JSON → canonical event → OCSF
+description: |
+  Canonicalize structured NXLog JSON before mapping the Windows Event Log
+  record to OCSF.
+---
+
+from_file "sysmon-nxlog.ndjson" {
+  read_ndjson unflatten_separator="."
+}
+// The canonicalizer recognizes NXLog's `im_msvistalog` source and delegates
+// the structured record to the NXLog adapter.
+sysmon::canonicalize this, sysmon
+sysmon::ocsf::map sysmon, ocsf
+ocsf.metadata.log_format = "json"
+this = move ocsf
+ocsf_derive
+ocsf_cast

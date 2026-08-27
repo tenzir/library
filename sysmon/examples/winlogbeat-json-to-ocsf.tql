@@ -1,0 +1,19 @@
+---
+name: Sysmon Winlogbeat JSON → canonical event → OCSF
+description: |
+  Adapt a structured Winlogbeat event to the canonical Windows Event Log
+  schema before mapping it to OCSF.
+---
+
+from_file "sysmon-winlogbeat.ndjson" {
+  read_ndjson
+}
+// The canonicalizer recognizes the `winlog` object and delegates to the
+// Winlogbeat adapter. If `include_xml` is enabled, you can instead normalize
+// `event.original` to use the original Windows Event Log XML.
+sysmon::canonicalize this, sysmon
+sysmon::ocsf::map sysmon, ocsf
+ocsf.metadata.log_format = "json"
+this = move ocsf
+ocsf_derive
+ocsf_cast
