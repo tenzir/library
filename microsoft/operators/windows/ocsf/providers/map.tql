@@ -16,11 +16,25 @@ $event = {windows: $event, ocsf: {}}
 $event.ocsf.metadata = {
   event_code: $event.windows.System.EventID.string(),
   extensions: [{name: "win"}],
-  log_name: move $event.windows.System.Channel,
+  log_name: $event.windows.System.Channel,
   log_level: (move $event.windows.System.Level).string(),
   log_version: (move $event.windows.System.Version).string(),
-  logged_time: move $event.windows.System.TimeCreated.SystemTime,
-  original_event_uid: (move $event.windows.System.EventRecordID).string(),
+  logged_time: $event.windows.System.TimeCreated.SystemTime,
+  loggers: [{
+    device: {
+      hostname: $event.windows.System.Computer,
+    },
+    event_uid: $event.windows.System.EventRecordID.string(),
+    log_name: $event.windows.System.Channel,
+    log_provider: $event.windows.System.Provider.Name,
+    logged_time: $event.windows.System.TimeCreated.SystemTime,
+    name: "Windows Event Log",
+    product: {
+      name: "Windows Event Log",
+      vendor_name: "Microsoft",
+    },
+  }],
+  original_event_uid: $event.windows.System.EventRecordID.string(),
   processed_time: now(),
   product: {
     name: $event.windows.System.Provider.Name,
@@ -30,14 +44,22 @@ $event.ocsf.metadata = {
   profiles: ["host"],
   version: "1.9.0",
 }
+if $event.windows.Logger? != null {
+  $event.ocsf.metadata.loggers = [
+    ...$event.ocsf.metadata.loggers,
+    move $event.windows.Logger,
+  ]
+  $event.ocsf.metadata.logged_time = (
+    $event.ocsf.metadata.loggers[-1].logged_time?
+  ) else (
+    $event.ocsf.metadata.logged_time
+  )
+}
 $event.windows.System.EventID = $event.windows.System.EventID.int()
-drop $event.windows.System.TimeCreated
-
 
 $event.ocsf.severity_id = 1
-
-// Native Windows events have only one timestamp (SystemTime); copy it to time.
-$event.ocsf.time = $event.ocsf.metadata.logged_time
+$event.ocsf.time = move $event.windows.System.TimeCreated.SystemTime
+drop $event.windows.System.TimeCreated
 
 $event.ocsf.device = {
   hostname: move $event.windows.System.Computer,
@@ -131,7 +153,9 @@ match $event.windows.System.Provider.Name {
   _ => { microsoft::windows::ocsf::base event=$event }
 }
 
+drop $event.windows.System.Channel
 drop $event.windows.System.EventID
+drop $event.windows.System.EventRecordID
 drop $event.windows.System.Provider
 
 
