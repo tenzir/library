@@ -8,6 +8,9 @@ args:
     - name: event
       description: The working event to map.
       type: field
+    - name: activity_id
+      description: The OCSF scheduled job activity identifier.
+      type: int
 ---
 
 @name = "ocsf.scheduled_job_activity"
@@ -15,22 +18,8 @@ args:
 $event.ocsf.category_uid = 1
 $event.ocsf.class_uid = 1006
 
-let $activities = {
-  "100": 6,   // Start
-  "101": 6,   // Start (failed)
-  "102": 99,  // Other — OCSF 1006 has no Stop activity
-  "129": 6,   // Start (process launched)
-  "200": 6,   // Start (action started)
-  "201": 99,  // Other — OCSF 1006 has no Stop activity
-}
-$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
+$event.ocsf.activity_id = $activity_id
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-
-// EID 101 fires on launch failure (Windows Level 2 = Error).
-if $event.ocsf.metadata.event_code == "101" {
-  $event.ocsf.status_id = 2  // Failure
-  $event.ocsf.severity_id = 3  // Medium
-}
 
 // EIDs 102 and 201 carry a ResultCode; non-zero means failure.
 if $event.windows.EventData.has("ResultCode") {
