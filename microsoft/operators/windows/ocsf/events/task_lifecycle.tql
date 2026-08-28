@@ -26,12 +26,15 @@ $event.ocsf.job = {
   name: move $event.windows.EventData.TaskName,
 }
 
-// UserContext is "DOMAIN\username" format.
-_user = (move $event.windows.EventData.UserContext).split("\\")
-$event.ocsf.actor = {
-  user: {
-    domain: _user[0],
-    name: _user[1],
-  },
+// UserContext is "DOMAIN\username" format when present, but built-in accounts
+// (e.g. "SYSTEM") come without a domain.
+if $event.windows.EventData.UserContext? != null {
+  _user = (move $event.windows.EventData.UserContext).split("\\")
+  $event.ocsf.actor = {
+    user: {
+      domain: _user[0]? if _user.length() > 1,
+      name: _user[-1]?,
+    },
+  }
+  drop _user
 }
-drop _user

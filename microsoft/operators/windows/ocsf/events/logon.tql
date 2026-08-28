@@ -19,7 +19,7 @@ $event.ocsf.status_id = 1  // Success
 // Windows LogonType integers map directly to OCSF logon_type_id values
 // (Interactive=2, Network=3, Batch=4, Service=5, Unlock=7, NetworkCleartext=8,
 //  NewCredentials=9, RemoteInteractive=10, CachedInteractive=11, …).
-$event.ocsf.logon_type_id = move $event.windows.EventData.LogonType
+$event.ocsf.logon_type_id = (move $event.windows.EventData.LogonType).int()
 
 $event.ocsf.user = {
   uid: move $event.windows.EventData.TargetUserSid,
@@ -39,12 +39,21 @@ $event.ocsf.actor = {
 }
 
 $event.ocsf.src_endpoint = {
-  ip: move $event.windows.EventData.IpAddress,
-  port: move $event.windows.EventData.IpPort,
+  ip: (move $event.windows.EventData.IpAddress).ip(),
+  port: (move $event.windows.EventData.IpPort).int(),
   hostname: move $event.windows.EventData.WorkstationName,
 }
 
-$event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+if $event.windows.EventData.AuthenticationPackageName? == "NTLM" {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 1  // NTLM
+} else if $event.windows.EventData.AuthenticationPackageName? == "Kerberos" {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 2  // Kerberos
+} else if $event.windows.EventData.AuthenticationPackageName? != null {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 99
+}
 
 $event.ocsf.session = {
   uid: move $event.windows.EventData.LogonGuid,

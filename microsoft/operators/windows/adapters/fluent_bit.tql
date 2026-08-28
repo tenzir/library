@@ -51,6 +51,20 @@ if type_of($windows.fluent_bit.System?).kind == "string" {
     EventData: move $windows.fluent_bit.EventData?,
   }
 }
+// Fluent Bit exposes rendered insertion values when `event_data_as_map` is
+// disabled. Recover the documented SCM service-install fields for EID 7045.
+if $windows.canonical.System.EventID == 7045 and $windows.canonical.EventData? == null and $windows.fluent_bit.StringInserts? != null {
+  $windows.canonical.EventData = {
+    ServiceName: $windows.fluent_bit.StringInserts[0]?,
+    ImagePath: $windows.fluent_bit.StringInserts[1]?,
+    ServiceType: $windows.fluent_bit.StringInserts[2]?,
+    StartType: $windows.fluent_bit.StringInserts[3]?,
+    AccountName: $windows.fluent_bit.StringInserts[4]?,
+  }
+  // EID 7045 defines exactly these five insertion strings; consume them so
+  // they don't duplicate into unmapped.
+  drop $windows.fluent_bit.StringInserts
+}
 $windows.canonical.RenderingInfo.Message = move $windows.fluent_bit.Message?
 $windows.canonical.Logger = {
   device: {

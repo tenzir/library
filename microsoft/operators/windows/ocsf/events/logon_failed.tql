@@ -19,7 +19,7 @@ $event.ocsf.severity_id = 2  // Low — single failed logon; brute-force detecti
 $event.ocsf.status_code = move $event.windows.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
 
 // Windows LogonType integers map directly to OCSF logon_type_id values.
-$event.ocsf.logon_type_id = move $event.windows.EventData.LogonType
+$event.ocsf.logon_type_id = (move $event.windows.EventData.LogonType).int()
 
 $event.ocsf.user = {
   uid: move $event.windows.EventData.TargetUserSid,
@@ -39,9 +39,18 @@ $event.ocsf.actor = {
 }
 
 $event.ocsf.src_endpoint = {
-  ip: move $event.windows.EventData.IpAddress,
-  port: move $event.windows.EventData.IpPort,
+  ip: (move $event.windows.EventData.IpAddress).ip(),
+  port: (move $event.windows.EventData.IpPort).int(),
   hostname: move $event.windows.EventData.WorkstationName,
 }
 
-$event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+if $event.windows.EventData.AuthenticationPackageName? == "NTLM" {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 1  // NTLM
+} else if $event.windows.EventData.AuthenticationPackageName? == "Kerberos" {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 2  // Kerberos
+} else if $event.windows.EventData.AuthenticationPackageName? != null {
+  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
+  $event.ocsf.auth_protocol_id = 99
+}

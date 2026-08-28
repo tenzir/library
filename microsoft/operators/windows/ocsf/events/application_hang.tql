@@ -20,22 +20,33 @@ $event.ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
 // param4 = faulting process ID (hex string, e.g. "0x1a4c")
 // param9 = full path to the hanging application
 // param2 = hanging application version
+$event._path = move $event.windows.EventData.param9?
+$event._name = move $event.windows.EventData.param1?
+$event._version = $event.windows.EventData.param2?
 $event.ocsf.process = {
-  pid: int(move $event.windows.EventData.param4, base=16),
-  path: move $event.windows.EventData.param9,
-  file: {
-    type_id: 8,  // Executable File
-    version: (move $event.windows.EventData.param2).string(),
-  },
+  pid: int(move $event.windows.EventData.param4?, base=16),
+  path: $event._path,
 }
-$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
-$event.ocsf.process.file.name = $event.ocsf.process.name
-$event.ocsf.process.file.path = $event.ocsf.process.path
+if $event._path != null {
+  $event.ocsf.process.name = $event._path.split("\\")[-1]?
+} else if $event._name != null {
+  $event.ocsf.process.name = $event._name
+}
+if $event.ocsf.process.name? != null {
+  $event.ocsf.process.file = {
+    name: $event.ocsf.process.name,
+    path: $event._path,
+    type_id: 8,  // Executable File
+    version: $event._version.string(),
+  }
+  // The version is only consumed here; without a file it stays in unmapped.
+  drop $event.windows.EventData.param2?
+}
 
-// param1 = application name (redundant with process.name — dropped)
+// param1 = application name (used as a fallback for process.name)
 // param3 = application timestamp              \
 // param5 = process start time                  | left in unmapped; no OCSF target
 // param6 = hang duration (ms)                  |
 // param7 = hang flags                          |
 // param8 = WER report ID                      /
-drop $event.windows.EventData.param1
+drop $event._path, $event._name, $event._version

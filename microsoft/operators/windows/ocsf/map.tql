@@ -10,11 +10,12 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-match $event.System.Provider.Name {
-  "Microsoft-Windows-Sysmon" => {
-    microsoft::windows::ocsf::providers::sysmon::map $event, $ocsf
-  }
-  _ => {
-    microsoft::windows::ocsf::providers::map $event, $ocsf
-  }
+// Rendered collector modes (e.g. Fluent Bit without `event_data_as_map`)
+// carry no structured EventData. The Sysmon mappers depend on it, so route
+// such events through the generic provider mapping instead, which falls back
+// to the OCSF base event.
+if $event.System.Provider.Name == "Microsoft-Windows-Sysmon" and $event.EventData? != null {
+  microsoft::windows::ocsf::providers::sysmon::map $event, $ocsf
+} else {
+  microsoft::windows::ocsf::providers::map $event, $ocsf
 }

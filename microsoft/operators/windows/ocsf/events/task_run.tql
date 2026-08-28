@@ -34,7 +34,7 @@ if $event.ocsf.metadata.event_code == "101" {
 
 // EIDs 102 and 201 carry a ResultCode; non-zero means failure.
 if $event.windows.EventData.has("ResultCode") {
-  $event.ocsf.status_id = 1 if $event.windows.EventData.ResultCode == 0 else 2
+  $event.ocsf.status_id = 1 if $event.windows.EventData.ResultCode.int() == 0 else 2
   $event.ocsf.status_code = (move $event.windows.EventData.ResultCode).string()
 }
 
@@ -44,29 +44,36 @@ $event.ocsf.job = {
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
 // ActionName is the executable path for EIDs 200/201.
-if $event.windows.EventData.has("ActionName") {
-  $event.ocsf.job.file = {
-    path: move $event.windows.EventData.ActionName,
-    type_id: 1,  // Regular file
-  }
-  $event.ocsf.job.file.name = $event.ocsf.job.file.path.split("\\")[-1]
+if $event.windows.EventData.ActionName? != null {
+  _action = move $event.windows.EventData.ActionName
+  $event.ocsf.job.job_actions = [{
+    type_id: 2,  // Execute
+    cmd_line: _action,
+    file: {
+      path: _action,
+      name: _action.split("\\")[-1]?,
+      type_id: 1,  // Regular file
+    },
+  }]
+  drop _action
 }
 
-// UserContext present on EID 100.
-if $event.windows.EventData.has("UserContext") {
+// UserContext present on EID 100. Built-in accounts (e.g. "SYSTEM") come
+// without a "DOMAIN\" prefix.
+if $event.windows.EventData.UserContext? != null {
   _user = (move $event.windows.EventData.UserContext).split("\\")
   $event.ocsf.actor = {
     user: {
-      domain: _user[0],
-      name: _user[1],
+      domain: _user[0]? if _user.length() > 1,
+      name: _user[-1]?,
     },
   }
   drop _user
 }
 
 // ProcessId (EID 129) or EnginePID (EIDs 200/201).
-if $event.windows.EventData.has("ProcessId") {
+if $event.windows.EventData.ProcessId? != null {
   $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.ProcessId) }
-} else if $event.windows.EventData.has("EnginePID") {
+} else if $event.windows.EventData.EnginePID? != null {
   $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.EnginePID) }
 }
