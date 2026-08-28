@@ -115,7 +115,9 @@ match $windows.System.Provider.Name {
   }
   "Microsoft-Windows-Eventlog" => {
     match $windows.System.EventID {
+      1100 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=7, status_id=1 }
       1102 => { microsoft::windows::ocsf::events::eventlog_clear $windows, $ocsf }
+      1107 | 1108 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=99, status_id=2 }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
@@ -128,21 +130,64 @@ match $windows.System.Provider.Name {
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
+  "AD FS Auditing" => {
+    match $windows.System.EventID {
+      299 | 324 | 403 | 404 | 410 | 412 | 431 | 500 | 501 => {
+        microsoft::windows::ocsf::events::adfs_audit $windows, $ocsf, activity_id=1, status_id=1
+      }
+      411 | 413 => {
+        microsoft::windows::ocsf::events::adfs_audit $windows, $ocsf, activity_id=1, status_id=2
+      }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "LsaSrv" => {
+    match $windows.System.EventID {
+      300 => { microsoft::windows::ocsf::events::lsa_group_assignment $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-AzureADPasswordProtection-DCAgent" => {
+    match $windows.System.EventID {
+      30004 => { microsoft::windows::ocsf::events::password_policy_rejection $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
   "Microsoft-Windows-Security-Auditing" => {
     match $windows.System.EventID {
+      4608 => { microsoft::windows::ocsf::events::device_power_state $windows, $ocsf }
+      4610 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Authentication Package" }
+      4611 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Trusted Logon Process" }
+      4614 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Security Notification Package" }
+      4622 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Security Package" }
       4624 => { microsoft::windows::ocsf::events::logon $windows, $ocsf }
       4625 => { microsoft::windows::ocsf::events::logon_failed $windows, $ocsf }
+      4634 | 4647 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=2, status_id=1 }
       4648 => { microsoft::windows::ocsf::events::explicit_credential_logon $windows, $ocsf }
+      4649 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=2, auth_protocol_id=2 }
       4657 => { microsoft::windows::ocsf::events::registry_value_modify $windows, $ocsf }
+      4661 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Directory or SAM Object" }
+      4662 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
       4663 => { microsoft::windows::ocsf::events::object_access $windows, $ocsf }
+      4665 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Authorization Manager Client Context" }
+      4666 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Authorization Manager Operation" }
+      4667 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Authorization Manager Client Context" }
+      4670 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Securable Object Permissions" }
       4672 => { microsoft::windows::ocsf::events::authorize_session $windows, $ocsf }
+      4673 | 4674 | 4675 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Privileged Operation" }
       4688 => { microsoft::windows::ocsf::events::process_create $windows, $ocsf }
+      4689 => { microsoft::windows::ocsf::events::process_terminate $windows, $ocsf }
       4697 => { microsoft::windows::ocsf::events::service_install $windows, $ocsf }
       4698 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=1 }
       4699 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=3 }
       4700 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=4 }
       4701 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=5 }
       4702 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=2 }
+      4704 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
+      4705 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
+      4716 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Trusted Domain Policy" }
+      4717 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
+      4718 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
       4719 => { microsoft::windows::ocsf::events::audit_policy_change $windows, $ocsf }
       4720 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=1 }
       4722 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=2 }
@@ -158,14 +203,35 @@ match $windows.System.Provider.Name {
       4744 | 4750 | 4760 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=6 }
       4746 | 4752 | 4762 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=3 }
       4764 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=5 }
+      4738 | 4742 | 4781 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=2 }
       4739 => { microsoft::windows::ocsf::events::domain_policy_change $windows, $ocsf }
       4740 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=9 }
       4767 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=12 }
+      4768 => { microsoft::windows::ocsf::events::kerberos_tgt $windows, $ocsf }
       4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket $windows, $ocsf }
       4771 => { microsoft::windows::ocsf::events::kerberos_preauth_failed $windows, $ocsf }
+      4774 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=7, status_id=1 }
       4776 => { microsoft::windows::ocsf::events::ntlm_auth $windows, $ocsf }
+      4778 => { microsoft::windows::ocsf::events::rdp_session $windows, $ocsf, activity_id=8 }
+      4779 => { microsoft::windows::ocsf::events::rdp_session $windows, $ocsf, activity_id=7 }
+      4793 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Password Policy" }
+      4797 | 4798 => { microsoft::windows::ocsf::events::discovery_result $windows, $ocsf, result_id=1 }
       4799 => { microsoft::windows::ocsf::events::group_membership_query $windows, $ocsf }
+      4800 | 4801 | 4802 | 4803 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Interactive Session State" }
       4825 => { microsoft::windows::ocsf::events::remote_desktop_denied $windows, $ocsf }
+      4826 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Boot Configuration Data" }
+      4870 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Certificate" }
+      4886 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Certificate Request" }
+      4887 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Certificate" }
+      4888 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Certificate Request" }
+      4893 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Archived Certificate Private Key" }
+      4898 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Certificate Template" }
+      4902 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Per-user Audit Policy Table" }
+      4904 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Security Event Source" }
+      4905 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Security Event Source" }
+      4907 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Object Audit Policy" }
+      4931 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Replica Naming Context" }
+      4932 | 4933 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Replication" }
       4946 => { microsoft::windows::ocsf::events::firewall_change $windows, $ocsf, activity_id=1 }
       4948 => { microsoft::windows::ocsf::events::firewall_change $windows, $ocsf, activity_id=4 }
       4956 => { microsoft::windows::ocsf::events::firewall_profile_change $windows, $ocsf }
@@ -175,6 +241,22 @@ match $windows.System.Provider.Name {
       5033 => {
         microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Authorization Driver", type="Windows Driver"
       }
+      4985 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Transaction" }
+      5059 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Cryptographic Key" }
+      5136 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
+      5137 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Directory Object" }
+      5140 | 5145 => { microsoft::windows::ocsf::events::smb_share_access $windows, $ocsf }
+      5632 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=1, auth_protocol_id=9 }
+      6144 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings" }
+      6145 => {
+        microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings"
+        $ocsf.status_id = 2
+      }
+      6272 | 6278 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=1, auth_protocol_id=10 }
+      6273 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=2, auth_protocol_id=10 }
+      6416 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=1, status_id=1 }
+      6423 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=4, status_id=1 }
+      6424 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=3, status_id=1 }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }

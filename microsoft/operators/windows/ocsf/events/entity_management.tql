@@ -1,0 +1,72 @@
+---
+description: Maps Windows managed-entity lifecycle events to OCSF Entity Management.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF entity management activity identifier.
+    - name: entity_type
+      type: string
+      description: The source-specific managed entity type.
+---
+
+@name = "ocsf.entity_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.entity = {
+  type_id: 99,
+  type: $entity_type,
+}
+
+if $windows.EventData.ObjectName? != null {
+  $ocsf.entity.name = move $windows.EventData.ObjectName
+} else if $windows.EventData.TargetUserName? != null {
+  $ocsf.entity.name = move $windows.EventData.TargetUserName
+} else if $windows.EventData.TemplateContent? != null {
+  $ocsf.entity.name = move $windows.EventData.TemplateContent
+} else if $windows.EventData.GPOList? != null {
+  $ocsf.entity.name = move $windows.EventData.GPOList
+} else if $windows.EventData.KeyName? != null {
+  $ocsf.entity.name = move $windows.EventData.KeyName
+} else if $windows.EventData.TransactionId? != null {
+  $ocsf.entity.name = move $windows.EventData.TransactionId
+}
+if $windows.EventData.ObjectServer? != null {
+  $ocsf.entity.data.object_server = move $windows.EventData.ObjectServer
+}
+if $windows.EventData.ObjectType? != null {
+  $ocsf.entity.data.object_type = move $windows.EventData.ObjectType
+}
+if $windows.EventData.ObjectValueName? != null {
+  $ocsf.entity.data.attribute = move $windows.EventData.ObjectValueName
+}
+if $windows.EventData.AttributeValue? != null {
+  $ocsf.entity.data.value = move $windows.EventData.AttributeValue
+}
+if $windows.EventData.OperationType? != null {
+  $ocsf.entity.data.operation = move $windows.EventData.OperationType
+}
+if $windows.EventData.AccessMask? != null {
+  $ocsf.access_mask = int(move $windows.EventData.AccessMask, base=16)
+}
+if $windows.EventData.AccessList? != null {
+  $ocsf.access_list = (move $windows.EventData.AccessList).split_regex(r"\s+")
+}
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}
+$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()

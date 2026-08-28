@@ -17,7 +17,24 @@ public Windows event records:
   public Windows event captures including `NextronSystems/evtx-baseline`.
 - EID 8222: the `detection.wiki` VSSAudit example for a created volume shadow
   copy.
+- Microsoft-Windows-Security-Auditing Common-set events: Microsoft Learn audit
+  event references at
+  `https://learn.microsoft.com/windows/security/threat-protection/auditing/event-<id>`.
+- AD FS Auditing EIDs 299, 324, 403, 404, 410–413, 431, 500, and 501:
+  `https://detection.wiki/ad-fs-auditing/`.
+- LsaSrv EID 300: the Microsoft-Windows-LSA manifest from
+  `nasbench/EVTX-ETW-Resources` and the matching `detection.wiki` provider
+  record.
+- Microsoft Entra Password Protection EID 30004: the Microsoft Learn
+  on-premises Password Protection monitoring reference and the public event
+  record in `wazuh/wazuh#19441`.
+- Sentinel Common EIDs 1, 340, and 26401: no authoritative provider manifest or
+  public event record was found. The coverage manifest keeps these IDs marked
+  as unresolved rather than assigning them to a provider by number alone.
 
 The EVTX records were converted to XML with `evtx_dump`. JSON and Microsoft
 Learn records were normalized into standalone XML without changing their event
-schema or representative values.
+schema or representative values. When a public raw record was unavailable, the
+fixture was adapted from the authoritative event schema and uses representative
+values. The provider-aware coverage manifest in
+`windows-sentinel-common-coverage.csv` records the source used for every event.

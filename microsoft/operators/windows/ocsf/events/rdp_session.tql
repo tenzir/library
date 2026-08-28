@@ -1,0 +1,36 @@
+---
+description: Maps Windows remote desktop session lifecycle events to OCSF RDP Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF RDP activity identifier.
+---
+
+@name = "ocsf.rdp_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4005
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+$ocsf.user = {
+  uid: move $windows.EventData.AccountName?,
+  name: move $windows.EventData.TargetUserName?,
+  domain: move $windows.EventData.TargetDomainName?,
+}
+$ocsf.src_endpoint = {
+  ip: move $windows.EventData.ClientAddress?,
+  hostname: move $windows.EventData.ClientName?,
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+$ocsf.connection_info = {
+  uid: move $windows.EventData.SessionName?,
+}
+// LogonID remains in unmapped because Network Connection Info has no alternate UID.

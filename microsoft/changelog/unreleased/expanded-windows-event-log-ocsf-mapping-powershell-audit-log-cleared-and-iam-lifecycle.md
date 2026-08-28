@@ -36,4 +36,6 @@ The `microsoft::windows::ocsf::normalize` operator now covers additional high-va
 
 **Volume Shadow Copy** (VSSAudit EID 8222) maps shadow copy creation to OCSF File System Activity (1001).
 
-Together, these mappings cover all 39 events in Microsoft Sentinel's Minimal Windows security event set.
+**Microsoft Sentinel Common coverage** now includes 140 of the 143 event IDs in the Common set. The additional mappings cover Event Log health, Windows startup, security package loading, logoff and interactive sessions, privilege use, account and group changes, Kerberos, directory services, certificate services, network shares, NPS and wireless authentication, Group Policy application, peripherals, AD FS auditing, LSA group assignment, and Microsoft Entra Password Protection.
+
+Together, these mappings cover all 39 events in Microsoft Sentinel's Minimal set and 140 events in its Common set. Provider-specific routes prevent overlapping event IDs from being attributed to unrelated Windows event sources. Common EIDs 1, 340, and 26401 remain unmapped because the Sentinel reference does not identify their providers or channels and no authoritative event manifests or public records could be found.

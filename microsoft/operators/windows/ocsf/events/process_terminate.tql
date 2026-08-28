@@ -1,0 +1,32 @@
+---
+description: Maps Windows process termination to OCSF Process Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+$ocsf.process = {
+  pid: int(move $windows.EventData.ProcessId, base=16),
+  name: move $windows.EventData.ProcessName?,
+}
+$ocsf.process.file = {name: $ocsf.process.name, type_id: 8}
+$ocsf.exit_code = int(move $windows.EventData.Status?, base=16)
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}

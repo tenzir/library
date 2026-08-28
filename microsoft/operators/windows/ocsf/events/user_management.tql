@@ -1,0 +1,40 @@
+---
+description: Maps Windows user privilege changes to OCSF User Management.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF user management activity identifier.
+---
+
+@name = "ocsf.user_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3007
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.user = {
+  uid: move $windows.EventData.TargetSid?,
+  name: move $windows.EventData.TargetUserName?,
+  domain: move $windows.EventData.TargetDomainName?,
+}
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}
+if $windows.EventData.PrivilegeList? != null {
+  $ocsf.privileges = (move $windows.EventData.PrivilegeList).split_regex(r"\s+")
+}
+if $windows.EventData.AccessList? != null {
+  $ocsf.privileges = (move $windows.EventData.AccessList).split_regex(r"\s+")
+}

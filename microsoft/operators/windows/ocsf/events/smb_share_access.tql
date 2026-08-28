@@ -1,0 +1,41 @@
+---
+description: Maps Windows network share access to OCSF SMB Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.smb_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4006
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Share Access"
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+$ocsf.share = move $windows.EventData.ShareName
+$ocsf.share_type_id = 1
+$ocsf.file = {
+  path: move $windows.EventData.RelativeTargetName?,
+  type_id: 0,
+}
+if $ocsf.file.path != null {
+  $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+}
+$ocsf.src_endpoint = {
+  ip: move $windows.EventData.IpAddress?,
+  port: int(move $windows.EventData.IpPort?),
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}

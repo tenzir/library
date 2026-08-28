@@ -1,0 +1,35 @@
+---
+description: Maps Windows discovery queries to OCSF Live Evidence Info.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: result_id
+      type: int
+      description: The OCSF discovery result identifier.
+---
+
+@name = "ocsf.evidence_info"
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5040
+$ocsf.activity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.query_result_id = $result_id
+$ocsf.query_evidence = {
+  query_type_id: 13,
+  user: {
+    uid: move $windows.EventData.TargetUserSid?,
+    name: move $windows.EventData.TargetUserName?,
+    domain: move $windows.EventData.TargetDomainName?,
+  },
+}
+if $windows.EventData.MemberName? != null {
+  $ocsf.query_result = move $windows.EventData.MemberName
+} else if $windows.EventData.CallerProcessName? != null {
+  $ocsf.query_result = move $windows.EventData.CallerProcessName
+}
