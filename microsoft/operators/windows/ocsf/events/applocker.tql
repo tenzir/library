@@ -1,5 +1,5 @@
 ---
-description: AppLocker Policy and Execution Events (EID 8001–8007) → OCSF
+description: AppLocker Execution Event (EID 8002–8007) → OCSF Application Lifecycle (6002, Start)
 args:
   named:
     - name: event
@@ -7,79 +7,52 @@ args:
       type: field
 ---
 
-if $event.ocsf.metadata.event_code == "8001" {
-  @name = "ocsf.device_config_state_change"
-  $event.ocsf.category_uid = 5
-  $event.ocsf.class_uid = 5019
-  $event.ocsf.activity_id = 0
-  $event.ocsf.type_uid = 501900
-  $event.ocsf.state_id = 2  // Enabled
-  $event.ocsf.status_id = 1  // Success
-} else {
-  @name = "ocsf.application_lifecycle"
-  $event.ocsf.category_uid = 6
-  $event.ocsf.class_uid = 6002
-  $event.ocsf.activity_id = 3  // Start
-  $event.ocsf.type_uid = 600203
+@name = "ocsf.application_lifecycle"
 
-  $event.windows.EventData = (
-    move $event.windows.UserData?.RuleAndFileData?
-    else $event.windows.EventData?
-  )
-  drop $event.windows.UserData
+$event.ocsf.category_uid = 6
+$event.ocsf.class_uid = 6002
+$event.ocsf.activity_id = 3  // Start
+$event.ocsf.type_uid = 600203
 
-  $event.ocsf.application = {
-    uid: move $event.windows.EventData.Fqbn?,
-    data: {
-      file_path: (
-        move $event.windows.EventData.FullFilePath?
-        else move $event.windows.EventData.FullFilePathBuffer?
-      ),
-      normalized_file_path: (
-        move $event.windows.EventData.FilePath?
-        else move $event.windows.EventData.FilePathBuffer?
-      ),
-      policy_name: (
-        move $event.windows.EventData.PolicyName?
-        else move $event.windows.EventData.PolicyNameBuffer?
-      ),
-      rule_uid: move $event.windows.EventData.RuleId?,
-      rule_name: (
-        move $event.windows.EventData.RuleName?
-        else move $event.windows.EventData.RuleNameBuffer?
-      ),
-      rule_sddl: (
-        move $event.windows.EventData.RuleSddl?
-        else move $event.windows.EventData.RuleSddlBuffer?
-      ),
-      target_user: move $event.windows.EventData.TargetUser?,
-      target_process_id: move $event.windows.EventData.TargetProcessId?,
-      target_logon_uid: move $event.windows.EventData.TargetLogonId?,
-      file_hash: move $event.windows.EventData.FileHash?,
-    },
-  }
-  $event.ocsf.application.data.file_path = (
-    $event.ocsf.application.data.file_path
-    else $event.ocsf.application.data.normalized_file_path
-  )
-  $event.ocsf.application.name = $event.ocsf.application.data.file_path.split("\\")[-1]
-  $event.ocsf.application.type = $event.ocsf.application.data.policy_name
+$event.windows.EventData = (
+  move $event.windows.UserData?.RuleAndFileData?
+  else $event.windows.EventData?
+)
+drop $event.windows.UserData
 
-  match $event.ocsf.metadata.event_code {
-    "8002" | "8005" => {
-      $event.ocsf.status_id = 1  // Success
-      $event.ocsf.status_detail = "Allowed by AppLocker policy"
-    }
-    "8003" | "8006" => {
-      $event.ocsf.status_id = 1  // Success; audit mode did not enforce the block.
-      $event.ocsf.severity_id = 2  // Low
-      $event.ocsf.status_detail = "Allowed in audit mode; AppLocker policy would block"
-    }
-    "8004" | "8007" => {
-      $event.ocsf.status_id = 2  // Failure
-      $event.ocsf.severity_id = 3  // Medium
-      $event.ocsf.status_detail = "Blocked by AppLocker policy"
-    }
-    _ => {}
-  }
+$event.ocsf.application = {
+  uid: move $event.windows.EventData.Fqbn?,
+  data: {
+    file_path: (
+      move $event.windows.EventData.FullFilePath?
+      else move $event.windows.EventData.FullFilePathBuffer?
+    ),
+    normalized_file_path: (
+      move $event.windows.EventData.FilePath?
+      else move $event.windows.EventData.FilePathBuffer?
+    ),
+    policy_name: (
+      move $event.windows.EventData.PolicyName?
+      else move $event.windows.EventData.PolicyNameBuffer?
+    ),
+    rule_uid: move $event.windows.EventData.RuleId?,
+    rule_name: (
+      move $event.windows.EventData.RuleName?
+      else move $event.windows.EventData.RuleNameBuffer?
+    ),
+    rule_sddl: (
+      move $event.windows.EventData.RuleSddl?
+      else move $event.windows.EventData.RuleSddlBuffer?
+    ),
+    target_user: move $event.windows.EventData.TargetUser?,
+    target_process_id: move $event.windows.EventData.TargetProcessId?,
+    target_logon_uid: move $event.windows.EventData.TargetLogonId?,
+    file_hash: move $event.windows.EventData.FileHash?,
+  },
 }
+$event.ocsf.application.data.file_path = (
+  $event.ocsf.application.data.file_path
+  else $event.ocsf.application.data.normalized_file_path
+)
+$event.ocsf.application.name = $event.ocsf.application.data.file_path.split("\\")[-1]
+$event.ocsf.application.type = $event.ocsf.application.data.policy_name
