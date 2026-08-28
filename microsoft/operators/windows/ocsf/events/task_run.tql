@@ -1,7 +1,7 @@
 ---
 description: >
   Task Scheduler Execution (EID 100 Start, 101 Failure, 102 Complete,
-  129 Process Launch, 200 Action Start, 201 Action Complete)
+  129 Process Launch, 200 Action Start, 201 Action Complete, 202 Action Failure)
   → OCSF Scheduled Job Activity (1006)
 args:
   positional:
@@ -25,7 +25,7 @@ $ocsf.class_uid = 1006
 $ocsf.activity_id = $activity_id
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-// EIDs 102 and 201 carry a ResultCode; non-zero means failure.
+// EIDs 102, 201, and 202 carry a ResultCode; non-zero means failure.
 if $windows.EventData.has("ResultCode") {
   $ocsf.status_id = 1 if $windows.EventData.ResultCode == 0 else 2
   $ocsf.status_code = (move $windows.EventData.ResultCode).string()
@@ -36,7 +36,7 @@ $ocsf.job = {
 }
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
-// ActionName is the executable path for EIDs 200/201.
+// ActionName is the executable path for EIDs 200–202.
 if $windows.EventData.has("ActionName") {
   $ocsf.job.file = {
     path: move $windows.EventData.ActionName,
@@ -57,7 +57,7 @@ if $windows.EventData.has("UserContext") {
   drop _user
 }
 
-// ProcessId (EID 129) or EnginePID (EIDs 200/201).
+// ProcessId (EID 129) or EnginePID (EIDs 200–202).
 if $windows.EventData.has("ProcessId") {
   $ocsf.actor.process = { pid: int(move $windows.EventData.ProcessId) }
 } else if $windows.EventData.has("EnginePID") {

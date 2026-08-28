@@ -1,5 +1,5 @@
 ---
-description: Registry Value Modified (EID 4657) → OCSF Registry Value Activity (201002, Modify)
+description: Registry Value Changed (EID 4657) → OCSF Registry Value Activity (201002)
 args:
   positional:
     - name: windows
@@ -14,7 +14,13 @@ args:
 
 $ocsf.category_uid = 1
 $ocsf.class_uid = 201002
-$ocsf.activity_id = 3  // Modify
+match $windows.EventData.OperationType {
+  "%%1904" => { $ocsf.activity_id = 2 } // Set (created)
+  "%%1905" => { $ocsf.activity_id = 3 } // Modify
+  "%%1906" => { $ocsf.activity_id = 4 } // Delete
+  _ => { $ocsf.activity_id = 0 } // Unknown
+}
+drop $windows.EventData.OperationType
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.actor = {
@@ -52,4 +58,4 @@ $ocsf.prev_reg_value = {
   data: move $windows.EventData.OldValue,
 }
 
-// HandleId and OperationType remain in unmapped for source-level correlation.
+// HandleId remains in unmapped for source-level correlation.
