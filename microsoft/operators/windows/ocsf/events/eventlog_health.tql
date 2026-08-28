@@ -1,0 +1,33 @@
+---
+description: Maps Windows Event Log service health events to OCSF Event Log Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF event log activity identifier.
+    - name: status_id
+      type: int
+      description: The OCSF status identifier.
+---
+
+@name = "ocsf.event_log_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1008
+$ocsf.activity_id = $activity_id
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = "Processing Failure"
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.log_name = $ocsf.metadata.log_name
+$ocsf.log_provider = $ocsf.metadata.product.name
+$ocsf.log_type_id = 1
+$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+$ocsf.status_detail = move $windows.EventData.ErrorMessage?

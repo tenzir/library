@@ -1,9 +1,12 @@
 ---
 description: Sysmon FileExecutableDetected (EID 29) → OCSF File System Activity (1001, Create)
 args:
-  named:
-    - name: event
-      description: The field that holds the event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
@@ -12,18 +15,18 @@ args:
 
 @name = "ocsf.file_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1001
-$event.ocsf.activity_id = 1  // Create
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.file = {
-  path: move $event.windows.EventData.TargetFilename,
+$ocsf.file = {
+  path: move $windows.EventData.TargetFilename,
   type_id: 8,  // Executable File — EID 29 is PE-specific by definition
 }
-$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+$ocsf.file.name = $ocsf.file.path.split("\\")[-1]
 
-$event.ocsf.file.hashes = ((move $event.windows.EventData.Hashes)
+$ocsf.file.hashes = ((move $windows.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
   .map(kv => {
@@ -31,22 +34,22 @@ $event.ocsf.file.hashes = ((move $event.windows.EventData.Hashes)
     value: kv[1]?,
   }))
 
-$event._user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor = {
+$ocsf._user = (move $windows.EventData.User).split("\\")
+$ocsf.actor = {
   process: {
-    uid: move $event.windows.EventData.ProcessGuid,
-    pid: (move $event.windows.EventData.ProcessId).int(),
-    path: move $event.windows.EventData.Image,
+    uid: move $windows.EventData.ProcessGuid,
+    pid: (move $windows.EventData.ProcessId).int(),
+    path: move $windows.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name: $ocsf._user[-1],
+    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
   },
 }
-drop $event._user
+drop $ocsf._user
 
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file.name = $ocsf.actor.process.name
+$ocsf.actor.process.file.path = $ocsf.actor.process.path
 

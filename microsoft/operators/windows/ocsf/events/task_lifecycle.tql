@@ -1,34 +1,36 @@
 ---
 description: >
-  Task Scheduler Lifecycle (EID 106 Register, 140 Update, 141 Delete)
+  Task Scheduler Lifecycle (EID 106 Register, 140 Update, 141 Delete, 142 Disable)
   → OCSF Scheduled Job Activity (1006)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
       type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The OCSF scheduled job activity identifier.
+      type: int
 ---
 
 @name = "ocsf.scheduled_job_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1006
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1006
 
-let $activities = {
-  "106": 1,  // Create
-  "140": 2,  // Update
-  "141": 3,  // Delete
-}
-$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.job = {
-  name: move $event.windows.EventData.TaskName,
+$ocsf.job = {
+  name: move $windows.EventData.TaskName,
 }
 
 // UserContext is "DOMAIN\username" format.
-_user = (move $event.windows.EventData.UserContext).split("\\")
-$event.ocsf.actor = {
+_user = (move $windows.EventData.UserContext).split("\\")
+$ocsf.actor = {
   user: {
     domain: _user[0],
     name: _user[1],

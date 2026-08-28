@@ -1,37 +1,40 @@
 ---
 description: Sysmon ImageLoad (EID 7) → OCSF Module Activity (1005, Load)
 args:
-  named:
-    - name: event
-      description: The field that holds the event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.module_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1005
-$event.ocsf.activity_id = 1  // Load
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1005
+$ocsf.activity_id = 1  // Load
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // Replace "-" sentinels so optional file-metadata fields can be moved unconditionally.
-replace $event.windows.EventData.FileVersion, what="-", with=null
-replace $event.windows.EventData.Description, what="-", with=null
-replace $event.windows.EventData.Product, what="-", with=null
-replace $event.windows.EventData.Company, what="-", with=null
-replace $event.windows.EventData.OriginalFileName, what="-", with=null
-replace $event.windows.EventData.Signature, what="-", with=null
-replace $event.windows.EventData.SignatureStatus, what="-", with=null
+replace $windows.EventData.FileVersion, what="-", with=null
+replace $windows.EventData.Description, what="-", with=null
+replace $windows.EventData.Product, what="-", with=null
+replace $windows.EventData.Company, what="-", with=null
+replace $windows.EventData.OriginalFileName, what="-", with=null
+replace $windows.EventData.Signature, what="-", with=null
+replace $windows.EventData.SignatureStatus, what="-", with=null
 
-$event.ocsf.module = {
+$ocsf.module = {
   file: {
-    path: move $event.windows.EventData.ImageLoaded,
+    path: move $windows.EventData.ImageLoaded,
     type_id: 8,  // Executable File (DLLs are PE images)
-    version: move $event.windows.EventData.FileVersion,
-    desc: move $event.windows.EventData.Description,
-    company_name: move $event.windows.EventData.Company,
-    internal_name: move $event.windows.EventData.OriginalFileName,
-    hashes: ((move $event.windows.EventData.Hashes)
+    version: move $windows.EventData.FileVersion,
+    desc: move $windows.EventData.Description,
+    company_name: move $windows.EventData.Company,
+    internal_name: move $windows.EventData.OriginalFileName,
+    hashes: ((move $windows.EventData.Hashes)
                .split(",")
                .map(h => h.split("=", max=1))
                .map(kv => {
@@ -40,45 +43,45 @@ $event.ocsf.module = {
                })),
   },
 }
-$event.ocsf.module.file.name = $event.ocsf.module.file.path.split("\\")[-1]
+$ocsf.module.file.name = $ocsf.module.file.path.split("\\")[-1]
 
 // product.name is a required field — only add the object when the source has a value.
-if $event.windows.EventData.Product != null {
-  $event.ocsf.module.file.product = { name: move $event.windows.EventData.Product }
+if $windows.EventData.Product != null {
+  $ocsf.module.file.product = { name: move $windows.EventData.Product }
 }
-drop $event.windows.EventData.Product
+drop $windows.EventData.Product
 
 // Attach digital-signature details when the module is signed.
-if $event.windows.EventData.Signed {
-  $event.ocsf.module.file.signature = {
+if $windows.EventData.Signed {
+  $ocsf.module.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
-    state_id: microsoft::$sysmon_signature_states[$event.windows.EventData.SignatureStatus]?,
+    state_id: microsoft::$sysmon_signature_states[$windows.EventData.SignatureStatus]?,
   }
-  if $event.windows.EventData.Signature != null {
-    $event.ocsf.module.file.signature.certificate = {
-      issuer: move $event.windows.EventData.Signature,
+  if $windows.EventData.Signature != null {
+    $ocsf.module.file.signature.certificate = {
+      issuer: move $windows.EventData.Signature,
     }
   }
 }
-drop $event.windows.EventData.Signed
-drop $event.windows.EventData.Signature
-drop $event.windows.EventData.SignatureStatus
+drop $windows.EventData.Signed
+drop $windows.EventData.Signature
+drop $windows.EventData.SignatureStatus
 
 // The process that loaded the module.
-$event._user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor = {
+$ocsf._user = (move $windows.EventData.User).split("\\")
+$ocsf.actor = {
   process: {
-    uid: move $event.windows.EventData.ProcessGuid,
-    pid: (move $event.windows.EventData.ProcessId).int(),
-    path: move $event.windows.EventData.Image,
+    uid: move $windows.EventData.ProcessGuid,
+    pid: (move $windows.EventData.ProcessId).int(),
+    path: move $windows.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name: $ocsf._user[-1],
+    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
   },
 }
-drop $event._user
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+drop $ocsf._user
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file.name = $ocsf.actor.process.name
+$ocsf.actor.process.file.path = $ocsf.actor.process.path

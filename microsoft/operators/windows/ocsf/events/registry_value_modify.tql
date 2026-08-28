@@ -1,0 +1,61 @@
+---
+description: Registry Value Changed (EID 4657) → OCSF Registry Value Activity (201002)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.registry_value_activity"
+
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201002
+match $windows.EventData.OperationType {
+  "%%1904" => { $ocsf.activity_id = 2 } // Set (created)
+  "%%1905" => { $ocsf.activity_id = 3 } // Modify
+  "%%1906" => { $ocsf.activity_id = 4 } // Delete
+  _ => { $ocsf.activity_id = 0 } // Unknown
+}
+drop $windows.EventData.OperationType
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move $windows.EventData.SubjectLogonId,
+  },
+  process: {
+    pid: int(move $windows.EventData.ProcessId, base=16),
+    path: move $windows.EventData.ProcessName,
+    file: {type_id: 8},
+  },
+}
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file = {
+  name: $ocsf.actor.process.name,
+  path: $ocsf.actor.process.path,
+  type_id: 8,
+}
+
+$ocsf.reg_value = {
+  path: move $windows.EventData.ObjectName,
+  name: move $windows.EventData.ObjectValueName,
+  type: move $windows.EventData.NewValueType,
+  data: move $windows.EventData.NewValue,
+}
+$ocsf.prev_reg_value = {
+  path: $ocsf.reg_value.path,
+  name: $ocsf.reg_value.name,
+  type: move $windows.EventData.OldValueType,
+  data: move $windows.EventData.OldValue,
+}
+
+// HandleId remains in unmapped for source-level correlation.

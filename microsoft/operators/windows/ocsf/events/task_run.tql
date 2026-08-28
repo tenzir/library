@@ -1,61 +1,55 @@
 ---
 description: >
-  Task Scheduler Execution (EID 100 Start, 101 Failure, 102 Complete,
-  129 Process Launch, 200 Action Start, 201 Action Complete)
+  Task Scheduler Execution (EID 100 Start, 101 Start Failure, 102 Complete,
+  103 Execution Failure, 129 Process Launch, 200 Action Start,
+  201 Action Complete, 202 Action Failure)
   → OCSF Scheduled Job Activity (1006)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
       type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The OCSF scheduled job activity identifier.
+      type: int
 ---
 
 @name = "ocsf.scheduled_job_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1006
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1006
 
-let $activities = {
-  "100": 6,   // Start
-  "101": 6,   // Start (failed)
-  "102": 99,  // Other — OCSF 1006 has no Stop activity
-  "129": 6,   // Start (process launched)
-  "200": 6,   // Start (action started)
-  "201": 99,  // Other — OCSF 1006 has no Stop activity
-}
-$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-// EID 101 fires on launch failure (Windows Level 2 = Error).
-if $event.ocsf.metadata.event_code == "101" {
-  $event.ocsf.status_id = 2  // Failure
-  $event.ocsf.severity_id = 3  // Medium
+// EIDs 102, 201, and 202 carry a ResultCode; non-zero means failure.
+if $windows.EventData.has("ResultCode") {
+  $ocsf.status_id = 1 if $windows.EventData.ResultCode == 0 else 2
+  $ocsf.status_code = (move $windows.EventData.ResultCode).string()
 }
 
-// EIDs 102 and 201 carry a ResultCode; non-zero means failure.
-if $event.windows.EventData.has("ResultCode") {
-  $event.ocsf.status_id = 1 if $event.windows.EventData.ResultCode == 0 else 2
-  $event.ocsf.status_code = (move $event.windows.EventData.ResultCode).string()
-}
-
-$event.ocsf.job = {
-  name: move $event.windows.EventData.TaskName,
+$ocsf.job = {
+  name: move $windows.EventData.TaskName,
 }
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
-// ActionName is the executable path for EIDs 200/201.
-if $event.windows.EventData.has("ActionName") {
-  $event.ocsf.job.file = {
-    path: move $event.windows.EventData.ActionName,
+// ActionName is the executable path for EIDs 200–202.
+if $windows.EventData.has("ActionName") {
+  $ocsf.job.file = {
+    path: move $windows.EventData.ActionName,
     type_id: 1,  // Regular file
   }
-  $event.ocsf.job.file.name = $event.ocsf.job.file.path.split("\\")[-1]
+  $ocsf.job.file.name = $ocsf.job.file.path.split("\\")[-1]
 }
 
 // UserContext present on EID 100.
-if $event.windows.EventData.has("UserContext") {
-  _user = (move $event.windows.EventData.UserContext).split("\\")
-  $event.ocsf.actor = {
+if $windows.EventData.has("UserContext") {
+  _user = (move $windows.EventData.UserContext).split("\\")
+  $ocsf.actor = {
     user: {
       domain: _user[0],
       name: _user[1],
@@ -64,9 +58,9 @@ if $event.windows.EventData.has("UserContext") {
   drop _user
 }
 
-// ProcessId (EID 129) or EnginePID (EIDs 200/201).
-if $event.windows.EventData.has("ProcessId") {
-  $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.ProcessId) }
-} else if $event.windows.EventData.has("EnginePID") {
-  $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.EnginePID) }
+// ProcessId (EID 129) or EnginePID (EIDs 200–202).
+if $windows.EventData.has("ProcessId") {
+  $ocsf.actor.process = { pid: int(move $windows.EventData.ProcessId) }
+} else if $windows.EventData.has("EnginePID") {
+  $ocsf.actor.process = { pid: int(move $windows.EventData.EnginePID) }
 }

@@ -1,0 +1,43 @@
+---
+description: Maps Windows security package loading to OCSF Module Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: module_type
+      type: string
+      description: The source security package type.
+---
+
+@name = "ocsf.module_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1005
+$ocsf.activity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+$ocsf.module = {
+  file: {
+    name: move $windows.EventData.PackageName?,
+    path: move $windows.EventData.PackageFileName?,
+    type_id: 8,
+  },
+  type: $module_type,
+}
+if $ocsf.module.file.name == null {
+  $ocsf.module.file.name = move $windows.EventData.AuthenticationPackageName?
+}
+if $ocsf.module.file.name == null {
+  $ocsf.module.file.name = move $windows.EventData.NotificationPackageName?
+}
+if $ocsf.module.file.name == null {
+  $ocsf.module.file.name = move $windows.EventData.SecurityPackageName?
+}
+if $ocsf.module.file.name == null {
+  $ocsf.module.file.name = move $windows.EventData.LogonProcessName?
+}
+$ocsf.actor = {process: {name: "Local Security Authority"}}

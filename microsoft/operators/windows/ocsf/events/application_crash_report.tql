@@ -1,37 +1,40 @@
 ---
 description: Windows Error Reporting (EID 1001) → OCSF Process Activity (1007, Terminate)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.process_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1007
-$event.ocsf.activity_id = 2  // Terminate
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2  // Terminate
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // WER fires after a crash has been recorded; the process has already exited.
-$event.ocsf.status_id = 2  // Failure
-$event.ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
-$event.ocsf.status_code = move $event.windows.EventData.param9  // exception code (e.g. c0000005)
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
+$ocsf.status_code = move $windows.EventData.param9  // exception code (e.g. c0000005)
 
 // param5  = faulting application name (short name, e.g. "payload.exe")
 // param6  = faulting application version
 // param12 = full path to the faulting application
-$event.ocsf.process = {
-  path: move $event.windows.EventData.param12,
+$ocsf.process = {
+  path: move $windows.EventData.param12,
   file: {
     type_id: 8,  // Executable File
-    version: (move $event.windows.EventData.param6).string(),
+    version: (move $windows.EventData.param6).string(),
   },
 }
-$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
-$event.ocsf.process.file.name = $event.ocsf.process.name
-$event.ocsf.process.file.path = $event.ocsf.process.path
+$ocsf.process.name = $ocsf.process.path.split("\\")[-1]
+$ocsf.process.file.name = $ocsf.process.name
+$ocsf.process.file.path = $ocsf.process.path
 
 
 // param5 = app name (redundant with process.name — dropped)
@@ -39,4 +42,4 @@ $event.ocsf.process.file.path = $event.ocsf.process.path
 // param8          = faulting module version       | left in unmapped
 // param10         = exception offset             /
 // param1, param2, param3, param4, param11 = WER IDs, fault type, cab, report GUID — unmapped
-drop $event.windows.EventData.param5
+drop $windows.EventData.param5

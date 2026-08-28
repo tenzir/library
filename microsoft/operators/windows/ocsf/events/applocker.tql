@@ -1,0 +1,61 @@
+---
+description: AppLocker Execution Event (EID 8002–8007) → OCSF Application Lifecycle (6002, Start)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.application_lifecycle"
+
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 3  // Start
+$ocsf.type_uid = 600203
+
+$windows.EventData = (
+  move $windows.UserData?.RuleAndFileData?
+  else $windows.EventData?
+)
+drop $windows.UserData
+
+$ocsf.application = {
+  uid: move $windows.EventData.Fqbn?,
+  data: {
+    file_path: (
+      move $windows.EventData.FullFilePath?
+      else move $windows.EventData.FullFilePathBuffer?
+    ),
+    normalized_file_path: (
+      move $windows.EventData.FilePath?
+      else move $windows.EventData.FilePathBuffer?
+    ),
+    policy_name: (
+      move $windows.EventData.PolicyName?
+      else move $windows.EventData.PolicyNameBuffer?
+    ),
+    rule_uid: move $windows.EventData.RuleId?,
+    rule_name: (
+      move $windows.EventData.RuleName?
+      else move $windows.EventData.RuleNameBuffer?
+    ),
+    rule_sddl: (
+      move $windows.EventData.RuleSddl?
+      else move $windows.EventData.RuleSddlBuffer?
+    ),
+    target_user: move $windows.EventData.TargetUser?,
+    target_process_id: move $windows.EventData.TargetProcessId?,
+    target_logon_uid: move $windows.EventData.TargetLogonId?,
+    file_hash: move $windows.EventData.FileHash?,
+  },
+}
+$ocsf.application.data.file_path = (
+  $ocsf.application.data.file_path
+  else $ocsf.application.data.normalized_file_path
+)
+$ocsf.application.name = $ocsf.application.data.file_path.split("\\")[-1]
+$ocsf.application.type = $ocsf.application.data.policy_name

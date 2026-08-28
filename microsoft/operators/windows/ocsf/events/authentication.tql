@@ -1,0 +1,56 @@
+---
+description: Maps Windows authentication lifecycle events to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF authentication activity identifier.
+    - name: status_id
+      type: int
+      description: The OCSF status identifier.
+    - name: auth_protocol_id
+      type: int
+      description: The OCSF authentication protocol identifier.
+      default: 0
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.auth_protocol_id = $auth_protocol_id
+$ocsf.user = {
+  uid: move $windows.EventData.TargetUserSid?,
+  name: move $windows.EventData.TargetUserName?,
+  domain: move $windows.EventData.TargetDomainName?,
+}
+$ocsf.session = {uid_alt: move $windows.EventData.TargetLogonId?}
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+if $windows.EventData.IpAddress? != null {
+  $ocsf.src_endpoint.ip = move $windows.EventData.IpAddress
+}
+if $windows.EventData.IpPort? != null {
+  $ocsf.src_endpoint.port = int(move $windows.EventData.IpPort)
+}
+if $windows.EventData.WorkstationName? != null {
+  $ocsf.src_endpoint.hostname = move $windows.EventData.WorkstationName
+}
+$ocsf.status_code = move $windows.EventData.Status?
+$ocsf.status_detail = move $windows.EventData.FailureReason?

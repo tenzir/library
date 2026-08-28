@@ -1,36 +1,39 @@
 ---
 description: Application Hang (EID 1002) → OCSF Process Activity (1007, Terminate)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.process_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1007
-$event.ocsf.activity_id = 2  // Terminate
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2  // Terminate
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = 2  // Failure
-$event.ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
 
 // param4 = faulting process ID (hex string, e.g. "0x1a4c")
 // param9 = full path to the hanging application
 // param2 = hanging application version
-$event.ocsf.process = {
-  pid: int(move $event.windows.EventData.param4, base=16),
-  path: move $event.windows.EventData.param9,
+$ocsf.process = {
+  pid: int(move $windows.EventData.param4, base=16),
+  path: move $windows.EventData.param9,
   file: {
     type_id: 8,  // Executable File
-    version: (move $event.windows.EventData.param2).string(),
+    version: (move $windows.EventData.param2).string(),
   },
 }
-$event.ocsf.process.name = $event.ocsf.process.path.split("\\")[-1]
-$event.ocsf.process.file.name = $event.ocsf.process.name
-$event.ocsf.process.file.path = $event.ocsf.process.path
+$ocsf.process.name = $ocsf.process.path.split("\\")[-1]
+$ocsf.process.file.name = $ocsf.process.name
+$ocsf.process.file.path = $ocsf.process.path
 
 // param1 = application name (redundant with process.name — dropped)
 // param3 = application timestamp              \
@@ -38,4 +41,4 @@ $event.ocsf.process.file.path = $event.ocsf.process.path
 // param6 = hang duration (ms)                  |
 // param7 = hang flags                          |
 // param8 = WER report ID                      /
-drop $event.windows.EventData.param1
+drop $windows.EventData.param1
