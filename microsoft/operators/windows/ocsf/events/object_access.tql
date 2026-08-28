@@ -1,0 +1,74 @@
+---
+description: Object Access (EID 4663) → provider-specific OCSF activity
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+$event.ocsf.category_uid = 1
+$event.ocsf.activity_id = 99
+$event.ocsf.activity_name = "Access"
+$event.ocsf.status_id = 1  // Success; Windows does not emit failure variants of EID 4663.
+$event.ocsf.access_mask = int($event.windows.EventData.AccessMask, base=16)
+
+$event.ocsf.actor = {
+  user: {
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
+  },
+  process: {
+    pid: int(move $event.windows.EventData.ProcessId, base=16),
+    path: move $event.windows.EventData.ProcessName,
+    file: {type_id: 8},
+  },
+}
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file = {
+  name: $event.ocsf.actor.process.name,
+  path: $event.ocsf.actor.process.path,
+  type_id: 8,
+}
+
+match $event.windows.EventData.ObjectType {
+  "File" => {
+    @name = "ocsf.file_activity"
+    $event.ocsf.class_uid = 1001
+    $event.ocsf.file = {
+      path: move $event.windows.EventData.ObjectName,
+      type_id: 1,
+    }
+    $event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+  }
+  "Key" => {
+    @name = "ocsf.registry_key_activity"
+    $event.ocsf.class_uid = 201001
+    $event.ocsf.reg_key = {
+      path: move $event.windows.EventData.ObjectName,
+    }
+  }
+  _ => {
+    @name = "ocsf.entity_management"
+    $event.ocsf.category_uid = 3
+    $event.ocsf.class_uid = 3004
+    $event.ocsf.entity = {
+      name: move $event.windows.EventData.ObjectName,
+      type_id: 99,
+      type: move $event.windows.EventData.ObjectType,
+      data: {
+        access_list: $event.windows.EventData.AccessList,
+        access_mask: $event.ocsf.access_mask,
+        object_server: $event.windows.EventData.ObjectServer,
+      },
+    }
+    drop $event.ocsf.access_mask
+  }
+}
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+// Preserve the message-token access list and handle identifier in unmapped.

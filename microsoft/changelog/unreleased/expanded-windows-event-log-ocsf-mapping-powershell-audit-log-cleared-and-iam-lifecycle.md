@@ -16,6 +16,8 @@ The `microsoft::windows::ocsf::normalize` operator now covers additional high-va
 
 **Audit log cleared** (EID 1102) maps to OCSF Event Log Activity (1008, Clear) with `severity_id` set to High. Clearing the security log is a strong attacker indicator (MITRE ATT&CK T1070.001).
 
+**Registry and object access** (EIDs 4657/4663) map registry value changes and audited file, registry, or other object access to their corresponding OCSF activity classes.
+
 **Scheduled tasks** (EIDs 4698–4702) map create, delete, enable, disable, and update operations to OCSF Scheduled Job Activity (1006).
 
 **Policy changes** (EIDs 4719/4739) map audit-policy and domain-policy updates to OCSF Entity Management (3004).
@@ -27,3 +29,11 @@ The `microsoft::windows::ocsf::normalize` operator now covers additional high-va
 **Group discovery** (EID 4799) maps local group membership enumeration to OCSF Live Evidence Info (5040).
 
 **Remote Desktop denial** (EID 4825) maps rejected post-authentication RDP connections to OCSF RDP Activity (4005).
+
+**Windows Firewall** (EIDs 4946/4948/4956/5024/5033) maps rule and profile changes plus successful service and driver starts.
+
+**AppLocker** (EIDs 8001–8007) maps policy application and allowed, audited, or blocked application execution.
+
+**Volume Shadow Copy** (VSSAudit EID 8222) maps shadow copy creation to OCSF File System Activity (1001).
+
+Together, these mappings cover all 39 events in Microsoft Sentinel's Minimal Windows security event set.

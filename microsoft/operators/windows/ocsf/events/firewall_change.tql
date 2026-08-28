@@ -1,0 +1,56 @@
+---
+description: Windows Firewall Configuration Change (EID 4946/4948/4956) → OCSF Entity Management (3004)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+@name = "ocsf.entity_management"
+
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3004
+
+match $event.ocsf.metadata.event_code {
+  "4946" => {
+    $event.ocsf.activity_id = 1  // Create
+    $event.ocsf.entity = {
+      uid: move $event.windows.EventData.RuleId,
+      name: move $event.windows.EventData.RuleName,
+      type_id: 99,
+      type: "Firewall Rule",
+      data: {
+        profiles: move $event.windows.EventData.ProfileChanged,
+      },
+    }
+  }
+  "4948" => {
+    $event.ocsf.activity_id = 4  // Delete
+    $event.ocsf.entity = {
+      uid: move $event.windows.EventData.RuleId,
+      name: move $event.windows.EventData.RuleName,
+      type_id: 99,
+      type: "Firewall Rule",
+      data: {
+        profiles: move $event.windows.EventData.ProfileChanged,
+      },
+    }
+  }
+  "4956" => {
+    $event.ocsf.activity_id = 3  // Update
+    $event.ocsf.entity = {
+      name: "Windows Firewall Profile",
+      type_id: 5, // Policy
+      policy: {
+        name: "Windows Firewall Profile",
+        type: "Firewall Policy",
+        data: {
+          active_profile: move $event.windows.EventData.ActiveProfile,
+        },
+      },
+    }
+  }
+  _ => {}
+}
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id

@@ -10,8 +10,14 @@ public Windows event records:
 - EIDs 4735 and 4737: Microsoft event schemas and sample values from
   `OTRF/OSSEM-DD/windows/etw-providers/Microsoft-Windows-Security-Auditing/events/event-4735.yml`
   and `event-4737.yml`.
-- EIDs 4740 and 4767: Microsoft Learn event reference examples at
+- EIDs 4657, 4663, 4740, 4767, 4946, 4948, 4956, 5024, and 5033: Microsoft
+  Learn event reference examples at
   `https://learn.microsoft.com/windows/security/threat-protection/auditing/event-<id>`.
+- EIDs 8001 through 8007: `detection.wiki` AppLocker examples, sourced from
+  public Windows event captures including `NextronSystems/evtx-baseline`.
+- EID 8222: the `detection.wiki` VSSAudit example for a created volume shadow
+  copy.
 
-The EVTX records were converted to XML with `evtx_dump`. The Microsoft Learn
-records were normalized into standalone XML without changing their event data.
+The EVTX records were converted to XML with `evtx_dump`. JSON and Microsoft
+Learn records were normalized into standalone XML without changing their event
+schema or representative values.

@@ -1,0 +1,74 @@
+---
+description: AppLocker Policy and Execution Events (EID 8001–8007) → OCSF
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+if $event.ocsf.metadata.event_code == "8001" {
+  @name = "ocsf.device_config_state_change"
+  $event.ocsf.category_uid = 5
+  $event.ocsf.class_uid = 5019
+  $event.ocsf.activity_id = 0
+  $event.ocsf.type_uid = 501900
+  $event.ocsf.state_id = 2  // Enabled
+  $event.ocsf.status_id = 1  // Success
+} else {
+  @name = "ocsf.application_lifecycle"
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6002
+  $event.ocsf.activity_id = 3  // Start
+  $event.ocsf.type_uid = 600203
+
+  $event._app = $event.windows.UserData?.RuleAndFileData? else $event.windows.EventData?
+  $event._path = (
+    $event._app.FullFilePath?
+    else $event._app.FullFilePathBuffer?
+    else $event._app.FilePath?
+    else $event._app.FilePathBuffer?
+  )
+  $event._fqbn = $event._app.Fqbn?
+  $event._policy = $event._app.PolicyName? else $event._app.PolicyNameBuffer?
+  $event._rule_name = $event._app.RuleName? else $event._app.RuleNameBuffer?
+  $event._file_path = $event._app.FilePath? else $event._app.FilePathBuffer?
+
+  $event.ocsf.application = {
+    name: $event._path.split("\\")[-1],
+    uid: $event._fqbn,
+    type: $event._policy,
+    data: {
+      file_path: $event._path,
+      normalized_file_path: $event._file_path,
+      policy_name: $event._policy,
+      rule_uid: $event._app.RuleId?,
+      rule_name: $event._rule_name,
+      rule_sddl: $event._app.RuleSddl? else $event._app.RuleSddlBuffer?,
+      target_user: $event._app.TargetUser?,
+      target_process_id: $event._app.TargetProcessId?,
+      target_logon_uid: $event._app.TargetLogonId?,
+      file_hash: $event._app.FileHash?,
+    },
+  }
+
+  match $event.ocsf.metadata.event_code {
+    "8002" | "8005" => {
+      $event.ocsf.status_id = 1  // Success
+      $event.ocsf.status_detail = "Allowed by AppLocker policy"
+    }
+    "8003" | "8006" => {
+      $event.ocsf.status_id = 1  // Success; audit mode did not enforce the block.
+      $event.ocsf.severity_id = 2  // Low
+      $event.ocsf.status_detail = "Allowed in audit mode; AppLocker policy would block"
+    }
+    "8004" | "8007" => {
+      $event.ocsf.status_id = 2  // Failure
+      $event.ocsf.severity_id = 3  // Medium
+      $event.ocsf.status_detail = "Blocked by AppLocker policy"
+    }
+    _ => {}
+  }
+
+  drop $event._app, $event._path, $event._fqbn, $event._policy, $event._rule_name, $event._file_path
+}

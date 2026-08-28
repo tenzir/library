@@ -1,0 +1,45 @@
+---
+description: Volume Shadow Copy Created (EID 8222) → OCSF File System Activity (1001, Create)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+@name = "ocsf.file_activity"
+
+$event.ocsf.category_uid = 1
+$event.ocsf.class_uid = 1001
+$event.ocsf.activity_id = 1  // Create
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.status_id = 1  // Success
+
+$event.ocsf.actor = {
+  user: {
+    uid: move $event.windows.EventData._0,
+    name: move $event.windows.EventData._1,
+  },
+  process: {
+    pid: int(move $event.windows.EventData._2, base=16),
+    path: move $event.windows.EventData._3,
+    file: {type_id: 8},
+  },
+}
+$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
+$event.ocsf.actor.process.file = {
+  name: $event.ocsf.actor.process.name,
+  path: $event.ocsf.actor.process.path,
+  type_id: 8,
+}
+
+$event.ocsf.file = {
+  uid: move $event.windows.EventData._6,
+  path: move $event.windows.EventData._9,
+  type_id: 4,  // Block Device
+  volume: move $event.windows.EventData._8,
+}
+$event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
+
+// The VSSAudit manifest uses positional fields. Preserve provider, shadow-set,
+// and source-computer identifiers in unmapped for source-level analysis.
