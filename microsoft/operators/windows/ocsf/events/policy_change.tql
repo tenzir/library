@@ -1,0 +1,61 @@
+---
+description: Security Policy Change (EID 4719/4739) → OCSF Entity Management (3004, Update)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+@name = "ocsf.entity_management"
+
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3004
+$event.ocsf.activity_id = 3  // Update
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+$event.ocsf.actor = {
+  user: {
+    uid: move $event.windows.EventData.SubjectUserSid,
+    name: move $event.windows.EventData.SubjectUserName,
+    domain: move $event.windows.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move $event.windows.EventData.SubjectLogonId,
+  },
+}
+
+if $event.ocsf.metadata.event_code == "4719" {
+  $event.ocsf.entity = {
+    uid: $event.windows.EventData.SubcategoryGuid,
+    name: "Windows Audit Policy",
+    type_id: 5, // Policy
+    policy: {
+      uid: $event.windows.EventData.SubcategoryGuid,
+      name: "Windows Audit Policy",
+      type: "Windows Audit Policy",
+      data: {
+        category_id: $event.windows.EventData.CategoryId,
+        subcategory_id: $event.windows.EventData.SubcategoryId,
+        changes: $event.windows.EventData.AuditPolicyChanges,
+      },
+    },
+  }
+  drop $event.windows.EventData.SubcategoryGuid
+  drop $event.windows.EventData.SubcategoryId
+  drop $event.windows.EventData.CategoryId
+  drop $event.windows.EventData.AuditPolicyChanges
+} else {
+  $event.ocsf.entity = {
+    uid: $event.windows.EventData.DomainSid,
+    name: $event.windows.EventData.DomainName,
+    type_id: 5, // Policy
+    policy: {
+      uid: $event.windows.EventData.DomainSid,
+      name: $event.windows.EventData.DomainName,
+      type: "Windows Domain Policy",
+    },
+  }
+  drop $event.windows.EventData.DomainSid
+  drop $event.windows.EventData.DomainName
+}

@@ -1,0 +1,32 @@
+---
+description: Remote Desktop Access Denied (EID 4825) → OCSF RDP Activity (4005, Connect Response/Failure)
+args:
+  named:
+    - name: event
+      description: The working event to map.
+      type: field
+---
+
+@name = "ocsf.rdp_activity"
+
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4005
+$event.ocsf.activity_id = 4  // Connect Response
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$event.ocsf.status_id = 2  // Failure
+$event.ocsf.severity_id = 2  // Low
+$event.ocsf.status_detail = "Remote Desktop access denied"
+
+$event.ocsf.user = {
+  name: move $event.windows.EventData.AccountName,
+  domain: move $event.windows.EventData.AccountDomain,
+}
+$event.ocsf.src_endpoint = {
+  ip: move $event.windows.EventData.ClientAddress,
+}
+$event.ocsf.dst_endpoint = {
+  hostname: $event.ocsf.device.hostname,
+}
+
+// OCSF RDP Activity has no session field. Keep LogonID in unmapped for
+// correlation with the authenticated Windows session.

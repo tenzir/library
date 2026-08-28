@@ -1,5 +1,5 @@
 ---
-description: Scheduled Task Created (EID 4698) → OCSF Scheduled Job Activity (1006, Create)
+description: Scheduled Task Lifecycle (EID 4698–4702) → OCSF Scheduled Job Activity (1006)
 args:
   named:
     - name: event
@@ -11,7 +11,14 @@ args:
 
 $event.ocsf.category_uid = 1
 $event.ocsf.class_uid = 1006
-$event.ocsf.activity_id = 1  // Create
+let $activities = {
+  "4698": 1, // Create
+  "4699": 3, // Delete
+  "4700": 4, // Enable
+  "4701": 5, // Disable
+  "4702": 2, // Update
+}
+$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]
 $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
 
 // The process that made the Task Scheduler RPC call.
@@ -24,9 +31,11 @@ $event.ocsf.actor = {
   session: {
     uid_alt: move $event.windows.EventData.SubjectLogonId,
   },
-  process: {
+}
+if $event.windows.EventData.ClientProcessId? != null {
+  $event.ocsf.actor.process = {
     pid: int(move $event.windows.EventData.ClientProcessId, base=16),
-  },
+  }
 }
 
 $event.ocsf.job = {

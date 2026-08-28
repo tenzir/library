@@ -1,22 +1,28 @@
 ---
-title: 'Expanded Windows Event Log OCSF mapping: PowerShell, audit log cleared, and
-  IAM lifecycle'
+title: Expanded Windows Event Log OCSF mapping
 type: feature
 authors:
   - mavam
-  - claude
 prs:
   - 143
   - 147
 created: 2026-03-24T13:37:04.933237Z
 ---
 
-The `microsoft::windows::ocsf::normalize` operator now covers five additional Windows Event Log categories:
+The `microsoft::windows::ocsf::normalize` operator now covers additional high-value Windows Event Log activity:
 
 **PowerShell logging** (EIDs 4100/4103/4104/4105/4106) maps to OCSF Script Activity (1009). EID 4104 (Script Block Logging) sets `severity_id` to Low when AMSI flags the block; EID 4100 (engine error) marks the execution as a failure.
 
-**Audit log cleared** (EID 1102) maps to OCSF Event Log Activity (1008, Clear) with `severity_id` set to High — clearing the security log is a strong attacker indicator (MITRE ATT&CK T1070.001).
+**Audit log cleared** (EID 1102) maps to OCSF Event Log Activity (1008, Clear) with `severity_id` set to High. Clearing the security log is a strong attacker indicator (MITRE ATT&CK T1070.001).
 
-**Account Change** (EIDs 4720/4722–4726) replaces the previous create-only handler and now covers the full lifecycle: create, enable, disable, delete, password change, and password reset, using the correct OCSF 3001 activity IDs throughout.
+**Scheduled tasks** (EIDs 4698–4702) map create, delete, enable, disable, and update operations to OCSF Scheduled Job Activity (1006).
 
-**Group Management** (EIDs 4727–4734/4754–4757) replaces the previous add-member-only handler and now covers global, local, and universal security group create, delete, add member, and remove member.
+**Policy changes** (EIDs 4719/4739) map audit-policy and domain-policy updates to OCSF Entity Management (3004).
+
+**Account Change** (EIDs 4720/4722–4726/4740/4767) covers create, enable, disable, delete, password change, password reset, lock, and unlock activities.
+
+**Group Management** (EIDs 4727–4735/4737/4754–4758) covers global, local, and universal security group creation, deletion, updates, and membership changes.
+
+**Group discovery** (EID 4799) maps local group membership enumeration to OCSF Live Evidence Info (5040).
+
+**Remote Desktop denial** (EID 4825) maps rejected post-authentication RDP connections to OCSF RDP Activity (4005).
