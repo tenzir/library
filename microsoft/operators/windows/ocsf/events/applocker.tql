@@ -22,35 +22,48 @@ if $event.ocsf.metadata.event_code == "8001" {
   $event.ocsf.activity_id = 3  // Start
   $event.ocsf.type_uid = 600203
 
-  $event._app = $event.windows.UserData?.RuleAndFileData? else $event.windows.EventData?
-  $event._path = (
-    $event._app.FullFilePath?
-    else $event._app.FullFilePathBuffer?
-    else $event._app.FilePath?
-    else $event._app.FilePathBuffer?
+  $event.windows.EventData = (
+    move $event.windows.UserData?.RuleAndFileData?
+    else $event.windows.EventData?
   )
-  $event._fqbn = $event._app.Fqbn?
-  $event._policy = $event._app.PolicyName? else $event._app.PolicyNameBuffer?
-  $event._rule_name = $event._app.RuleName? else $event._app.RuleNameBuffer?
-  $event._file_path = $event._app.FilePath? else $event._app.FilePathBuffer?
+  drop $event.windows.UserData
 
   $event.ocsf.application = {
-    name: $event._path.split("\\")[-1],
-    uid: $event._fqbn,
-    type: $event._policy,
+    uid: move $event.windows.EventData.Fqbn?,
     data: {
-      file_path: $event._path,
-      normalized_file_path: $event._file_path,
-      policy_name: $event._policy,
-      rule_uid: $event._app.RuleId?,
-      rule_name: $event._rule_name,
-      rule_sddl: $event._app.RuleSddl? else $event._app.RuleSddlBuffer?,
-      target_user: $event._app.TargetUser?,
-      target_process_id: $event._app.TargetProcessId?,
-      target_logon_uid: $event._app.TargetLogonId?,
-      file_hash: $event._app.FileHash?,
+      file_path: (
+        move $event.windows.EventData.FullFilePath?
+        else move $event.windows.EventData.FullFilePathBuffer?
+      ),
+      normalized_file_path: (
+        move $event.windows.EventData.FilePath?
+        else move $event.windows.EventData.FilePathBuffer?
+      ),
+      policy_name: (
+        move $event.windows.EventData.PolicyName?
+        else move $event.windows.EventData.PolicyNameBuffer?
+      ),
+      rule_uid: move $event.windows.EventData.RuleId?,
+      rule_name: (
+        move $event.windows.EventData.RuleName?
+        else move $event.windows.EventData.RuleNameBuffer?
+      ),
+      rule_sddl: (
+        move $event.windows.EventData.RuleSddl?
+        else move $event.windows.EventData.RuleSddlBuffer?
+      ),
+      target_user: move $event.windows.EventData.TargetUser?,
+      target_process_id: move $event.windows.EventData.TargetProcessId?,
+      target_logon_uid: move $event.windows.EventData.TargetLogonId?,
+      file_hash: move $event.windows.EventData.FileHash?,
     },
   }
+  $event.ocsf.application.data.file_path = (
+    $event.ocsf.application.data.file_path
+    else $event.ocsf.application.data.normalized_file_path
+  )
+  $event.ocsf.application.name = $event.ocsf.application.data.file_path.split("\\")[-1]
+  $event.ocsf.application.type = $event.ocsf.application.data.policy_name
 
   match $event.ocsf.metadata.event_code {
     "8002" | "8005" => {
@@ -69,6 +82,4 @@ if $event.ocsf.metadata.event_code == "8001" {
     }
     _ => {}
   }
-
-  drop $event._app, $event._path, $event._fqbn, $event._policy, $event._rule_name, $event._file_path
 }
