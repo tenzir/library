@@ -7,7 +7,7 @@ public Windows event records:
   `https://learn.microsoft.com/windows/security/threat-protection/auditing/event-<id>`.
 - EIDs 4719, 4739, 4799, and 4825: `mdecrevoisier/EVTX-to-MITRE-Attack`, from
   the matching `ID<id>-*.evtx` attack samples.
-- EIDs 4735, 4737, 4744–4746, 4750–4752, 4760–4762, and 4764: Microsoft
+- EIDs 4735, 4737, 4744–4752, 4759–4764: Microsoft
   event schemas and representative values from
   `OTRF/OSSEM-DD/windows/etw-providers/Microsoft-Windows-Security-Auditing/events/event-<id>.yml`.
 - EIDs 4657, 4663, 4740, 4767, 4946, 4948, 4956, 5024, and 5033: Microsoft

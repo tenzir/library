@@ -1,7 +1,7 @@
 ---
 description: >
-  Security Group Lifecycle (EID 4727–4730/4737 global, 4731–4735 local,
-  4754–4758 universal) → OCSF Group Management (3006)
+  Windows group lifecycle and membership changes → OCSF Group Management
+  (3006)
 args:
   positional:
     - name: windows
@@ -42,7 +42,15 @@ $ocsf.group = {
   domain: move $windows.EventData.TargetDomainName,
 }
 
-// Member fields only present on add/remove events (4728/4729/4732/4733/4756/4757).
+// EID 4764 describes both sides of a group-type transition in one field.
+if $windows.EventData.GroupTypeChange? != null {
+  _group_types = (move $windows.EventData.GroupTypeChange).split(" Changed to ")
+  $ocsf.updated_group = {...$ocsf.group, type: _group_types[1]}
+  $ocsf.group.type = _group_types[0]
+  drop _group_types
+}
+
+// Member fields are present on add/remove events.
 if $windows.EventData.MemberSid? != null {
   $ocsf.user = {
     uid: move $windows.EventData.MemberSid,

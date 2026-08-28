@@ -1,0 +1,37 @@
+---
+description: Maps Windows Network Policy Server decisions to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: status_id
+      type: int
+      description: The OCSF status identifier.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1  // Logon
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.auth_protocol_id = 10  // RADIUS
+$ocsf.user = {
+  uid: move $windows.EventData.SubjectUserSid?,
+  name: move $windows.EventData.SubjectUserName?,
+  domain: move $windows.EventData.SubjectDomainName?,
+}
+$ocsf.session = {uid: move $windows.EventData.AccountSessionIdentifier?}
+$ocsf.src_endpoint = {
+  ip: move $windows.EventData.ClientIPAddress?,
+  hostname: move $windows.EventData.ClientName?,
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+$ocsf.service = {name: move $windows.EventData.AuthenticationServer?}
+$ocsf.status_code = (move $windows.EventData.ReasonCode?).string()
+$ocsf.status_detail = move $windows.EventData.Reason?
