@@ -1,52 +1,55 @@
 ---
 description: Registry Value Modified (EID 4657) → OCSF Registry Value Activity (201002, Modify)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.registry_value_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 201002
-$event.ocsf.activity_id = 3  // Modify
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201002
+$ocsf.activity_id = 3  // Modify
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.actor = {
+$ocsf.actor = {
   user: {
-    uid: move $event.windows.EventData.SubjectUserSid,
-    name: move $event.windows.EventData.SubjectUserName,
-    domain: move $event.windows.EventData.SubjectDomainName,
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move $event.windows.EventData.SubjectLogonId,
+    uid_alt: move $windows.EventData.SubjectLogonId,
   },
   process: {
-    pid: int(move $event.windows.EventData.ProcessId, base=16),
-    path: move $event.windows.EventData.ProcessName,
+    pid: int(move $windows.EventData.ProcessId, base=16),
+    path: move $windows.EventData.ProcessName,
     file: {type_id: 8},
   },
 }
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file = {
-  name: $event.ocsf.actor.process.name,
-  path: $event.ocsf.actor.process.path,
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file = {
+  name: $ocsf.actor.process.name,
+  path: $ocsf.actor.process.path,
   type_id: 8,
 }
 
-$event.ocsf.reg_value = {
-  path: move $event.windows.EventData.ObjectName,
-  name: move $event.windows.EventData.ObjectValueName,
-  type: move $event.windows.EventData.NewValueType,
-  data: move $event.windows.EventData.NewValue,
+$ocsf.reg_value = {
+  path: move $windows.EventData.ObjectName,
+  name: move $windows.EventData.ObjectValueName,
+  type: move $windows.EventData.NewValueType,
+  data: move $windows.EventData.NewValue,
 }
-$event.ocsf.prev_reg_value = {
-  path: $event.ocsf.reg_value.path,
-  name: $event.ocsf.reg_value.name,
-  type: move $event.windows.EventData.OldValueType,
-  data: move $event.windows.EventData.OldValue,
+$ocsf.prev_reg_value = {
+  path: $ocsf.reg_value.path,
+  name: $ocsf.reg_value.name,
+  type: move $windows.EventData.OldValueType,
+  data: move $windows.EventData.OldValue,
 }
 
 // HandleId and OperationType remain in unmapped for source-level correlation.

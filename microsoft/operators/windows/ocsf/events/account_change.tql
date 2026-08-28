@@ -4,10 +4,14 @@ description: >
   4720 Create, 4722 Enable, 4723 Password Change, 4724 Password Reset,
   4725 Disable, 4726 Delete, 4740 Lock, 4767 Unlock
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
       type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
     - name: activity_id
       description: The OCSF account change activity identifier.
       type: int
@@ -15,27 +19,27 @@ args:
 
 @name = "ocsf.account_change"
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3001
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3001
 
-$event.ocsf.activity_id = $activity_id
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.actor = {
+$ocsf.actor = {
   user: {
-    uid: move $event.windows.EventData.SubjectUserSid,
-    name: move $event.windows.EventData.SubjectUserName,
-    domain: move $event.windows.EventData.SubjectDomainName,
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move $event.windows.EventData.SubjectLogonId,
+    uid_alt: move $windows.EventData.SubjectLogonId,
   },
 }
 
-$event.ocsf.user = {
-  uid: move $event.windows.EventData.TargetSid,
-  name: move $event.windows.EventData.TargetUserName,
-  domain: move $event.windows.EventData.TargetDomainName,
+$ocsf.user = {
+  uid: move $windows.EventData.TargetSid,
+  name: move $windows.EventData.TargetUserName,
+  domain: move $windows.EventData.TargetDomainName,
 }
 
 // EID 4720 carries many account-attribute fields (DisplayName, HomeDirectory,

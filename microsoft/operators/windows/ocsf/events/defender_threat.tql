@@ -3,19 +3,22 @@ description: >
   Windows Defender Threat Found/Action (EID 1006 Found, 1007 Action)
   → OCSF Detection Finding (2004)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.detection_finding"
 
-$event.ocsf.category_uid = 2
-$event.ocsf.class_uid = 2004
-$event.ocsf.activity_id = 1  // Create
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.metadata.profiles = ["host", "security_control"]
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.metadata.profiles = ["host", "security_control"]
 
 // Map string severity name to OCSF severity_id.
 let $severities = {
@@ -24,7 +27,7 @@ let $severities = {
   "High": 4,
   "Severe": 5,
 }
-$event.ocsf.severity_id = $severities[move $event.windows.EventData.Severity]? else 0
+$ocsf.severity_id = $severities[move $windows.EventData.Severity]? else 0
 
 // Action string → OCSF disposition_id (EID 1007 only).
 let $dispositions = {
@@ -34,46 +37,46 @@ let $dispositions = {
   "Allow": 1,        // Allowed
   "Block": 2,        // Blocked
 }
-if $event.windows.EventData.has("Action") {
-  $event.ocsf.disposition_id = $dispositions[move $event.windows.EventData.Action]? else 99
+if $windows.EventData.has("Action") {
+  $ocsf.disposition_id = $dispositions[move $windows.EventData.Action]? else 99
 }
 
 // Threat name is copied into finding_info.title then moved into malware.name.
-$event.ocsf.finding_info = {
-  title: $event.windows.EventData["Threat Name"],
-  uid: (move $event.windows.EventData.ID).string(),
-  types: [move $event.windows.EventData.Category],
+$ocsf.finding_info = {
+  title: $windows.EventData["Threat Name"],
+  uid: (move $windows.EventData.ID).string(),
+  types: [move $windows.EventData.Category],
 }
-$event.ocsf.malware = [{
-  name: move $event.windows.EventData["Threat Name"],
+$ocsf.malware = [{
+  name: move $windows.EventData["Threat Name"],
 }]
 
 // Detected file; wrap in evidences as required by Detection Finding (EID 1006 only).
-if $event.windows.EventData.Path? != null {
-  $event.ocsf.file = {
-    path: move $event.windows.EventData.Path,
+if $windows.EventData.Path? != null {
+  $ocsf.file = {
+    path: move $windows.EventData.Path,
     type_id: 1,  // Regular file
   }
-  $event.ocsf.file.name = $event.ocsf.file.path.split("\\")[-1]
-  $event.ocsf.evidences = [{ file: move $event.ocsf.file }]
+  $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+  $ocsf.evidences = [{ file: move $ocsf.file }]
 }
 
 // Process that triggered the detection (EID 1006 only).
-if $event.windows.EventData["Process Name"]? != null {
-  $event.ocsf.actor = {
+if $windows.EventData["Process Name"]? != null {
+  $ocsf.actor = {
     process: {
-      path: move $event.windows.EventData["Process Name"],
+      path: move $windows.EventData["Process Name"],
       file: { type_id: 1 },
     },
   }
-  $event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-  $event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-  $event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
 }
 
 // User is "DOMAIN\username" format.
-_user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor.user = {
+_user = (move $windows.EventData.User).split("\\")
+$ocsf.actor.user = {
   domain: _user[0],
   name: _user[1],
 }

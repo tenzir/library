@@ -1,31 +1,34 @@
 ---
 description: Remote Desktop Access Denied (EID 4825) → OCSF RDP Activity (4005, Connect Response/Failure)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.rdp_activity"
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4005
-$event.ocsf.activity_id = 4  // Connect Response
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
-$event.ocsf.status_id = 2  // Failure
-$event.ocsf.severity_id = 2  // Low
-$event.ocsf.status_detail = "Remote Desktop access denied"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4005
+$ocsf.activity_id = 4  // Connect Response
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 2  // Low
+$ocsf.status_detail = "Remote Desktop access denied"
 
-$event.ocsf.user = {
-  name: move $event.windows.EventData.AccountName,
-  domain: move $event.windows.EventData.AccountDomain,
+$ocsf.user = {
+  name: move $windows.EventData.AccountName,
+  domain: move $windows.EventData.AccountDomain,
 }
-$event.ocsf.src_endpoint = {
-  ip: move $event.windows.EventData.ClientAddress,
+$ocsf.src_endpoint = {
+  ip: move $windows.EventData.ClientAddress,
 }
-$event.ocsf.dst_endpoint = {
-  hostname: $event.ocsf.device.hostname,
+$ocsf.dst_endpoint = {
+  hostname: $ocsf.device.hostname,
 }
 
 // OCSF RDP Activity has no session field. Keep LogonID in unmapped for

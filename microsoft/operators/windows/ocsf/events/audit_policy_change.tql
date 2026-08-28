@@ -1,46 +1,49 @@
 ---
 description: Audit Policy Change (EID 4719) → OCSF Entity Management (3004, Update)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.entity_management"
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3004
-$event.ocsf.activity_id = 3  // Update
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = 3  // Update
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.actor = {
+$ocsf.actor = {
   user: {
-    uid: move $event.windows.EventData.SubjectUserSid,
-    name: move $event.windows.EventData.SubjectUserName,
-    domain: move $event.windows.EventData.SubjectDomainName,
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move $event.windows.EventData.SubjectLogonId,
+    uid_alt: move $windows.EventData.SubjectLogonId,
   },
 }
 
-$event.ocsf.entity = {
-  uid: $event.windows.EventData.SubcategoryGuid,
+$ocsf.entity = {
+  uid: $windows.EventData.SubcategoryGuid,
   name: "Windows Audit Policy",
   type_id: 5, // Policy
   policy: {
-    uid: $event.windows.EventData.SubcategoryGuid,
+    uid: $windows.EventData.SubcategoryGuid,
     name: "Windows Audit Policy",
     type: "Windows Audit Policy",
     data: {
-      category_id: $event.windows.EventData.CategoryId,
-      subcategory_id: $event.windows.EventData.SubcategoryId,
-      changes: $event.windows.EventData.AuditPolicyChanges,
+      category_id: $windows.EventData.CategoryId,
+      subcategory_id: $windows.EventData.SubcategoryId,
+      changes: $windows.EventData.AuditPolicyChanges,
     },
   },
 }
-drop $event.windows.EventData.SubcategoryGuid
-drop $event.windows.EventData.SubcategoryId
-drop $event.windows.EventData.CategoryId
-drop $event.windows.EventData.AuditPolicyChanges
+drop $windows.EventData.SubcategoryGuid
+drop $windows.EventData.SubcategoryId
+drop $windows.EventData.CategoryId
+drop $windows.EventData.AuditPolicyChanges

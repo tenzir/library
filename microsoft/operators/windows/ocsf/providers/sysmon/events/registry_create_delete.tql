@@ -4,58 +4,61 @@ description: >
   OCSF Registry Key Activity (201001) for CreateKey/DeleteKey, or
   OCSF Registry Value Activity (201002) for DeleteValue
 args:
-  named:
-    - name: event
-      description: The field that holds the event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
-$event._event_type = move $event.windows.EventData.EventType
-$event._target_obj = move $event.windows.EventData.TargetObject
+$ocsf._event_type = move $windows.EventData.EventType
+$ocsf._target_obj = move $windows.EventData.TargetObject
 
-$event.ocsf.category_uid = 1
+$ocsf.category_uid = 1
 
-match $event._event_type {
+match $ocsf._event_type {
   "DeleteValue" => {
     // Registry Value Activity — the value itself was deleted.
     @name = "ocsf.registry_value_activity"
-    $event.ocsf.class_uid = 201002
-    $event.ocsf.activity_id = 4  // Delete
-    $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+    $ocsf.class_uid = 201002
+    $ocsf.activity_id = 4  // Delete
+    $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-    $event._parts = $event._target_obj.split("\\")
-    $event.ocsf.reg_value = {
-      path: $event._parts.slice(end=-1).join("\\"),
-      name: $event._parts[-1],
+    $ocsf._parts = $ocsf._target_obj.split("\\")
+    $ocsf.reg_value = {
+      path: $ocsf._parts.slice(end=-1).join("\\"),
+      name: $ocsf._parts[-1],
     }
-    drop $event._parts
+    drop $ocsf._parts
   }
   _ => {
     // Registry Key Activity — key created or deleted.
     @name = "ocsf.registry_key_activity"
-    $event.ocsf.class_uid = 201001
-    $event.ocsf.activity_id = 4 if $event._event_type == "DeleteKey" else 1  // Delete / Create
-    $event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+    $ocsf.class_uid = 201001
+    $ocsf.activity_id = 4 if $ocsf._event_type == "DeleteKey" else 1  // Delete / Create
+    $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-    $event.ocsf.reg_key = { path: $event._target_obj }
+    $ocsf.reg_key = { path: $ocsf._target_obj }
   }
 }
-drop $event._event_type, $event._target_obj
+drop $ocsf._event_type, $ocsf._target_obj
 
-$event._user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor = {
+$ocsf._user = (move $windows.EventData.User).split("\\")
+$ocsf.actor = {
   process: {
-    uid: move $event.windows.EventData.ProcessGuid,
-    pid: (move $event.windows.EventData.ProcessId).int(),
-    path: move $event.windows.EventData.Image,
+    uid: move $windows.EventData.ProcessGuid,
+    pid: (move $windows.EventData.ProcessId).int(),
+    path: move $windows.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name: $ocsf._user[-1],
+    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
   },
 }
-drop $event._user
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+drop $ocsf._user
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file.name = $ocsf.actor.process.name
+$ocsf.actor.process.file.path = $ocsf.actor.process.path
