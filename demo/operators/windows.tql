@@ -1,0 +1,78 @@
+---
+description: >-
+  Generates a continuous stream of raw Windows events captured in a Windows
+  test lab, replayed in real time. Select `winlogbeat`, `fluent-bit`, or `xml`
+  as the collector representation. Use `speed` to control the replay rate.
+args:
+  positional:
+    - name: format
+      type: string
+  named:
+    - name: speed
+      type: float
+      default: 1.0
+---
+
+let $first = 2026-08-27T09:25:48.430Z if $format == "winlogbeat" else (
+  2026-08-27T09:44:20.857Z if $format == "fluent-bit" else
+  2026-08-27T10:22:02.325Z
+)
+let $last = 2026-08-27T14:18:20.472Z if $format == "winlogbeat" else (
+  2026-08-27T09:44:40.158Z if $format == "fluent-bit" else
+  2026-08-27T10:28:45.476Z
+)
+let $default = 10min
+let $period = $default / $speed
+let $factor = ($last - $first) / $period
+
+every $period {
+  from_http "https://datasets.tenzir.tools/windows/events.ndjson.zst" {
+    decompress_zstd
+    read_ndjson
+  }
+  where format == $format
+  sort time
+
+  // Compress the capture to the requested replay period and ensure that every
+  // iteration advances event time.
+  original_time = time
+  timeshift time, start=now(), speed=$factor
+
+  // Rewrite the timestamps embedded in the raw payload with their replayed
+  // values and rotate the demo hostname. This uses literal string replacement
+  // because the output must remain raw collector data, and each replacement
+  // preserves the layout of the token it replaces so the payload stays
+  // faithful to real collector output: ISO 8601 stays ISO 8601, Sysmon's
+  // space-separated UTC layout keeps its millisecond precision, and the
+  // zoned layout renders in the capture's -0700 local time without fraction.
+  _tokens = time_tokens.map(t => {
+    token: t.token.slice(begin=1),
+    shifted: time + (t.time - original_time),
+  })
+  _tokens = _tokens.map(t => {
+    token: t.token,
+    new: (t.shifted.floor(1s) - 7h).string().replace("T", " ").trim_end("Z") + " -0700" if t.token.ends_with(" -0700") else (
+      t.shifted.floor(1ms).string().replace("T", " ").trim_end("Z") if t.token.contains(" ") else
+      t.shifted.string()
+    ),
+  })
+  _hostname = "DEMO-WIN-01" if variant == 0 else (
+    "DEMO-WIN-02" if variant == 1 else "DEMO-WIN-03"
+  )
+  if _tokens[0]? != null {
+    raw = raw.replace(_tokens[0].token, _tokens[0].new)
+  }
+  if _tokens[1]? != null {
+    raw = raw.replace(_tokens[1].token, _tokens[1].new)
+  }
+  if _tokens[2]? != null {
+    raw = raw.replace(_tokens[2].token, _tokens[2].new)
+  }
+  if _tokens[3]? != null {
+    raw = raw.replace(_tokens[3].token, _tokens[3].new)
+  }
+  raw = raw.replace("DEMO-WIN-01", _hostname)
+
+  delay time
+  select time, format, raw
+}
