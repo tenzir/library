@@ -2,7 +2,8 @@
 description: >-
   Generates a continuous stream of raw Windows events captured in a Windows
   test lab, replayed in real time. Select `winlogbeat`, `fluent-bit`, or `xml`
-  as the collector representation. Use `speed` to control the replay rate.
+  as the collector representation. By default, the operator emits about 1.6
+  events per second. Use `speed` to multiply or divide the replay rate.
 args:
   positional:
     - name: format
@@ -21,7 +22,10 @@ let $last = 2026-08-27T14:18:20.472Z if $format == "winlogbeat" else (
   2026-08-27T09:44:40.158Z if $format == "fluent-bit" else
   2026-08-27T10:28:45.476Z
 )
-let $default = 10min
+// The dataset contains 24 events per format. A 15-second cycle yields an
+// average default rate of 1.6 events per second while preserving the relative
+// timing between captured events.
+let $default = 15s
 let $period = $default / $speed
 let $factor = ($last - $first) / $period
 
