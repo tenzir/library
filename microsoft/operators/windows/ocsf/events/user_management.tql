@@ -1,5 +1,5 @@
 ---
-description: Maps Windows user privilege changes to OCSF User Management.
+description: Maps Windows user lifecycle and privilege changes to OCSF User Management.
 args:
   positional:
     - name: windows
@@ -12,6 +12,10 @@ args:
     - name: activity_id
       type: int
       description: The OCSF user management activity identifier.
+    - name: map_privileges
+      type: bool
+      default: true
+      description: Whether to map source privilege lists.
 ---
 
 @name = "ocsf.user_management"
@@ -32,9 +36,9 @@ $ocsf.actor = {
   },
   session: {uid_alt: move $windows.EventData.SubjectLogonId?},
 }
-if $windows.EventData.PrivilegeList? != null {
+if $map_privileges and $windows.EventData.PrivilegeList? != null {
   $ocsf.privileges = (move $windows.EventData.PrivilegeList).split_regex(r"\s+")
 }
-if $windows.EventData.AccessList? != null {
+if $map_privileges and $windows.EventData.AccessList? != null {
   $ocsf.privileges = (move $windows.EventData.AccessList).split_regex(r"\s+")
 }
