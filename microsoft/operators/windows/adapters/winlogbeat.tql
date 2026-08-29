@@ -49,9 +49,10 @@ $windows.canonical = {
   RenderingInfo: {
     Message: move $windows.winlogbeat.message?,
   },
+  RawData: move $windows.winlogbeat.event?.original?,
   Logger: {
     device: {
-      hostname: $windows.winlogbeat.host?.name?,
+      hostname: move $windows.winlogbeat.host?.name?,
     },
     log_name: move $windows.winlogbeat.winlog.channel,
     log_provider: "Winlogbeat",
@@ -65,5 +66,19 @@ $windows.canonical = {
     version: move $windows.winlogbeat.agent?.version?,
   },
 }
+
+// These fields duplicate the canonical Windows envelope or the logger object.
+// Consume them here so `unmapped` retains only collector details for which no
+// OCSF destination exists.
+drop $windows.winlogbeat["@metadata"]?
+drop $windows.winlogbeat.log?
+drop $windows.winlogbeat.host?
+drop $windows.winlogbeat.agent?.type?
+drop $windows.winlogbeat.event?.action?
+drop $windows.winlogbeat.event?.code?
+drop $windows.winlogbeat.event?.kind?
+drop $windows.winlogbeat.event?.provider?
+drop $windows.winlogbeat.event?
+drop $windows.winlogbeat.winlog?.process?
 $windows.canonical.Winlogbeat = move $windows.winlogbeat
 $windows = move $windows.canonical
