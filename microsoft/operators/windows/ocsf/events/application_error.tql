@@ -1,67 +1,58 @@
 ---
 description: Application Error (EID 1000) → OCSF Process Activity (1007, Terminate)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.process_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1007
-$event.ocsf.activity_id = 2  // Terminate
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2  // Terminate
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = 2  // Failure
-$event.ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
-$event._status_code = move $event.windows.EventData.ExceptionCode?
-if $event._status_code? == null {
-  $event._status_code = move $event.windows.EventData.param7?
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
+$ocsf._status_code = move $windows.EventData.ExceptionCode?
+if $ocsf._status_code? == null {
+  $ocsf._status_code = move $windows.EventData.param7?
 }
-$event.ocsf.status_code = move $event._status_code
+$ocsf.status_code = move $ocsf._status_code
 
-$event._pid = move $event.windows.EventData.ProcessId?
-if $event._pid? == null {
-  $event._pid = move $event.windows.EventData.param9?
-}
-$event._path = move $event.windows.EventData.AppPath?
-if $event._path? == null {
-  $event._path = move $event.windows.EventData.param11?
-}
-$event._name = move $event.windows.EventData.AppName?
-if $event._name? == null {
-  $event._name = move $event.windows.EventData.param1?
-}
-$event._version = $event.windows.EventData.AppVersion?
-if $event._version? == null {
-  $event._version = $event.windows.EventData.param2?
-}
+$ocsf._pid = move $windows.EventData.ProcessId?
+if $ocsf._pid? == null { $ocsf._pid = move $windows.EventData.param9? }
+$ocsf._path = move $windows.EventData.AppPath?
+if $ocsf._path? == null { $ocsf._path = move $windows.EventData.param11? }
+$ocsf._name = move $windows.EventData.AppName?
+if $ocsf._name? == null { $ocsf._name = move $windows.EventData.param1? }
+$ocsf._version = $windows.EventData.AppVersion?
+if $ocsf._version? == null { $ocsf._version = $windows.EventData.param2? }
 
-$event.ocsf.process = {
-  pid: int($event._pid, base=16),
-  path: $event._path,
+$ocsf.process = {pid: int($ocsf._pid, base=16), path: $ocsf._path}
+if $ocsf._path != null {
+  $ocsf.process.name = $ocsf._path.split("\\")[-1]?
+} else if $ocsf._name != null {
+  $ocsf.process.name = $ocsf._name
 }
-if $event._path != null {
-  $event.ocsf.process.name = $event._path.split("\\")[-1]?
-} else if $event._name != null {
-  $event.ocsf.process.name = $event._name
-}
-if $event.ocsf.process.name? != null {
-  $event.ocsf.process.file = {
-    name: $event.ocsf.process.name,
-    path: $event._path,
-    type_id: 8,  // Executable File
-    version: $event._version.string(),
+if $ocsf.process.name? != null {
+  $ocsf.process.file = {
+    name: $ocsf.process.name,
+    path: $ocsf._path,
+    type_id: 8,
+    version: $ocsf._version.string(),
   }
-  // The version is only consumed here; without a file it stays in unmapped.
-  drop $event.windows.EventData.AppVersion?, $event.windows.EventData.param2?
+  drop $windows.EventData.AppVersion?, $windows.EventData.param2?
 }
 
-// param1  = faulting application name (used as a fallback for process.name)
+// param1  = faulting application name (redundant with process.name — dropped)
 // param4  = faulting module name        \
 // param5  = faulting module version      | left in unmapped; no OCSF module object
 // param12 = faulting module path        /
 // param3, param6, param8, param10, param13 = timestamps, offset, report ID — unmapped
-drop $event._pid, $event._path, $event._name, $event._version
+drop $ocsf._pid, $ocsf._path, $ocsf._name, $ocsf._version

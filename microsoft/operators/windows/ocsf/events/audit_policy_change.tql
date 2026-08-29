@@ -1,0 +1,49 @@
+---
+description: Audit Policy Change (EID 4719) → OCSF Entity Management (3004, Update)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.entity_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = 3  // Update
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move $windows.EventData.SubjectLogonId,
+  },
+}
+
+$ocsf.entity = {
+  uid: $windows.EventData.SubcategoryGuid,
+  name: "Windows Audit Policy",
+  type_id: 5, // Policy
+  policy: {
+    uid: $windows.EventData.SubcategoryGuid,
+    name: "Windows Audit Policy",
+    type: "Windows Audit Policy",
+    data: {
+      category_id: $windows.EventData.CategoryId,
+      subcategory_id: $windows.EventData.SubcategoryId,
+      changes: $windows.EventData.AuditPolicyChanges,
+    },
+  },
+}
+drop $windows.EventData.SubcategoryGuid
+drop $windows.EventData.SubcategoryId
+drop $windows.EventData.CategoryId
+drop $windows.EventData.AuditPolicyChanges

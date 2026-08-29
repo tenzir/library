@@ -1,0 +1,41 @@
+---
+description: Maps a Kerberos ticket-granting ticket request to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 3
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.auth_protocol_id = 2
+$ocsf.user = {
+  uid: move $windows.EventData.TargetSid?,
+  name: move $windows.EventData.TargetUserName?,
+  domain: move $windows.EventData.TargetDomainName?,
+}
+$ocsf.service = {name: move $windows.EventData.ServiceName?}
+$ocsf.src_endpoint = {
+  ip: move $windows.EventData.IpAddress?,
+  port: int(move $windows.EventData.IpPort?),
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+$ocsf.status_code = move $windows.EventData.Status?
+if $ocsf.status_code == "0x0" {
+  $ocsf.status_id = 1
+} else {
+  $ocsf.status_id = 2
+}
+$ocsf.authentication_token = {
+  type_id: 1,
+  kerberos_flags: move $windows.EventData.TicketOptions?,
+}
+// Windows encryption type codes remain in unmapped until they can be translated
+// to the OCSF encryption_details algorithm enum without loss.

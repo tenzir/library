@@ -1,0 +1,43 @@
+---
+description: Maps Windows device recognition and policy events to OCSF Peripheral Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF peripheral activity identifier.
+    - name: status_id
+      type: int
+      description: The OCSF status identifier.
+---
+
+@name = "ocsf.peripheral_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1010
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.peripheral_device = {
+  uid: move $windows.EventData.DeviceId?,
+  name: move $windows.EventData.DeviceDescription?,
+  class: move $windows.EventData.ClassName?,
+  model: move $windows.EventData.DeviceName?,
+  type_id: 0,
+}
+if $ocsf.peripheral_device.name == null {
+  $ocsf.peripheral_device.name = $ocsf.peripheral_device.uid
+}
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid?,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  },
+  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+}

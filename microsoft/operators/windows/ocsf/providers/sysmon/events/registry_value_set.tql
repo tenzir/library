@@ -1,46 +1,47 @@
 ---
 description: Sysmon RegistryValueSet (EID 13) → OCSF Registry Value Activity (201002, Set)
 args:
-  named:
-    - name: event
-      description: The field that holds the event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.registry_value_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 201002
-$event.ocsf.activity_id = 2  // Set
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201002
+$ocsf.activity_id = 2  // Set
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event._parts = (move $event.windows.EventData.TargetObject).split("\\")
-$event.ocsf.reg_value = {
-  path:            $event._parts.slice(end=-1).join("\\"),
-  name:            $event._parts[-1],
-  // Sysmon does not report the registry value type. Keep the JSON value in
-  // the generic field instead of guessing REG_SZ from its representation.
-  data:            move $event.windows.EventData.Details,
+$ocsf._parts = (move $windows.EventData.TargetObject).split("\\")
+$ocsf.reg_value = {
+  path:            $ocsf._parts.slice(end=-1).join("\\"),
+  name:            $ocsf._parts[-1],
+  data: move $windows.EventData.Details,
 }
-drop $event._parts
+drop $ocsf._parts
 
 // EventType "SetValue" is redundant with activity_id — drop it.
-drop $event.windows.EventData.EventType
+drop $windows.EventData.EventType
 
-$event._user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor = {
+$ocsf._user = (move $windows.EventData.User).split("\\")
+$ocsf.actor = {
   process: {
-    uid: move $event.windows.EventData.ProcessGuid,
-    pid: (move $event.windows.EventData.ProcessId).int(),
-    path: move $event.windows.EventData.Image,
+    uid: move $windows.EventData.ProcessGuid,
+    pid: (move $windows.EventData.ProcessId).int(),
+    path: move $windows.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name: $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name: $ocsf._user[-1],
+    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
   },
 }
-drop $event._user
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+drop $ocsf._user
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file.name = $ocsf.actor.process.name
+$ocsf.actor.process.file.path = $ocsf.actor.process.path

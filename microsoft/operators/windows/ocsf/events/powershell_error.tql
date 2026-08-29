@@ -1,58 +1,59 @@
 ---
 description: PowerShell Engine Error (EID 4100) → OCSF Script Activity (1009, Execute/Failure)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.script_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1009
-$event.ocsf.activity_id = 1  // Execute
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1009
+$ocsf.activity_id = 1  // Execute
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = 2  // Failure — this event fires on PS engine errors
-$event.ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
-$event.ocsf.status_code = (move $event.windows.EventData.ErrorCode?).string()
-$event.ocsf.status_detail = move $event.windows.EventData.Message?
+$ocsf.status_id = 2  // Failure — this event fires on PS engine errors
+$ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
+$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+$ocsf.status_detail = move $windows.EventData.Message?
 
 // HostApplication is the full command line (exe + args), not just the path.
-$event.ocsf.actor = {
+$ocsf.actor = {
   process: {
-    pid: move $event.windows.System.Execution.ProcessID?,
-    cmd_line: move $event.windows.EventData.HostApplication?,
+    pid: move $windows.System.Execution.ProcessID?,
+    cmd_line: move $windows.EventData.HostApplication?,
   },
 }
 
 // User is in "DOMAIN\username" format.
-if $event.windows.EventData.User? != null {
-  _user = (move $event.windows.EventData.User).split("\\")
-  $event.ocsf.actor.user = {
+if $windows.EventData.User? != null {
+  _user = (move $windows.EventData.User).split("\\")
+  $ocsf.actor.user = {
     domain: _user[0]? if _user.length() > 1,
     name: _user[-1]?,
   }
   drop _user
 }
 
-$event.ocsf.script = {
+$ocsf.script = {
   type_id: 2,  // PowerShell
 }
-if $event.windows.EventData.CommandLine? != null {
-  $event.ocsf.script.script_content.value = move $event.windows.EventData.CommandLine
-} else if $event.windows.EventData.ContextInfo? != null {
-  // Native EID 4100 events commonly carry the attempted invocation as the
-  // Host Application line in ContextInfo rather than as CommandLine.
-  $event.ocsf.script.script_content.value = move $event.windows.EventData.ContextInfo
-} else if $event.windows.EventData.CommandInvocation? != null {
-  $event.ocsf.script.script_content.value = move $event.windows.EventData.CommandInvocation
-} else if $event.windows.EventData.Payload? != null {
-  $event.ocsf.script.script_content.value = move $event.windows.EventData.Payload
+if $windows.EventData.CommandLine? != null {
+  $ocsf.script.script_content.value = move $windows.EventData.CommandLine
+} else if $windows.EventData.ContextInfo? != null {
+  $ocsf.script.script_content.value = move $windows.EventData.ContextInfo
+} else if $windows.EventData.CommandInvocation? != null {
+  $ocsf.script.script_content.value = move $windows.EventData.CommandInvocation
+} else if $windows.EventData.Payload? != null {
+  $ocsf.script.script_content.value = move $windows.EventData.Payload
 }
 
-// HostVersion, EngineVersion, RunspaceId, PipelineId, ScriptName, and ShellId
-// stay in unmapped.
-drop $event.windows.EventData.HostName?
-drop $event.windows.EventData.ConnectedUser?
+// CommandLine (the full command attempted), HostVersion, EngineVersion,
+// RunspaceId, PipelineId, ScriptName, ShellId — left in unmapped.
+drop $windows.EventData.HostName?
+drop $windows.EventData.ConnectedUser?

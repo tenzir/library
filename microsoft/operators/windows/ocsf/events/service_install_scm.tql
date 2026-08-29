@@ -1,80 +1,79 @@
 ---
 description: New Service Installed via SCM (EID 7045) → OCSF Windows Service Activity (201004, Create)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.windows_service_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 201004
-$event.ocsf.activity_id = 1  // Create
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201004
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event._service_cmd_line = move $event.windows.EventData.ImagePath
-$event.ocsf.win_service = {
-  name: move $event.windows.EventData.ServiceName,
-  cmd_line: $event._service_cmd_line,
-  // service_start_name is the Windows account the service runs as (e.g. LocalSystem).
-  service_start_name: move $event.windows.EventData.AccountName,
+_service_cmd_line = move $windows.EventData.ImagePath
+$ocsf.win_service = {
+  name: move $windows.EventData.ServiceName,
+  cmd_line: _service_cmd_line,
+  service_start_name: move $windows.EventData.AccountName,
 }
 
-// Extract the executable from quoted paths or from the leading command token.
-// Unquoted paths may contain spaces, so cut at an argument separator (" -" or
-// " /") instead of the first space.
-if $event._service_cmd_line? != null {
-  $event._service_file_path = $event._service_cmd_line.split("\"")[1]? if $event._service_cmd_line.starts_with("\"") else $event._service_cmd_line.split(" -")[0].split(" /")[0]
-  if $event._service_file_path? != null {
-    $event.ocsf.win_service.service_file = {
-      path: $event._service_file_path,
-      name: $event._service_file_path.split("\\")[-1]?,
+if _service_cmd_line? != null {
+  _service_file_path = _service_cmd_line.split("\"")[1]? if _service_cmd_line.starts_with("\"") else _service_cmd_line.split(" -")[0].split(" /")[0]
+  if _service_file_path? != null {
+    $ocsf.win_service.service_file = {
+      path: _service_file_path,
+      name: _service_file_path.split("\\")[-1]?,
       type_id: 8,
     }
   }
 }
 
-$event._service_type = move $event.windows.EventData.ServiceType?
-match $event._service_type?.to_lower() {
+_service_type = move $windows.EventData.ServiceType?
+match _service_type?.to_lower() {
   "kernel mode driver" => {
-    $event.ocsf.win_service.service_category_id = 1  // Kernel Mode
-    $event.ocsf.win_service.service_type_id = 1  // Kernel Driver
+    $ocsf.win_service.service_category_id = 1
+    $ocsf.win_service.service_type_id = 1
   }
   "file system driver" => {
-    $event.ocsf.win_service.service_category_id = 1  // Kernel Mode
-    $event.ocsf.win_service.service_type_id = 2  // File System Driver
+    $ocsf.win_service.service_category_id = 1
+    $ocsf.win_service.service_type_id = 2
   }
   "own process" => {
-    $event.ocsf.win_service.service_category_id = 2  // User Mode
-    $event.ocsf.win_service.service_type_id = 3  // Own Process
+    $ocsf.win_service.service_category_id = 2
+    $ocsf.win_service.service_type_id = 3
   }
   "share process" => {
-    $event.ocsf.win_service.service_category_id = 2  // User Mode
-    $event.ocsf.win_service.service_type_id = 4  // Share Process
+    $ocsf.win_service.service_category_id = 2
+    $ocsf.win_service.service_type_id = 4
   }
-  "user mode service" => { $event.ocsf.win_service.service_category_id = 2 }
+  "user mode service" => { $ocsf.win_service.service_category_id = 2 }
   _ => {
-    if $event._service_type? != null {
-      $event.ocsf.win_service.service_category_id = 99
-      $event.ocsf.win_service.service_category = $event._service_type
+    if _service_type? != null {
+      $ocsf.win_service.service_category_id = 99
+      $ocsf.win_service.service_category = _service_type
     }
   }
 }
 
-$event._start_type = move $event.windows.EventData.StartType?
-match $event._start_type?.to_lower() {
-  "boot start" => { $event.ocsf.win_service.service_start_type_id = 1 }
-  "system start" => { $event.ocsf.win_service.service_start_type_id = 2 }
-  "auto start" => { $event.ocsf.win_service.service_start_type_id = 3 }
-  "demand start" => { $event.ocsf.win_service.service_start_type_id = 4 }
-  "disabled" => { $event.ocsf.win_service.service_start_type_id = 5 }
+_start_type = move $windows.EventData.StartType?
+match _start_type?.to_lower() {
+  "boot start" => { $ocsf.win_service.service_start_type_id = 1 }
+  "system start" => { $ocsf.win_service.service_start_type_id = 2 }
+  "auto start" => { $ocsf.win_service.service_start_type_id = 3 }
+  "demand start" => { $ocsf.win_service.service_start_type_id = 4 }
+  "disabled" => { $ocsf.win_service.service_start_type_id = 5 }
   _ => {
-    if $event._start_type? != null {
-      $event.ocsf.win_service.service_start_type_id = 99
-      $event.ocsf.win_service.service_start_type = $event._start_type
+    if _start_type? != null {
+      $ocsf.win_service.service_start_type_id = 99
+      $ocsf.win_service.service_start_type = _start_type
     }
   }
 }
-drop $event._service_cmd_line, $event._service_file_path?, $event._service_type, $event._start_type
+drop _service_cmd_line, _service_file_path?, _service_type, _start_type

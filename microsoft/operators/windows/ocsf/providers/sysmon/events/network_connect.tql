@@ -1,68 +1,71 @@
 ---
 description: Sysmon NetworkConnect (EID 3) → OCSF Network Activity (4001, Open)
 args:
-  named:
-    - name: event
-      description: The field that holds the event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.network_activity"
 
-$event.ocsf.category_uid = 4
-$event.ocsf.class_uid = 4001
-$event.ocsf.activity_id = 1  // Open
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 1  // Open
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // Sysmon always knows which side initiated the connection.
-$event.ocsf.is_src_dst_assignment_known = true
+$ocsf.is_src_dst_assignment_known = true
 
-replace $event.windows.EventData.SourceHostname,      what="-", with=null
-replace $event.windows.EventData.SourcePortName,      what="-", with=null
-replace $event.windows.EventData.DestinationHostname, what="-", with=null
-replace $event.windows.EventData.DestinationPortName, what="-", with=null
+replace $windows.EventData.SourceHostname,      what="-", with=null
+replace $windows.EventData.SourcePortName,      what="-", with=null
+replace $windows.EventData.DestinationHostname, what="-", with=null
+replace $windows.EventData.DestinationPortName, what="-", with=null
 
-$event.ocsf.connection_info = {
-  direction_id:    2 if (move $event.windows.EventData.Initiated) else 1,
-  protocol_name:   move $event.windows.EventData.Protocol,
-  protocol_ver_id: 6 if (move $event.windows.EventData.SourceIsIpv6) else 4,
+$ocsf.connection_info = {
+  direction_id:    2 if (move $windows.EventData.Initiated) else 1,
+  protocol_name:   move $windows.EventData.Protocol,
+  protocol_ver_id: 6 if (move $windows.EventData.SourceIsIpv6) else 4,
 }
-drop $event.windows.EventData.DestinationIsIpv6 // redundant to SourceIsIpv6
+drop $windows.EventData.DestinationIsIpv6 // redundant to SourceIsIpv6
 
 let $protos = { tcp: 6, udp: 17 }
-$event.ocsf.connection_info.protocol_num = $protos[$event.ocsf.connection_info.protocol_name]? else 255
+$ocsf.connection_info.protocol_num = $protos[$ocsf.connection_info.protocol_name]? else 255
 
-$event.ocsf.src_endpoint = {
-  ip:       (move $event.windows.EventData.SourceIp).ip(),
-  port:     (move $event.windows.EventData.SourcePort).int(),
-  hostname: move $event.windows.EventData.SourceHostname,
-  svc_name: move $event.windows.EventData.SourcePortName,
+$ocsf.src_endpoint = {
+  ip:       (move $windows.EventData.SourceIp).ip(),
+  port:     (move $windows.EventData.SourcePort).int(),
+  hostname: move $windows.EventData.SourceHostname,
+  svc_name: move $windows.EventData.SourcePortName,
 }
 
-$event.ocsf.dst_endpoint = {
-  ip:       (move $event.windows.EventData.DestinationIp).ip(),
-  port:     (move $event.windows.EventData.DestinationPort).int(),
-  hostname: move $event.windows.EventData.DestinationHostname,
-  svc_name: move $event.windows.EventData.DestinationPortName,
+$ocsf.dst_endpoint = {
+  ip:       (move $windows.EventData.DestinationIp).ip(),
+  port:     (move $windows.EventData.DestinationPort).int(),
+  hostname: move $windows.EventData.DestinationHostname,
+  svc_name: move $windows.EventData.DestinationPortName,
 }
 
 // The Host profile (applied globally in map.tql) adds actor to Network Activity.
 // Map the process that opened the connection accordingly.
-$event._user = (move $event.windows.EventData.User).split("\\")
-$event.ocsf.actor = {
+$ocsf._user = (move $windows.EventData.User).split("\\")
+$ocsf.actor = {
   process: {
-    uid:  move $event.windows.EventData.ProcessGuid,
-    pid:  (move $event.windows.EventData.ProcessId).int(),
-    path: move $event.windows.EventData.Image,
+    uid:  move $windows.EventData.ProcessGuid,
+    pid:  (move $windows.EventData.ProcessId).int(),
+    path: move $windows.EventData.Image,
     file: { type_id: 8 },
   },
   user: {
-    name:   $event._user[-1],
-    domain: $event._user[0] if $event._user.length() > 1,
+    name:   $ocsf._user[-1],
+    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
   },
 }
-drop $event._user
+drop $ocsf._user
 
-$event.ocsf.actor.process.name = $event.ocsf.actor.process.path.split("\\")[-1]
-$event.ocsf.actor.process.file.name = $event.ocsf.actor.process.name
-$event.ocsf.actor.process.file.path = $event.ocsf.actor.process.path
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file.name = $ocsf.actor.process.name
+$ocsf.actor.process.file.path = $ocsf.actor.process.path

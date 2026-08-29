@@ -1,68 +1,61 @@
 ---
 description: >
-  Task Scheduler Execution (EID 100 Start, 101 Failure, 102 Complete,
-  129 Process Launch, 200 Action Start, 201 Action Complete)
+  Task Scheduler Execution (EID 100 Start, 101 Start Failure, 102 Complete,
+  103 Execution Failure, 129 Process Launch, 200 Action Start,
+  201 Action Complete, 202 Action Failure)
   → OCSF Scheduled Job Activity (1006)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
       type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The OCSF scheduled job activity identifier.
+      type: int
 ---
 
 @name = "ocsf.scheduled_job_activity"
 
-$event.ocsf.category_uid = 1
-$event.ocsf.class_uid = 1006
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1006
 
-let $activities = {
-  "100": 6,   // Start
-  "101": 6,   // Start (failed)
-  "102": 99,  // Other — OCSF 1006 has no Stop activity
-  "129": 6,   // Start (process launched)
-  "200": 6,   // Start (action started)
-  "201": 99,  // Other — OCSF 1006 has no Stop activity
-}
-$event.ocsf.activity_id = $activities[$event.ocsf.metadata.event_code]? else 99
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-// EID 101 fires on launch failure (Windows Level 2 = Error).
-if $event.ocsf.metadata.event_code == "101" {
-  $event.ocsf.status_id = 2  // Failure
-  $event.ocsf.severity_id = 3  // Medium
+// EIDs 102, 201, and 202 carry a ResultCode; non-zero means failure.
+if $windows.EventData.has("ResultCode") {
+  $ocsf.status_id = 1 if $windows.EventData.ResultCode.int() == 0 else 2
+  $ocsf.status_code = (move $windows.EventData.ResultCode).string()
 }
 
-// EIDs 102 and 201 carry a ResultCode; non-zero means failure.
-if $event.windows.EventData.has("ResultCode") {
-  $event.ocsf.status_id = 1 if $event.windows.EventData.ResultCode.int() == 0 else 2
-  $event.ocsf.status_code = (move $event.windows.EventData.ResultCode).string()
-}
-
-$event.ocsf.job = {
-  name: move $event.windows.EventData.TaskName,
+$ocsf.job = {
+  name: move $windows.EventData.TaskName,
 }
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
-// ActionName is the executable path for EIDs 200/201.
-if $event.windows.EventData.ActionName? != null {
-  _action = move $event.windows.EventData.ActionName
-  $event.ocsf.job.job_actions = [{
-    type_id: 2,  // Execute
+// ActionName is the executable path for EIDs 200–202.
+if $windows.EventData.ActionName? != null {
+  _action = move $windows.EventData.ActionName
+  $ocsf.job.job_actions = [{
+    type_id: 2,
     cmd_line: _action,
     file: {
       path: _action,
       name: _action.split("\\")[-1]?,
-      type_id: 1,  // Regular file
+      type_id: 1,
     },
   }]
   drop _action
 }
 
-// UserContext present on EID 100. Built-in accounts (e.g. "SYSTEM") come
-// without a "DOMAIN\" prefix.
-if $event.windows.EventData.UserContext? != null {
-  _user = (move $event.windows.EventData.UserContext).split("\\")
-  $event.ocsf.actor = {
+// UserContext present on EID 100.
+if $windows.EventData.UserContext? != null {
+  _user = (move $windows.EventData.UserContext).split("\\")
+  $ocsf.actor = {
     user: {
       domain: _user[0]? if _user.length() > 1,
       name: _user[-1]?,
@@ -71,9 +64,9 @@ if $event.windows.EventData.UserContext? != null {
   drop _user
 }
 
-// ProcessId (EID 129) or EnginePID (EIDs 200/201).
-if $event.windows.EventData.ProcessId? != null {
-  $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.ProcessId) }
-} else if $event.windows.EventData.EnginePID? != null {
-  $event.ocsf.actor.process = { pid: int(move $event.windows.EventData.EnginePID) }
+// ProcessId (EID 129) or EnginePID (EIDs 200–202).
+if $windows.EventData.ProcessId? != null {
+  $ocsf.actor.process = { pid: int(move $windows.EventData.ProcessId) }
+} else if $windows.EventData.EnginePID? != null {
+  $ocsf.actor.process = { pid: int(move $windows.EventData.EnginePID) }
 }

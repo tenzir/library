@@ -1,56 +1,59 @@
 ---
 description: Failed Logon (EID 4625) → OCSF Authentication (3002, Logon/Failure)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.authentication"
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3002
-$event.ocsf.activity_id = 1  // Logon
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1  // Logon
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = 2  // Failure
-$event.ocsf.severity_id = 2  // Low — single failed logon; brute-force detection is a higher layer
-$event.ocsf.status_code = move $event.windows.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 2  // Low — single failed logon; brute-force detection is a higher layer
+$ocsf.status_code = move $windows.EventData.Status  // hex NTSTATUS (e.g. 0xC000006D = wrong credentials)
 
 // Windows LogonType integers map directly to OCSF logon_type_id values.
-$event.ocsf.logon_type_id = (move $event.windows.EventData.LogonType).int()
+$ocsf.logon_type_id = (move $windows.EventData.LogonType).int()
 
-$event.ocsf.user = {
-  uid: move $event.windows.EventData.TargetUserSid,
-  name: move $event.windows.EventData.TargetUserName,
-  domain: move $event.windows.EventData.TargetDomainName,
+$ocsf.user = {
+  uid: move $windows.EventData.TargetUserSid,
+  name: move $windows.EventData.TargetUserName,
+  domain: move $windows.EventData.TargetDomainName,
 }
 
-$event.ocsf.actor = {
+$ocsf.actor = {
   user: {
-    uid: move $event.windows.EventData.SubjectUserSid,
-    name: move $event.windows.EventData.SubjectUserName,
-    domain: move $event.windows.EventData.SubjectDomainName,
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
   },
   session: {
-    uid_alt: move $event.windows.EventData.SubjectLogonId,
+    uid_alt: move $windows.EventData.SubjectLogonId,
   },
 }
 
-$event.ocsf.src_endpoint = {
-  ip: (move $event.windows.EventData.IpAddress).ip(),
-  port: (move $event.windows.EventData.IpPort).int(),
-  hostname: move $event.windows.EventData.WorkstationName,
+$ocsf.src_endpoint = {
+  ip: (move $windows.EventData.IpAddress).ip(),
+  port: (move $windows.EventData.IpPort).int(),
+  hostname: move $windows.EventData.WorkstationName,
 }
 
-if $event.windows.EventData.AuthenticationPackageName? == "NTLM" {
-  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
-  $event.ocsf.auth_protocol_id = 1  // NTLM
-} else if $event.windows.EventData.AuthenticationPackageName? == "Kerberos" {
-  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
-  $event.ocsf.auth_protocol_id = 2  // Kerberos
-} else if $event.windows.EventData.AuthenticationPackageName? != null {
-  $event.ocsf.auth_protocol = move $event.windows.EventData.AuthenticationPackageName
-  $event.ocsf.auth_protocol_id = 99
+if $windows.EventData.AuthenticationPackageName? == "NTLM" {
+  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
+  $ocsf.auth_protocol_id = 1
+} else if $windows.EventData.AuthenticationPackageName? == "Kerberos" {
+  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
+  $ocsf.auth_protocol_id = 2
+} else if $windows.EventData.AuthenticationPackageName? != null {
+  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
+  $ocsf.auth_protocol_id = 99
 }

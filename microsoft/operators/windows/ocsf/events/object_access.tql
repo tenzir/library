@@ -1,0 +1,77 @@
+---
+description: Object Access (EID 4663) → provider-specific OCSF activity
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+$ocsf.category_uid = 1
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Access"
+$ocsf.status_id = 1  // Success; Windows does not emit failure variants of EID 4663.
+$ocsf.access_mask = int($windows.EventData.AccessMask, base=16)
+
+$ocsf.actor = {
+  user: {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
+  },
+  session: {
+    uid_alt: move $windows.EventData.SubjectLogonId,
+  },
+  process: {
+    pid: int(move $windows.EventData.ProcessId, base=16),
+    path: move $windows.EventData.ProcessName,
+    file: {type_id: 8},
+  },
+}
+$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+$ocsf.actor.process.file = {
+  name: $ocsf.actor.process.name,
+  path: $ocsf.actor.process.path,
+  type_id: 8,
+}
+
+match $windows.EventData.ObjectType {
+  "File" => {
+    @name = "ocsf.file_activity"
+    $ocsf.class_uid = 1001
+    $ocsf.file = {
+      path: move $windows.EventData.ObjectName,
+      type_id: 0, // Unknown; ObjectType "File" also covers directories.
+    }
+    $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+  }
+  "Key" => {
+    @name = "ocsf.registry_key_activity"
+    $ocsf.class_uid = 201001
+    $ocsf.reg_key = {
+      path: move $windows.EventData.ObjectName,
+    }
+  }
+  _ => {
+    @name = "ocsf.entity_management"
+    $ocsf.category_uid = 3
+    $ocsf.class_uid = 3004
+    $ocsf.entity = {
+      name: move $windows.EventData.ObjectName,
+      type_id: 99,
+      type: move $windows.EventData.ObjectType,
+      data: {
+        access_list: $windows.EventData.AccessList,
+        access_mask: $ocsf.access_mask,
+        object_server: $windows.EventData.ObjectServer,
+      },
+    }
+    drop $ocsf.access_mask
+  }
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// Preserve the message-token access list and handle identifier in unmapped.

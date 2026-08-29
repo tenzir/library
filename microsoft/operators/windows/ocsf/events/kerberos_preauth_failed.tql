@@ -1,31 +1,34 @@
 ---
 description: Kerberos Pre-Authentication Failed (EID 4771) → OCSF Authentication (3002, Authentication Ticket/Failure)
 args:
-  named:
-    - name: event
-      description: The working event to map.
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
       type: field
 ---
 
 @name = "ocsf.authentication"
 
-$event.ocsf.category_uid = 3
-$event.ocsf.class_uid = 3002
-$event.ocsf.activity_id = 3  // Authentication Ticket (TGT request)
-$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 3  // Authentication Ticket (TGT request)
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$event.ocsf.status_id = 2  // Failure — pre-auth always fails for this EID
-$event.ocsf.severity_id = 2  // Low
-$event.ocsf.status_code = move $event.windows.EventData.Status  // Kerberos error code (e.g. 0x18 = wrong password)
+$ocsf.status_id = 2  // Failure — pre-auth always fails for this EID
+$ocsf.severity_id = 2  // Low
+$ocsf.status_code = move $windows.EventData.Status  // Kerberos error code (e.g. 0x18 = wrong password)
 
-$event.ocsf.user = {
-  uid: move $event.windows.EventData.TargetSid,
-  name: move $event.windows.EventData.TargetUserName,
+$ocsf.user = {
+  uid: move $windows.EventData.TargetSid,
+  name: move $windows.EventData.TargetUserName,
 }
 
-$event.ocsf.src_endpoint = {
-  ip: (move $event.windows.EventData.IpAddress).ip(),
-  port: (move $event.windows.EventData.IpPort).int(),
+$ocsf.src_endpoint = {
+  ip: (move $windows.EventData.IpAddress).ip(),
+  port: (move $windows.EventData.IpPort).int(),
 }
 
 // PreAuthType, TicketOptions, ServiceName — unmapped.

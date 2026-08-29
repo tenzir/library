@@ -1,0 +1,35 @@
+---
+description: Maps AD FS security audit records to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF authentication activity identifier.
+    - name: status_id
+      type: int
+      description: The OCSF status identifier.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.auth_protocol_id = 99
+$ocsf.auth_protocol = "AD FS"
+$ocsf.user = {name: move $windows.EventData.Data_1?}
+$ocsf.service = {
+  name: "Active Directory Federation Services",
+  uid: move $windows.EventData.Data_0?,
+}
+$ocsf.src_endpoint = {ip: move $windows.EventData.Data_4?}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+$ocsf.status_detail = move $windows.EventData.Data_2?

@@ -2,7 +2,7 @@
 description: Maps a structured Windows Event Log event to OCSF 1.9.
 args:
   positional:
-    - name: event
+    - name: windows
       type: field
       description: The structured source event to map.
     - name: ocsf
@@ -11,155 +11,326 @@ args:
 ---
 
 
-$event = {windows: $event, ocsf: {}}
+$ocsf = {}
 
-$event.ocsf.metadata = {
-  event_code: $event.windows.System.EventID.string(),
+$ocsf.metadata = {
+  event_code: $windows.System.EventID.string(),
   extensions: [{name: "win"}],
-  log_name: $event.windows.System.Channel,
-  log_level: (move $event.windows.System.Level).string(),
-  log_version: (move $event.windows.System.Version).string(),
-  logged_time: $event.windows.Logger.logged_time?,
-  loggers: [move $event.windows.Logger],
-  original_event_uid: $event.windows.System.EventRecordID.string(),
+  log_name: $windows.System.Channel,
+  log_level: (move $windows.System.Level).string(),
+  log_version: (move $windows.System.Version).string(),
+  logged_time: $windows.Logger.logged_time?,
+  loggers: [move $windows.Logger],
+  original_event_uid: $windows.System.EventRecordID.string(),
   processed_time: now(),
   product: {
-    name: $event.windows.System.Provider.Name,
-    uid: move $event.windows.System.Provider.Guid?,
+    name: $windows.System.Provider.Name,
+    uid: move $windows.System.Provider.Guid?,
     vendor_name: "Microsoft",
   },
   profiles: ["host"],
   version: "1.9.0",
 }
-$event.windows.System.EventID = $event.windows.System.EventID.int()
+$windows.System.EventID = $windows.System.EventID.int()
 
-$event.ocsf.severity_id = 1
-if $event.windows.RenderingInfo?.Message? != null {
-  $event.ocsf.message = move $event.windows.RenderingInfo?.Message?
+$ocsf.severity_id = 1
+if $windows.RenderingInfo?.Message? != null {
+  $ocsf.message = move $windows.RenderingInfo.Message
 }
-drop $event.windows.RenderingInfo?.Message?
-if $event.windows.RenderingInfo?.is_empty() == true {
-  drop $event.windows.RenderingInfo
+drop $windows.RenderingInfo?.Message?
+if $windows.RenderingInfo?.is_empty() == true {
+  drop $windows.RenderingInfo
 }
-if $event.windows.RawData? != null {
-  $event.ocsf.raw_data = move $event.windows.RawData
-  $event.ocsf.raw_data_size = $event.ocsf.raw_data.length_bytes()
+if $windows.RawData? != null {
+  $ocsf.raw_data = move $windows.RawData
+  $ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
 }
-$event.ocsf.time = move $event.windows.System.TimeCreated.SystemTime
-drop $event.windows.System.TimeCreated
+$ocsf.time = move $windows.System.TimeCreated.SystemTime
+drop $windows.System.TimeCreated
 
-$event.ocsf.device = {
-  hostname: move $event.windows.System.Computer,
+$ocsf.device = {
+  hostname: move $windows.System.Computer,
 }
 
 // "-" is the universal Windows sentinel for "not applicable/empty".
-replace $event.windows, what="-", with=null
+replace $windows, what="-", with=null
 
-// The EID-specific mappers depend on structured EventData. Events without it
-// (e.g. Fluent Bit's rendered mode) map to the OCSF base event so that no
-// mapper emits half-empty events or warning cascades.
-if $event.windows.EventData? == null {
-  microsoft::windows::ocsf::base event=$event
-} else {
-  match $event.windows.System.Provider.Name {
-    "Microsoft-Windows-TaskScheduler" => {
-      match $event.windows.System.EventID {
-        99..103 | 129 | 199..202 => { microsoft::windows::ocsf::events::task_run event=$event }
-        106 | 139..142 => { microsoft::windows::ocsf::events::task_lifecycle event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+match $windows.System.Provider.Name if $windows.EventData? != null or $windows.UserData? != null else "" {
+  "Microsoft-Windows-TaskScheduler" => {
+    match $windows.System.EventID {
+      100 | 129 | 200 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
       }
-    }
-    "Application Error" => {
-      match $event.windows.System.EventID {
-        1000 => { microsoft::windows::ocsf::events::application_error event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      101 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
+        microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
       }
-    }
-    "Windows Error Reporting" => {
-      match $event.windows.System.EventID {
-        1001 => { microsoft::windows::ocsf::events::application_crash_report event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      102 | 201 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
       }
-    }
-    "Application Hang" => {
-      match $event.windows.System.EventID {
-        1002 => { microsoft::windows::ocsf::events::application_hang event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      103 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
       }
-    }
-    "Microsoft-Windows-Windows Defender" => {
-      match $event.windows.System.EventID {
-        1005..1008 => { microsoft::windows::ocsf::events::defender_threat event=$event }
-        1115..1118 => { microsoft::windows::ocsf::events::defender_detection event=$event }
-        1121 => { microsoft::windows::ocsf::events::defender_asr event=$event }
-        2000 => { microsoft::windows::ocsf::events::defender_signature_update event=$event }
-        5001 | 5007 => { microsoft::windows::ocsf::events::defender_tamper event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      106 => {
+        microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=1
       }
-    }
-    "Microsoft-Windows-Eventlog" => {
-      match $event.windows.System.EventID {
-        1102 => { microsoft::windows::ocsf::events::eventlog_clear event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      140 => {
+        microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=2
       }
-    }
-    "Microsoft-Windows-PowerShell" => {
-      match $event.windows.System.EventID {
-        4100 => { microsoft::windows::ocsf::events::powershell_error event=$event }
-        4103 => { microsoft::windows::ocsf::events::powershell_module_logging event=$event }
-        4104 => { microsoft::windows::ocsf::events::powershell_script_block event=$event }
-        4105 | 4106 => { microsoft::windows::ocsf::events::powershell_script_block_invocation event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      141 => {
+        microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=3
       }
-    }
-    "Microsoft-Windows-Security-Auditing" => {
-      match $event.windows.System.EventID {
-        4624 => { microsoft::windows::ocsf::events::logon event=$event }
-        4625 => { microsoft::windows::ocsf::events::logon_failed event=$event }
-        4648 => { microsoft::windows::ocsf::events::explicit_credential_logon event=$event }
-        4672 => { microsoft::windows::ocsf::events::authorize_session event=$event }
-        4688 => { microsoft::windows::ocsf::events::process_create event=$event }
-        4697 => { microsoft::windows::ocsf::events::service_install event=$event }
-        4698 => { microsoft::windows::ocsf::events::scheduled_task_create event=$event }
-        4720 | 4721..4727 => { microsoft::windows::ocsf::events::account_change event=$event }
-        4726..4735 | 4753..4759 => { microsoft::windows::ocsf::events::group_management event=$event }
-        4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket event=$event }
-        4771 => { microsoft::windows::ocsf::events::kerberos_preauth_failed event=$event }
-        4776 => { microsoft::windows::ocsf::events::ntlm_auth event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      142 => {
+        microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=5
       }
-    }
-    "EventLog" => {
-      match $event.windows.System.EventID {
-        6005 => { microsoft::windows::ocsf::events::eventlog_start event=$event }
-        6006 => { microsoft::windows::ocsf::events::eventlog_stop event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
+      202 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
       }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
-    "Service Control Manager" => {
-      match $event.windows.System.EventID {
-        7034 => { microsoft::windows::ocsf::events::service_crashed event=$event }
-        7045 => { microsoft::windows::ocsf::events::service_install_scm event=$event }
-        _ => { microsoft::windows::ocsf::base event=$event }
-      }
-    }
-    _ => { microsoft::windows::ocsf::base event=$event }
   }
+  "Application Error" => {
+    match $windows.System.EventID {
+      1000 => { microsoft::windows::ocsf::events::application_error $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Windows Error Reporting" => {
+    match $windows.System.EventID {
+      1001 => { microsoft::windows::ocsf::events::application_crash_report $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Application Hang" => {
+    match $windows.System.EventID {
+      1002 => { microsoft::windows::ocsf::events::application_hang $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-Windows Defender" => {
+    match $windows.System.EventID {
+      1005..1008 => { microsoft::windows::ocsf::events::defender_threat $windows, $ocsf }
+      1115..1118 => { microsoft::windows::ocsf::events::defender_detection $windows, $ocsf }
+      1121 => { microsoft::windows::ocsf::events::defender_asr $windows, $ocsf }
+      2000 => { microsoft::windows::ocsf::events::defender_signature_update $windows, $ocsf }
+      5001 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Real-Time Protection Disabled"
+      }
+      5007 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Configuration Changed"
+      }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-Eventlog" => {
+    match $windows.System.EventID {
+      1100 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=7, status_id=1 }
+      1102 => { microsoft::windows::ocsf::events::eventlog_clear $windows, $ocsf }
+      1107 | 1108 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=99, status_id=2 }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-PowerShell" => {
+    match $windows.System.EventID {
+      4100 => { microsoft::windows::ocsf::events::powershell_error $windows, $ocsf }
+      4103 => { microsoft::windows::ocsf::events::powershell_module_logging $windows, $ocsf }
+      4104 => { microsoft::windows::ocsf::events::powershell_script_block $windows, $ocsf }
+      4105 | 4106 => { microsoft::windows::ocsf::events::powershell_script_block_invocation $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "AD FS Auditing" => {
+    match $windows.System.EventID {
+      299 | 324 | 403 | 404 | 410 | 412 | 431 | 500 | 501 => {
+        microsoft::windows::ocsf::events::adfs_audit $windows, $ocsf, activity_id=1, status_id=1
+      }
+      411 | 413 => {
+        microsoft::windows::ocsf::events::adfs_audit $windows, $ocsf, activity_id=1, status_id=2
+      }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "LsaSrv" => {
+    match $windows.System.EventID {
+      300 => { microsoft::windows::ocsf::events::lsa_group_assignment $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-AzureADPasswordProtection-DCAgent" => {
+    match $windows.System.EventID {
+      30004 => { microsoft::windows::ocsf::events::password_policy_rejection $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-Security-Auditing" => {
+    match $windows.System.EventID {
+      4608 => { microsoft::windows::ocsf::events::device_power_state $windows, $ocsf }
+      4610 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Authentication Package" }
+      4611 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Trusted Logon Process" }
+      4614 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Security Notification Package" }
+      4622 => { microsoft::windows::ocsf::events::security_package_load $windows, $ocsf, module_type="Security Package" }
+      4624 => { microsoft::windows::ocsf::events::logon $windows, $ocsf }
+      4625 => { microsoft::windows::ocsf::events::logon_failed $windows, $ocsf }
+      4634 | 4647 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=2, status_id=1 }
+      4648 => { microsoft::windows::ocsf::events::explicit_credential_logon $windows, $ocsf }
+      4649 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=2, auth_protocol_id=2 }
+      4657 => { microsoft::windows::ocsf::events::registry_value_modify $windows, $ocsf }
+      4661 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Directory or SAM Object" }
+      4662 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
+      4663 => { microsoft::windows::ocsf::events::object_access $windows, $ocsf }
+      4665 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Authorization Manager Client Context" }
+      4666 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Authorization Manager Operation" }
+      4667 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Authorization Manager Client Context" }
+      4670 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Securable Object Permissions" }
+      4672 => { microsoft::windows::ocsf::events::authorize_session $windows, $ocsf }
+      4673 | 4674 | 4675 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Privileged Operation" }
+      4688 => { microsoft::windows::ocsf::events::process_create $windows, $ocsf }
+      4689 => { microsoft::windows::ocsf::events::process_terminate $windows, $ocsf }
+      4697 => { microsoft::windows::ocsf::events::service_install $windows, $ocsf }
+      4698 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=1 }
+      4699 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=3 }
+      4700 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=4 }
+      4701 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=5 }
+      4702 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=2 }
+      4704 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
+      4705 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
+      4716 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Trusted Domain Policy" }
+      4717 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
+      4718 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
+      4719 => { microsoft::windows::ocsf::events::audit_policy_change $windows, $ocsf }
+      4720 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=1 }
+      4722 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=2 }
+      4723 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=3 }
+      4724 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=4 }
+      4725 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=5 }
+      4726 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=6 }
+      4727 | 4731 | 4754 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=6 }
+      4728 | 4732 | 4756 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=3 }
+      4729 | 4733 | 4757 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=4 }
+      4730 | 4734 | 4758 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=5 }
+      4735 | 4737 | 4745 | 4750 | 4755 | 4760 | 4764 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=9 }
+      4744 | 4749 | 4759 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=6 }
+      4746 | 4751 | 4761 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=3 }
+      4747 | 4752 | 4762 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=4 }
+      4748 | 4753 | 4763 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=5 }
+      4738 | 4742 | 4781 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=2 }
+      4739 => { microsoft::windows::ocsf::events::domain_policy_change $windows, $ocsf }
+      4740 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=9 }
+      4767 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=12 }
+      4768 => { microsoft::windows::ocsf::events::kerberos_tgt $windows, $ocsf }
+      4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket $windows, $ocsf }
+      4771 => { microsoft::windows::ocsf::events::kerberos_preauth_failed $windows, $ocsf }
+      4774 => { microsoft::windows::ocsf::events::account_mapping $windows, $ocsf }
+      4776 => { microsoft::windows::ocsf::events::ntlm_auth $windows, $ocsf }
+      4778 => { microsoft::windows::ocsf::events::rdp_session $windows, $ocsf, activity_id=8 }
+      4779 => { microsoft::windows::ocsf::events::rdp_session $windows, $ocsf, activity_id=7 }
+      4793 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Password Policy" }
+      4797 | 4798 => { microsoft::windows::ocsf::events::discovery_result $windows, $ocsf, result_id=1 }
+      4799 => { microsoft::windows::ocsf::events::group_membership_query $windows, $ocsf }
+      4800 | 4801 | 4802 | 4803 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Interactive Session State" }
+      4825 => { microsoft::windows::ocsf::events::remote_desktop_denied $windows, $ocsf }
+      4826 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Boot Configuration Data" }
+      4870 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Certificate" }
+      4886 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Certificate Request" }
+      4887 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Certificate" }
+      4888 => {
+        microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Certificate Request"
+        $ocsf.status_id = 2
+      }
+      4893 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Archived Certificate Private Key" }
+      4898 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Certificate Template" }
+      4902 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Per-user Audit Policy Table" }
+      4904 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Security Event Source" }
+      4905 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Security Event Source" }
+      4907 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Object Audit Policy" }
+      4931 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Replica Naming Context" }
+      4932 | 4933 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Replication" }
+      4946 => { microsoft::windows::ocsf::events::firewall_change $windows, $ocsf, activity_id=1 }
+      4948 => { microsoft::windows::ocsf::events::firewall_change $windows, $ocsf, activity_id=4 }
+      4956 => { microsoft::windows::ocsf::events::firewall_profile_change $windows, $ocsf }
+      5024 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Service", type="Windows Service"
+      }
+      5033 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Authorization Driver", type="Windows Driver"
+      }
+      4985 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Transaction" }
+      5059 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Cryptographic Key" }
+      5136 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
+      5137 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Directory Object" }
+      5140 | 5145 => { microsoft::windows::ocsf::events::smb_share_access $windows, $ocsf }
+      5632 => { microsoft::windows::ocsf::events::wireless_authentication $windows, $ocsf }
+      6144 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings" }
+      6145 => {
+        microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings"
+        $ocsf.status_id = 2
+      }
+      6272 | 6278 => { microsoft::windows::ocsf::events::nps_authentication $windows, $ocsf, status_id=1 }
+      6273 => { microsoft::windows::ocsf::events::nps_authentication $windows, $ocsf, status_id=2 }
+      6416 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=1, status_id=1 }
+      6423 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=4, status_id=1 }
+      6424 => { microsoft::windows::ocsf::events::peripheral_activity $windows, $ocsf, activity_id=3, status_id=1 }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-AppLocker" => {
+    match $windows.System.EventID {
+      8001 => {
+        microsoft::windows::ocsf::events::applocker_policy_apply $windows, $ocsf
+      }
+      8002 | 8005 => {
+        microsoft::windows::ocsf::events::applocker $windows, $ocsf
+        microsoft::windows::ocsf::events::applocker_allowed $windows, $ocsf
+      }
+      8003 | 8006 => {
+        microsoft::windows::ocsf::events::applocker $windows, $ocsf
+        microsoft::windows::ocsf::events::applocker_audit $windows, $ocsf
+      }
+      8004 | 8007 => {
+        microsoft::windows::ocsf::events::applocker $windows, $ocsf
+        microsoft::windows::ocsf::events::applocker_blocked $windows, $ocsf
+      }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "VSSAudit" => {
+    match $windows.System.EventID {
+      8222 => { microsoft::windows::ocsf::events::shadow_copy_create $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "EventLog" => {
+    match $windows.System.EventID {
+      6005 => { microsoft::windows::ocsf::events::eventlog_start $windows, $ocsf }
+      6006 => { microsoft::windows::ocsf::events::eventlog_stop $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Service Control Manager" => {
+    match $windows.System.EventID {
+      7034 => { microsoft::windows::ocsf::events::service_crashed $windows, $ocsf }
+      7045 => { microsoft::windows::ocsf::events::service_install_scm $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  _ => { microsoft::windows::ocsf::base $windows, $ocsf }
 }
 
-drop $event.windows.System.Channel
-drop $event.windows.System.EventID
-drop $event.windows.System.EventRecordID
-drop $event.windows.System.Provider
+drop $windows.System.Channel
+drop $windows.System.EventID
+drop $windows.System.EventRecordID
+drop $windows.System.Provider
 
-if $event.windows.FluentBit?.is_empty() == true {
-  drop $event.windows.FluentBit
+if $windows.FluentBit?.is_empty() == true {
+  drop $windows.FluentBit
 }
-if $event.windows.Winlogbeat?.is_empty() == true {
-  drop $event.windows.Winlogbeat
+if $windows.Winlogbeat?.is_empty() == true {
+  drop $windows.Winlogbeat
 }
-if $event.windows.NXLog?.is_empty() == true {
-  drop $event.windows.NXLog
+if $windows.NXLog?.is_empty() == true {
+  drop $windows.NXLog
 }
 
-$ocsf = {...$event.ocsf, unmapped: $event.windows}
+$ocsf = {...$ocsf, unmapped: $windows}
