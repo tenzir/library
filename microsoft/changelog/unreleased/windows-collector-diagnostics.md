@@ -18,6 +18,7 @@ script content, registry values of unknown type, Windows services, scheduled
 task actions, process sessions, and incomplete application or parent-process
 data.
 
-Map Winlogbeat's rendered message and original event XML to the corresponding
-OCSF fields. Keep only collector details without an OCSF destination in
-`unmapped` instead of duplicating the Winlogbeat event envelope.
+Map rendered Windows messages from Winlogbeat, Fluent Bit, NXLog, and raw XML
+to the OCSF `message` field. Map source data to `raw_data` when an adapter
+provides it. Keep only collector details without an OCSF destination in
+`unmapped` instead of duplicating the event envelope.

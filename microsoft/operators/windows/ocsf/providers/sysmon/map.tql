@@ -37,13 +37,16 @@ drop $event.windows.System.EventRecordID
 
 $event.ocsf.severity_id = 1
 
-if $event.windows.Winlogbeat? != null {
+if $event.windows.RenderingInfo?.Message? != null {
   $event.ocsf.message = move $event.windows.RenderingInfo?.Message?
-  drop $event.windows.RenderingInfo?
-  if $event.windows.RawData? != null {
-    $event.ocsf.raw_data = move $event.windows.RawData
-    $event.ocsf.raw_data_size = $event.ocsf.raw_data.length_bytes()
-  }
+}
+drop $event.windows.RenderingInfo?.Message?
+if $event.windows.RenderingInfo?.is_empty() == true {
+  drop $event.windows.RenderingInfo
+}
+if $event.windows.RawData? != null {
+  $event.ocsf.raw_data = move $event.windows.RawData
+  $event.ocsf.raw_data_size = $event.ocsf.raw_data.length_bytes()
 }
 
 $event.ocsf.time = move $event.windows.EventData.UtcTime
@@ -162,5 +165,14 @@ match $event.ocsf.metadata.event_code {
   }
 }
 
+if $event.windows.FluentBit?.is_empty() == true {
+  drop $event.windows.FluentBit
+}
+if $event.windows.Winlogbeat?.is_empty() == true {
+  drop $event.windows.Winlogbeat
+}
+if $event.windows.NXLog?.is_empty() == true {
+  drop $event.windows.NXLog
+}
 
 $ocsf = {...$event.ocsf, unmapped: $event.windows}
