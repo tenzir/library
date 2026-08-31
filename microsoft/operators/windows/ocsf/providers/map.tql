@@ -34,6 +34,17 @@ $ocsf.metadata = {
 $windows.System.EventID = $windows.System.EventID.int()
 
 $ocsf.severity_id = 1
+if $windows.RenderingInfo?.Message? != null {
+  $ocsf.message = move $windows.RenderingInfo.Message
+}
+drop $windows.RenderingInfo?.Message?
+if $windows.RenderingInfo?.is_empty() == true {
+  drop $windows.RenderingInfo
+}
+if $windows.RawData? != null {
+  $ocsf.raw_data = move $windows.RawData
+  $ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
+}
 $ocsf.time = move $windows.System.TimeCreated.SystemTime
 drop $windows.System.TimeCreated
 
@@ -44,7 +55,7 @@ $ocsf.device = {
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace $windows, what="-", with=null
 
-match $windows.System.Provider.Name {
+match $windows.System.Provider.Name if $windows.EventData? != null or $windows.UserData? != null else "" {
   "Microsoft-Windows-TaskScheduler" => {
     match $windows.System.EventID {
       100 | 129 | 200 => {
@@ -312,5 +323,14 @@ drop $windows.System.EventID
 drop $windows.System.EventRecordID
 drop $windows.System.Provider
 
+if $windows.FluentBit?.is_empty() == true {
+  drop $windows.FluentBit
+}
+if $windows.Winlogbeat?.is_empty() == true {
+  drop $windows.Winlogbeat
+}
+if $windows.NXLog?.is_empty() == true {
+  drop $windows.NXLog
+}
 
 $ocsf = {...$ocsf, unmapped: $windows}

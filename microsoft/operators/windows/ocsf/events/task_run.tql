@@ -28,7 +28,7 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // EIDs 102, 201, and 202 carry a ResultCode; non-zero means failure.
 if $windows.EventData.has("ResultCode") {
-  $ocsf.status_id = 1 if $windows.EventData.ResultCode == 0 else 2
+  $ocsf.status_id = 1 if $windows.EventData.ResultCode.int() == 0 else 2
   $ocsf.status_code = (move $windows.EventData.ResultCode).string()
 }
 
@@ -38,29 +38,35 @@ $ocsf.job = {
 // InstanceId/TaskInstanceId has no OCSF job field; leave in unmapped.
 
 // ActionName is the executable path for EIDs 200–202.
-if $windows.EventData.has("ActionName") {
-  $ocsf.job.file = {
-    path: move $windows.EventData.ActionName,
-    type_id: 1,  // Regular file
-  }
-  $ocsf.job.file.name = $ocsf.job.file.path.split("\\")[-1]
+if $windows.EventData.ActionName? != null {
+  // The action is represented as both a command line and a file in OCSF.
+  $ocsf.job.job_actions = [{
+    type_id: 2,
+    cmd_line: $windows.EventData.ActionName,
+    file: {
+      path: $windows.EventData.ActionName,
+      name: $windows.EventData.ActionName.split("\\")[-1]?,
+      type_id: 1,
+    },
+  }]
+  drop $windows.EventData.ActionName
 }
 
 // UserContext present on EID 100.
-if $windows.EventData.has("UserContext") {
+if $windows.EventData.UserContext? != null {
   _user = (move $windows.EventData.UserContext).split("\\")
   $ocsf.actor = {
     user: {
-      domain: _user[0],
-      name: _user[1],
+      domain: _user[0]? if _user.length() > 1,
+      name: _user[-1]?,
     },
   }
   drop _user
 }
 
 // ProcessId (EID 129) or EnginePID (EIDs 200–202).
-if $windows.EventData.has("ProcessId") {
+if $windows.EventData.ProcessId? != null {
   $ocsf.actor.process = { pid: int(move $windows.EventData.ProcessId) }
-} else if $windows.EventData.has("EnginePID") {
+} else if $windows.EventData.EnginePID? != null {
   $ocsf.actor.process = { pid: int(move $windows.EventData.EnginePID) }
 }

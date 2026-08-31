@@ -42,7 +42,7 @@ $ocsf.process = {
   integrity_id: $integrity_ids[move $windows.EventData.IntegrityLevel]? else 0,
   file: {
     type_id: 8,  // Executable File
-    version: move $windows.EventData.FileVersion,
+    version: (move $windows.EventData.FileVersion).string(),
     desc: move $windows.EventData.Description,
     company_name: move $windows.EventData.Company,
     internal_name: move $windows.EventData.OriginalFileName,
@@ -53,6 +53,10 @@ $ocsf.process = {
   user: {
     name: $ocsf._user[-1],
     domain: $ocsf._user[0] if $ocsf._user.length() > 1,
+  },
+  session: {
+    uid: move $windows.EventData.LogonGuid,
+    uid_alt: move $windows.EventData.LogonId,
   },
   parent_process: {
     pid: (move $windows.EventData.ParentProcessId).int(),
@@ -99,15 +103,6 @@ $ocsf.actor = {
     user: $ocsf.process.parent_process.user,
   },
   user: $ocsf.process.parent_process.user,
-  // LogonGuid/LogonId are the logon session of the spawned process, not the
-  // creator. They are placed in actor.session because it is the only session
-  // data available and is useful for cross-event correlation; the two sessions
-  // are identical in the common case where the parent did not change the token.
-  // TerminalSessionId (RDP/console slot) has no OCSF home; stays in unmapped.
-  session: {
-    uid: move $windows.EventData.LogonGuid,
-    uid_alt: move $windows.EventData.LogonId,
-  },
 }
 
 // EID 1 only fires on successful process creation; there is no failure variant.
