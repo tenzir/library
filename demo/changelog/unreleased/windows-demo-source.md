@@ -10,9 +10,11 @@ The new `demo::windows` operator replays a raw Windows test-lab capture in
 real time, in your choice of three collector representations: Winlogbeat
 NDJSON, Fluent Bit NDJSON, or Windows Event Log XML. Each replay moves the
 capture to the current timeline, rewrites the timestamps embedded in the raw
-payloads, and rotates events across three demo hostnames. The default replay
-rate averages 1.6 events per second. Adjust `speed` to increase or decrease the
-rate. Pair the source with the `microsoft` package to demonstrate
+payloads, and rotates events across three demo hostnames. Every representation
+contains the same 34 provider/event-code combinations, which normalize into 24
+distinct OCSF activities. The default replay rate averages 1.5 events per
+second. Adjust `speed` to increase or decrease the rate. Pair the source with
+the `microsoft` package to demonstrate
 collector-independent normalization to OCSF:
 
 ```tql

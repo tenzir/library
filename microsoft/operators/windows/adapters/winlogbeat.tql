@@ -22,7 +22,7 @@ $windows.canonical = {
     },
     EventID: move $windows.winlogbeat.winlog.event_id,
     Version: move $windows.winlogbeat.winlog.version?,
-    Level: move $windows.winlogbeat.log.level?,
+    Level: move $windows.winlogbeat.log?.level?,
     Task: move $windows.winlogbeat.winlog.task?,
     Opcode: move $windows.winlogbeat.winlog.opcode?,
     Keywords: move $windows.winlogbeat.winlog.keywords?,
@@ -65,6 +65,12 @@ $windows.canonical = {
     uid: move $windows.winlogbeat.agent?.id?,
     version: move $windows.winlogbeat.agent?.version?,
   },
+}
+// Winlogbeat preserves Sysmon's uppercase GUID suffix, while Windows Event
+// XML exposes the same fields with a `Guid` suffix.
+if $windows.canonical.EventData? != null {
+  $windows.canonical.EventData.SourceProcessGuid = move $windows.canonical.EventData.SourceProcessGuid? else move $windows.canonical.EventData.SourceProcessGUID?
+  $windows.canonical.EventData.TargetProcessGuid = move $windows.canonical.EventData.TargetProcessGuid? else move $windows.canonical.EventData.TargetProcessGUID?
 }
 
 // These fields duplicate the canonical Windows envelope or the logger object.

@@ -23,29 +23,23 @@ $ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
 // param4 = faulting process ID (hex string, e.g. "0x1a4c")
 // param9 = full path to the hanging application
 // param2 = hanging application version
-$ocsf._path = move $windows.EventData.param9?
-$ocsf._name = move $windows.EventData.param1?
-$ocsf._version = $windows.EventData.param2?
-$ocsf.process = {pid: int(move $windows.EventData.param4?, base=16), path: $ocsf._path}
-if $ocsf._path != null {
-  $ocsf.process.name = $ocsf._path.split("\\")[-1]?
-} else if $ocsf._name != null {
-  $ocsf.process.name = $ocsf._name
+$ocsf.process = {
+  pid: int(move $windows.EventData.param4?, base=16),
+  path: move $windows.EventData.param9?,
 }
+$ocsf.process.name = $ocsf.process.path?.split("\\")[-1]? else move $windows.EventData.param1?
 if $ocsf.process.name? != null {
   $ocsf.process.file = {
     name: $ocsf.process.name,
-    path: $ocsf._path,
+    path: $ocsf.process.path,
     type_id: 8,
-    version: $ocsf._version.string(),
+    version: (move $windows.EventData.param2?).string(),
   }
-  drop $windows.EventData.param2?
 }
 
-// param1 = application name (redundant with process.name — dropped)
+// param1 = application name (used when the full path is absent)
 // param3 = application timestamp              \
 // param5 = process start time                  | left in unmapped; no OCSF target
 // param6 = hang duration (ms)                  |
 // param7 = hang flags                          |
 // param8 = WER report ID                      /
-drop $ocsf._path, $ocsf._name, $ocsf._version

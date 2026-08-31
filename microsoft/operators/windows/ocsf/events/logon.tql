@@ -47,15 +47,12 @@ $ocsf.src_endpoint = {
   hostname: move $windows.EventData.WorkstationName,
 }
 
-if $windows.EventData.AuthenticationPackageName? == "NTLM" {
-  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
-  $ocsf.auth_protocol_id = 1
-} else if $windows.EventData.AuthenticationPackageName? == "Kerberos" {
-  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
-  $ocsf.auth_protocol_id = 2
-} else if $windows.EventData.AuthenticationPackageName? != null {
-  $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName
-  $ocsf.auth_protocol_id = 99
+$ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName?
+match $ocsf.auth_protocol {
+  "NTLM" => { $ocsf.auth_protocol_id = 1 }
+  "Kerberos" => { $ocsf.auth_protocol_id = 2 }
+  null => {}
+  _ => { $ocsf.auth_protocol_id = 99 }
 }
 
 $ocsf.session = {
