@@ -406,7 +406,9 @@ if $event.otel.event_name == "codex.skill.injected" {
   }
   $event.ocsf.message = f"Agent sent HTTP {_http_method} to {_server_address}"
   $event.ocsf.message_context = {..._message_context, ai_role_id: 4}
-  $event.ocsf.metadata.profiles = ["ai_operation"]
+  // HTTP Activity takes `actor` from the Host profile rather than natively,
+  // so the profile has to be declared or the actor is dropped on cast.
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
   $event.ocsf.ai_agent = _ai_agent
   if ($event.otel.trace_id? else "") != "" {
     $event.ocsf.trace = {
@@ -429,7 +431,7 @@ if $event.otel.event_name == "codex.skill.injected" {
         status_code: $event.otel.status_code.string() if $event.otel.status_code? != null else null,
       } if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null else null,
     }
-    $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
+    $event.ocsf.metadata.profiles = ["ai_operation", "host", "trace"]
   }
 } else if $event.otel.event_name in [
   "codex.api_request",
