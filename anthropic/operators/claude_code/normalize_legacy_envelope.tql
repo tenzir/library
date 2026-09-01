@@ -1,0 +1,25 @@
+---
+description: Normalizes a legacy Claude Code OTLP/JSON export envelope.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts, responses, commands, and tool parameters.
+---
+
+match signal {
+  "/v1/logs" => {
+    otel::unroll_logs
+  }
+  "/v1/traces" => {
+    otel::unroll_traces
+  }
+  _ => {
+    discard
+  }
+}
+
+// Export envelopes always arrive as OTLP/JSON over HTTP.
+transport = "json"
+anthropic::claude_code::normalize_event include_content=$include_content

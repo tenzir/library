@@ -1,0 +1,17 @@
+// Captured Claude Code telemetry as `subscribe "otlp"` delivers it, covering
+// the event types that dominate real traffic. NDJSON does not carry the OTLP
+// schema name, so restore it before dispatching.
+from_file env("TENZIR_INPUT") {
+  read_ndjson
+}
+@name = "otel.log"
+anthropic::claude_code::ocsf
+where class_uid != 0
+ocsf_derive
+ocsf_cast
+// Events of different OCSF classes form separate result schemas whose
+// interleaving depends on scheduling. Log records carry no source identifier,
+// so sort on the rendered event: a total order that depends only on content.
+sort this.print_json()
+select metadata.event_code, class_uid, class_name, activity_name, type_name,
+       severity, status, api?.operation?, metadata.original_event_uid

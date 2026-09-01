@@ -1,0 +1,57 @@
+---
+description: Normalizes security-relevant Codex OTLP metric points.
+---
+
+where @name.starts_with("otel.metric.")
+where metric.name in ["codex.skill.injected", "codex.tool.call"]
+
+_raw_data = this.print_json()
+_attributes = attributes
+_resource_attributes = resource.attributes
+
+_success = _attributes.success.string() == "true" if _attributes.success? != null else
+           _attributes.status == "ok" if _attributes.status? != null else
+           null
+
+select signal = "metric",
+  raw_data = _raw_data,
+  raw_data_size = _raw_data.length_bytes(),
+  event_name = metric.name,
+  metric_name = metric.name,
+  metric_value = value.int_value? else value.double_value?,
+  aggregation_temporality,
+  is_monotonic = monotonic?,
+  time,
+  start_time,
+  end_time = time,
+  duration = int((time - start_time).count_milliseconds()) if time? != null and start_time? != null else null,
+  app_version = _attributes["app.version"]? else _resource_attributes["service.version"]?,
+  app_entrypoint = _attributes.originator?,
+  model = _attributes.model?,
+  provider = "OpenAI",
+  auth_mode = _attributes.auth_mode?,
+  session_source = _attributes.session_source?,
+  skill_name = _attributes.skill?,
+  invocation_type = _attributes.invoke_type?,
+  source_status = _attributes.status?,
+  tool_name = _attributes.tool?,
+  success = _success,
+  sandbox = _attributes.sandbox?,
+  sandbox_policy = _attributes.sandbox_policy?,
+  // The receiver records how the record arrived; every signal carries it.
+  transport = transport? else receiver?.transport?,
+  scope = {
+    name: scope.name?,
+    version: scope.version?,
+  },
+  resource = {
+    service_name: _resource_attributes["service.name"]?,
+    service_version: _resource_attributes["service.version"]?,
+    host_name: _resource_attributes["host.name"]?,
+    host_arch: _resource_attributes["host.arch"]?,
+    os_type: _resource_attributes["os.type"]? else _resource_attributes.os?,
+    os_version: _resource_attributes["os.version"]? else _resource_attributes.os_version?,
+  },
+  attributes = _attributes
+
+@name = "openai.codex.event"

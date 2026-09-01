@@ -1,0 +1,121 @@
+---
+description: Normalizes unrolled Codex OTLP log records.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts, responses, commands, and tool parameters.
+---
+
+_a = attributes
+_event_name = _a["event.name"]? else body? else "unknown"
+
+where _event_name not in ["codex.startup_phase", "codex.turn_ttft"]
+where _event_name != "codex.sse_event" or _a["event.kind"]? == "response.completed"
+where not _event_name.starts_with("runtime metrics reset skipped:")
+where not _event_name.starts_with("metrics counter [")
+
+_tool_name = _a.tool_name?
+_tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
+_tool_payload_text = _a.tool_input? else _a.tool_parameters? else _a.arguments?
+_tool_payload = _tool_payload_text.parse_json() if _tool_payload_text? != null and _tool_payload_text.starts_with("{") else {}
+_patch_lines = _a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if _a.arguments? != null else []
+_patch_line = _patch_lines[0]? if _patch_lines.length() > 0 else null
+_patch_path = _patch_line.replace_regex("^\\*\\*\\* (Add|Update|Delete) File: |^\\*\\*\\* Move to: ", "") if _patch_line? != null else null
+_file_path = _tool_payload.file_path? else _tool_payload.path? else _patch_path
+_file_operation = "create" if (_patch_line? else "").starts_with("*** Add File: ") or _tool_name_lower in ["write", "create", "artifact"] else
+                  "delete" if (_patch_line? else "").starts_with("*** Delete File: ") or _tool_name_lower in ["delete", "remove"] else
+                  "rename" if (_patch_line? else "").starts_with("*** Move to: ") or _tool_name_lower in ["rename", "move"] else
+                  "update" if (_patch_line? else "").starts_with("*** Update File: ") or _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
+                  "read" if _tool_name_lower in ["read", "view_image"] else
+                  null
+_command_value = _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
+// Parsed tool payloads may infer a shell literal such as `true` as a boolean.
+// A command is text regardless of its spelling, and its hash must cover that
+// text rather than the inferred scalar representation.
+_command = _command_value.string() if _command_value? != null else null
+_content = _a.body? else _a.response? else _a.prompt? else body?
+
+select signal = "log",
+  raw_data,
+  raw_data_size,
+  event_name = _event_name,
+  event_kind = _a["event.kind"]?,
+  time = time? else time(_a["event.timestamp"].string()) if _a["event.timestamp"]? != null else null,
+  observed_time,
+  event_sequence = int(_a["event.sequence"]) if _a["event.sequence"]? != null else null,
+  session_id = _a["session.id"]? else _a["conversation.id"]?,
+  prompt_id = _a["prompt.id"]?,
+  user_id = _a["user.id"]? else _a["user.account_id"]?,
+  user_uid_alt = _a["user.account_uuid"]?,
+  user_email = _a["user.email"]?,
+  organization_id = _a["organization.id"]?,
+  app_version = _a["app.version"]? else resource["service.version"]?,
+  app_entrypoint = _a["app.entrypoint"]? else _a.originator?,
+  terminal_type = _a["terminal.type"]?,
+  model = _a.model?,
+  provider = _a.provider_name? else "OpenAI" if _a.model? != null else null,
+  auth_mode = _a.auth_mode?,
+  reasoning_effort = _a.model_reasoning_effort? else _a.reasoning_effort?,
+  approval_policy = _a.approval_policy?,
+  sandbox_policy = _a.sandbox_policy?,
+  mcp_servers = _a.mcp_servers?,
+  tool_name = _tool_name,
+  tool_use_id = _a.tool_use_id? else _a.call_id?,
+  mcp_server = _a.mcp_server? if (_a.mcp_server? else "") != "" else null,
+  file_path = _file_path,
+  file_name = _file_path.split("/")[-1] if _file_path? != null else null,
+  file_operation = _file_operation,
+  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
+  command = _command if $include_content else null,
+  command_hash = hash_sha256(_command) if _command? != null else null,
+  // `codex.tool_decision` reports `decision` plus `source`;
+  // `codex.sandbox_outcome` reports the sandbox's verdict as `outcome` with no
+  // source, so the sandbox itself is the authorizing control.
+  decision = _a.decision? else _a.outcome?,
+  tool_source = _a.tool_source?,
+  decision_source = _a.source? else "sandbox" if _a.outcome? != null else null,
+  success = _a.success.string() == "true" if _a.success? != null else null,
+  duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
+  error = _a.error?,
+  error_type = _a.error_type?,
+  source_status_code = _a.status_code?,
+  request_id = _a.request_id?,
+  endpoint = _a.endpoint?,
+  http_method = _a["http.request.method"]?,
+  http_status = int(_a["http.response.status_code"]) if _a["http.response.status_code"]? != null else null,
+  startup_phase = _a["startup.phase"]?,
+  startup_status = _a["startup.status"]?,
+  input_tokens = int(_a.input_tokens) if _a.input_tokens? != null else int(_a.input_token_count) if _a.input_token_count? != null else null,
+  output_tokens = int(_a.output_tokens) if _a.output_tokens? != null else int(_a.output_token_count) if _a.output_token_count? != null else null,
+  cached_input_tokens = int(_a.cached_token_count) if _a.cached_token_count? != null else null,
+  reasoning_output_tokens = int(_a.reasoning_token_count) if _a.reasoning_token_count? != null else null,
+  total_tokens = int(_a.tool_token_count) if _a.tool_token_count? != null else null,
+  content = _content if $include_content else null,
+  content_hash = hash_sha256(_content) if _content? != null else null,
+  // Keep the source's own keys with the source's own values: a record may
+  // carry both, and relabelling one as the other loses a real attribute.
+  tool_input = _a.tool_input? if $include_content else null,
+  tool_parameters = _a.tool_parameters? if $include_content else null,
+  arguments = _a.arguments? if $include_content else null,
+  tool_parameters_hash = hash_sha256(_tool_payload_text) if _tool_payload_text? != null else null,
+  trace_id,
+  span_id,
+  severity_number,
+  severity_text,
+  flags,
+  scope,
+  // The receiver records how the record arrived; every signal carries it.
+  transport = transport? else receiver?.transport?,
+  resource = {
+    service_name: resource["service.name"]?,
+    service_version: resource["service.version"]?,
+    host_name: resource["host.name"]?,
+    host_arch: resource["host.arch"]?,
+    os_type: resource["os.type"]? else resource.os?,
+    os_version: resource["os.version"]? else resource.os_version?,
+  },
+  attributes
+
+@name = "openai.codex.event"
