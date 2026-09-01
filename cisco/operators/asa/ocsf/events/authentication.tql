@@ -1,0 +1,66 @@
+---
+description: "Cisco ASA VPN session / identity messages (722051 logon, 113019 & 746013 logoff) → OCSF Authentication (3002)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.authentication"
+
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+// 722051 establishes a session; 113019 and 746013 end one.
+let $activities = {
+  "722051": 1,  // Logon
+  "113019": 2,  // Logoff
+  "746013": 2,  // Logoff
+}
+$event.ocsf.activity_id = $activities[$event.asa.message_id.string()]? else 0
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+if $event.asa.vpn_user? != null {
+  $event.ocsf.user = {
+    name: move $event.asa.vpn_user,
+  }
+}
+if $event.asa.domain? != null {
+  $event.ocsf.user.domain = move $event.asa.domain
+}
+if $event.asa.vpn_group? != null {
+  $event.ocsf.user.groups = [{name: move $event.asa.vpn_group}]
+}
+
+// The client's public address is the source of the session.
+if $event.asa.src_ip? != null {
+  $event.ocsf.src_endpoint = {
+    ip: move $event.asa.src_ip,
+  }
+}
+
+if $event.asa.reason? != null {
+  $event.ocsf.status_detail = move $event.asa.reason
+}
+
+// 746013 reports an explicit result, either "Succeeded" or "Failed", which maps
+// to Success/Failure (an unexpected value maps to Other (99) with the source
+// string preserved in `status`, per OCSF conventions). The session logon
+// (722051) and logoff (113019) messages carry no status but always describe a
+// completed action, so they map to Success. Anything else stays Unknown.
+if $event.asa.status? != null {
+  let $statuses = {
+    Succeeded: 1,  // Success
+    Failed: 2,     // Failure
+  }
+  $event.ocsf.status_id = $statuses[$event.asa.status]? else 99
+  if $event.ocsf.status_id == 99 {
+    $event.ocsf.status = move $event.asa.status
+  } else {
+    drop $event.asa.status?
+  }
+} else if $event.asa.message_id == 722051 or $event.asa.message_id == 113019 {
+  $event.ocsf.status_id = 1  // Success
+} else {
+  $event.ocsf.status_id = 0  // Unknown
+}
