@@ -135,20 +135,25 @@ _actor = {
 // attached only when the resource names the host. A device object that
 // identifies nothing cannot be joined to an asset, and claiming one that the
 // source never reported would be worse than leaving the required field empty.
-// `device` constrains itself to at least one identifying attribute. The host
-// name the agent reports is the best of them, and the address the export
-// arrived from is a usable fallback when the agent exports from another
-// machine. A loopback peer is not: every agent on every host reports it, so it
-// would satisfy the constraint while identifying nothing.
-_peer_ip = $event.otel.peer_ip? if $event.otel.peer_ip? not in [::1, 127.0.0.1] else null
+// `device` constrains itself to at least one identifying attribute, and the
+// host name the agent reports is the only one this telemetry carries. The
+// address the export arrived from is not a substitute: a collector reached
+// through a container or a sidecar rewrites it, so every agent reports the
+// same value and it would satisfy the constraint while identifying nothing.
+// Agents that report no host name can set one with OTEL_RESOURCE_ATTRIBUTES.
 _device = {
   hostname: $event.otel.resource.host_name?,
   name: $event.otel.resource.host_name?,
-  ip: _peer_ip,
+  // The OS the agent runs on, which both products report even when they
+  // report no host name.
+  os: {
+    name: $event.otel.resource.os_type?,
+    version: $event.otel.resource.os_version?,
+  } if $event.otel.resource.os_type? != null else null,
   // `type_id` is required. Agent telemetry never says whether the host is a
   // laptop, a server or a VM, so `0` (Unknown) is the honest answer.
   type_id: 0,
-} if $event.otel.resource.host_name? != null or _peer_ip != null else null
+} if $event.otel.resource.host_name? != null else null
 _message_context = {
   // `uid` is the context the messages belong to, the session. `name` is the
   // turn within it when the source reports one; it never repeats `uid`.
