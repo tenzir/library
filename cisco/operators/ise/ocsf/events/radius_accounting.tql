@@ -1,0 +1,119 @@
+---
+description: Cisco ISE RADIUS Accounting → OCSF Network Activity
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.network_activity"
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+
+// RADIUS accounting reports session usage, not an authentication decision.
+match $event.ise.attributes["Acct-Status-Type"]? {
+  "Start" => {
+    $event.ocsf.activity_id = 1
+  }
+  "Stop" => {
+    $event.ocsf.activity_id = 2
+  }
+  "Interim-Update" => {
+    $event.ocsf.activity_id = 6
+  }
+  _ => {
+    $event.ocsf.activity_id = 0
+  }
+}
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+if $event.ise.timestamp? != null {
+  $event.ocsf.time = move $event.ise.timestamp
+}
+drop $event.ise.timestamp?
+$event.ocsf.message = move $event.ise.message_text?
+drop $event.ise.attributes["Event-Timestamp"]?
+$event.ocsf.status_id = 1
+$event.ocsf.status = "Success"
+
+if ($event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?) != null {
+  $event.ocsf.actor.user.name = move $event.ise.attributes.UserName? else move $event.ise.attributes["User-Name"]?
+}
+drop $event.ise.attributes.UserName?, $event.ise.attributes["User-Name"]?
+// ISE `UserType` is `User` (a person) or `Host` (a device identity); `Host` has
+// no OCSF user type, so it maps to Other with the raw value.
+user_type = move $event.ise.attributes.UserType?
+if user_type == "User" {
+  $event.ocsf.actor.user.type_id = 1
+  $event.ocsf.actor.user.type = "User"
+} else if user_type != null {
+  $event.ocsf.actor.user.type_id = 99
+  $event.ocsf.actor.user.type = user_type
+}
+drop user_type
+
+src_ip = move $event.ise.attributes["Framed-IP-Address"]? else move $event.ise.attributes.IpAddress?
+if src_ip != null {
+  $event.ocsf.src_endpoint.ip = ip(src_ip)
+}
+drop src_ip, $event.ise.attributes["Framed-IP-Address"]?, $event.ise.attributes.IpAddress?
+src_mac = move $event.ise.attributes["Calling-Station-ID"]? else move $event.ise.attributes.EndPointMACAddress?
+if src_mac != null {
+  $event.ocsf.src_endpoint.mac = src_mac
+}
+drop src_mac, $event.ise.attributes["Calling-Station-ID"]?, $event.ise.attributes.EndPointMACAddress?
+
+device_ip = move $event.ise.attributes["Device IP Address"]? else move $event.ise.attributes["NAS-IP-Address"]?
+if device_ip != null {
+  $event.ocsf.device.ip = ip(device_ip)
+}
+drop device_ip, $event.ise.attributes["Device IP Address"]?, $event.ise.attributes["NAS-IP-Address"]?
+if $event.ise.attributes.NetworkDeviceName? != null {
+  $event.ocsf.device.hostname = move $event.ise.attributes.NetworkDeviceName
+}
+
+// ISE exposes identity groups across user and endpoint fields.
+identity_groups = [move $event.ise.attributes.IdentityGroup?, move $event.ise.attributes.HostIdentityGroup?, move $event.ise.attributes.Name?].where(g => g != null).distinct()
+if identity_groups.length() > 0 {
+  $event.ocsf.actor.user.groups = identity_groups.map(name => {name: name})
+}
+drop identity_groups
+if $event.ise.attributes["Model Name"]? != null {
+  $event.ocsf.device.model = move $event.ise.attributes["Model Name"]
+}
+
+// Network Activity has no top-level session, so session ids live under
+// `connection_info`.
+if $event.ise.attributes["Acct-Session-Id"]? != null {
+  $event.ocsf.connection_info.uid = move $event.ise.attributes["Acct-Session-Id"]
+}
+if $event.ise.attributes.AcsSessionID? != null {
+  $event.ocsf.connection_info.session.uid = move $event.ise.attributes.AcsSessionID
+}
+if $event.ise.attributes.CPMSessionID? != null {
+  $event.ocsf.connection_info.session.uid_alt = move $event.ise.attributes.CPMSessionID
+}
+
+// RADIUS counters use the NAS perspective: Input is outbound from the user and
+// Output is inbound to the user. Gigawords carry the high 32 bits.
+$event.ocsf.traffic = {}
+if $event.ise.attributes["Acct-Input-Octets"]? != null {
+  $event.ocsf.traffic.bytes_out = int(move $event.ise.attributes["Acct-Input-Octets"]) + int(move $event.ise.attributes["Acct-Input-Gigawords"]? else "0") * 4294967296
+}
+if $event.ise.attributes["Acct-Output-Octets"]? != null {
+  $event.ocsf.traffic.bytes_in = int(move $event.ise.attributes["Acct-Output-Octets"]) + int(move $event.ise.attributes["Acct-Output-Gigawords"]? else "0") * 4294967296
+}
+if $event.ise.attributes["Acct-Input-Packets"]? != null {
+  $event.ocsf.traffic.packets_out = int(move $event.ise.attributes["Acct-Input-Packets"])
+}
+if $event.ise.attributes["Acct-Output-Packets"]? != null {
+  $event.ocsf.traffic.packets_in = int(move $event.ise.attributes["Acct-Output-Packets"])
+}
+
+if $event.ise.attributes["Acct-Session-Time"]? != null {
+  $event.ocsf.duration = int(move $event.ise.attributes["Acct-Session-Time"]) * 1000
+}
+
+drop $event.ise.attributes["Acct-Status-Type"]?
+drop $event.ise.attributes["Acct-Input-Gigawords"]?, $event.ise.attributes["Acct-Output-Gigawords"]?
