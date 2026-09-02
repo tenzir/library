@@ -5,7 +5,7 @@ authors:
   - mavam
   - claude
 prs:
-  - PENDING
+  - 185
 created: 2026-09-02T18:23:54Z
 ---
 
