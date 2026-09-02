@@ -105,24 +105,30 @@ if $event.graph.mfaDetail.authDetail? == null {
   drop $event.graph.mfaDetail?
 }
 
+if $event.graph.conditionalAccessStatus? != null {
+  $event.ocsf.authorizations = [{
+    decision: $event.graph.conditionalAccessStatus,
+    policy: {
+      type: "Microsoft Entra Conditional Access",
+    },
+  }]
+}
 match $event.graph.conditionalAccessStatus {
   "success" => {
     $event.ocsf.action_id = 1
     $event.ocsf.disposition_id = 1
-    drop $event.graph.conditionalAccessStatus
   }
   "failure" => {
     $event.ocsf.action_id = 2
     $event.ocsf.disposition_id = 26
-    drop $event.graph.conditionalAccessStatus
   }
   "notApplied" => {
     $event.ocsf.action_id = 3
     $event.ocsf.disposition_id = 16
-    drop $event.graph.conditionalAccessStatus
   }
   _ => {}
 }
+drop $event.graph.conditionalAccessStatus?
 
 $event.ocsf.is_remote = true
 
