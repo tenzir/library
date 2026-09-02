@@ -54,6 +54,13 @@ if type_of($windows.fluent_bit.System?).kind == "string" {
   // XML exposes the same fields with a `Guid` suffix.
   $windows.canonical.EventData.SourceProcessGuid = move $windows.canonical.EventData.SourceProcessGuid? else move $windows.canonical.EventData.SourceProcessGUID?
   $windows.canonical.EventData.TargetProcessGuid = move $windows.canonical.EventData.TargetProcessGuid? else move $windows.canonical.EventData.TargetProcessGUID?
+  // Fluent Bit labels the named UserData values from WMI EID 5861 as
+  // EventData. Restore the section used by the native Windows event.
+  if $windows.canonical.System.Provider.Name == "Microsoft-Windows-WMI-Activity" and $windows.canonical.System.EventID.int() == 5861 {
+    $windows.canonical.UserData = {
+      Operation_ESStoConsumerBinding: move $windows.canonical.EventData,
+    }
+  }
 }
 $windows.canonical.RenderingInfo.Message = move $windows.fluent_bit.Message?
 $windows.canonical.Logger = {
