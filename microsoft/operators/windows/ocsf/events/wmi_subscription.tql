@@ -1,0 +1,37 @@
+---
+description: >
+  Windows WMI permanent subscription creation (EID 5861)
+  → OCSF Entity Management (3004).
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.entity_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// Winlogbeat represents the XML UserData payload as UserData, while collectors
+// that render named insertion values expose the same fields as EventData.
+if $windows.EventData? == null {
+  $windows.EventData = move $windows.UserData
+}
+
+$ocsf.entity = {
+  type_id: 99,
+  type: "WMI Permanent Subscription",
+  name: move $windows.EventData.ESS?,
+  data: {
+    namespace: move $windows.EventData.Namespace?,
+    consumer: move $windows.EventData.CONSUMER?,
+    possible_cause: move $windows.EventData.PossibleCause?,
+  },
+}
