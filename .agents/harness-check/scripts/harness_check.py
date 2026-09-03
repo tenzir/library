@@ -222,6 +222,8 @@ STEPS = [
      "Switch Claude Code to manual permission mode"),
     ("manual.claude.permission-restore", "permission.change",
      "Restore the original Claude Code permission mode"),
+    ("manual.claude.shell-bang", "local_command.shell",
+     "Type a `!`-prefixed shell command at the Claude Code prompt"),
     ("manual.codex.config-write", "configuration.change",
      "Make or restore a reversible UI-only Codex configuration change"),
 ]

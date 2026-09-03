@@ -53,6 +53,27 @@ mode can be changed only through the interactive UI:
 Skip the first change when already in `manual`, but still restore any mode the
 test changed. Never ask for a restart merely to change this live control.
 
+## Shell command typed with `!` (Claude Code)
+
+Use `manual.claude.shell-bang`. A shell command the user types with the `!`
+prefix runs in the session without passing through the agent, so the agent
+cannot trigger it. Prior local testing never observed such a command in the
+transcript, so this probe verifies whether it produces a `system` record with
+subtype `local_command` and whether that path reaches OTEL at all.
+
+Resolve `<skill>` to its absolute path first, then ask the user to type
+exactly this at the Claude Code prompt and send it:
+
+```text
+!python3 <skill>/assets/bang-marker.py
+```
+
+It prints `harness-check-bang-marker` and exits. Retain that the marker
+appeared, then advance. During verification, treat a missing OTEL event for
+this marker as a finding to report, not a probe failure: the transcript
+`local_command` record may be the only surface it reaches. Record `SKIP` when
+the harness is not Claude Code, since `!` is Claude-specific.
+
 ## Conditional UI-only configuration
 
 Only when encountered during autonomous probing:

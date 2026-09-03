@@ -57,8 +57,9 @@ secrets, or operate on the user's real data merely to increase coverage.
 ## Perform unavoidable manual probes
 
 Read `reference/manual-probes.md`. User interaction is allowed only for a real
-approval decision, Claude Code's interactive permission-mode control, or a
-product UI/API control the agent truly cannot invoke.
+approval decision, a shell command the user types with the `!` prefix, Claude
+Code's interactive permission-mode control, or a product UI/API control the
+agent truly cannot invoke.
 
 Determine all applicable manual steps, then run `python3
 scripts/harness_check.py operator prepare <id>...` once before presenting any
