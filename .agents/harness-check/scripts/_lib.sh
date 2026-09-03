@@ -8,7 +8,8 @@
 # default silently mixes results from unrelated runs, so refuse instead.
 if [ -z "${HARNESS_CHECK_DIR:-}" ]; then
   echo "harness-check: HARNESS_CHECK_DIR is not set." >&2
-  echo "  Create a run directory first:  bash scripts/new-run.sh claude|codex" >&2
+  echo "  Create a run directory first:" >&2
+  echo "    python3 scripts/harness_check.py new-run claude|codex" >&2
   echo "  then export HARNESS_CHECK_DIR=<returned path>, or use run-all.sh," >&2
   echo "  which creates one automatically." >&2
   exit 2

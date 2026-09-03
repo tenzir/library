@@ -1,11 +1,12 @@
 # Unavoidable user actions
 
 Before the first manual action, determine the entire applicable sequence and
-run `bash scripts/probe-operator.sh prepare <id>...` exactly once. Reveal one
-action per turn. On each reply, observe and retain the result in the
-conversation, then advance without running Bash. After the final result, store
-all outcomes with one `batch-mark` command. Do not run `begin`, `mark`,
-`record.sh`, or another bookkeeping command between manual steps.
+run `python3 scripts/harness_check.py operator prepare <id>...` exactly once.
+Reveal one action per turn. On each reply, observe and retain the result in
+the conversation, then advance without running Bash. After the final result,
+store all outcomes with one `operator batch-mark` command. Do not run
+`operator begin`, `operator mark`, `record`, or another bookkeeping command
+between manual steps.
 
 Do not ask the user to run commands, edit files, configure fixture servers, or
 restart a child harness when the agent can do that itself.

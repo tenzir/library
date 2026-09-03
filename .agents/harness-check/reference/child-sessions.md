@@ -1,6 +1,7 @@
 # Real child harness sessions
 
-Run `bash scripts/run-child.sh --agent claude|codex`. Use a child session only
+Run `python3 scripts/harness_check.py run-child --agent claude|codex`. Use a
+child session only
 for startup-time telemetry that the current session
 cannot emit retroactively. These are real Claude Code or Codex clients. The
 bundled MCP server and Claude plugin are disposable targets, not telemetry

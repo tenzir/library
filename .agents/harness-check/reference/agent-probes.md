@@ -2,7 +2,7 @@
 
 Run every applicable probe through the current harness's native tool. Resolve
 `$HARNESS_CHECK_DIR/fixtures` to absolute paths first. Append outcomes with
-`bash scripts/record.sh PASS|FAIL|SKIP <id> <detail>`.
+`python3 scripts/harness_check.py record PASS|FAIL|SKIP <id> <detail>`.
 
 The calls below generate real harness telemetry. Do not replace a missing
 native capability with shell, and do not drive MCP protocol messages directly.

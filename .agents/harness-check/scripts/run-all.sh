@@ -10,7 +10,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [ -n "${HARNESS_CHECK_DIR:-}" ] || {
-  HARNESS_CHECK_DIR=$(bash "$HERE/new-run.sh" "${HARNESS_CHECK_AGENT:-generic}")
+  HARNESS_CHECK_DIR=$(python3 "$HERE/harness_check.py" new-run "${HARNESS_CHECK_AGENT:-generic}")
   export HARNESS_CHECK_DIR
 }
 . "$HERE/_lib.sh"
