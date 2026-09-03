@@ -61,8 +61,9 @@ score with Jensen-Shannon drift from a current frequency table. The result goes
 into a caller-selected field, so several behavioral detectors can score the
 same event without colliding.
 
-The baseline uses the frequency table's own `count` as its sample count, so
-null feature values cannot make an empty model ready. The `min_samples`
-argument must be positive. The `drift_weight` argument must stay between `0.0`
-and `1.0`, which keeps the composite score and the resulting OCSF risk score
-bounded.
+The baseline uses the frequency table's own `count` as its sample count and
+ignores windows without observed feature values. Null-only windows therefore
+neither make an empty model ready nor refresh an existing baseline. The
+`min_samples` argument must be positive. The `drift_weight` argument must stay
+between `0.0` and `1.0`, which keeps the composite score and the resulting OCSF
+risk score bounded.
