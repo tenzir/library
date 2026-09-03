@@ -5,7 +5,7 @@ args:
     - name: result
       type: field
       default: behavior
-      description: Field holding the result from `tenzir::detect::behavior::categorical::score`. It names the feature, entity, and value; when it carries a window, the finding reports it as `start_time` and `end_time` and derives a stable `finding_info.uid` per analytic, entity, value, and window.
+      description: Field holding the result from `tenzir::detect::behavior::categorical::score`. Its feature, entity, value, and window form the stable `finding_info.uid`; a window is also reported as `start_time` and `end_time`.
     - name: into
       type: field
       default: this
@@ -31,9 +31,13 @@ $into = {
   start_time: $result.window?.start?,
   end_time: $result.window?.end?,
   finding_info: {
-    // One finding per analytic, entity, value, and window; unique otherwise.
-    uid: hash_sha256([$result.feature, $result.entity, $result.value, $result.window?.end?])
-         if $result.window?.end? != null else uuid(),
+    // The logical finding: same analytic, entity, value, and window.
+    uid: hash_sha256({
+      feature: $result.feature,
+      entity: $result.entity,
+      value: $result.value,
+      window: $result.window?,
+    }),
     title: f"Unfamiliar {$result.value} for {$result.entity}",
     desc: f"familiarity {$result.familiarity}, drift {$result.drift?}, baseline of {$result.baseline_count} samples",
     analytic: {

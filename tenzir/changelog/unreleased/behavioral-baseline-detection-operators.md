@@ -75,12 +75,12 @@ closes. The result goes into a caller-selected field, so several behavioral
 detectors can score the same event without colliding; set `feature_name` per
 detector so each one identifies its own analytic.
 
-The `finding` operator reports a scored window as `start_time` and `end_time`
-and derives `finding_info.uid` from the analytic, entity, value, and window
-end, so repeated launches of the same unfamiliar value within one window share
-one identity that `deduplicate finding_info.uid` collapses. Without a window,
-the identifier is a random UUID. The analytic carries `type_id: 2` (Behavioral)
-and `uid: tenzir::detect::behavior::abnormal_features:<feature_name>`.
+The `finding` operator derives `finding_info.uid` from the feature, entity,
+value, and window of the result, so repeated launches of the same unfamiliar
+value within one window share one identity that `deduplicate finding_info.uid`
+collapses. A scored window is also reported as `start_time` and `end_time`.
+The analytic carries `type_id: 2` (Behavioral) and
+`uid: tenzir::detect::behavior::abnormal_features:<feature_name>`.
 
 The baseline uses the frequency table's own `count` as its sample count and
 ignores observations without an entity identifier or feature value. Empty
