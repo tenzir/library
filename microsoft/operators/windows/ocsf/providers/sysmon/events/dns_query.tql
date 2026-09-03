@@ -58,3 +58,18 @@ $ocsf.actor.process.file.name = $ocsf.actor.process.name
 $ocsf.actor.process.file.path = $ocsf.actor.process.path
 
 drop $windows.EventData.Initiated?  // always "true" for Sysmon DNS events
+// QueryResults renders answers as a semicolon-separated list. Aliases appear
+// as "type: 5 name" and addresses as literals, IPv4 ones mapped into IPv6.
+if $windows.EventData.QueryResults? != null and $windows.EventData.QueryResults != "" {
+  $ocsf.activity_id = 2  // Response: the event carries the answers.
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.answers = ((move $windows.EventData.QueryResults)
+    .split(";")
+    .map(x => x.trim())
+    .where(x => x != "")
+    .map(x => {
+      type: "CNAME" if x.starts_with("type:") else null,
+      rdata: x.trim_start("::ffff:") if not x.starts_with("type:") else x.split(" ")[-1]?,
+    }))
+}
+drop $windows.EventData.QueryResults?

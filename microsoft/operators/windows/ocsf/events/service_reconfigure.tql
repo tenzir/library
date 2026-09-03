@@ -1,0 +1,39 @@
+---
+description: Service Control Manager 7040 (service start type changed) → OCSF Windows Service Activity (201004, Reconfigure)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.windows_service_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201004
+$ocsf.activity_id = 2  // Reconfigure
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// param1 is the display name, param2 the previous and param3 the new start
+// type, and param4 the service name.
+$ocsf.win_service = {
+  name: move $windows.EventData.param4? else $windows.EventData.param1,
+}
+let $start_types = {
+  "boot start": 1,
+  "system start": 2,
+  "auto start": 3,
+  "demand start": 4,
+  "disabled": 5,
+}
+_start_type = (move $windows.EventData.param3?).to_lower()
+$ocsf.win_service.service_start_type_id = $start_types[_start_type]? else 99
+if $ocsf.win_service.service_start_type_id == 99 {
+  $ocsf.win_service.service_start_type = _start_type
+}
+drop _start_type
+if $windows.EventData.param1? != null {
+  $ocsf.win_service.labels = [move $windows.EventData.param1]
+}
+$ocsf.actor = {}

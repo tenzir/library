@@ -48,6 +48,19 @@ $ocsf.src_endpoint = {
 }
 
 $ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName?
+if $windows.EventData.LogonProcessName? != null {
+  $ocsf.logon_process = {name: move $windows.EventData.LogonProcessName}
+}
+if $windows.EventData.ProcessName? != null {
+  $ocsf.actor.process = {
+    pid: int(move $windows.EventData.ProcessId?, base=16),
+    path: move $windows.EventData.ProcessName,
+    file: {type_id: 8},
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}
 match $ocsf.auth_protocol {
   "NTLM" => { $ocsf.auth_protocol_id = 1 }
   "Kerberos" => { $ocsf.auth_protocol_id = 2 }

@@ -1,0 +1,45 @@
+---
+description: DNS-Client 3008 (query completed) → OCSF DNS Activity (4003, Response)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.dns_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4003
+$ocsf.activity_id = 2  // Response
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.connection_info = {direction_id: 2}  // Outbound
+let $record_types = {
+  "1": "A", "2": "NS", "5": "CNAME", "6": "SOA", "12": "PTR", "15": "MX",
+  "16": "TXT", "28": "AAAA", "33": "SRV", "65": "HTTPS", "255": "ANY",
+}
+_type = (move $windows.EventData.QueryType?).string()
+$ocsf.query = {
+  hostname: move $windows.EventData.QueryName,
+  type: $record_types[_type]? else _type,
+}
+drop _type
+_status = (move $windows.EventData.QueryStatus?).string()
+$ocsf.status_id = 1 if _status == "0" else 2
+$ocsf.status_code = _status
+drop _status
+// QueryResults renders answers as a semicolon-separated list. Aliases appear
+// as "type: 5 name" and addresses as literals, IPv4 ones mapped into IPv6.
+if $windows.EventData.QueryResults? != null and $windows.EventData.QueryResults != "" {
+  $ocsf.answers = ((move $windows.EventData.QueryResults)
+    .split(";")
+    .map(x => x.trim())
+    .where(x => x != "")
+    .map(x => {
+      type: "CNAME" if x.starts_with("type:") else null,
+      rdata: x.trim_start("::ffff:") if not x.starts_with("type:") else x.split(" ")[-1]?,
+    }))
+}
+drop $windows.EventData.QueryResults?

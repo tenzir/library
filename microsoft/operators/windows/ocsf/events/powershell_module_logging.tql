@@ -22,6 +22,43 @@ $ocsf.severity_id = 1  // Informational
 
 $ocsf.script = {
   type_id: 2,  // PowerShell
+  script_content: {
+    value: move $windows.EventData.Payload,
+  },
+}
+// ContextInfo is a rendered "Key = Value" block describing the host. Line
+// breaks do not survive every collector, so runs of whitespace separate the
+// entries.
+if $windows.EventData.ContextInfo? != null {
+  _context = ((move $windows.EventData.ContextInfo)
+    .split_regex(r"\s{2,}|\n")
+    .map(line => line.split(" = ", max=1))
+    .where(kv => kv.length() == 2)
+    .map(kv => {key: kv[0].trim(), value: kv[1].trim()}))
+  _lookup = _context.where(kv => kv.key == "Script Name")[0]?.value?
+  if _lookup != null and _lookup != "" {
+    $ocsf.script.file = {path: _lookup, type_id: 1}
+    $ocsf.script.file.name = _lookup.split("\\")[-1]
+    $ocsf.script.name = $ocsf.script.file.name
+  }
+  _lookup = _context.where(kv => kv.key == "Command Name")[0]?.value?
+  if _lookup != null and _lookup != "" {
+    $ocsf.script.data = {command_name: _lookup}
+  }
+  _lookup = _context.where(kv => kv.key == "Host Application")[0]?.value?
+  if _lookup != null and _lookup != "" {
+    $ocsf.actor = {process: {cmd_line: _lookup}}
+  }
+  _lookup = _context.where(kv => kv.key == "User")[0]?.value?
+  if _lookup != null and _lookup != "" {
+    _user = _lookup.split("\\")
+    $ocsf.actor.user = {
+      name: _user[-1],
+      domain: _user[0] if _user.length() > 1,
+    }
+    drop _user
+  }
+  drop _context, _lookup
 }
 
 // Payload contains the command invocation and parameter bindings as plain text;
