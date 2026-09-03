@@ -19,7 +19,7 @@ are not.
 | `subagent_completed` | one real bounded subagent task | automatic when the tool exists |
 | `mcp_server_connection` | connect the child Claude session to the bundled fixture server | automatic |
 | `permission_mode_changed` | change the live permission mode | user-only interactive control |
-| `local_command` transcript record (shell typed with `!`) | the user types a `!`-prefixed shell command | user-only interactive control |
+| `user` records wrapping `<bash-input>`/`<bash-stdout>` (shell typed with `!`) | the user types a `!`-prefixed shell command | user-only interactive control |
 | `plugin_loaded` | load a real installed or session-scoped fixture plugin | automatic with `--plugin-dir` in a child Claude session |
 | `hook_registered` | start a real child Claude session with a fixture hook configuration | automatic |
 | `hook_execution` | trigger that registered hook through its matching native tool | automatic |
@@ -49,9 +49,11 @@ Transport-specific events are conditional, not failures: a WebSocket run does
 not also emit an SSE completion. Startup observations reflect real resolved
 configuration and must not be simulated by writing similarly shaped files.
 
-The `local_command` row is a transcript record, not a confirmed OTEL event.
-Whether a `!`-typed shell command reaches the exporter is exactly what its
-operator probe verifies; report a missing OTEL event as a finding, not a
+The `!`-shell row is a transcript record, not a confirmed OTEL event.
+Observed in Claude Code 2.1.245, a `!`-typed command lands in two `user`
+records (`isMeta: false`) wrapping `<bash-input>` and `<bash-stdout>`, and no
+`system`/`local_command` subtype appears — so record the transcript surface
+it actually reaches, and report a missing OTEL event as a finding, not a
 probe failure.
 
 ## Tool activity

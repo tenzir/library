@@ -57,9 +57,10 @@ test changed. Never ask for a restart merely to change this live control.
 
 Use `manual.claude.shell-bang`. A shell command the user types with the `!`
 prefix runs in the session without passing through the agent, so the agent
-cannot trigger it. Prior local testing never observed such a command in the
-transcript, so this probe verifies whether it produces a `system` record with
-subtype `local_command` and whether that path reaches OTEL at all.
+cannot trigger it. In Claude Code 2.1.245 this lands in two `user` transcript
+records wrapping `<bash-input>` and `<bash-stdout>` — not a `system` record
+with subtype `local_command`. This probe re-confirms that transcript surface
+on the running version and verifies whether the command also reaches OTEL.
 
 Resolve `<skill>` to its absolute path first, then ask the user to type
 exactly this at the Claude Code prompt and send it:
