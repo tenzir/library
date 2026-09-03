@@ -52,7 +52,7 @@ fork {
   deduplicate finding_info.uid, create_timeout=1h
   publish "findings"
 }
-window size=5min, on=time {
+window size=1min {
   tenzir::detect::behavior::categorical::model \
     entity=device.hostname,
     feature=process.name

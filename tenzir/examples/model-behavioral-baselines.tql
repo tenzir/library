@@ -23,9 +23,12 @@ fork {
   deduplicate finding_info.uid, create_timeout=1h
   publish "findings"
 }
-// Scored windows arrive in order, so the same window size models each closed
-// window after it has been judged against the baseline that preceded it.
-window size=5min, on=time {
+// Each scored window leaves `score` as one burst once it has been judged
+// against the baseline that preceded it. A short processing-time window
+// bounds that burst for `model` without waiting for the next event-time
+// window to close; merging below is additive, so a burst split across two
+// windows still yields the same baseline.
+window size=1min {
   tenzir::detect::behavior::categorical::model \
     entity=device.hostname,
     feature=process.name
