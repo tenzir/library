@@ -55,8 +55,9 @@ window size=5min, on=time, tolerance=1min, idle_timeout=5min {
 }
 ```
 
-The `score` operator classifies a baseline as missing, immature, stale, or
-ready. It measures how familiar the feature value is and can mix that local
+The `score` operator classifies an observation as missing, immature, stale, or
+ready. It leaves observations with a null feature value unscored. For ready
+observations, it measures how familiar the feature value is and can mix that local
 score with Jensen-Shannon drift from a current frequency table. The result goes
 into a caller-selected field, so several behavioral detectors can score the
 same event without colliding.
