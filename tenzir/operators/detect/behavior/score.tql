@@ -33,21 +33,23 @@ baseline_status = "missing" if $baseline == null else (
     "stale" if now() - $baseline.updated_at >= $max_age else "ready"
   )
 )
-if baseline_status == "ready" {
-  familiarity = frequency_table_count($baseline.features, $feature) *
-                $baseline.features.values.length() / $baseline.features.count
-  familiarity = 1.0 if familiarity > 1.0 else familiarity
-  if $current != null {
-    drift = model_divergence($baseline.features, $current,
-                             method="jensen_shannon") / log(2.0)
-  } else {
-    drift = null
-  }
-  score = 1.0 - familiarity if drift == null else (
+// Conditional expressions instead of an `if` block keep every row on one
+// schema and sidestep an engine assertion in `frequency_table_count` over
+// sliced batches.
+familiarity = (
+  frequency_table_count($baseline.features?, $feature) *
+  $baseline.features?.values?.length() / $baseline.features?.count?
+) if baseline_status == "ready" else null
+familiarity = 1.0 if familiarity > 1.0 else familiarity
+if $current != null {
+  drift = model_divergence($baseline.features?, $current,
+                           method="jensen_shannon") / log(2.0)
+  drift = drift if baseline_status == "ready" else null
+} else {
+  drift = null
+}
+score = null if baseline_status != "ready" else (
+  1.0 - familiarity if drift == null else (
     (1.0 - familiarity) * (1.0 - $lambda) + drift * $lambda
   )
-} else {
-  familiarity = null
-  drift = null
-  score = null
-}
+)
