@@ -38,4 +38,7 @@ publish "findings"
 
 Both operators take the entity and feature as field arguments and the context
 name as a string, and the detector exposes `min_samples`, `max_age`,
-`lambda`, `threshold`, and its window settings as named arguments.
+`lambda`, `threshold`, and its window settings as named arguments. The
+detector's `feature_name` argument labels the analytic, so findings from
+separate deployments carry distinct `finding_info.analytic.uid` values such as
+`tenzir::detect::behavior::abnormal_features:process.name`.
