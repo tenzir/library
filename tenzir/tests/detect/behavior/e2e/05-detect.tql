@@ -4,6 +4,12 @@ from {time: 2024-01-03T09:00:00Z, device: {hostname: "ws-42"}, process: {name: "
      {time: 2024-01-03T09:03:00Z, device: {hostname: "srv-01"}, process: {name: "sqlservr.exe"}},
      {time: 2024-01-03T09:04:00Z, device: {hostname: "srv-01"}, process: {name: "psexec.exe"}},
      {time: 2024-01-03T09:05:00Z, device: {hostname: "ws-99"}, process: {name: "mimikatz.exe"}}
-tenzir::detect::behavior::abnormal_features min_samples=5
+window size=5min, on=time {
+  summarize device.hostname, current=frequency_table(process.name), options={output: "events"}
+}
+context_enrich "behavior-baselines", key=device.hostname, into=baseline
+tenzir::detect::behavior::score current=current, min_samples=5
+where baseline_status == "ready" and score >= 0.5
+tenzir::detect::behavior::finding feature_name="process.name"
 ocsf_cast
 drop time, metadata.uid, finding_info.uid

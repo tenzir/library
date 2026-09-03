@@ -1,0 +1,16 @@
+---
+name: Model behavioral baselines
+description: |
+  Learns which processes each host runs, and when, and merges the models into
+  a lookup-table context.
+---
+
+subscribe "ocsf"
+where class_uid == 1007 and activity_id == 1
+tenzir::detect::behavior::model entity=device.hostname, feature=process.name
+context_enrich "behavior-baselines", key=entity, into=previous
+features = model_merge([previous?.features?, features])
+hours = model_merge([previous?.hours?, hours])
+samples = samples + (previous?.samples? else 0)
+drop previous
+context_update "behavior-baselines", key=entity

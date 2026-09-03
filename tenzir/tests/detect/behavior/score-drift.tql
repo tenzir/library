@@ -1,0 +1,13 @@
+let $ready = {
+  features: frequency_table(["chrome.exe", "chrome.exe", "chrome.exe", "outlook.exe", "teams.exe"]),
+  samples: 5,
+  updated_at: now(),
+}
+from {time: 2024-01-03T09:00:00Z, process: {name: "chrome.exe"}, baseline: $ready},
+     {time: 2024-01-03T09:01:00Z, process: {name: "mimikatz.exe"}, baseline: $ready},
+     {time: 2024-01-03T09:02:00Z, process: {name: "mimikatz.exe"}, baseline: $ready}
+window size=5min, on=time {
+  summarize current=frequency_table(process.name), options={output: "events"}
+}
+tenzir::detect::behavior::score current=current, min_samples=5, lambda=0.5
+select process.name, baseline_status, familiarity, drift, score

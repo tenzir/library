@@ -1,0 +1,19 @@
+---
+name: Detect abnormal features with drift
+description: |
+  Adds the Jensen-Shannon drift of each host's five-minute process mix to the
+  familiarity score before publishing OCSF Detection Findings.
+---
+
+subscribe "ocsf"
+where class_uid == 1007 and activity_id == 1
+window size=5min, on=time, tolerance=1min, idle_timeout=5min {
+  summarize device.hostname,
+            current=frequency_table(process.name),
+            options={output: "events"}
+}
+context_enrich "behavior-baselines", key=device.hostname, into=baseline
+tenzir::detect::behavior::score feature=process.name, current=current
+where baseline_status == "ready" and score >= 0.5
+tenzir::detect::behavior::finding entity=device.hostname, feature=process.name, feature_name="process.name"
+publish "findings"

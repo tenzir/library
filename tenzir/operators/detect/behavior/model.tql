@@ -1,0 +1,38 @@
+---
+description: Summarizes a stream into one behavioral baseline row per entity.
+args:
+  named:
+    - name: entity
+      type: field
+      default: device.hostname
+      description: Field that identifies the entity to baseline.
+    - name: feature
+      type: field
+      default: process.name
+      description: Categorical field whose distribution to model per entity.
+    - name: window_size
+      type: duration
+      default: 5min
+      description: Processing-time interval after which the operator emits the rows for the observations so far.
+---
+
+// Emits `{entity, features, hours, samples, updated_at}` per entity and
+// window. Storage is the caller's job, e.g. `context_update "…", key=entity`.
+// To accumulate history, enrich each row with its stored predecessor and merge
+// the models before writing:
+//
+//   context_enrich "behavior-baselines", key=entity, into=previous
+//   features = model_merge([previous?.features?, features])
+//   hours = model_merge([previous?.hours?, hours])
+//   samples = samples + (previous?.samples? else 0)
+//   context_update "behavior-baselines", key=entity
+//
+// Merge-only updates never forget: old observations stay in the model until
+// the caller resets or replaces the row.
+window size=$window_size {
+  summarize entity=$entity,
+            features=frequency_table($feature),
+            hours=histogram(time.hour(), bins=24, width=1, start=0),
+            samples=count()
+}
+updated_at = now()

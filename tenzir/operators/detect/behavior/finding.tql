@@ -1,0 +1,55 @@
+---
+description: Turns scored events into OCSF Detection Findings for unfamiliar feature values.
+args:
+  named:
+    - name: entity
+      type: field
+      default: device.hostname
+      description: Field that identifies the scored entity.
+    - name: feature
+      type: field
+      default: process.name
+      description: Categorical field whose value the finding reports.
+    - name: feature_name
+      type: string
+      default: process.name
+      description: Label of the scored feature that identifies the analytic; set it to match `feature` when deploying the detection for several features.
+    - name: score
+      type: field
+      default: score
+      description: Field holding the anomaly score from `tenzir::detect::behavior::score`.
+    - name: baseline
+      type: field
+      default: baseline
+      description: Field holding the baseline row used for scoring.
+---
+
+this = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  risk_score: round($score * 100),
+  finding_info: {
+    uid: uuid(),
+    title: f"Unfamiliar {$feature} for {$entity}",
+    desc: f"familiarity {familiarity}, drift {drift?}, baseline of {$baseline.samples} samples",
+    analytic: {
+      name: f"Abnormal features: {$feature_name}",
+      uid: f"tenzir::detect::behavior::abnormal_features:{$feature_name}",
+      type_id: 3,
+      version: "1.0",
+    },
+  },
+  evidences: [{
+    data: {entity: $entity, value: $feature},
+  }],
+}
