@@ -1,0 +1,29 @@
+let $process_baseline = {
+  distribution: frequency_table(["chrome.exe", "chrome.exe"]),
+  trained_at: now(),
+}
+let $port_baseline = {
+  distribution: frequency_table([80, 443]),
+  trained_at: now(),
+}
+from {
+  device: {hostname: "ws-42"},
+  process: {name: "mimikatz.exe"},
+  dst_endpoint: {port: 4444},
+  process_baseline: $process_baseline,
+  port_baseline: $port_baseline,
+  score: "source value",
+  drift: "source value",
+}
+tenzir::detect::behavior::categorical::score \
+  feature=process.name,
+  baseline=process_baseline,
+  min_samples=2,
+  into=process_behavior
+tenzir::detect::behavior::categorical::score \
+  feature=dst_endpoint.port,
+  feature_name="dst_endpoint.port",
+  baseline=port_baseline,
+  min_samples=2,
+  into=port_behavior
+select score, drift, process_behavior, port_behavior

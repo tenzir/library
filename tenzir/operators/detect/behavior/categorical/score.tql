@@ -1,0 +1,98 @@
+---
+description: Scores a categorical feature value against a baseline carried by the event.
+args:
+  named:
+    - name: entity
+      type: field
+      default: device.hostname
+      description: Field that identifies the entity; groups the current window when `window_size` is set.
+    - name: feature
+      type: field
+      default: process.name
+      description: Categorical field to score against the baseline distribution.
+    - name: feature_name
+      type: string
+      default: process.name
+      description: Label of the scored feature, recorded in the result and used by `finding` to identify the analytic; set it to match `feature` when deploying the detection for several features.
+    - name: baseline
+      type: field
+      default: baseline
+      description: Field holding a baseline from `tenzir::detect::behavior::categorical::model`.
+    - name: window_size
+      type: duration
+      default: null
+      description: Optional event-time window. When set, the operator delays each event until its window closes, models the entity's current window, mixes its drift from the baseline into the score, and records the window in the result. Without it, the score is familiarity alone.
+    - name: into
+      type: field
+      default: behavior
+      description: Field that receives the result record. The operator annotates the event, so this must be a new field, not `this` or a field that holds `feature` or `baseline`.
+    - name: drift_weight
+      type: float
+      default: 0.5
+      description: Weight of distribution drift relative to per-value familiarity.
+    - name: min_samples
+      type: int
+      default: 500
+      description: Positive minimum number of modeled feature values before a baseline counts as ready.
+    - name: max_age
+      type: duration
+      default: 2d
+      description: Maximum time since the baseline was trained before it counts as stale.
+---
+
+strict {
+  assert $drift_weight >= 0.0 and $drift_weight <= 1.0,
+    message="drift_weight must be between 0.0 and 1.0"
+  assert $min_samples > 0,
+    message="min_samples must be greater than zero"
+}
+
+// The result is self-describing: it carries what was scored, so `finding`
+// needs nothing but this record.
+$into = {
+  feature: $feature_name,
+  entity: $entity,
+  value: $feature,
+  status: "missing",
+  baseline_count: $baseline.distribution?.count?,
+  familiarity: null,
+  drift: null,
+  score: null,
+}
+if $window_size != null {
+  // The window operator is instantiated even when this branch receives no
+  // events, so its durations need a placeholder for the null case.
+  window size=($window_size else 5min),
+         on=time,
+         idle_timeout=($window_size else 5min) {
+    summarize $entity,
+              current=frequency_table($feature),
+              options={output: "events"}
+    $into.window = {start: $window.start, end: $window.end}
+    $into.current = current
+    drop current
+  }
+}
+if $feature == null or $baseline == null {
+  $into.status = "missing"
+} else if $into.baseline_count < $min_samples {
+  $into.status = "immature"
+} else if now() - $baseline.trained_at >= $max_age {
+  $into.status = "stale"
+} else {
+  $into.status = "ready"
+  $into.familiarity = min([
+    1.0,
+    float(frequency_table_count($baseline.distribution, $feature)) *
+      $baseline.distribution.values.length() / $into.baseline_count,
+  ])
+  $into.drift = model_divergence(
+    $baseline.distribution,
+    $into.current?,
+    method="jensen_shannon",
+  ) / log(2.0)
+  $into.score = 1.0 - $into.familiarity
+  $into.score = $into.score * (1.0 - $drift_weight) +
+    ($into.drift else $into.score) * $drift_weight
+}
+drop $into.current?

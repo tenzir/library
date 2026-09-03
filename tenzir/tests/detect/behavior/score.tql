@@ -1,0 +1,18 @@
+let $ready = {
+  distribution: frequency_table([
+    "chrome.exe",
+    "chrome.exe",
+    "chrome.exe",
+    "outlook.exe",
+    "teams.exe",
+  ]),
+  trained_at: now(),
+}
+from {case: "missing", device: {hostname: "ws-42"}, process: {name: "mimikatz.exe"}, baseline: null},
+     {case: "immature", device: {hostname: "ws-42"}, process: {name: "mimikatz.exe"}, baseline: {distribution: frequency_table(["chrome.exe", "outlook.exe"]), trained_at: now()}},
+     {case: "stale", device: {hostname: "ws-42"}, process: {name: "mimikatz.exe"}, baseline: {distribution: $ready.distribution, trained_at: 2020-01-01T00:00:00Z}},
+     {case: "ready-unfamiliar", device: {hostname: "ws-42"}, process: {name: "mimikatz.exe"}, baseline: $ready},
+     {case: "ready-familiar", device: {hostname: "ws-42"}, process: {name: "chrome.exe"}, baseline: $ready},
+     {case: "ready-rare", device: {hostname: "ws-42"}, process: {name: "teams.exe"}, baseline: $ready}
+tenzir::detect::behavior::categorical::score min_samples=5, into=behavior
+select case, behavior

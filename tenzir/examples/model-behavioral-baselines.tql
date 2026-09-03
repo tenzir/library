@@ -1,0 +1,48 @@
+---
+name: Detect and model behavioral baselines
+description: |
+  Scores each five-minute window against the preceding baseline, publishes
+  OCSF Detection Findings, and then merges the window into the baseline.
+---
+
+subscribe "ocsf"
+where class_uid == 1007 and activity_id == 1
+// Events pick up the baseline on arrival, before `score` closes their window.
+// A window is therefore judged against a baseline that may still exclude the
+// window immediately before it, which is what keeps the current observations
+// from training their own baseline.
+context_enrich "process-name-baselines",
+  key=device.hostname,
+  into=baseline
+tenzir::detect::behavior::categorical::score \
+  entity=device.hostname,
+  feature=process.name,
+  feature_name="process.name",
+  baseline=baseline,
+  window_size=5min,
+  into=behavior
+fork {
+  where behavior.status == "ready" and behavior.score >= 0.5
+  tenzir::detect::behavior::categorical::finding result=behavior
+  deduplicate finding_info.uid, create_timeout=1h
+  publish "findings"
+}
+// Each scored window leaves `score` as one burst once it has been judged
+// against the baseline that preceded it. A short processing-time window
+// bounds that burst for `model` without waiting for the next event-time
+// window to close; merging below is additive, so a burst split across two
+// windows still yields the same baseline.
+window size=1min {
+  tenzir::detect::behavior::categorical::model \
+    entity=device.hostname,
+    feature=process.name
+}
+context_enrich "process-name-baselines", key=entity, into=previous
+// Accumulate this window into the stored row. Merged rows never forget, so
+// rebuild them from a bounded horizon on a schedule.
+baseline.distribution = model_merge([
+  previous?.distribution?,
+  baseline.distribution,
+])
+drop previous
+context_update "process-name-baselines", key=entity, value=baseline

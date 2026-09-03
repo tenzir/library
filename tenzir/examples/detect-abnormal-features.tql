@@ -1,0 +1,22 @@
+---
+name: Detect abnormal features
+description: |
+  Scores processes against a fixed learned baseline and publishes OCSF
+  Detection Findings for unfamiliar ones. For a concurrently updated baseline,
+  use the "Detect and model behavioral baselines" example instead.
+---
+
+subscribe "ocsf"
+where class_uid == 1007 and activity_id == 1
+context_enrich "process-name-baselines",
+  key=device.hostname,
+  into=baseline
+tenzir::detect::behavior::categorical::score \
+  entity=device.hostname,
+  feature=process.name,
+  feature_name="process.name",
+  baseline=baseline,
+  into=behavior
+where behavior.status == "ready" and behavior.score >= 0.5
+tenzir::detect::behavior::categorical::finding result=behavior
+publish "findings"

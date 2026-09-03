@@ -1,0 +1,59 @@
+---
+description: Turns a categorical behavioral score into an OCSF Detection Finding.
+args:
+  named:
+    - name: result
+      type: field
+      default: behavior
+      description: Field holding the result from `tenzir::detect::behavior::categorical::score`. Its feature, entity, value, and window form the stable `finding_info.uid`; a window is also reported as `start_time` and `end_time`.
+    - name: into
+      type: field
+      default: this
+      description: Field that receives the OCSF Detection Finding. The default replaces the event; a field keeps it.
+---
+
+// Field arguments resolve lazily against the event, so everything that reads
+// them must happen inside this assignment when `into` is `this`.
+$into = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  risk_score: round($result.score * 100),
+  start_time: $result.window?.start?,
+  end_time: $result.window?.end?,
+  finding_info: {
+    // The logical finding: same analytic, entity, value, and window.
+    uid: hash_sha256({
+      feature: $result.feature,
+      entity: $result.entity,
+      value: $result.value,
+      window: $result.window?,
+    }),
+    title: f"Unfamiliar {$result.value} for {$result.entity}",
+    desc: f"familiarity {$result.familiarity}, drift {$result.drift?}, baseline of {$result.baseline_count} samples",
+    analytic: {
+      name: f"Abnormal features: {$result.feature}",
+      uid: f"tenzir::detect::behavior::abnormal_features:{$result.feature}",
+      type_id: 2,
+      version: "1.0",
+    },
+  },
+  evidences: [{
+    data: {entity: $result.entity, value: $result.value},
+  }],
+}
+if $into.start_time == null {
+  drop $into.start_time
+}
+if $into.end_time == null {
+  drop $into.end_time
+}
