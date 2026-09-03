@@ -33,15 +33,27 @@ row agent detected "$AGENT" "override with HARNESS_CHECK_AGENT"
 
 # --- telemetry export preflight -------------------------------------------
 # Report configuration posture without printing endpoints, headers, or other
-# potentially sensitive values.
-claude_settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+# potentially sensitive values. Claude Code merges settings from managed,
+# project, project-local, and user scope — check every readable scope, not
+# only ~/.claude/settings.json.
+claude_settings_files() {
+  cat <<FILES
+/etc/claude-code/managed-settings.json
+/Library/Application Support/ClaudeCode/managed-settings.json
+$PWD/.claude/settings.local.json
+$PWD/.claude/settings.json
+${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+FILES
+}
 
 claude_setting() {
-  # Print one non-secret setting value. Callers must never use this for
-  # endpoints, headers, or credentials.
-  local key="$1"
-  [ -f "$claude_settings" ] && command -v python3 >/dev/null 2>&1 || return 1
-  python3 - "$claude_settings" "$key" <<'PY'
+  # Print one non-secret setting value from the first scope that defines it.
+  # Callers must never use this for endpoints, headers, or credentials.
+  local key="$1" f
+  command -v python3 >/dev/null 2>&1 || return 1
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    python3 - "$f" "$key" <<'PY' && return 0
 import json, sys
 try:
     value = json.load(open(sys.argv[1])).get("env", {}).get(sys.argv[2])
@@ -51,13 +63,17 @@ if value is None:
     raise SystemExit(1)
 print(value)
 PY
+  done < <(claude_settings_files)
+  return 1
 }
 
 claude_setting_present() {
-  # Check a potentially secret setting without returning its value.
-  local key="$1"
-  [ -f "$claude_settings" ] && command -v python3 >/dev/null 2>&1 || return 1
-  python3 - "$claude_settings" "$key" <<'PY'
+  # Check a potentially secret setting in any scope without returning its value.
+  local key="$1" f
+  command -v python3 >/dev/null 2>&1 || return 1
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    python3 - "$f" "$key" <<'PY' && return 0
 import json, sys
 try:
     value = json.load(open(sys.argv[1])).get("env", {}).get(sys.argv[2])
@@ -65,6 +81,8 @@ except (OSError, ValueError, AttributeError):
     raise SystemExit(1)
 raise SystemExit(0 if value not in (None, "") else 1)
 PY
+  done < <(claude_settings_files)
+  return 1
 }
 
 case "$AGENT" in

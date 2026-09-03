@@ -23,7 +23,7 @@ OUT="$HARNESS_CHECK_DIR/child-$AGENT.jsonl"
 MCP_LOG="$HARNESS_CHECK_DIR/child-$AGENT-mcp-methods.log"
 : > "$MCP_LOG"
 export HARNESS_CHECK_MCP_LOG="$MCP_LOG"
-PROMPT='This is a telemetry probe. Call the harness_echo MCP tool exactly once with text "harness-check-mcp-called". If this harness exposes native MCP resources or prompts, use those native interfaces to list and read harness-check://fixture/resource and get harness-check-prompt; do not substitute a tool call. Then use the native shell tool to run: printf harness-check-child-shell. Do not edit files or do anything else. Return exactly harness-check-child-complete.'
+PROMPT='This is a telemetry probe. Perform each step through the named native tool and do nothing else. 1. Call the harness_echo MCP tool exactly once with text "harness-check-mcp-called". 2. If a native MCP resource listing tool exists (Claude Code: ListMcpResourcesTool with server "harness-check"), list resources with it. 3. If a native MCP resource read tool exists (Claude Code: ReadMcpResourceTool with server "harness-check"), read the resource harness-check://fixture/resource with it. 4. If a native MCP prompt interface exists, get harness-check-prompt through it; skip this step if prompts are only exposed as user slash commands. Never substitute a different tool for a missing interface. 5. Use the native shell tool to run: printf harness-check-child-shell. Do not edit files. Return exactly harness-check-child-complete.'
 
 if [ "$AGENT" = "claude" ]; then
   command -v claude >/dev/null 2>&1 || {
@@ -99,7 +99,7 @@ for method_id in resources/list resources/read resources/subscribe prompts/list 
   if method_seen "$method_id"; then
     pass "child.$AGENT.mcp.$probe_id" "real client sent $method_id"
   else
-    skip "child.$AGENT.mcp.$probe_id" "client exposes no native $method_id path"
+    skip "child.$AGENT.mcp.$probe_id" "client sent no $method_id; no native path, or the child did not invoke it"
   fi
 done
 
@@ -122,10 +122,12 @@ else
 fi
 
 if [ "$AGENT" = "claude" ]; then
-  if [ "$RC" -eq 0 ]; then
-    pass child.claude.plugin "session loaded validated fixture via --plugin-dir"
+  # The init message of the stream-json output lists every loaded plugin by
+  # name — check that instead of inferring the load from a clean exit.
+  if grep -q 'harness-check-fixture' "$OUT"; then
+    pass child.claude.plugin "init message lists harness-check-fixture plugin"
   else
-    fail child.claude.plugin "child failed before plugin load was proven"
+    fail child.claude.plugin "plugin absent from init message; inspect $OUT"
   fi
   if grep -q 'harness-check-hook-executed' "$OUT"; then
     pass child.claude.hook "registered PostToolUse hook executed"

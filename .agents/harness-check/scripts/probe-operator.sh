@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Correlation markers for user-operated harness activities.
 set -uo pipefail
-. "$(dirname "$0")/_lib.sh"
+HERE="$(dirname "$0")"
 
 STEPS=$(cat <<'TSV'
 manual.approval-deny	approval.deny	Decline a harmless requested action
@@ -88,12 +88,21 @@ batch_mark() {
   _emit COMPLETE manual.sequence "manual outcomes stored"
 }
 
+# `list` is read-only and must work before a run directory exists — the
+# inventory calls it. Every other subcommand writes to the correlation log
+# and therefore needs the sandbox from _lib.sh.
 case "${1:-list}" in
-  list) list_steps ;;
+  list) list_steps; exit 0 ;;
+  prepare|batch-mark|begin|mark|window) ;;
+  *) echo "usage: probe-operator.sh list|prepare <id>...|batch-mark <id>=RESULT...|begin|mark|window" >&2; exit 2 ;;
+esac
+
+. "$HERE/_lib.sh"
+
+case "$1" in
   prepare) shift; prepare_sequence "$@" ;;
   batch-mark) shift; batch_mark "$@" ;;
   begin) shift; begin_step "$@" ;;
   mark) shift; mark_step "$@" ;;
   window) shift; show_window "$@" ;;
-  *) echo "usage: probe-operator.sh list|prepare <id>...|batch-mark <id>=RESULT...|begin|mark|window" >&2; exit 2 ;;
 esac

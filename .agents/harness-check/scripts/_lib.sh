@@ -4,7 +4,15 @@
 # Agent-agnostic. Nothing here depends on a particular agent, tool naming
 # scheme, or vendor. Requires: bash, coreutils. Optional: python3.
 
-: "${HARNESS_CHECK_DIR:=${TMPDIR:-/tmp}/harness-check-${UID:-user}}"
+# Every run must use its own directory from new-run.sh. A shared fallback
+# default silently mixes results from unrelated runs, so refuse instead.
+if [ -z "${HARNESS_CHECK_DIR:-}" ]; then
+  echo "harness-check: HARNESS_CHECK_DIR is not set." >&2
+  echo "  Create a run directory first:  bash scripts/new-run.sh claude|codex" >&2
+  echo "  then export HARNESS_CHECK_DIR=<returned path>, or use run-all.sh," >&2
+  echo "  which creates one automatically." >&2
+  exit 2
+fi
 export HARNESS_CHECK_DIR
 
 INVOCATION_DIR="$PWD"

@@ -7,7 +7,9 @@ sandbox
 
 SENTINEL="harness-check-sentinel-42"
 F="probe.txt"
-rm -rf "$HARNESS_CHECK_DIR"/* 2>/dev/null
+# Clean only this probe's own artifacts. Wiping the whole sandbox here would
+# destroy fixtures and child-session logs when a probe is re-run mid-sequence.
+rm -rf "$F" renamed.txt nested tool-probe.txt 2>/dev/null
 
 # 1. create
 printf 'line one\nline two\n%s\n' "$SENTINEL" > "$F"
