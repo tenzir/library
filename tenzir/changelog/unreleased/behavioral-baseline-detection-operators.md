@@ -3,7 +3,6 @@ title: Categorical behavioral baseline operators
 type: feature
 authors:
   - mavam
-  - claude
 prs:
   - 185
 created: 2026-09-02T18:30:00Z
