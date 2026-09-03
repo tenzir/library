@@ -18,12 +18,24 @@ args:
       type: field
       default: behavior
       description: Field holding the result from `tenzir::detect::behavior::categorical::score`.
+    - name: start
+      type: field
+      default: null
+      description: Optional start of the scoring window; populates `start_time`.
+    - name: end
+      type: field
+      default: null
+      description: Optional end of the scoring window; populates `end_time` and makes `finding_info.uid` stable per analytic, entity, value, and window.
     - name: into
       type: field
       default: this
       description: Field that receives the OCSF Detection Finding.
 ---
 
+let $analytic_uid = f"tenzir::detect::behavior::abnormal_features:{$feature_name}"
+
+// Field arguments resolve lazily against the event, so everything that reads
+// them must happen inside this assignment when `into` is `this`.
 $into = {
   time: now(),
   metadata: {
@@ -38,18 +50,23 @@ $into = {
   severity_id: 3,
   status_id: 1,
   risk_score: round($result.score * 100),
+  start_time: $start,
+  end_time: $end,
   finding_info: {
-    uid: uuid(),
+    uid: f"{$analytic_uid}:{$entity}:{$feature}:{$end}" if $end != null else uuid(),
     title: f"Unfamiliar {$feature} for {$entity}",
     desc: f"familiarity {$result.familiarity}, drift {$result.drift?}, baseline of {$result.baseline_count} samples",
     analytic: {
       name: f"Abnormal features: {$feature_name}",
-      uid: f"tenzir::detect::behavior::abnormal_features:{$feature_name}",
-      type_id: 3,
+      uid: $analytic_uid,
+      type_id: 2,
       version: "1.0",
     },
   },
   evidences: [{
     data: {entity: $entity, value: $feature},
   }],
+}
+if $into.end_time == null {
+  drop $into.start_time, $into.end_time
 }
