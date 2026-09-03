@@ -7,42 +7,35 @@ description: |
 
 subscribe "ocsf"
 where class_uid == 1007 and activity_id == 1
-window size=5min, on=time, tolerance=1min, idle_timeout=5min {
-  summarize device.hostname,
-            current=frequency_table(process.name),
-            options={output: "events"}
-  start = $window.start
-  end = $window.end
-  context_enrich "process-name-baselines",
-    key=device.hostname,
-    into=baseline
-  tenzir::detect::behavior::categorical::score \
-    feature=process.name,
-    baseline=baseline,
-    current=current,
-    into=behavior
-  fork {
-    where behavior.status == "ready" and behavior.score >= 0.5
-    tenzir::detect::behavior::categorical::finding \
-      entity=device.hostname,
-      feature=process.name,
-      feature_name="process.name",
-      result=behavior,
-      start=start,
-      end=end
-    deduplicate finding_info.uid, create_timeout=1h
-    publish "findings"
-  }
+context_enrich "process-name-baselines",
+  key=device.hostname,
+  into=baseline
+tenzir::detect::behavior::categorical::score \
+  entity=device.hostname,
+  feature=process.name,
+  feature_name="process.name",
+  baseline=baseline,
+  window_size=5min,
+  into=behavior
+fork {
+  where behavior.status == "ready" and behavior.score >= 0.5
+  tenzir::detect::behavior::categorical::finding result=behavior
+  deduplicate finding_info.uid, create_timeout=1h
+  publish "findings"
+}
+// Scored windows arrive in order, so the same window size models each closed
+// window after it has been judged against the baseline that preceded it.
+window size=5min, on=time {
   tenzir::detect::behavior::categorical::model \
     entity=device.hostname,
     feature=process.name
-  context_enrich "process-name-baselines", key=entity, into=previous
-  // Accumulate this window into the stored row. Merged rows never forget, so
-  // rebuild them from a bounded horizon on a schedule.
-  baseline.distribution = model_merge([
-    previous?.distribution?,
-    baseline.distribution,
-  ])
-  drop previous
-  context_update "process-name-baselines", key=entity, value=baseline
 }
+context_enrich "process-name-baselines", key=entity, into=previous
+// Accumulate this window into the stored row. Merged rows never forget, so
+// rebuild them from a bounded horizon on a schedule.
+baseline.distribution = model_merge([
+  previous?.distribution?,
+  baseline.distribution,
+])
+drop previous
+context_update "process-name-baselines", key=entity, value=baseline
