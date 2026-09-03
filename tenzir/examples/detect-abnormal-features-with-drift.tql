@@ -12,8 +12,18 @@ window size=5min, on=time, tolerance=1min, idle_timeout=5min {
             current=frequency_table(process.name),
             options={output: "events"}
 }
-context_enrich "behavior-baselines", key=device.hostname, into=baseline
-tenzir::detect::behavior::score feature=process.name, current=current
-where baseline_status == "ready" and score >= 0.5
-tenzir::detect::behavior::finding entity=device.hostname, feature=process.name, feature_name="process.name"
+context_enrich "process-name-baselines",
+  key=device.hostname,
+  into=baseline
+tenzir::detect::behavior::categorical::score \
+  feature=process.name,
+  baseline=baseline,
+  current=current,
+  into=behavior
+where behavior.status == "ready" and behavior.score >= 0.5
+tenzir::detect::behavior::categorical::finding \
+  entity=device.hostname,
+  feature=process.name,
+  feature_name="process.name",
+  result=behavior
 publish "findings"

@@ -1,0 +1,21 @@
+---
+description: Builds one categorical behavioral baseline per entity from a finite input.
+args:
+  named:
+    - name: entity
+      type: field
+      default: device.hostname
+      description: Field that identifies the entity to baseline.
+    - name: feature
+      type: field
+      default: process.name
+      description: Categorical field whose distribution to model per entity.
+---
+
+// The caller defines the observation population. Call this operator directly
+// for a finite input, or place it inside a window for an unbounded stream.
+summarize entity=$entity, distribution=frequency_table($feature)
+baseline = {
+  distribution: move distribution,
+  trained_at: now(),
+}

@@ -1,5 +1,5 @@
 ---
-description: Turns scored events into OCSF Detection Findings for unfamiliar feature values.
+description: Turns a categorical behavioral score into an OCSF Detection Finding.
 args:
   named:
     - name: entity
@@ -14,17 +14,17 @@ args:
       type: string
       default: process.name
       description: Label of the scored feature that identifies the analytic; set it to match `feature` when deploying the detection for several features.
-    - name: score
+    - name: result
       type: field
-      default: score
-      description: Field holding the anomaly score from `tenzir::detect::behavior::score`.
-    - name: baseline
+      default: behavior
+      description: Field holding the result from `tenzir::detect::behavior::categorical::score`.
+    - name: into
       type: field
-      default: baseline
-      description: Field holding the baseline row used for scoring.
+      default: this
+      description: Field that receives the OCSF Detection Finding.
 ---
 
-this = {
+$into = {
   time: now(),
   metadata: {
     product: {name: "Tenzir", vendor_name: "Tenzir"},
@@ -37,11 +37,11 @@ this = {
   type_uid: 200401,
   severity_id: 3,
   status_id: 1,
-  risk_score: round($score * 100),
+  risk_score: round($result.score * 100),
   finding_info: {
     uid: uuid(),
     title: f"Unfamiliar {$feature} for {$entity}",
-    desc: f"familiarity {familiarity}, drift {drift?}, baseline of {$baseline.samples} samples",
+    desc: f"familiarity {$result.familiarity}, drift {$result.drift?}, baseline of {$result.baseline_count} samples",
     analytic: {
       name: f"Abnormal features: {$feature_name}",
       uid: f"tenzir::detect::behavior::abnormal_features:{$feature_name}",

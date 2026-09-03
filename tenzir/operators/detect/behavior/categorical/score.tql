@@ -1,0 +1,80 @@
+---
+description: Scores a categorical feature value against a baseline carried by the event.
+args:
+  named:
+    - name: feature
+      type: field
+      default: process.name
+      description: Categorical field to score against the baseline distribution.
+    - name: baseline
+      type: field
+      default: baseline
+      description: Field holding a baseline from `tenzir::detect::behavior::categorical::model`.
+    - name: current
+      type: field
+      default: null
+      description: Optional frequency table of the current window; without it, drift is null and the score uses familiarity alone.
+    - name: into
+      type: field
+      default: behavior
+      description: Field that receives the status and score record.
+    - name: drift_weight
+      type: float
+      default: 0.5
+      description: Weight of distribution drift relative to per-value familiarity.
+    - name: min_samples
+      type: int
+      default: 500
+      description: Minimum number of modeled feature values before a baseline counts as ready.
+    - name: max_age
+      type: duration
+      default: 2d
+      description: Maximum time since the baseline was trained before it counts as stale.
+---
+
+strict {
+  assert $drift_weight >= 0.0 and $drift_weight <= 1.0,
+    message="drift_weight must be between 0.0 and 1.0"
+}
+
+$into = {
+  status: "missing",
+  baseline_count: null,
+  familiarity: null,
+  drift: null,
+  score: null,
+}
+$into.baseline_count = (
+  $baseline.distribution.count
+) if $baseline != null else null
+if $baseline == null {
+  $into.status = "missing"
+} else if $into.baseline_count < $min_samples {
+  $into.status = "immature"
+} else if now() - $baseline.trained_at >= $max_age {
+  $into.status = "stale"
+} else {
+  $into.status = "ready"
+}
+
+// Conditional expressions avoid evaluating model functions for baselines that
+// are missing, immature, or stale. They also keep every row on one schema.
+$into.familiarity = min([
+  1.0,
+  float(frequency_table_count($baseline.distribution, $feature)) *
+    $baseline.distribution.values.length() / $baseline.distribution.count,
+]) if $into.status == "ready" else null
+$into.drift = (
+  model_divergence(
+    $baseline.distribution,
+    $current,
+    method="jensen_shannon",
+  ) / log(2.0)
+) if $into.status == "ready" and $current != null else null
+$into.score = (
+  1.0 - $into.familiarity
+) if $into.status == "ready" else null
+$into.score = (
+  (1.0 - $into.familiarity) * (1.0 - $drift_weight) +
+    $into.drift * $drift_weight
+) if $into.drift != null else $into.score
