@@ -30,7 +30,7 @@ $ocsf.script = {
 // breaks do not survive every collector, so runs of whitespace separate the
 // entries.
 if $windows.EventData.ContextInfo? != null {
-  _context = ((move $windows.EventData.ContextInfo)
+  _context = ($windows.EventData.ContextInfo
     .split_regex(r"\s{2,}|\n")
     .map(line => line.split(" = ", max=1))
     .where(kv => kv.length() == 2)
@@ -40,10 +40,11 @@ if $windows.EventData.ContextInfo? != null {
     $ocsf.script.file = {path: _lookup, type_id: 1}
     $ocsf.script.file.name = _lookup.split("\\")[-1]
     $ocsf.script.name = $ocsf.script.file.name
-  }
-  _lookup = _context.where(kv => kv.key == "Command Name")[0]?.value?
-  if _lookup != null and _lookup != "" {
-    $ocsf.script.data = {command_name: _lookup}
+  } else {
+    _lookup = _context.where(kv => kv.key == "Command Name")[0]?.value?
+    if _lookup != null and _lookup != "" {
+      $ocsf.script.name = _lookup
+    }
   }
   _lookup = _context.where(kv => kv.key == "Host Application")[0]?.value?
   if _lookup != null and _lookup != "" {
@@ -61,8 +62,5 @@ if $windows.EventData.ContextInfo? != null {
   drop _context, _lookup
 }
 
-// Payload contains the command invocation and parameter bindings as plain text;
-// preserve verbatim in unmapped because parsing it would require regex surgery.
-//
-// ContextInfo is a multi-line key=value block with host, engine, runspace,
-// pipeline, user, and shell info; also left in unmapped.
+// Keep the complete ContextInfo block in unmapped because it contains additional
+// host, engine, runspace, pipeline, and shell details.

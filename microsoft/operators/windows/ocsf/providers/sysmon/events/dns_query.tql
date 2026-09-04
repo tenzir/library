@@ -32,11 +32,6 @@ $ocsf.query = {
 $ocsf.status_id = 1 if $windows.EventData.QueryStatus.int() == 0 else 2
 $ocsf.status_code = (move $windows.EventData.QueryStatus).string()
 
-// Sysmon bundles CNAME chains + IPs into QueryResults as a semicolon-separated
-// string (e.g. "type:  5 cdn.example.com;::ffff:1.2.3.4;"). There is no clean
-// way to split CNAME targets from A/AAAA records without a regex engine, so the
-// raw field is left in unmapped.EventData for consumers that need it.
-
 // The process and user that issued the query — mapped via the Host profile actor.
 $ocsf.user_parts = (move $windows.EventData.User).split("\\")
 $ocsf.actor = {
@@ -67,9 +62,10 @@ if $windows.EventData.QueryResults? != null and $windows.EventData.QueryResults 
     .split(";")
     .map(x => x.trim())
     .where(x => x != "")
+    .map(x => x.slice(begin=7) if x.starts_with("::ffff:") else x)
     .map(x => {
       type: "CNAME" if x.starts_with("type:") else null,
-      rdata: x.trim_start("::ffff:") if not x.starts_with("type:") else x.split(" ")[-1]?,
+      rdata: x.split(" ")[-1]? if x.starts_with("type:") else x,
     }))
 }
 drop $windows.EventData.QueryResults?

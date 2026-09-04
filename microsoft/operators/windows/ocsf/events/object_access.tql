@@ -13,7 +13,6 @@ args:
 $ocsf.category_uid = 1
 // EID 4663 reports a performed access; EID 4656 reports a handle request, which
 // may also fail. The Keywords field carries the audit outcome.
-_requested = $windows.System.EventID == 4656
 $ocsf.status_id = 2 if $windows.System.Keywords? == "0x8010000000000000" else 1
 $ocsf.access_mask = int($windows.EventData.AccessMask, base=16)
 
@@ -43,7 +42,7 @@ match $windows.EventData.ObjectType {
   "File" => {
     @name = "ocsf.file_activity"
     $ocsf.class_uid = 1001
-    if _requested {
+    if $windows.System.EventID == 4656 {
       $ocsf.activity_id = 14  // Open
     } else {
       $ocsf.activity_id = 99
@@ -59,7 +58,7 @@ match $windows.EventData.ObjectType {
     @name = "ocsf.registry_key_activity"
     $ocsf.class_uid = 201001
     $ocsf.activity_id = 99
-    $ocsf.activity_name = "Open" if _requested else "Access"
+    $ocsf.activity_name = "Open" if $windows.System.EventID == 4656 else "Access"
     $ocsf.reg_key = {
       path: move $windows.EventData.ObjectName,
     }
@@ -82,7 +81,6 @@ match $windows.EventData.ObjectType {
     drop $ocsf.access_mask
   }
 }
-drop _requested
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // Preserve the message-token access list and handle identifier in unmapped.

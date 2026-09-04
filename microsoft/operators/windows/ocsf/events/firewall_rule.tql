@@ -24,15 +24,7 @@ $ocsf.metadata.profiles = ["host", "security_control"]
 let $directions = {"1": "Inbound", "2": "Outbound"}
 let $actions = {"2": "Block", "3": "Allow"}
 let $protocols = {"1": "ICMP", "6": "TCP", "17": "UDP", "256": "Any"}
-_direction = (move $windows.EventData.Direction?).string()
-_action = (move $windows.EventData.Action?).string()
-_protocol = (move $windows.EventData.Protocol?).string()
-$ocsf.firewall_rule = {
-  uid: $windows.EventData.RuleId?,
-  name: $windows.EventData.RuleName?,
-  type: $directions[_direction]?,
-  condition: $actions[_action]?,
-}
+let $booleans = {"0": false, "1": true}
 $ocsf.entity = {
   uid: move $windows.EventData.RuleId?,
   name: move $windows.EventData.RuleName?,
@@ -41,23 +33,27 @@ $ocsf.entity = {
   data: {
     application_path: move $windows.EventData.ApplicationPath?,
     service_name: move $windows.EventData.ServiceName?,
-    direction: $directions[_direction]? else _direction,
-    direction_id: int(_direction),
-    action: $actions[_action]? else _action,
-    action_id: int(_action),
-    protocol: $protocols[_protocol]? else _protocol,
-    protocol_num: int(_protocol),
+    direction_id: (move $windows.EventData.Direction?).int(),
+    action_id: (move $windows.EventData.Action?).int(),
+    protocol_num: (move $windows.EventData.Protocol?).int(),
     local_ports: move $windows.EventData.LocalPorts?,
     remote_ports: move $windows.EventData.RemotePorts?,
     local_addresses: move $windows.EventData.LocalAddresses?,
     remote_addresses: move $windows.EventData.RemoteAddresses?,
     profiles: move $windows.EventData.Profiles?,
-    active: (move $windows.EventData.Active?).string() == "1",
-    edge_traversal: (move $windows.EventData.EdgeTraversal?).string() == "1",
+    active: $booleans[(move $windows.EventData.Active?).string()]?,
+    edge_traversal: $booleans[(move $windows.EventData.EdgeTraversal?).string()]?,
     origin: move $windows.EventData.Origin?,
   },
 }
-drop _direction, _action, _protocol
+$ocsf.entity.data.direction = $directions[$ocsf.entity.data.direction_id?.string()]?
+$ocsf.entity.data.action = $actions[$ocsf.entity.data.action_id?.string()]?
+$ocsf.entity.data.protocol = $protocols[$ocsf.entity.data.protocol_num?.string()]?
+$ocsf.firewall_rule = {
+  uid: $ocsf.entity.uid,
+  name: $ocsf.entity.name,
+  type: $ocsf.entity.data.direction,
+}
 $ocsf.actor = {
   user: {uid: move $windows.EventData.ModifyingUser?},
 }

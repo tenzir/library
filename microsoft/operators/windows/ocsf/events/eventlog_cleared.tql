@@ -17,28 +17,25 @@ $ocsf.activity_id = 1  // Clear
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.severity_id = 3  // Medium
 // EID 104 carries its fields under UserData/LogFileCleared.
-_cleared = move $windows.UserData.LogFileCleared
 $ocsf.actor = {
   user: {
-    name: move _cleared.SubjectUserName?,
-    domain: move _cleared.SubjectDomainName?,
+    name: move $windows.UserData.LogFileCleared.SubjectUserName?,
+    domain: move $windows.UserData.LogFileCleared.SubjectDomainName?,
   },
 }
 // The class attribute names the log that was cleared; metadata.log_name keeps
 // the channel that recorded the clearing.
-$ocsf.log_name = move _cleared.Channel?
-if _cleared.BackupPath? != null and _cleared.BackupPath? != "" {
+$ocsf.log_name = move $windows.UserData.LogFileCleared.Channel?
+if $windows.UserData.LogFileCleared.BackupPath? != null and $windows.UserData.LogFileCleared.BackupPath != "" {
   $ocsf.file = {
-    path: move _cleared.BackupPath,
+    path: move $windows.UserData.LogFileCleared.BackupPath,
     type_id: 1,
   }
   $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
 }
-drop _cleared.BackupPath?
-if _cleared.is_empty() {
-  drop _cleared
-} else {
-  $windows.UserData.LogFileCleared = move _cleared
+drop $windows.UserData.LogFileCleared.BackupPath?
+if $windows.UserData.LogFileCleared?.is_empty() == true {
+  drop $windows.UserData.LogFileCleared
 }
 if $windows.UserData?.is_empty() == true {
   drop $windows.UserData
