@@ -30,36 +30,28 @@ $ocsf.script = {
 // breaks do not survive every collector, so runs of whitespace separate the
 // entries.
 if $windows.EventData.ContextInfo? != null {
-  _context = ($windows.EventData.ContextInfo
-    .split_regex(r"\s{2,}|\n")
-    .map(line => line.split(" = ", max=1))
-    .where(kv => kv.length() == 2)
-    .map(kv => {key: kv[0].trim(), value: kv[1].trim()}))
-  _lookup = _context.where(kv => kv.key == "Script Name")[0]?.value?
-  if _lookup != null and _lookup != "" {
-    $ocsf.script.file = {path: _lookup, type_id: 1}
-    $ocsf.script.file.name = _lookup.split("\\")[-1]
+  _context = $windows.EventData.ContextInfo.trim().parse_kv(
+    field_split=r"\s{2,}|\n",
+    value_split=r"\s*=\s*",
+  )
+  $ocsf.script.name = _context["Command Name"]?
+  if _context["Script Name"]? != null {
+    $ocsf.script.file = {
+      path: _context["Script Name"],
+      type_id: 1,
+    }
+    $ocsf.script.file.name = $ocsf.script.file.path.split("\\")[-1]
     $ocsf.script.name = $ocsf.script.file.name
-  } else {
-    _lookup = _context.where(kv => kv.key == "Command Name")[0]?.value?
-    if _lookup != null and _lookup != "" {
-      $ocsf.script.name = _lookup
-    }
   }
-  _lookup = _context.where(kv => kv.key == "Host Application")[0]?.value?
-  if _lookup != null and _lookup != "" {
-    $ocsf.actor = {process: {cmd_line: _lookup}}
+  $ocsf.actor = {
+    process: {cmd_line: _context["Host Application"]?},
+    user: {name: _context.User?},
   }
-  _lookup = _context.where(kv => kv.key == "User")[0]?.value?
-  if _lookup != null and _lookup != "" {
-    _user = _lookup.split("\\")
-    $ocsf.actor.user = {
-      name: _user[-1],
-      domain: _user[0] if _user.length() > 1,
-    }
-    drop _user
+  if $ocsf.actor.user.name?.contains("\\") {
+    $ocsf.actor.user.domain = $ocsf.actor.user.name.split("\\")[0]
+    $ocsf.actor.user.name = $ocsf.actor.user.name.split("\\")[-1]
   }
-  drop _context, _lookup
+  drop _context
 }
 
 // Keep the complete ContextInfo block in unmapped because it contains additional
