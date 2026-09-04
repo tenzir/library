@@ -14,17 +14,16 @@ args:
 $ocsf.category_uid = 1
 $ocsf.class_uid = 201004
 // param1 is the service display name and param2 the localized state.
-_state = (move $windows.EventData.param2).to_lower()
-match _state {
-  "running" => { $ocsf.activity_id = 3 }  // Start
-  "stopped" => { $ocsf.activity_id = 4 }  // Stop
-  "paused" => { $ocsf.activity_id = 5 }  // Pause
-  _ => {
-    $ocsf.activity_id = 99
-    $ocsf.activity_name = _state
-  }
+let $activities = {
+  running: 3,
+  stopped: 4,
+  paused: 5,
 }
-drop _state
+$ocsf.activity_name = (move $windows.EventData.param2).to_lower()
+$ocsf.activity_id = $activities[$ocsf.activity_name]? else 99
+if $ocsf.activity_id != 99 {
+  drop $ocsf.activity_name
+}
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.win_service = {
   name: move $windows.EventData.param1,
