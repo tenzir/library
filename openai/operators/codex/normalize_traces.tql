@@ -5,7 +5,7 @@ args:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts and commands.
+      description: Retain prompts. Shell commands are always retained.
 ---
 
 where event_name != "auth"
@@ -56,8 +56,10 @@ select signal = "trace",
   apps_enabled = _a.apps_enabled?,
   tool_name = _tool_name,
   tool_use_id = _a["gen_ai.tool.call.id"]? else _a.tool_use_id? else _a.call_id?,
-  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _command if $include_content else null,
+  process_name = "bash" if _tool_name_lower == "bash" else
+                 "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
+                 null,
+  command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
   error = _a.error?,
   error_type = _a.error_type?,

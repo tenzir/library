@@ -24,9 +24,10 @@ The mapping recognizes API and model activity, JSON-RPC operations, completed
 model responses, turn summaries, MCP tool discovery, shell commands, and file
 operations. Skill injections and aggregate tool calls retain their invocation,
 status, sandbox, and policy context. Plugin, remote-plugin, and application
-enablement observations retain the resolved Codex posture. Potentially sensitive
-prompt, response, command, and tool content is hashed unless
-`include_content=true` is explicitly set.
+enablement observations retain the resolved Codex posture. Potentially
+sensitive prompt, response, and copied tool-parameter content is hashed unless
+`include_content=true` is explicitly set. Shell command text is always retained
+in `process.cmd_line`; its SHA-256 hash is retained as well.
 Fields with an OCSF destination are removed from `unmapped`; the complete
 native OTLP event remains available in `raw_data`.
 
@@ -57,7 +58,7 @@ Security Control `policy` and `authorizations[].policy.type`.
 Envelope input reports `metadata.log_format` as `OTLP/JSON`.
 
 `message` carries a human-readable summary of each event (for example
-"Agent executed a shell command", "Skill tenzir injected into the agent context") instead of repeating the raw event name, which stays available in
+"Agent shell process terminated", "Skill tenzir injected into the agent context") instead of repeating the raw event name, which stays available in
 `metadata.event_code`.
 
 Span identifiers are preserved where the schema has no home for them. The Trace
@@ -70,7 +71,7 @@ record itself, which is what traces an event back to the raw entry. Only spans
 carry one, so it is set from `span_id` for span-sourced events and left empty
 for logs and metrics, which have none. A tool-call id such as `call_id` names the
 call rather than the record, and the span, the decision and the result all
-share it, so it stays on `script.uid`, `process.uid` and `api.request.uid`, and
+share it, so it stays on `process.uid` and `api.request.uid`, and
 in `unmapped` on classes with no typed home for it.
 
 `metadata.correlation_uid` always identifies the trace, so grouping by it never
@@ -78,29 +79,48 @@ mixes a single transaction with a whole session. Events whose source carries no
 trace leave it empty; the session is available as `ai_agent.instance_uid`, and
 on classes with an actor also as `actor.session.uid`.
 
-Shell commands map to Script Activity: `exec_command` spans, shell tool
-decisions, and sandbox outcomes attest a command string, not a process, so
-they report `Execute` with the command, when present, in
-`script.script_content` and its SHA-256 digest in `script.hashes`. Only `exec`
-spans carry real process identity and keep Process Activity `Launch`; the
-result log is the process outcome and keeps `Terminate`. Codex reports no
-command string on decisions, `exec_command` spans, or sandbox outcomes, so
-`script_content` is empty there; that is a vendor gap, not a mapping choice.
+Codex shell tools map to one Process Activity lifecycle. A tool decision is
+`Launch`; a completed foreground result is `Terminate`. Both derive a stable
+`process.uid` from `call_id`, with an `openai:codex:` prefix. `process.pid`
+stays empty because the source does not report an operating-system PID. A
+compound `arguments.cmd` value remains the command line of the top-level shell
+invocation and is always retained. Matching execution spans are suppressed
+because they repeat the lifecycle reported by the decision and result logs.
+
+No correlation window is required. The decision emits immediately, and the
+result emits immediately with the same UID whether it follows milliseconds or
+minutes later. A denied decision produces a failed Launch without a Terminate.
+Code Mode `exec` remains a separate provisional lifecycle mapping because its
+arguments contain JavaScript wrapper source rather than native process data.
+
+Codex's `success` field confirms that an `exec_command` tool result was
+delivered; it does not report the shell command's exit status. The mapper
+therefore extracts the `Process exited with code N` result line: zero maps to
+Success, a nonzero code maps to Failure, and the code populates OCSF
+`status_code` and `exit_code`. A result that says `Process running with session
+ID N` becomes a separate API status observation because the earlier decision
+already emitted the Launch. Later `write_stdin` calls remain separate tool
+interactions. Both retain the terminal session ID in `unmapped`. The background
+status retains its full command in `api.request.data.command`.
+
+Codex reports tool duration in milliseconds. Process Activity describes a
+discrete event, while the OCSF base `duration` field describes an aggregation
+window. The mapper therefore retains the tool duration in `unmapped.duration`
+instead of populating the OCSF window field.
 
 Tool decisions carry the Security Control profile, which makes an autonomous
 action distinguishable from a supervised one. A rule that fires — `Config`,
 `AutomatedReviewer`, or the sandbox — reports `Allowed`/`Allowed` or
 `Denied`/`Blocked` in `action_id` and `disposition_id` with the rule named in
 `policy`, while a person's decision reports `Allowed`/`Approved` or
-`Denied`/`Rejected`. A shell tool decision maps to the Script Activity it
-governs, so a denied command is a single event that names what was attempted
-and who refused it. A decision without a named decider keeps an `Unknown`
+`Denied`/`Rejected`. A shell tool decision maps to the contentless Process
+Activity launch request it governs. A decision without a named decider keeps an `Unknown`
 disposition rather than implying that a rule fired. The `Unauthorized`
 disposition stays unused because the
 telemetry cannot distinguish a failed permission check from a policy block.
 Remote tool decisions use `Invoke` as the API activity, keep the tool name in
 `api.operation`, and place the MCP server in `api.service.name`. Local shell
-decisions map to the Script Activity they govern. The provisioning source
+decisions map to the Process Activity launch request they govern. The provisioning source
 (`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized field
 for it.
 

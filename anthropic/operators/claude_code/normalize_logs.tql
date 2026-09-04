@@ -5,7 +5,7 @@ args:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, commands, and tool parameters.
+      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
 _a = attributes
@@ -17,6 +17,7 @@ _tool_name = _a.tool_name?
 _tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
 _tool_payload_text = _a.tool_input? else _a.tool_parameters? else _a.arguments?
 _tool_payload = _tool_payload_text.parse_json() if _tool_payload_text? != null and _tool_payload_text.starts_with("{") else {}
+_tool_parameters_payload = _a.tool_parameters.parse_json() if _a.tool_parameters? != null and _a.tool_parameters.starts_with("{") else {}
 _file_path = _tool_payload.file_path? else _tool_payload.path?
 _file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
@@ -24,7 +25,10 @@ _file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"
                   "update" if _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
                   "read" if _tool_name_lower in ["read", "view_image"] else
                   null
-_command_value = _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
+// Claude can truncate `tool_input.command` while retaining the complete value
+// in `tool_parameters.full_command`. Prefer that complete provider field.
+_command_value = _tool_parameters_payload.full_command? else
+                 _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
 // Parsed tool payloads may infer a shell literal such as `true` as a boolean.
 // A command is text regardless of its spelling, and its hash must cover that
 // text rather than the inferred scalar representation.
@@ -72,7 +76,7 @@ select signal = "log",
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
   process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _command if $include_content else null,
+  command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
   background = _tool_payload.run_in_background? == true if _tool_payload.run_in_background? != null else null,
   // `tool_decision` reports the decision as `decision` plus `source`;

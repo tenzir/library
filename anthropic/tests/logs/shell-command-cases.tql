@@ -1,0 +1,25 @@
+// Source-shaped projections of raw Claude Code Bash logs. The field layout
+// and edge cases come from native OTLP captures; identifying values and long
+// command bodies are shortened for a deterministic package fixture.
+from_file f"{env("TENZIR_INPUTS")}/../logs/shell-command-cases.input" {
+  read_ndjson
+}
+// Native OTLP log records carry these envelope fields even when their values
+// are null. Keep the compact fixture source-shaped without repeating them on
+// every line.
+observed_time = null
+trace_id = null
+span_id = null
+severity_number = null
+severity_text = null
+flags = null
+@name = "otel.log"
+anthropic::claude_code::ocsf
+ocsf_derive
+ocsf_cast
+select process_uid=process?.uid?, class_name, activity_name, status,
+       action?, disposition?, command=process?.cmd_line?,
+       created_time=process?.created_time?,
+       terminated_time=process?.terminated_time?,
+       tool_duration_ms=unmapped.duration?, api_operation=api?.operation?,
+       request_command=api?.request?.data?.command?

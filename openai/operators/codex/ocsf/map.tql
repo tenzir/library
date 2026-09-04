@@ -24,7 +24,7 @@ $event.ocsf.metadata = {
   // event traceable back to the raw entry. Only spans carry one: `span_id`
   // identifies the span itself. A tool-call id names the call, not the record,
   // and the span, the decision and the result all share it, so it cannot
-  // identify a single source event; it stays on `script.uid`, `process.uid`
+  // identify a single source event; it stays on `process.uid`
   // and `api.request.uid`. Log and metric records carry no native identifier,
   // so the field is left empty rather than filled with something else.
   original_event_uid: $event.otel.span_id? if $event.otel.signal? == "trace" else null,
@@ -92,7 +92,8 @@ $event.ocsf.severity_id = 3 if $event.otel.success? == false or ($event.otel.htt
 // HTTP response code, or an OTLP span status. A decision to allow is not an
 // outcome, because the call it permits can still fail and the result record is
 // what reports that; a denial is, because the activity never ran.
-$event.ocsf.status_id = 1 if $event.otel.success? == true or
+$event.ocsf.status_id = 0 if $event.otel.command_running? == true else
+                        1 if $event.otel.success? == true or
                              ($event.otel.http_status? != null and $event.otel.http_status < 400) or
                              $event.otel.status_code? == 1 else
                         2 if $event.otel.success? == false or
@@ -104,6 +105,7 @@ $event.ocsf.status_id = 1 if $event.otel.success? == true or
 // home on `trace.span.status_code`, and mixing the two code spaces in one
 // field makes neither readable.
 $event.ocsf.status_code = $event.otel.source_status_code.string() if $event.otel.source_status_code? != null else
+                          $event.otel.command_exit_code.string() if $event.otel.command_exit_code? != null else
                           $event.otel.http_status.string() if $event.otel.http_status? != null else null
 // Why the outcome happened. The decision is not a reason: it is already
 // carried by `action_id`, `disposition_id` and `authorizations`.
@@ -267,11 +269,10 @@ if $event.otel.event_name == "codex.skill.injected" {
     $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
   }
 } else if $event.otel.event_name == "codex.tool_decision" and $event.otel.process_name? == null {
-  // Shell tool decisions fall through to the Script Activity branch below:
-  // for Codex the decision record is the closest thing to the shell-execution
-  // record, so the decision rides on the governed action. A remote invocation
-  // remains API Activity, with `Invoke` as the action and the capability name
-  // as the API operation.
+  // Shell tool decisions fall through to the local shell branch below. A
+  // contentless decision maps to the governed process-launch request. A remote
+  // invocation remains API Activity, with `Invoke` as the action and the
+  // capability name as the API operation.
   _decision_operation = $event.otel.tool_name? else $event.otel.event_name
   $event.ocsf.category_uid = 6
   $event.ocsf.class_uid = 6003
@@ -320,60 +321,80 @@ if $event.otel.event_name == "codex.skill.injected" {
   $event.ocsf.message = f"Agent {$file_verbs[$event.otel.file_operation]} file {$event.ocsf.file.name}"
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
-} else if $event.otel.process_name? != null {
-  // Only `exec` spans carry real process identity and keep Process Activity
-  // `Launch`; the result log is the process outcome and keeps `Terminate`.
-  // Everything else shell-shaped — `exec_command` spans, shell tool decisions,
-  // sandbox outcomes — attests a command string, not a process: Script
-  // Activity / Execute.
-  _process_completed = $event.otel.event_name.ends_with("tool_result")
-  _has_process_identity = _process_completed or $event.otel.tool_name? == "exec"
-  if _has_process_identity {
-    $event.ocsf.category_uid = 1
-    $event.ocsf.class_uid = 1007
-    $event.ocsf.activity_id = 2 if _process_completed else 1
-    $event.ocsf.type_uid = 100702 if _process_completed else 100701
-    $event.ocsf.launch_type_id = null if _process_completed else 1
-    $event.ocsf.process = {
-      name: move $event.otel.process_name,
-      cmd_line: move $event.otel.command? else "",
+} else if $event.otel.event_name == "codex.sandbox_outcome" {
+  // The sandbox verdict controls an operation attempted by the shell. It does
+  // not represent another launch of that shell process.
+  $event.ocsf.category_uid = 0
+  $event.ocsf.class_uid = 0
+  $event.ocsf.activity_id = 99
+  $event.ocsf.activity_name = "Sandbox Outcome"
+  $event.ocsf.type_uid = 99
+  $event.ocsf.message = "Codex sandbox allowed the operation" if _decision_status_id == 1 else
+                        "Codex sandbox blocked the operation" if _decision_status_id == 2 else
+                        "Codex sandbox reported an outcome"
+  // Base Event does not carry the AI Operation profile in OCSF 1.9. The
+  // Security Control profile below carries the sandbox decision.
+  $event.ocsf.metadata.profiles = []
+} else if $event.otel.process_name? != null and $event.otel.command_running? == true {
+  // This result says that the process launched by the earlier decision is
+  // still running. It is not a second Launch or a Terminate. Keep it as the
+  // tool's status observation, linked to later `write_stdin` calls by the
+  // source terminal-session identifier in `unmapped`.
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6003
+  $event.ocsf.activity_id = 99
+  $event.ocsf.activity_name = "Observe"
+  $event.ocsf.type_uid = 600399
+  $event.ocsf.api = {
+    operation: move $event.otel.tool_name,
+    request: {
       uid: move $event.otel.tool_use_id?,
-      // A completion record timestamps the end, not the start. Recover the
-      // start from the reported duration when there is one; never claim the
-      // end time is the start.
-      created_time: $event.otel.start_time? else
-                    $event.otel.time - $event.otel.duration * 1ms if $event.otel.duration? != null else
-                    null,
-      terminated_time: $event.otel.time if _process_completed else null,
-      // `process.user` and `process.session` describe the OS user and login
-      // session the process ran under. Neither agent reports those; the
-      // account identity is already on `actor.user`, so claiming it here would
-      // assert something about the host that the source never said.
-    }
-    $event.ocsf.message = "Agent shell command completed" if _process_completed else
-                          "Agent launched a process"
-  } else {
-    $event.ocsf.category_uid = 1
-    $event.ocsf.class_uid = 1009
-    $event.ocsf.activity_id = 1
-    $event.ocsf.type_uid = 100901
-    // The interpreter, where the source lets us tell. A tool named `Bash` is a
-    // Unix shell on any host, including Windows via Git Bash or WSL. Otherwise
-    // the platform decides, and a Windows host gives no way to distinguish
-    // `cmd` from PowerShell, so the type stays `Unknown` rather than guessed.
-    _os = ($event.otel.resource.os_type? else "").to_lower()
-    $event.ocsf.script = {
-      uid: move $event.otel.tool_use_id?,
-      script_content: {value: $event.otel.command? else ""},
-      hashes: [{algorithm_id: 3, value: move $event.otel.command_hash}] if ($event.otel.command_hash? else "") != "" else null,
-      type_id: 6 if $event.otel.process_name? == "bash" or
-                    _os in ["linux", "darwin", "freebsd", "openbsd", "netbsd", "sunos", "aix"] else
-               0,
-    }
-    $event.ocsf.message = "Agent executed a shell command" if _decision_status_id == null else
-                          "Agent shell command allowed" if _decision_status_id == 1 else
-                          "Agent shell command denied"
+      // OCSF Request Elements has no command attribute. Its `data` field is
+      // the typed home for provider-specific request elements carried on a
+      // result, so retain the original shell request here.
+      data: {command: move $event.otel.command?} if $event.otel.command? != null else null,
+    },
   }
+  $event.ocsf.actor = _actor
+  $event.ocsf.src_endpoint = {
+    hostname: $event.otel.resource.host_name?,
+    svc_name: $event.otel.resource.service_name,
+  }
+  $event.ocsf.message = "Agent shell process is still running"
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 3}
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.process_name? != null {
+  // Codex invokes the top-level command through a shell process. Model that
+  // one lifecycle consistently, including compound commands that may start
+  // several child processes. Script Activity is reserved for sources that
+  // observe a script engine and script content directly.
+  _process_result = $event.otel.event_name == "codex.tool_result"
+  _process_running = $event.otel.command_running? == true
+  _process_completed = _process_result and not _process_running
+  $event.ocsf.category_uid = 1
+  $event.ocsf.class_uid = 1007
+  $event.ocsf.activity_id = 2 if _process_completed else 1
+  $event.ocsf.type_uid = 100702 if _process_completed else 100701
+  // Codex does not report whether the shell was spawned, forked, or exec'd.
+  $event.ocsf.launch_type_id = 0 if not _process_completed else null
+  _process_uid = f"openai:codex:{$event.otel.tool_use_id}" if ($event.otel.tool_use_id? else "") != "" else null
+  $event.ocsf.process = {
+    name: move $event.otel.process_name,
+    // OCSF requires an empty string when the full command line is unavailable.
+    cmd_line: move $event.otel.command? else "",
+    uid: _process_uid,
+    created_time: $event.otel.start_time? else
+                  $event.otel.time - $event.otel.duration * 1ms if _process_completed and $event.otel.duration? != null else
+                  null,
+    terminated_time: $event.otel.time? if _process_completed else null,
+    // `process.pid` is intentionally absent. A tool call identifier is a
+    // producer-assigned correlation UID, not an operating-system PID.
+  }
+  $event.ocsf.exit_code = $event.otel.command_exit_code? if _process_completed else null
+  $event.ocsf.message = "Agent shell process terminated" if _process_completed else
+                        "Agent shell process launch denied" if _decision_status_id == 2 else
+                        "Agent requested a shell process"
   $event.ocsf.actor = _actor
   $event.ocsf.device = _device
   $event.ocsf.message_context = {..._message_context, ai_role_id: 3}
@@ -580,7 +601,7 @@ if $event.otel.event_name == "codex.skill.injected" {
 // action from a supervised one: an interactive source (`User`) means a person
 // decided (Approved/Rejected), anything else — `Config`, `AutomatedReviewer`,
 // the sandbox — means a rule fired (Allowed/Blocked) and is named in `policy`.
-if _decision_status_id != null and $event.ocsf.class_uid != 0 {
+if _decision_status_id != null {
   // A decision without a named decider must not imply that a rule fired, so
   // its disposition stays `Unknown` and no `policy` is attached.
   $event.ocsf.action_id = _decision_status_id
@@ -602,6 +623,10 @@ _scope_version = move $event.otel.scope.version?
 _host_arch = move $event.otel.resource.host_arch?
 _os_type = move $event.otel.resource.os_type?
 _os_version = move $event.otel.resource.os_version?
+if $event.otel.signal? == "metric" {
+  // Metric duration already populated the OCSF aggregation window.
+  drop $event.otel.duration?
+}
 
 // Values that feed multiple OCSF fields cannot be moved into a single target.
 // Remove them after all target fields have been populated. The full unrolled
@@ -612,7 +637,6 @@ drop $event.otel.event_name?,
      $event.otel.observed_time?,
      $event.otel.start_time?,
      $event.otel.end_time?,
-     $event.otel.duration?,
      $event.otel.event_sequence?,
      $event.otel.session_id?,
      $event.otel.turn_id?,
@@ -632,6 +656,7 @@ drop $event.otel.event_name?,
      $event.otel.client_version?,
      $event.otel.source_status?,
      $event.otel.tool_name?,
+     $event.otel.tool_use_id?,
      $event.otel.mcp_server?,
      $event.otel.server_name?,
      $event.otel.file_path?,
@@ -639,6 +664,8 @@ drop $event.otel.event_name?,
      $event.otel.file_operation?,
      $event.otel.process_name?,
      $event.otel.command?,
+     $event.otel.command_exit_code?,
+     $event.otel.command_running?,
      $event.otel.decision?,
      $event.otel.success?,
      $event.otel.request_id?,

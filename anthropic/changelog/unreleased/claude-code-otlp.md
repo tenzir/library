@@ -22,8 +22,9 @@ envelopes remain available through
 
 The mapping recognizes API and model activity, interactions, permission-mode
 changes, MCP server connections, plugin and hook lifecycle events, shell
-commands, and file operations. Potentially sensitive prompt, response, command,
-and tool content is hashed unless `include_content=true` is explicitly set.
+commands, and file operations. Potentially sensitive prompt, response, and
+copied tool content is hashed unless `include_content=true` is explicitly set.
+Shell command text is always retained in `process.cmd_line`.
 Fields with an OCSF destination are removed from `unmapped`; the complete
 native OTLP event remains available in `raw_data`.
 
@@ -67,7 +68,7 @@ record itself, which is what traces an event back to the raw entry. Only spans
 carry one, so it is set from `span_id` for span-sourced events and left empty
 for logs and metrics, which have none. A tool-call id such as `tool_use_id` names the
 call rather than the record, and the span, the decision and the result all
-share it, so it stays on `script.uid`, `process.uid` and `api.request.uid`, and
+share it, so it stays on `process.uid` and `api.request.uid`, and
 in `unmapped` on classes with no typed home for it.
 
 `metadata.correlation_uid` always identifies the trace, so grouping by it never
@@ -75,12 +76,21 @@ mixes a single transaction with a whole session. Events whose source carries no
 trace leave it empty; the session is available as `ai_agent.instance_uid`, and
 on classes with an actor also as `actor.session.uid`.
 
-Shell commands map to Script Activity: what the tool span attests is a command
-string, not a process, so the call reports `Execute` with the command in
-`script.script_content` and its SHA-256 digest in `script.hashes`. The result
-log keeps Process Activity semantics: a foreground completion reports
-`Terminate`, and a backgrounded command, which is still running when its
-result arrives, reports `Launch`.
+Claude Code shell tools map to one Process Activity lifecycle. A Bash decision
+is `Launch`; a completed foreground result is `Terminate`. Both derive a
+stable `process.uid` from `tool_use_id`, with an `anthropic:claude-code:`
+prefix. `process.pid` stays empty because the source does not report an
+operating-system PID. The mapper prefers `tool_parameters.full_command` because
+Claude can truncate `tool_input.command`. Matching tool spans are suppressed
+because they repeat the lifecycle reported by the decision and result logs.
+
+No correlation window is required. Each lifecycle record emits immediately
+and uses the same UID, including commands that run for several minutes. A
+denied decision produces a failed Launch without a Terminate. A background
+result becomes a separate API status observation because the decision already
+reported the Launch. It retains the full command in `api.request.data.command`.
+Its successful status describes delivery of the observation, not completion of
+the background process.
 
 Tool decisions carry the Security Control profile, which makes an autonomous
 action distinguishable from a supervised one. A rule that fires reports
@@ -95,7 +105,7 @@ a named decider, which Claude Code reports as source `unknown`, keeps an
 because the telemetry cannot distinguish a failed permission check from a
 policy block. Remote tool decisions use `Invoke` as the API activity, keep the
 tool name in `api.operation`, and place the MCP server in `api.service.name`.
-Local shell decisions map to the Script Activity they govern. The provisioning
+Local shell decisions map to the Process Activity launch request they govern. The provisioning
 source (`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized
 field for it.
 

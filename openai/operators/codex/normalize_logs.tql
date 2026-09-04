@@ -5,7 +5,7 @@ args:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, commands, and tool parameters.
+      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
 _a = attributes
@@ -35,6 +35,22 @@ _command_value = _tool_payload.command? else _tool_payload.full_command? else _t
 // A command is text regardless of its spelling, and its hash must cover that
 // text rather than the inferred scalar representation.
 _command = _command_value.string() if _command_value? != null else null
+_tool_success = _a.success.string() == "true" if _a.success? != null else null
+_tool_output = _a.output?
+// For `exec_command`, Codex's `success` says that the tool call returned a
+// result, not that the shell command succeeded. Preserve that fact while also
+// extracting the command state from the human-readable result envelope.
+_command_result = _event_name == "codex.tool_result" and _tool_name_lower == "exec_command"
+_exit_lines = _tool_output.split("\n").where(line => line.starts_with("Process exited with code ")) if _command_result and _tool_output? != null else []
+_exit_line = _exit_lines[0]? if _exit_lines.length() > 0 else null
+_command_exit_code = int(_exit_line.replace_regex("^Process exited with code ", "")) if _exit_line? != null else null
+_command_running = _command_result and _tool_output? != null and
+                   _tool_output.contains("Process running with session ID ")
+_session_lines = _tool_output.split("\n").where(line => line.contains("Process running with session ID ")) if _command_running else []
+_session_line = _session_lines[0]? if _session_lines.length() > 0 else null
+_terminal_session_id = _tool_payload.session_id.string() if _tool_payload.session_id? != null else
+                       _session_line.replace_regex("^.*Process running with session ID ", "") if _session_line? != null else
+                       null
 _content = _a.body? else _a.response? else _a.prompt? else body?
 
 select signal = "log",
@@ -67,8 +83,10 @@ select signal = "log",
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
-  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _command if $include_content else null,
+  process_name = "bash" if _tool_name_lower == "bash" else
+                 "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
+                 null,
+  command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
   // `codex.tool_decision` reports `decision` plus `source`;
   // `codex.sandbox_outcome` reports the sandbox's verdict as `outcome` with no
@@ -76,7 +94,10 @@ select signal = "log",
   decision = _a.decision? else _a.outcome?,
   tool_source = _a.tool_source?,
   decision_source = _a.source? else "sandbox" if _a.outcome? != null else null,
-  success = _a.success.string() == "true" if _a.success? != null else null,
+  success = _command_exit_code == 0 if _command_exit_code != null else _tool_success,
+  command_exit_code = _command_exit_code,
+  command_running = _command_running if _command_result else null,
+  terminal_session_id = _terminal_session_id,
   duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
   error = _a.error?,
   error_type = _a.error_type?,
