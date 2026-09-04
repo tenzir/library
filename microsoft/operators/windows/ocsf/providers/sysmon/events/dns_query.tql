@@ -21,6 +21,7 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // Note: is_src_dst_assignment_known is not part of DNS Activity (4003) — only
 // Network Activity (4001) defines it.
 $ocsf.connection_info = { direction_id: 2 }  // Outbound
+$ocsf.src_endpoint = {hostname: $ocsf.device.hostname}
 
 $ocsf.opcode_id = 0  // Standard query
 $ocsf.query = {
@@ -31,11 +32,6 @@ $ocsf.query = {
 // Read first for status_id, then move for status_code.
 $ocsf.status_id = 1 if $windows.EventData.QueryStatus.int() == 0 else 2
 $ocsf.status_code = (move $windows.EventData.QueryStatus).string()
-
-// Sysmon bundles CNAME chains + IPs into QueryResults as a semicolon-separated
-// string (e.g. "type:  5 cdn.example.com;::ffff:1.2.3.4;"). There is no clean
-// way to split CNAME targets from A/AAAA records without a regex engine, so the
-// raw field is left in unmapped.EventData for consumers that need it.
 
 // The process and user that issued the query — mapped via the Host profile actor.
 $ocsf.user_parts = (move $windows.EventData.User).split("\\")
@@ -58,3 +54,19 @@ $ocsf.actor.process.file.name = $ocsf.actor.process.name
 $ocsf.actor.process.file.path = $ocsf.actor.process.path
 
 drop $windows.EventData.Initiated?  // always "true" for Sysmon DNS events
+// QueryResults renders answers as a semicolon-separated list. Aliases appear
+// as "type: 5 name" and addresses as literals, IPv4 ones mapped into IPv6.
+if $windows.EventData.QueryResults? != null and $windows.EventData.QueryResults != "" {
+  $ocsf.activity_id = 2  // Response: the event carries the answers.
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.answers = ((move $windows.EventData.QueryResults)
+    .split(";")
+    .map(x => x.trim())
+    .where(x => x != "")
+    .map(x => x.slice(begin=7) if x.starts_with("::ffff:") else x)
+    .map(x => {
+      type: "CNAME" if x.starts_with("type:") else "AAAA" if x.contains(":") else "A",
+      rdata: x.split(" ")[-1]? if x.starts_with("type:") else x,
+    }))
+}
+drop $windows.EventData.QueryResults?

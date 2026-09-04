@@ -1,0 +1,71 @@
+---
+description: CodeIntegrity 3033/3034/3076/3077 and related (App Control blocked or audited a file) → OCSF Application Lifecycle (6002, Start)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: status_id
+      description: The OCSF status (1 when the policy audited, 2 when it blocked).
+      type: int
+---
+
+@name = "ocsf.application_lifecycle"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 3  // Start
+$ocsf.type_uid = 600203
+$ocsf.status_id = $status_id
+$ocsf.metadata.profiles = ["host", "security_control"]
+let $outcomes = {
+  "1": {
+    severity_id: 2,  // Low
+    status_detail: "Audited by App Control policy",
+  },
+  "2": {
+    severity_id: 3,  // Medium
+    status_detail: "Blocked by App Control policy",
+  },
+}
+$ocsf = {...$ocsf, ...$outcomes[$status_id.string()]}
+// Code Integrity reports file names as device paths.
+$ocsf.application = {
+  desc: move $windows.EventData.FileDescription?,
+  version: (move $windows.EventData.FileVersion?).string(),
+  product: {name: move $windows.EventData.ProductName?},
+  data: {
+    file_path: move $windows.EventData.FileNameBuffer?,
+    requested_policy: move $windows.EventData.RequestedPolicy?,
+    validated_policy: move $windows.EventData.ValidatedPolicy?,
+    requested_signing_level: move $windows.EventData.RequestedSigningLevel?,
+    validated_signing_level: move $windows.EventData.ValidatedSigningLevel?,
+  },
+}
+$ocsf.policy = {
+  name: move $windows.EventData.PolicyName?,
+  uid: move $windows.EventData.PolicyGUID?,
+  data: {hash: move $windows.EventData.PolicyHash?},
+}
+$ocsf.status_code = (move $windows.EventData.Status?).string()
+$ocsf.application.name = $ocsf.application.data.file_path?.split("\\")[-1]?
+$ocsf.application.type = "Code Integrity"
+if $windows.EventData.ProcessNameBuffer? != null {
+  $ocsf.actor = {
+    process: {
+      path: move $windows.EventData.ProcessNameBuffer,
+      file: {type_id: 8},
+    },
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}
+drop $windows.EventData.FileNameLength?,
+  $windows.EventData.ProcessNameLength?,
+  $windows.EventData.RequestedPolicyLength?,
+  $windows.EventData.ValidatedPolicyLength?,
+  $windows.EventData.PolicyID?

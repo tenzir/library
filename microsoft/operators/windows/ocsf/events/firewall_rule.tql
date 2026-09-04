@@ -1,0 +1,68 @@
+---
+description: Windows Firewall 2004/2005/2006 (rule added, modified, deleted) → OCSF Entity Management (3004)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The Entity Management activity (1 Create, 3 Update, 4 Delete).
+      type: int
+---
+
+@name = "ocsf.entity_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The firewall_rule object belongs to the security_control profile.
+$ocsf.metadata.profiles = ["host", "security_control"]
+let $directions = {"1": "Inbound", "2": "Outbound"}
+let $actions = {"2": "Block", "3": "Allow"}
+let $protocols = {"1": "ICMP", "6": "TCP", "17": "UDP", "256": "Any"}
+let $booleans = {"0": false, "1": true}
+$ocsf.entity = {
+  uid: move $windows.EventData.RuleId?,
+  name: move $windows.EventData.RuleName?,
+  type_id: 99,
+  type: "Firewall Rule",
+  data: {
+    application_path: move $windows.EventData.ApplicationPath?,
+    service_name: move $windows.EventData.ServiceName?,
+    direction_id: (move $windows.EventData.Direction?).int(),
+    action_id: (move $windows.EventData.Action?).int(),
+    protocol_num: (move $windows.EventData.Protocol?).int(),
+    local_ports: move $windows.EventData.LocalPorts?,
+    remote_ports: move $windows.EventData.RemotePorts?,
+    local_addresses: move $windows.EventData.LocalAddresses?,
+    remote_addresses: move $windows.EventData.RemoteAddresses?,
+    profiles: move $windows.EventData.Profiles?,
+    active: $booleans[(move $windows.EventData.Active?).string()]?,
+    edge_traversal: $booleans[(move $windows.EventData.EdgeTraversal?).string()]?,
+    origin: move $windows.EventData.Origin?,
+  },
+}
+$ocsf.entity.data.direction = $directions[$ocsf.entity.data.direction_id?.string()]?
+$ocsf.entity.data.action = $actions[$ocsf.entity.data.action_id?.string()]?
+$ocsf.entity.data.protocol = $protocols[$ocsf.entity.data.protocol_num?.string()]?
+$ocsf.firewall_rule = {
+  uid: $ocsf.entity.uid,
+  name: $ocsf.entity.name,
+  type: $ocsf.entity.data.direction,
+}
+$ocsf.actor = {
+  user: {uid: move $windows.EventData.ModifyingUser?},
+}
+if $windows.EventData.ModifyingApplication? != null {
+  $ocsf.actor.process = {
+    path: move $windows.EventData.ModifyingApplication,
+    file: {type_id: 8},
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}

@@ -1,0 +1,44 @@
+---
+description: BITS-Client 16403 (transfer job parameters) → OCSF HTTP Activity (4002)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.http_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
+$ocsf.activity_id = 99  // The job direction is not part of the event.
+$ocsf.activity_name = "Transfer"
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.http_request = {
+  url: {
+    url_string: move $windows.EventData.RemoteName,
+  },
+}
+$ocsf.http_request.url.scheme = $ocsf.http_request.url.url_string.split(":")[0]?
+$ocsf.http_request.url.hostname = $ocsf.http_request.url.url_string.split("/")[2]?.split(":")[0]?
+$ocsf.http_request.url.path = f"/{$ocsf.http_request.url.url_string.split("/").slice(begin=3).join("/")}"
+$ocsf.file = {
+  path: move $windows.EventData.LocalName,
+  type_id: 1,
+}
+$ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+$ocsf.actor = {
+  process: {
+    pid: (move $windows.EventData.processId?).int(),
+    path: move $windows.EventData.processPath?,
+    file: {type_id: 8},
+  },
+}
+if $ocsf.actor.process.path? != null {
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}
+$ocsf.connection_info = {direction_id: 2}  // Outbound

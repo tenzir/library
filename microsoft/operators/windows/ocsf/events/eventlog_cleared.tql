@@ -1,0 +1,36 @@
+---
+description: Windows Eventlog 104 (log file cleared) → OCSF Event Log Activity (1008, Clear)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.event_log_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1008
+$ocsf.activity_id = 1  // Clear
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.severity_id = 3  // Medium
+// EID 104 carries its fields under UserData/LogFileCleared.
+$ocsf.actor = {
+  user: {
+    name: move $windows.UserData.LogFileCleared.SubjectUserName?,
+    domain: move $windows.UserData.LogFileCleared.SubjectDomainName?,
+  },
+}
+// The class attribute names the log that was cleared; metadata.log_name keeps
+// the channel that recorded the clearing.
+$ocsf.log_name = move $windows.UserData.LogFileCleared.Channel?
+if $windows.UserData.LogFileCleared.BackupPath? != null and $windows.UserData.LogFileCleared.BackupPath != "" {
+  $ocsf.file = {
+    path: move $windows.UserData.LogFileCleared.BackupPath,
+    type_id: 1,
+  }
+  $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+}
+drop $windows.UserData

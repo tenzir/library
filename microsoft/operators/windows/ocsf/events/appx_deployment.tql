@@ -1,0 +1,47 @@
+---
+description: AppXDeployment-Server 400/401/404 (package deployment) → OCSF Application Lifecycle (6002, Install)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: status_id
+      description: The OCSF status (1 success, 2 failure).
+      type: int
+---
+
+@name = "ocsf.application_lifecycle"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 1  // Install
+$ocsf.type_uid = 600201
+$ocsf.status_id = $status_id
+$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+$ocsf.application = {
+  uid: $windows.EventData.PackageFullName?,
+  name: move $windows.EventData.PackageDisplayName? else $windows.EventData.PackageFullName?,
+  url: {url_string: move $windows.EventData.PackageSourceUri?},
+  data: {
+    package_full_name: move $windows.EventData.PackageFullName?,
+    path: move $windows.EventData.Path?,
+    file_path: move $windows.EventData.FilePath?,
+    deployment_operation: move $windows.EventData.DeploymentOperation?,
+    has_full_trust: move $windows.EventData.HasFullTrust?,
+    flags: move $windows.EventData.Flags?,
+  },
+}
+if $windows.EventData.CallingProcess? != null {
+  $ocsf.actor = {
+    process: {
+      path: move $windows.EventData.CallingProcess,
+      file: {type_id: 8},
+    },
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}

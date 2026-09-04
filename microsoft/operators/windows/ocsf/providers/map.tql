@@ -55,6 +55,10 @@ $ocsf.device = {
 // "-" is the universal Windows sentinel for "not applicable/empty".
 replace $windows, what="-", with=null
 
+if $windows.System.Correlation?.ActivityID? != null and $windows.System.Correlation.ActivityID != "" {
+  $ocsf.metadata.correlation_uid = move $windows.System.Correlation.ActivityID
+}
+
 match $windows.System.Provider.Name if $windows.EventData? != null or $windows.UserData? != null else "" {
   "Microsoft-Windows-TaskScheduler" => {
     match $windows.System.EventID {
@@ -126,6 +130,7 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
   }
   "Microsoft-Windows-Eventlog" => {
     match $windows.System.EventID {
+      104 => { microsoft::windows::ocsf::events::eventlog_cleared $windows, $ocsf }
       1100 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=7, status_id=1 }
       1102 => { microsoft::windows::ocsf::events::eventlog_clear $windows, $ocsf }
       1107 | 1108 => { microsoft::windows::ocsf::events::eventlog_health $windows, $ocsf, activity_id=99, status_id=2 }
@@ -176,6 +181,7 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       4634 | 4647 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=2, status_id=1 }
       4648 => { microsoft::windows::ocsf::events::explicit_credential_logon $windows, $ocsf }
       4649 => { microsoft::windows::ocsf::events::authentication $windows, $ocsf, activity_id=1, status_id=2, auth_protocol_id=2 }
+      4656 => { microsoft::windows::ocsf::events::object_access $windows, $ocsf }
       4657 => { microsoft::windows::ocsf::events::registry_value_modify $windows, $ocsf }
       4661 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=2, entity_type="Directory or SAM Object" }
       4662 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
@@ -295,6 +301,44 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
+  "Microsoft-Windows-Windows Firewall With Advanced Security" => {
+    match $windows.System.EventID {
+      2004 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=1 }
+      2005 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=3 }
+      2006 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=4 }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-CodeIntegrity" => {
+    match $windows.System.EventID {
+      3023 | 3032 | 3033 | 3036 | 3077 | 3104 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=2
+      }
+      3034 | 3076 | 3082 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1
+      }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-Bits-Client" => {
+    match $windows.System.EventID {
+      16403 => { microsoft::windows::ocsf::events::bits_transfer $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-DNS-Client" => {
+    match $windows.System.EventID {
+      3008 => { microsoft::windows::ocsf::events::dns_client_query $windows, $ocsf }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-AppXDeployment-Server" => {
+    match $windows.System.EventID {
+      400 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf, status_id=1 }
+      401 | 404 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf, status_id=2 }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
   "VSSAudit" => {
     match $windows.System.EventID {
       8222 => { microsoft::windows::ocsf::events::shadow_copy_create $windows, $ocsf }
@@ -311,6 +355,8 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
   "Service Control Manager" => {
     match $windows.System.EventID {
       7034 => { microsoft::windows::ocsf::events::service_crashed $windows, $ocsf }
+      7036 => { microsoft::windows::ocsf::events::service_state $windows, $ocsf }
+      7040 => { microsoft::windows::ocsf::events::service_reconfigure $windows, $ocsf }
       7045 => { microsoft::windows::ocsf::events::service_install_scm $windows, $ocsf }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }

@@ -1,0 +1,32 @@
+---
+description: Service Control Manager 7036 (service entered a state) → OCSF Windows Service Activity (201004)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.windows_service_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201004
+// param1 is the service display name and param2 the localized state.
+let $activities = {
+  running: {id: 3, name: "Start"},
+  stopped: {id: 4, name: "Stop"},
+  paused: {id: 5, name: "Pause"},
+}
+$ocsf.activity_name = (move $windows.EventData.param2).to_lower()
+$ocsf.activity_id = $activities[$ocsf.activity_name]?.id else 99
+$ocsf.activity_name = $activities[$ocsf.activity_name]?.name else $ocsf.activity_name
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.win_service = {
+  name: move $windows.EventData.param1,
+}
+// The service control manager acts autonomously; the event carries no subject.
+$ocsf.actor = {}
+// Binary repeats the service name as UTF-16; it adds nothing.
+drop $windows.EventData.Binary?

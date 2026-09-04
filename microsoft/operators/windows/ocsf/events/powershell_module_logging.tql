@@ -22,10 +22,42 @@ $ocsf.severity_id = 1  // Informational
 
 $ocsf.script = {
   type_id: 2,  // PowerShell
+  script_content: {
+    value: move $windows.EventData.Payload,
+  },
+}
+$ocsf.actor = {
+  process: {
+    pid: move $windows.System.Execution.ProcessID?,
+    ptid: move $windows.System.Execution.ThreadID?,
+  },
+}
+drop $windows.System.Execution?
+// ContextInfo is a rendered "Key = Value" block describing the host. Line
+// breaks do not survive every collector, so runs of whitespace separate the
+// entries.
+if $windows.EventData.ContextInfo? != null {
+  _context = $windows.EventData.ContextInfo.trim().parse_kv(
+    field_split=r"\s{2,}|\n",
+    value_split=r"\s*=\s*",
+  )
+  $ocsf.script.name = _context["Command Name"]?
+  if _context["Script Name"]? != null {
+    $ocsf.script.file = {
+      path: _context["Script Name"],
+      type_id: 1,
+    }
+    $ocsf.script.file.name = $ocsf.script.file.path.split("\\")[-1]
+    $ocsf.script.name = $ocsf.script.file.name
+  }
+  $ocsf.actor.process.cmd_line = _context["Host Application"]?
+  $ocsf.actor.user = {name: _context.User?}
+  if $ocsf.actor.user.name?.contains("\\") {
+    $ocsf.actor.user.domain = $ocsf.actor.user.name.split("\\")[0]
+    $ocsf.actor.user.name = $ocsf.actor.user.name.split("\\")[-1]
+  }
+  drop _context
 }
 
-// Payload contains the command invocation and parameter bindings as plain text;
-// preserve verbatim in unmapped because parsing it would require regex surgery.
-//
-// ContextInfo is a multi-line key=value block with host, engine, runspace,
-// pipeline, user, and shell info; also left in unmapped.
+// Keep the complete ContextInfo block in unmapped because it contains additional
+// host, engine, runspace, pipeline, and shell details.

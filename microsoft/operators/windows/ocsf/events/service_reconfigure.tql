@@ -1,0 +1,43 @@
+---
+description: Service Control Manager 7040 (service start type changed) → OCSF Windows Service Activity (201004, Reconfigure)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.windows_service_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 201004
+$ocsf.activity_id = 2  // Reconfigure
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// param1 is the display name, param2 the previous and param3 the new start
+// type, and param4 the service name.
+$ocsf.win_service = {
+  name: move $windows.EventData.param4? else $windows.EventData.param1,
+}
+let $start_types = {
+  "boot start": {id: 1, name: "Boot"},
+  "system start": {id: 2, name: "System"},
+  "auto start": {id: 3, name: "Auto"},
+  "demand start": {id: 4, name: "Demand"},
+  "disabled": {id: 5, name: "Disabled"},
+}
+$ocsf.win_service.service_start_type = (move $windows.EventData.param3?).to_lower()
+$ocsf.win_service.service_start_type_id = $start_types[$ocsf.win_service.service_start_type]?.id else 99
+$ocsf.win_service.service_start_type = $start_types[$ocsf.win_service.service_start_type]?.name else $ocsf.win_service.service_start_type
+$ocsf.prev_win_service = {
+  name: $ocsf.win_service.name,
+  service_start_type: (move $windows.EventData.param2?).to_lower(),
+}
+$ocsf.prev_win_service.service_start_type_id = $start_types[$ocsf.prev_win_service.service_start_type]?.id else 99
+$ocsf.prev_win_service.service_start_type = $start_types[$ocsf.prev_win_service.service_start_type]?.name else $ocsf.prev_win_service.service_start_type
+if $windows.EventData.param1? != null {
+  $ocsf.win_service.labels = [move $windows.EventData.param1]
+  $ocsf.prev_win_service.labels = $ocsf.win_service.labels
+}
+$ocsf.actor = {}

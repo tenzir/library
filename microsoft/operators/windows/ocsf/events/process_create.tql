@@ -40,6 +40,31 @@ $ocsf.process = {
     path: move $windows.EventData.ParentProcessName?,
   },
 }
+// The mandatory label SID encodes the integrity level of the new process.
+let $integrity_ids = {
+  "S-1-16-0": 1,
+  "S-1-16-4096": 2,
+  "S-1-16-8192": 3,
+  "S-1-16-12288": 4,
+  "S-1-16-16384": 5,
+  "S-1-16-20480": 6,
+}
+if $windows.EventData.MandatoryLabel? != null {
+  $ocsf.process.integrity_id = $integrity_ids[$windows.EventData.MandatoryLabel]? else 99
+  if $ocsf.process.integrity_id == 99 {
+    $ocsf.process.integrity = $windows.EventData.MandatoryLabel
+  }
+  drop $windows.EventData.MandatoryLabel
+}
+// Version 2 of the event names the account the new process runs as.
+if $windows.EventData.TargetUserName? != null {
+  $ocsf.process.user = {
+    uid: move $windows.EventData.TargetUserSid?,
+    name: move $windows.EventData.TargetUserName,
+    domain: move $windows.EventData.TargetDomainName?,
+  }
+  $ocsf.process.session = {uid_alt: move $windows.EventData.TargetLogonId?}
+}
 $ocsf.process.name = $ocsf.process.path.split("\\")[-1]
 $ocsf.process.file.name = $ocsf.process.name
 $ocsf.process.file.path = $ocsf.process.path
@@ -55,5 +80,4 @@ if $ocsf.process.parent_process.path? != null {
 // EID 4688 only fires on success.
 $ocsf.status_id = 1
 
-// TargetUserSid/Name/Domain are the impersonation target (usually null after
-// sentinel replacement). TokenElevationType and MandatoryLabel have no OCSF home.
+// TokenElevationType has no OCSF home and remains in unmapped.
