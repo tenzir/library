@@ -26,6 +26,13 @@ $ocsf.script = {
     value: move $windows.EventData.Payload,
   },
 }
+$ocsf.actor = {
+  process: {
+    pid: move $windows.System.Execution.ProcessID?,
+    ptid: move $windows.System.Execution.ThreadID?,
+  },
+}
+drop $windows.System.Execution?
 // ContextInfo is a rendered "Key = Value" block describing the host. Line
 // breaks do not survive every collector, so runs of whitespace separate the
 // entries.
@@ -43,10 +50,8 @@ if $windows.EventData.ContextInfo? != null {
     $ocsf.script.file.name = $ocsf.script.file.path.split("\\")[-1]
     $ocsf.script.name = $ocsf.script.file.name
   }
-  $ocsf.actor = {
-    process: {cmd_line: _context["Host Application"]?},
-    user: {name: _context.User?},
-  }
+  $ocsf.actor.process.cmd_line = _context["Host Application"]?
+  $ocsf.actor.user = {name: _context.User?}
   if $ocsf.actor.user.name?.contains("\\") {
     $ocsf.actor.user.domain = $ocsf.actor.user.name.split("\\")[0]
     $ocsf.actor.user.name = $ocsf.actor.user.name.split("\\")[-1]

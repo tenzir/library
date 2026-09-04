@@ -20,6 +20,7 @@ $ocsf.class_uid = 6002
 $ocsf.activity_id = 3  // Start
 $ocsf.type_uid = 600203
 $ocsf.status_id = $status_id
+$ocsf.metadata.profiles = ["host", "security_control"]
 let $outcomes = {
   "1": {
     severity_id: 2,  // Low
@@ -33,17 +34,23 @@ let $outcomes = {
 $ocsf = {...$ocsf, ...$outcomes[$status_id.string()]}
 // Code Integrity reports file names as device paths.
 $ocsf.application = {
+  desc: move $windows.EventData.FileDescription?,
+  version: (move $windows.EventData.FileVersion?).string(),
+  product: {name: move $windows.EventData.ProductName?},
   data: {
     file_path: move $windows.EventData.FileNameBuffer?,
     requested_policy: move $windows.EventData.RequestedPolicy?,
     validated_policy: move $windows.EventData.ValidatedPolicy?,
     requested_signing_level: move $windows.EventData.RequestedSigningLevel?,
     validated_signing_level: move $windows.EventData.ValidatedSigningLevel?,
-    policy_name: move $windows.EventData.PolicyName?,
-    policy_uid: move $windows.EventData.PolicyGUID?,
-    status: move $windows.EventData.Status?,
   },
 }
+$ocsf.policy = {
+  name: move $windows.EventData.PolicyName?,
+  uid: move $windows.EventData.PolicyGUID?,
+  data: {hash: move $windows.EventData.PolicyHash?},
+}
+$ocsf.status_code = (move $windows.EventData.Status?).string()
 $ocsf.application.name = $ocsf.application.data.file_path?.split("\\")[-1]?
 $ocsf.application.type = "Code Integrity"
 if $windows.EventData.ProcessNameBuffer? != null {
@@ -57,4 +64,8 @@ if $windows.EventData.ProcessNameBuffer? != null {
   $ocsf.actor.process.file.name = $ocsf.actor.process.name
   $ocsf.actor.process.file.path = $ocsf.actor.process.path
 }
-drop $windows.EventData.FileNameLength?, $windows.EventData.ProcessNameLength?
+drop $windows.EventData.FileNameLength?,
+  $windows.EventData.ProcessNameLength?,
+  $windows.EventData.RequestedPolicyLength?,
+  $windows.EventData.ValidatedPolicyLength?,
+  $windows.EventData.PolicyID?
