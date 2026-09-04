@@ -1,8 +1,7 @@
 ---
 description: >
-  Sysmon WMI subscription events (EIDs 19/20/21) → OCSF Base Event (0).
-  No OCSF 1.7.0 class covers WMI filter/consumer/binding registration;
-  all fields are preserved in unmapped for downstream use.
+  Sysmon WMI subscription events (EIDs 19/20/21)
+  → OCSF Entity Management (3004).
 args:
   positional:
     - name: windows
@@ -13,8 +12,71 @@ args:
       type: field
 ---
 
-// Base Event — no specific OCSF class for WMI subscription events.
-$ocsf.category_uid = 0
-$ocsf.class_uid = 0
-$ocsf.activity_id = 0
-$ocsf.type_uid = 0
+@name = "ocsf.entity_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+
+$ocsf.activity_name = move $windows.EventData.Operation?
+match $ocsf.activity_name {
+  "Created" => { $ocsf.activity_id = 1 }
+  "Modified" => { $ocsf.activity_id = 3 }
+  "Deleted" => { $ocsf.activity_id = 4 }
+  null => { $ocsf.activity_id = 0 }
+  _ => { $ocsf.activity_id = 99 }
+}
+if $ocsf.activity_id != 99 {
+  drop $ocsf.activity_name
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+match $ocsf.metadata.event_code {
+  "19" => {
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Event Filter",
+      name: move $windows.EventData.Name?,
+      data: {
+        namespace: move $windows.EventData.EventNamespace?,
+        query: move $windows.EventData.Query?,
+      },
+    }
+  }
+  "20" => {
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Event Consumer",
+      name: move $windows.EventData.Name?,
+      data: {
+        consumer_type: move $windows.EventData.Type?,
+        destination: move $windows.EventData.Destination?,
+      },
+    }
+  }
+  "21" => {
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Filter-to-Consumer Binding",
+      data: {
+        consumer: move $windows.EventData.Consumer?,
+        filter: move $windows.EventData.Filter?,
+      },
+    }
+  }
+  _ => {}
+}
+
+if $windows.EventData.User? != null {
+  $ocsf.actor = {
+    user: {
+      name: move $windows.EventData.User,
+    },
+  }
+  $ocsf.actor.user.domain = $ocsf.actor.user.name.split("\\")[0]? if $ocsf.actor.user.name.contains("\\")
+  $ocsf.actor.user.name = $ocsf.actor.user.name.split("\\")[-1]?
+}
+
+drop $windows.EventData.EventType?
+if $windows.EventData.is_empty() {
+  drop $windows.EventData
+}

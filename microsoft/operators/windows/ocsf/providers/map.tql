@@ -65,12 +65,15 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
         microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
       }
-      102 | 201 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+      102 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Task Complete"
       }
       103 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Execution Failure"
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
+      }
+      110 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
       }
       106 => {
         microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=1
@@ -84,9 +87,15 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       142 => {
         microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=5
       }
+      201 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Action Complete"
+      }
       202 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Action Failure"
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
+      }
+      325 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Queue"
       }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
@@ -114,6 +123,7 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       1005..1008 => { microsoft::windows::ocsf::events::defender_threat $windows, $ocsf }
       1115..1118 => { microsoft::windows::ocsf::events::defender_detection $windows, $ocsf }
       1121 => { microsoft::windows::ocsf::events::defender_asr $windows, $ocsf }
+      1122 => { microsoft::windows::ocsf::events::defender_asr_audit $windows, $ocsf }
       2000 => { microsoft::windows::ocsf::events::defender_signature_update $windows, $ocsf }
       5001 => {
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Real-Time Protection Disabled"
@@ -121,6 +131,12 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       5007 => {
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Configuration Changed"
       }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-WMI-Activity" => {
+    match $windows.System.EventID {
+      5861 => { microsoft::windows::ocsf::events::wmi_subscription $windows, $ocsf }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
@@ -200,12 +216,12 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       4717 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
       4718 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
       4719 => { microsoft::windows::ocsf::events::audit_policy_change $windows, $ocsf }
-      4720 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=1 }
-      4722 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=2 }
-      4723 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=3 }
-      4724 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=4 }
-      4725 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=5 }
-      4726 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=6 }
+      4720 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=1, map_privileges=false }
+      4722 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=4, map_privileges=false }
+      4723 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=8, map_privileges=false }
+      4724 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=9, map_privileges=false }
+      4725 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=5, map_privileges=false }
+      4726 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=3, map_privileges=false }
       4727 | 4731 | 4754 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=6 }
       4728 | 4732 | 4756 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=3 }
       4729 | 4733 | 4757 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=4 }
@@ -217,8 +233,8 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       4748 | 4753 | 4763 => { microsoft::windows::ocsf::events::group_management $windows, $ocsf, activity_id=5 }
       4738 | 4742 | 4781 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=2 }
       4739 => { microsoft::windows::ocsf::events::domain_policy_change $windows, $ocsf }
-      4740 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=9 }
-      4767 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=12 }
+      4740 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=6, map_privileges=false }
+      4767 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=7, map_privileges=false }
       4768 => { microsoft::windows::ocsf::events::kerberos_tgt $windows, $ocsf }
       4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket $windows, $ocsf }
       4771 => { microsoft::windows::ocsf::events::kerberos_preauth_failed $windows, $ocsf }
@@ -260,6 +276,7 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       5059 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Cryptographic Key" }
       5136 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
       5137 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Directory Object" }
+      5141 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Directory Object" }
       5140 | 5145 => { microsoft::windows::ocsf::events::smb_share_access $windows, $ocsf }
       5632 => { microsoft::windows::ocsf::events::wireless_authentication $windows, $ocsf }
       6144 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings" }

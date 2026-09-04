@@ -1,0 +1,68 @@
+---
+description: >
+  Windows Defender Attack Surface Reduction audit event (EID 1122)
+  → OCSF Detection Finding (2004).
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+@name = "ocsf.detection_finding"
+
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.metadata.profiles = ["host", "security_control"]
+
+// Audit mode observes activity without blocking it.
+$ocsf.action_id = 3  // Observed
+$ocsf.disposition_id = 15  // Detected
+$ocsf.finding_info = {
+  title: "Microsoft Defender ASR Audit",
+  uid: move $windows.EventData.ID?,
+  types: [move $windows.EventData.RuleType?],
+}
+
+if $windows.EventData["Process Name"]? != null {
+  $ocsf.actor.process = {
+    cmd_line: move $windows.EventData["Parent Commandline"]?,
+    path: move $windows.EventData["Process Name"],
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]?
+  $ocsf.actor.process.file = {
+    name: $ocsf.actor.process.name,
+    path: $ocsf.actor.process.path,
+    type_id: 8,
+  }
+}
+if $windows.EventData.User? != null {
+  $ocsf.actor.user = {
+    name: move $windows.EventData.User,
+  }
+  $ocsf.actor.user.domain = $ocsf.actor.user.name.split("\\")[0]? if $ocsf.actor.user.name.contains("\\")
+  $ocsf.actor.user.name = $ocsf.actor.user.name.split("\\")[-1]?
+}
+
+if $windows.EventData.Path? != null and $windows.EventData.Path != "" {
+  $ocsf.evidences = [{
+    process: {
+      cmd_line: $windows.EventData["Target Commandline"]?,
+      path: $windows.EventData.Path,
+      name: $windows.EventData.Path.split("\\")[-1]?,
+      file: {
+        name: $windows.EventData.Path.split("\\")[-1]?,
+        path: $windows.EventData.Path,
+        type_id: 8,
+      },
+    },
+  }]
+  drop $windows.EventData.Path, $windows.EventData["Target Commandline"]?
+}
+
+drop $windows.EventData.Unused?

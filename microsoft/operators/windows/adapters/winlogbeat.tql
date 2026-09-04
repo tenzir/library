@@ -66,6 +66,14 @@ $windows.canonical = {
     version: move $windows.winlogbeat.agent?.version?,
   },
 }
+// Winlogbeat preserves the UserData section for WMI EID 5861, but flattens
+// its XML wrapper and records the wrapper name separately.
+if $windows.canonical.System.Provider.Name == "Microsoft-Windows-WMI-Activity" and $windows.canonical.System.EventID.int() == 5861 {
+  drop $windows.canonical.UserData.xml_name?
+  $windows.canonical.UserData = {
+    Operation_ESStoConsumerBinding: move $windows.canonical.UserData,
+  }
+}
 // Winlogbeat preserves Sysmon's uppercase GUID suffix, while Windows Event
 // XML exposes the same fields with a `Guid` suffix.
 if $windows.canonical.EventData? != null {
