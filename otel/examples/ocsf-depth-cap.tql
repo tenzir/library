@@ -1,0 +1,77 @@
+---
+name: Cap OCSF Nesting Depth
+description: >
+  Demonstrates a depth-3 cap on schema-complete OCSF events: every object
+  nested deeper than three levels collapses into a JSON string instead of
+  expanding into thousands of null columns.
+---
+
+// Schema-complete OCSF events explode: a Process Activity event with the
+// `ai_operation` profile expands to 18,887 leaf columns, of which the event
+// populates a handful. Collapsing everything below depth 3 into a JSON string
+// keeps the homogeneous schema that `null_fill` exists to provide, stays
+// lossless, and bounds the column count.
+
+subscribe "otlp"
+anthropic::claude_code::ocsf
+where class_uid == 1007
+ocsf_derive
+ocsf_cast null_fill=true, encode_variants=true
+
+// Process trees: the class carries `process` and `actor.process`, each with a
+// parent, and each parent carries its own file and user objects.
+actor.process.parent_process = actor.process.parent_process.print_json()
+actor.process.file = actor.process.file.print_json()
+actor.process.user = actor.process.user.print_json()
+process.parent_process.file = process.parent_process.file.print_json()
+process.parent_process.user = process.parent_process.user.print_json()
+
+// AI agents: `ai_agent.charter` is typed as a `file`, so it drags in four
+// full `user` objects plus download endpoints.
+actor.process.ai_agent = actor.process.ai_agent.print_json()
+actor.process.hosted_ai_agent_list = actor.process.hosted_ai_agent_list.print_json()
+process.parent_process.ai_agent = process.parent_process.ai_agent.print_json()
+process.parent_process.hosted_ai_agent_list = process.parent_process.hosted_ai_agent_list.print_json()
+process.ai_agent.charter = process.ai_agent.charter.print_json()
+ai_agent.charter.download_info = ai_agent.charter.download_info.print_json()
+ai_agent.charter.accessor = ai_agent.charter.accessor.print_json()
+ai_agent.charter.creator = ai_agent.charter.creator.print_json()
+ai_agent.charter.modifier = ai_agent.charter.modifier.print_json()
+ai_agent.charter.owner = ai_agent.charter.owner.print_json()
+ai_agent.charter.signature = ai_agent.charter.signature.print_json()
+ai_agent.charter.signatures = ai_agent.charter.signatures.print_json()
+
+// Files: `download_info.src_endpoint` recurses through proxy endpoints, and
+// accessor/creator/modifier/owner are four complete `user` objects.
+process.file.download_info = process.file.download_info.print_json()
+process.file.accessor = process.file.accessor.print_json()
+process.file.creator = process.file.creator.print_json()
+process.file.modifier = process.file.modifier.print_json()
+process.file.owner = process.file.owner.print_json()
+process.file.signature = process.file.signature.print_json()
+process.file.signatures = process.file.signatures.print_json()
+module.file.download_info = module.file.download_info.print_json()
+module.file.accessor = module.file.accessor.print_json()
+module.file.creator = module.file.creator.print_json()
+module.file.modifier = module.file.modifier.print_json()
+module.file.owner = module.file.owner.print_json()
+module.file.signature = module.file.signature.print_json()
+module.file.signatures = module.file.signatures.print_json()
+
+// Identity: an identity provider's auth factors reach devices, agents and
+// policies that have nothing to do with the event's subject.
+actor.idp.auth_factors = actor.idp.auth_factors.print_json()
+actor.idp.sso = actor.idp.sso.print_json()
+actor.idp.scim = actor.idp.scim.print_json()
+actor.iam_role.resources = actor.iam_role.resources.print_json()
+actor.user.ldap_person = actor.user.ldap_person.print_json()
+process.user.ldap_person = process.user.ldap_person.print_json()
+device.owner.ldap_person = device.owner.ldap_person.print_json()
+
+// Applications.
+actor.application.owner = actor.application.owner.print_json()
+actor.application.sbom = actor.application.sbom.print_json()
+actor.application.resource_relationship = actor.application.resource_relationship.print_json()
+message_context.application.owner = message_context.application.owner.print_json()
+message_context.application.sbom = message_context.application.sbom.print_json()
+message_context.application.resource_relationship = message_context.application.resource_relationship.print_json()

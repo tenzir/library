@@ -1,0 +1,674 @@
+---
+description: Maps normalized Codex events to OCSF 1.9.0.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The field that holds the normalized event.
+---
+
+$event = {...$event, otel: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  event_code: $event.otel.event_name,
+  log_format: "OTLP/gRPC" if $event.otel.transport? == "grpc" else
+              "OTLP/HTTP" if $event.otel.transport? == "http" else
+              "OTLP/JSON" if $event.otel.transport? == "json" else
+              "OTLP",
+  log_provider: "OpenTelemetry",
+  log_source: $event.otel.scope.name?,
+  log_level: $event.otel.severity_text?,
+  logged_time: $event.otel.observed_time?,
+  // The identifier the source assigned to this record, which is what makes the
+  // event traceable back to the raw entry. Only spans carry one: `span_id`
+  // identifies the span itself. A tool-call id names the call, not the record,
+  // and the span, the decision and the result all share it, so it cannot
+  // identify a single source event; it stays on `script.uid`, `process.uid`
+  // and `api.request.uid`. Log and metric records carry no native identifier,
+  // so the field is left empty rather than filled with something else.
+  original_event_uid: $event.otel.span_id? if $event.otel.signal? == "trace" else null,
+  // `correlation_uid` always identifies the trace, so grouping by it never
+  // mixes scopes. The session is available as `ai_agent.instance_uid`.
+  correlation_uid: $event.otel.trace_id? if ($event.otel.trace_id? else "") != "" else null,
+  sequence: $event.otel.event_sequence?,
+  tenant_uid: $event.otel.organization_id?,
+  product: {
+    name: "Codex",
+    vendor_name: "OpenAI",
+    version: $event.otel.resource.service_version? else $event.otel.app_version?,
+  },
+  version: "1.9.0",
+}
+
+$event.ocsf.time = $event.otel.time? else $event.otel.start_time? else $event.otel.observed_time?
+// `start_time`, `end_time` and `duration` describe an aggregation window and
+// the schema says not to populate them for discrete events. A metric point is
+// an aggregate, so it carries the window and the count it summarizes;
+// everything else is a point in time and carries `time` alone. Span timing
+// stays on the Trace profile, and a tool's own `duration_ms` remains in
+// `unmapped`.
+if $event.otel.signal? == "metric" {
+  $event.ocsf.start_time = $event.otel.start_time?
+  $event.ocsf.end_time = $event.otel.end_time?
+  $event.ocsf.duration = $event.otel.duration?
+  $event.ocsf.count = int($event.otel.metric_value?) if $event.otel.metric_value? != null else null
+}
+// `message` is a human-readable summary for display; the raw event name stays
+// in `metadata.event_code`. Branches override this fallback with a sentence.
+$event.ocsf.message = $event.otel.event_name
+$event.ocsf.raw_data = move $event.otel.raw_data?
+$event.ocsf.raw_data_size = move $event.otel.raw_data_size?
+// The agents report tool approvals as free text (`accept`/`approved`,
+// `deny`/`rejected`) and name the authorizing party in `decision_source`
+// (a policy such as `config`, or `User` for an interactive prompt).
+_decision = ($event.otel.decision? else "").to_lower()
+_decision_status_id = 1 if _decision in ["accept", "approved", "approved_for_session", "allow", "allowed"] else
+                      2 if _decision in ["deny", "denied", "reject", "rejected", "abort", "aborted"] else
+                      null
+// Who decided, resolved once and reused: an interactive source means a person,
+// anything else named means a rule fired. An unnamed decider is neither.
+_decision_source = ($event.otel.decision_source? else "").to_lower()
+_human_decision = _decision_source.starts_with("user")
+_policy_decision = not _human_decision and _decision_source not in ["", "unknown"]
+// The decision appears twice by design: normalized into `action_id` and
+// `disposition_id`, and verbatim here. `policy` is attached only when a rule
+// decided, because a person is not a policy.
+_authorizations = [{
+  decision: $event.otel.decision?,
+  // The source names the kind of control that decided, not a named rule, so
+  // it lands in `policy.type` here exactly as it does in the top-level
+  // `policy` block.
+  policy: {type: $event.otel.decision_source} if _policy_decision else null,
+}] if $event.otel.decision? != null else null
+
+// A denied tool call is a governance signal worth surfacing above the
+// informational baseline. OCSF `Low` reads as "the user decides if action is
+// needed", which fits a single denial; repeated denials are what warrant
+// attention, and that is a detection concern rather than a per-event severity.
+$event.ocsf.severity_id = 3 if $event.otel.success? == false or ($event.otel.http_status? != null and $event.otel.http_status >= 400) or $event.otel.status_code? == 2 else
+                          2 if _decision_status_id == 2 else 1
+// Claim an outcome only where the source states one: the `success` flag, an
+// HTTP response code, or an OTLP span status. A decision to allow is not an
+// outcome, because the call it permits can still fail and the result record is
+// what reports that; a denial is, because the activity never ran.
+$event.ocsf.status_id = 1 if $event.otel.success? == true or
+                             ($event.otel.http_status? != null and $event.otel.http_status < 400) or
+                             $event.otel.status_code? == 1 else
+                        2 if $event.otel.success? == false or
+                             ($event.otel.http_status? != null and $event.otel.http_status >= 400) or
+                             $event.otel.status_code? == 2 or
+                             _decision_status_id == 2 else
+                        0
+// The source's own code. The OTLP span status is not one: it already has a
+// home on `trace.span.status_code`, and mixing the two code spaces in one
+// field makes neither readable.
+$event.ocsf.status_code = $event.otel.source_status_code.string() if $event.otel.source_status_code? != null else
+                          $event.otel.http_status.string() if $event.otel.http_status? != null else null
+// Why the outcome happened. The decision is not a reason: it is already
+// carried by `action_id`, `disposition_id` and `actor.authorizations`.
+$event.ocsf.status_detail = $event.otel.error? else
+                            $event.otel.error_type? else
+                            $event.otel.status_message? else
+                            $event.otel.startup_status? else
+                            $event.otel.source_status?
+
+_actor = {
+  authorizations: _authorizations,
+  // `app_name` is deprecated in OCSF 1.9.0 in favour of `application.name`.
+  application: {name: $event.otel.resource.service_name},
+  session: {
+    uid: $event.otel.session_id?,
+    terminal: $event.otel.terminal_type?,
+  },
+  user: {
+    uid: $event.otel.user_id?,
+    uid_alt: $event.otel.user_uid_alt?,
+    email_addr: $event.otel.user_email?,
+  },
+}
+// A device is an addressable host. When the resource reports none, say so
+// rather than substituting the agent's service name, which would join these
+// events to an asset that does not exist.
+// `device` constrains itself to at least one of `ip`, `uid`, `name`,
+// `hostname`, `instance_uid`, `interface_uid` or `interface_name`, so it is
+// attached only when the resource names the host. A device object that
+// identifies nothing cannot be joined to an asset, and claiming one that the
+// source never reported would be worse than leaving the required field empty.
+// `device` constrains itself to at least one identifying attribute, and the
+// host name the agent reports is the only one this telemetry carries. The
+// address the export arrived from is not a substitute: a collector reached
+// through a container or a sidecar rewrites it, so every agent reports the
+// same value and it would satisfy the constraint while identifying nothing.
+// Agents that report no host name can set one with OTEL_RESOURCE_ATTRIBUTES.
+_device = {
+  hostname: $event.otel.resource.host_name?,
+  name: $event.otel.resource.host_name?,
+  // The OS the agent runs on, which both products report even when they
+  // report no host name.
+  os: {
+    name: $event.otel.resource.os_type?,
+    version: $event.otel.resource.os_version?,
+  } if $event.otel.resource.os_type? != null else null,
+  // `type_id` is required. Agent telemetry never says whether the host is a
+  // laptop, a server or a VM, so `0` (Unknown) is the honest answer.
+  type_id: 0,
+} if $event.otel.resource.host_name? != null else null
+_message_context = {
+  // `uid` is the context the messages belong to, the session. `name` is the
+  // turn within it when the source reports one; it never repeats `uid`.
+  uid: $event.otel.session_id?,
+  name: $event.otel.prompt_id? else $event.otel.turn_id?,
+  ai_role_id: 1 if $event.otel.event_name == "codex.user_prompt" else
+              2 if $event.otel.event_name == "codex.sse_event" else
+              3 if $event.otel.tool_name? != null else
+              4,
+  application: {
+    name: $event.otel.client_name? else $event.otel.app_entrypoint? else $event.otel.resource.service_name,
+    version: $event.otel.client_version? else $event.otel.app_version?,
+  },
+  // `message_context.service` names the system that handles the request, such
+  // as the model API. The local CLI is the client and is already on
+  // `application`, so this stays empty rather than repeating it.
+}
+_ai_agent = {
+  // The agent's name is the runtime the telemetry reports, which also
+  // distinguishes co-existing runtimes of one product. `uid` is reserved for a
+  // stable identity issued by an authoritative source; neither product issues
+  // one, so it stays empty rather than repeating the name. The product's
+  // display name is on `metadata.product.name`.
+  name: $event.otel.resource.service_name? else "Codex",
+  instance_uid: $event.otel.session_id?,
+  version: $event.otel.resource.service_version? else $event.otel.app_version?,
+  type_id: 1,
+  ai_model: {
+    name: $event.otel.model,
+    ai_provider: $event.otel.provider? else "OpenAI",
+  } if ($event.otel.model? else "") != "" else null,
+}
+
+if $event.otel.event_name == "codex.skill.injected" {
+  // A skill entering the context is a capability change on the agent, and the
+  // skill document is the agent's charter for that capability. The telemetry
+  // reports no content hash of the loaded skill, so charter integrity cannot
+  // be attested.
+  _skill_name = move $event.otel.skill_name? else "Unknown"
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6002
+  $event.ocsf.activity_id = 6
+  $event.ocsf.type_uid = 600206
+  $event.ocsf.application = {name: _skill_name}
+  $event.ocsf.message = f"Skill {_skill_name} injected into the agent context"
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = {..._ai_agent, charter: {name: _skill_name, type_id: 1}}
+} else if $event.otel.event_name == "codex.conversation_starts" {
+  // Session posture at start: the approval policy and sandbox policy are the
+  // privilege set the session begins with, assigned to the new session the way
+  // Authorize Session models a grant at logon time.
+  _approval_policy = move $event.otel.approval_policy?
+  _sandbox_policy = move $event.otel.sandbox_policy?
+  // Two independent policies. Qualify them, so a rule matching on one cannot
+  // accidentally match the other.
+  _privileges = [f"approval:{_approval_policy}" if _approval_policy != null else null,
+                 f"sandbox:{_sandbox_policy}" if _sandbox_policy != null else null].where(p => p != null)
+  $event.ocsf.category_uid = 3
+  $event.ocsf.class_uid = 3003
+  $event.ocsf.activity_id = 1
+  $event.ocsf.type_uid = 300301
+  $event.ocsf.actor = _actor
+  $event.ocsf.user = _actor.user
+  $event.ocsf.session = _actor.session
+  $event.ocsf.privileges = _privileges if _privileges.length() > 0 else ["unknown"]
+  $event.ocsf.severity_id = 3 if _sandbox_policy == "danger-full-access" else 1
+  $event.ocsf.message = f"Agent session started with approval policy {_approval_policy else "unknown"} and sandbox {_sandbox_policy else "unknown"}"
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.event_name in [
+  "plugins_for_config",
+  "recommended_plugins_mode_for_config",
+  "built_tools",
+] {
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6003
+  $event.ocsf.activity_id = 2
+  $event.ocsf.type_uid = 600302
+  $event.ocsf.api = {
+    operation: $event.otel.event_name,
+  }
+  $event.ocsf.message = f"Agent read its configured posture ({$event.otel.event_name})"
+  $event.ocsf.actor = _actor
+  $event.ocsf.src_endpoint = {
+    hostname: $event.otel.resource.host_name?,
+    svc_name: $event.otel.resource.service_name,
+  }
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 4}
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+  if ($event.otel.trace_id? else "") != "" {
+    $event.ocsf.trace = {
+      uid: move $event.otel.trace_id,
+      service: {
+        name: $event.otel.resource.service_name,
+        version: $event.otel.resource.service_version?,
+      },
+      // `span.start_time` and `span.end_time` are required, and only a span
+      // record has them. A log emitted inside a span knows the context but not
+      // the span's lifetime, so it carries the trace alone and its `span_id`
+      // stays in `unmapped`.
+      span: {
+        uid: move $event.otel.span_id,
+        parent_uid: move $event.otel.parent_span_id?,
+        operation: $event.otel.event_name,
+        start_time: $event.otel.start_time,
+        end_time: $event.otel.end_time,
+        duration: $event.otel.duration?,
+        status_code: $event.otel.status_code.string() if $event.otel.status_code? != null else null,
+      } if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null else null,
+    }
+    $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
+  }
+} else if $event.otel.event_name == "codex.tool_decision" and $event.otel.process_name? == null {
+  // Shell tool decisions fall through to the Script Activity branch below:
+  // for Codex the decision record is the closest thing to the shell-execution
+  // record, so the decision rides on the governed action. `tool_source` does
+  // not belong in `api.service.name`: other producers use that field for the
+  // MCP server name. The provisioning source stays in `unmapped` until the
+  // proposed `ai_tool` object gives it a home.
+  _decision_operation = $event.otel.tool_name? else $event.otel.event_name
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6003
+  $event.ocsf.activity_id = 99
+  $event.ocsf.activity_name = _decision_operation
+  $event.ocsf.type_uid = 600399
+  $event.ocsf.api = {
+    operation: _decision_operation,
+    request: {uid: move $event.otel.tool_use_id?},
+  }
+  _decision_mcp = _decision_operation.split("__") if _decision_operation.starts_with("mcp__") else []
+  if _decision_mcp.length() >= 3 {
+    $event.ocsf.dst_endpoint = {svc_name: _decision_mcp[1]?}
+  }
+  $event.ocsf.actor = _actor
+  // API Activity requires `src_endpoint`; the agent host is the source of the
+  // call the decision governs.
+  $event.ocsf.src_endpoint = {
+    hostname: $event.otel.resource.host_name?,
+    svc_name: $event.otel.resource.service_name,
+  }
+  $event.ocsf.message = f"Tool call {_decision_operation} " + (
+    "allowed" if _decision_status_id == 1 else
+    "denied" if _decision_status_id == 2 else "decided")
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 3}
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.file_operation? != null and $event.otel.file_path? != null {
+  let $activity_ids = {create: 1, read: 2, update: 3, delete: 4, rename: 5}
+  $event.ocsf.category_uid = 1
+  $event.ocsf.class_uid = 1001
+  $event.ocsf.activity_id = $activity_ids[$event.otel.file_operation]
+  $event.ocsf.type_uid = 100100 + $event.ocsf.activity_id
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.file = {
+    name: move $event.otel.file_name,
+    path: move $event.otel.file_path,
+    type_id: 1,
+    is_deleted: true if $event.otel.file_operation == "delete" else null,
+  }
+  let $file_verbs = {create: "created", read: "read", update: "updated", delete: "deleted", rename: "renamed"}
+  $event.ocsf.message = f"Agent {$file_verbs[$event.otel.file_operation]} file {$event.ocsf.file.name}"
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.process_name? != null {
+  // Only `exec` spans carry real process identity and keep Process Activity
+  // `Launch`; the result log is the process outcome and keeps `Terminate`.
+  // Everything else shell-shaped — `exec_command` spans, shell tool decisions,
+  // sandbox outcomes — attests a command string, not a process: Script
+  // Activity / Execute.
+  _process_completed = $event.otel.event_name.ends_with("tool_result")
+  _has_process_identity = _process_completed or $event.otel.tool_name? == "exec"
+  if _has_process_identity {
+    $event.ocsf.category_uid = 1
+    $event.ocsf.class_uid = 1007
+    $event.ocsf.activity_id = 2 if _process_completed else 1
+    $event.ocsf.type_uid = 100702 if _process_completed else 100701
+    $event.ocsf.launch_type_id = null if _process_completed else 1
+    $event.ocsf.process = {
+      name: move $event.otel.process_name,
+      cmd_line: move $event.otel.command? else "",
+      uid: move $event.otel.tool_use_id?,
+      // A completion record timestamps the end, not the start. Recover the
+      // start from the reported duration when there is one; never claim the
+      // end time is the start.
+      created_time: $event.otel.start_time? else
+                    $event.otel.time - $event.otel.duration * 1ms if $event.otel.duration? != null else
+                    null,
+      terminated_time: $event.otel.time if _process_completed else null,
+      // `process.user` and `process.session` describe the OS user and login
+      // session the process ran under. Neither agent reports those; the
+      // account identity is already on `actor.user`, so claiming it here would
+      // assert something about the host that the source never said.
+    }
+    $event.ocsf.message = "Agent shell command completed" if _process_completed else
+                          "Agent launched a process"
+  } else {
+    $event.ocsf.category_uid = 1
+    $event.ocsf.class_uid = 1009
+    $event.ocsf.activity_id = 1
+    $event.ocsf.type_uid = 100901
+    // The interpreter, where the source lets us tell. A tool named `Bash` is a
+    // Unix shell on any host, including Windows via Git Bash or WSL. Otherwise
+    // the platform decides, and a Windows host gives no way to distinguish
+    // `cmd` from PowerShell, so the type stays `Unknown` rather than guessed.
+    _os = ($event.otel.resource.os_type? else "").to_lower()
+    $event.ocsf.script = {
+      uid: move $event.otel.tool_use_id?,
+      script_content: {value: move $event.otel.command? else ""},
+      hashes: [{algorithm_id: 3, value: move $event.otel.command_hash}] if ($event.otel.command_hash? else "") != "" else null,
+      type_id: 6 if $event.otel.process_name? == "bash" or
+                    _os in ["linux", "darwin", "freebsd", "openbsd", "netbsd", "sunos", "aix"] else
+               0,
+    }
+    $event.ocsf.message = "Agent executed a shell command" if _decision_status_id == null else
+                          "Agent shell command allowed" if _decision_status_id == 1 else
+                          "Agent shell command denied"
+  }
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 3}
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if ($event.otel.http_method? else "") != "" and
+  $event.otel.server_address? != null {
+  // Gateway-grade data: host and method are present, usually with a response
+  // status, so the event supports HTTP Activity rather than the API Activity
+  // fallback. In practice this is `codex.exec_server.http_request`.
+  let $http_activities = {connect: 1, delete: 2, get: 3, head: 4, options: 5, post: 6, put: 7, trace: 8, patch: 9}
+  _http_method = move $event.otel.http_method
+  _server_address = $event.otel.server_address.string()
+  $event.ocsf.category_uid = 4
+  $event.ocsf.class_uid = 4002
+  $event.ocsf.activity_id = $http_activities[_http_method.to_lower()]? else 0
+  $event.ocsf.type_uid = 400200 + $event.ocsf.activity_id
+  $event.ocsf.actor = _actor
+  $event.ocsf.src_endpoint = {
+    hostname: $event.otel.resource.host_name?,
+    svc_name: $event.otel.resource.service_name,
+  }
+  $event.ocsf.dst_endpoint = {
+    hostname: _server_address,
+    port: $event.otel.server_port?,
+  }
+  // `url` constrains itself to at least one of `url_string` or `path`, so it is
+  // attached only when the record reports an endpoint. Without one the host and
+  // port are not a URL, and they are already carried by `dst_endpoint`.
+  _url_path = move $event.otel.endpoint?
+  $event.ocsf.http_request = {
+    http_method: _http_method,
+    url: {
+      hostname: _server_address,
+      port: $event.otel.server_port?,
+      path: _url_path,
+    } if _url_path != null else null,
+  }
+  if $event.otel.http_status? != null {
+    $event.ocsf.http_response = {
+      code: $event.otel.http_status,
+    }
+  }
+  $event.ocsf.message = f"Agent sent HTTP {_http_method} to {_server_address}"
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 4}
+  // HTTP Activity takes `actor` from the Host profile rather than natively,
+  // so the profile has to be declared or the actor is dropped on cast.
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.ai_agent = _ai_agent
+  if ($event.otel.trace_id? else "") != "" {
+    $event.ocsf.trace = {
+      uid: move $event.otel.trace_id,
+      service: {
+        name: $event.otel.resource.service_name,
+        version: $event.otel.resource.service_version?,
+      },
+      // `span.start_time` and `span.end_time` are required, and only a span
+      // record has them. A log emitted inside a span knows the context but not
+      // the span's lifetime, so it carries the trace alone and its `span_id`
+      // stays in `unmapped`.
+      span: {
+        uid: move $event.otel.span_id,
+        parent_uid: move $event.otel.parent_span_id?,
+        operation: $event.otel.event_name,
+        start_time: $event.otel.start_time,
+        end_time: $event.otel.end_time,
+        duration: $event.otel.duration?,
+        status_code: $event.otel.status_code.string() if $event.otel.status_code? != null else null,
+      } if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null else null,
+    }
+    $event.ocsf.metadata.profiles = ["ai_operation", "host", "trace"]
+  }
+} else if $event.otel.event_name in [
+  "codex.api_request",
+  "codex.websocket_request",
+  "codex.websocket_connect",
+  "codex.sse_event",
+  "codex.user_prompt",
+  "session_task.turn",
+  "list_tools_for_server",
+] or ($event.otel.tool_name? else "") != "" or
+  ($event.otel.rpc_method? else "") != "" or
+  ($event.otel.http_method? else "") != "" or
+  $event.otel.span_type? in ["llm_request", "tool", "tool.execution", "tool.blocked_on_user"] {
+  _api_operation = $event.otel.rpc_method? else
+                   $event.otel.event_kind? if $event.otel.event_name == "codex.sse_event" else
+                   $event.otel.http_method? else
+                   $event.otel.tool_name? else
+                   $event.otel.event_name
+  // Only an explicit HTTP verb names the activity. Tool names and JSON-RPC
+  // method paths get `Other` with the operation as the activity label, as the
+  // schema prescribes when no enum member fits. Guessing read/write intent
+  // from the shape of a name misclassifies: a tool called
+  // `cleanup_stale_records` would read as `Read` and then drop a table.
+  _http_verb = ($event.otel.http_method? else "").to_lower()
+  _api_activity_id = 2 if _http_verb in ["get", "head"] else
+                     3 if _http_verb in ["put", "patch"] else
+                     4 if _http_verb == "delete" else
+                     1 if _http_verb == "post" else
+                     99
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6003
+  $event.ocsf.activity_id = _api_activity_id
+  $event.ocsf.activity_name = _api_operation if _api_activity_id == 99 else null
+  $event.ocsf.type_uid = 600300 + _api_activity_id
+  $event.ocsf.api = {
+    operation: _api_operation,
+    request: {
+      uid: move $event.otel.rpc_request_id? else
+           move $event.otel.request_id? else
+           move $event.otel.tool_use_id?,
+    },
+  }
+  $event.ocsf.message = "User prompted the agent" if $event.otel.event_name == "codex.user_prompt" else
+                        "Model response completed" if $event.otel.event_name == "codex.sse_event" else
+                        "Agent called the vendor API" if $event.otel.event_name == "codex.api_request" else
+                        "Agent opened a websocket to the vendor" if $event.otel.event_name == "codex.websocket_connect" else
+                        "Agent model turn over the websocket" if $event.otel.event_name == "codex.websocket_request" else
+                        f"Agent sent an HTTP {_api_operation} request" if ($event.otel.http_method? else "") != "" else
+                        f"Agent called {_api_operation}" if ($event.otel.rpc_method? else "") != "" else
+                        f"Agent called tool {_api_operation}" if ($event.otel.tool_name? else "") != "" else
+                        f"Agent called {_api_operation}"
+  $event.ocsf.actor = _actor
+  $event.ocsf.src_endpoint = {
+    hostname: $event.otel.resource.host_name?,
+    svc_name: $event.otel.resource.service_name,
+  }
+  if $event.otel.server_address? != null or $event.otel.server_port? != null {
+    $event.ocsf.dst_endpoint = {
+      hostname: $event.otel.server_address.string() if $event.otel.server_address? != null else null,
+      port: $event.otel.server_port?,
+    }
+  }
+  // The serving MCP server goes into `dst_endpoint.svc_name` on every MCP
+  // event until the proposed `ai_tool` object provides a schema home for the
+  // serving system.
+  // `mcp__<server>__<tool>`. A malformed name yields no server, and the tool
+  // name is already on `api.operation`, so publishing it as a service name
+  // would only put the wrong kind of value in `dst_endpoint`.
+  _mcp_parts = $event.otel.tool_name.split("__") if ($event.otel.tool_name? else "").starts_with("mcp__") else []
+  _mcp_tool_server = _mcp_parts[1]? if _mcp_parts.length() >= 3 else null
+  _mcp_server = $event.otel.mcp_server? else $event.otel.server_name? else _mcp_tool_server
+  if _mcp_server != null and $event.ocsf.dst_endpoint? == null {
+    $event.ocsf.dst_endpoint = {svc_name: _mcp_server}
+  }
+  _total_tokens = $event.otel.total_tokens? else
+                  $event.otel.input_tokens + $event.otel.output_tokens if
+                  $event.otel.input_tokens? != null and
+                  $event.otel.output_tokens? != null else
+                  null
+  $event.ocsf.message_context = {
+    ..._message_context,
+    prompt_tokens: move $event.otel.input_tokens?,
+    completion_tokens: move $event.otel.output_tokens?,
+    total_tokens: _total_tokens,
+  }
+  // #1674 gave conversation text a schema home in 1.9; the hash stays in
+  // `unmapped.content_hash` as the integrity handle, which has none yet.
+  if $event.otel.event_name == "codex.user_prompt" {
+    $event.ocsf.message_context.prompt_text = move $event.otel.content?
+  } else if $event.otel.event_name == "codex.sse_event" {
+    $event.ocsf.message_context.response_text = move $event.otel.content?
+  }
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+  if ($event.otel.trace_id? else "") != "" {
+    $event.ocsf.trace = {
+      uid: move $event.otel.trace_id,
+      service: {
+        name: $event.otel.resource.service_name,
+        version: $event.otel.resource.service_version?,
+      },
+      // `span.start_time` and `span.end_time` are required, and only a span
+      // record has them. A log emitted inside a span knows the context but not
+      // the span's lifetime, so it carries the trace alone and its `span_id`
+      // stays in `unmapped`.
+      span: {
+        uid: move $event.otel.span_id,
+        parent_uid: move $event.otel.parent_span_id?,
+        operation: $event.otel.event_name,
+        start_time: $event.otel.start_time,
+        end_time: $event.otel.end_time,
+        duration: $event.otel.duration?,
+        status_code: $event.otel.status_code.string() if $event.otel.status_code? != null else null,
+      } if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null else null,
+    }
+    $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
+  }
+} else {
+  $event.ocsf.category_uid = 0
+  $event.ocsf.class_uid = 0
+  $event.ocsf.activity_id = 99
+  $event.ocsf.activity_name = $event.otel.event_name
+  $event.ocsf.type_uid = 99
+}
+
+// The Security Control profile carries the governance outcome on the event
+// the decision governed. `disposition_id` is what separates an autonomous
+// action from a supervised one: an interactive source (`User`) means a person
+// decided (Approved/Rejected), anything else — `Config`, `AutomatedReviewer`,
+// the sandbox — means a rule fired (Allowed/Blocked) and is named in `policy`.
+if _decision_status_id != null and $event.ocsf.class_uid != 0 {
+  // A decision without a named decider must not imply that a rule fired, so
+  // its disposition stays `Unknown` and no `policy` is attached.
+  $event.ocsf.action_id = _decision_status_id
+  $event.ocsf.disposition_id = (8 if _human_decision else 1 if _policy_decision else 0) if _decision_status_id == 1 else
+                               (25 if _human_decision else 2 if _policy_decision else 0)
+  if _policy_decision {
+    // Neither product names the rule that fired, so `name` stays empty rather
+    // than repeating the decider. `type` is where the kind of decider belongs.
+    $event.ocsf.policy = {
+      type: $event.otel.decision_source,
+      is_applied: true,
+    }
+  }
+  $event.ocsf.metadata.profiles = [...($event.ocsf.metadata.profiles? else []), "security_control"]
+}
+
+_scope_version = move $event.otel.scope.version?
+_host_arch = move $event.otel.resource.host_arch?
+_os_type = move $event.otel.resource.os_type?
+_os_version = move $event.otel.resource.os_version?
+
+// Values that feed multiple OCSF fields cannot be moved into a single target.
+// Remove them after all target fields have been populated. The full unrolled
+// OTLP event, including its original attributes, remains in `raw_data`.
+drop $event.otel.event_name?,
+     $event.otel.metric_name?,
+     $event.otel.time?,
+     $event.otel.observed_time?,
+     $event.otel.start_time?,
+     $event.otel.end_time?,
+     $event.otel.duration?,
+     $event.otel.event_sequence?,
+     $event.otel.session_id?,
+     $event.otel.turn_id?,
+     $event.otel.prompt_id?,
+     $event.otel.user_id?,
+     $event.otel.user_uid_alt?,
+     $event.otel.user_email?,
+     $event.otel.organization_id?,
+     $event.otel.app_version?,
+     $event.otel.app_entrypoint?,
+     $event.otel.terminal_type?,
+     $event.otel.model?,
+     $event.otel.provider?,
+     $event.otel.rpc_method?,
+     $event.otel.rpc_request_id?,
+     $event.otel.client_name?,
+     $event.otel.client_version?,
+     $event.otel.source_status?,
+     $event.otel.tool_name?,
+     $event.otel.mcp_server?,
+     $event.otel.server_name?,
+     $event.otel.file_path?,
+     $event.otel.file_name?,
+     $event.otel.file_operation?,
+     $event.otel.process_name?,
+     $event.otel.command?,
+     $event.otel.decision?,
+     $event.otel.success?,
+     $event.otel.request_id?,
+     $event.otel.http_method?,
+     $event.otel.http_status?,
+     $event.otel.server_address?,
+     $event.otel.server_port?,
+     $event.otel.startup_status?,
+     $event.otel.input_tokens?,
+     $event.otel.output_tokens?,
+     $event.otel.total_tokens?,
+     $event.otel.trace_id?,
+     $event.otel.status_code?,
+     $event.otel.status_message?,
+     $event.otel.error?,
+     $event.otel.error_type?,
+     $event.otel.source_status_code?,
+     $event.otel.severity_text?,
+     $event.otel.scope?,
+     $event.otel.resource?,
+     $event.otel.attributes?,
+     // Normalization artifacts rather than source attributes: `signal` drives
+     // the log/trace dispatch and `transport` feeds `metadata.log_format`.
+     // `decision_source` already lands in `actor.authorizations[].policy.name`.
+     $event.otel.signal?,
+     $event.otel.transport?,
+     $event.otel.decision_source?
+
+if (_scope_version? else "") != "" {
+  $event.otel.scope = {version: _scope_version}
+}
+if _host_arch? != null or _os_type? != null or _os_version? != null {
+  $event.otel.resource = {
+    host_arch: _host_arch,
+    os_type: _os_type,
+    os_version: _os_version,
+  }
+}
+
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.otel)}

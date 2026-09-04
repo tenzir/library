@@ -1,0 +1,39 @@
+---
+description: Normalizes a decoded Codex OTLP log, span, or metric point.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts, responses, commands, and tool parameters.
+---
+
+match signal {
+  "log" => {
+    where resource["service.name"] in ["codex_cli_rs", "codex_exec"]
+    openai::codex::normalize_logs include_content=$include_content
+  }
+  "trace" => {
+    where resource["service.name"] in ["codex_cli_rs", "codex_exec"]
+    openai::codex::normalize_traces include_content=$include_content
+    if event_name in [
+      "plugins_for_config",
+      "recommended_plugins_mode_for_config",
+      "built_tools",
+    ] {
+      deduplicate event_name,
+                  plugins_enabled,
+                  remote_plugin_enabled,
+                  apps_enabled,
+                  model,
+                  create_timeout=1h
+    }
+  }
+  "/v1/metrics" => {
+    openai::codex::normalize_metrics
+    where resource.service_name in ["codex_cli_rs", "codex_exec"]
+  }
+  _ => {
+    discard
+  }
+}

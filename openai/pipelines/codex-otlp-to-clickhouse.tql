@@ -1,0 +1,60 @@
+---
+name: Store Codex Activity in ClickHouse
+description: >
+  Subscribes to decoded OTLP events, retains security- and governance-relevant
+  Codex activity as OCSF, and stores every class in a single ClickHouse
+  table. A fixed set of first-class columns carries the fields you pivot and
+  filter on; the complete OCSF event lands in a `JSON` column. Low-value
+  telemetry is not retained.
+disabled: true
+restart-on-error: 1m
+---
+
+subscribe "otlp"
+openai::codex::ocsf
+where class_uid != 0
+ocsf_derive
+ocsf_cast encode_variants=true
+// Promote the fields worth indexing to real columns and keep the whole event
+// in `event`. Every optional column is cast explicitly so that the table shape
+// stays identical no matter which OCSF class creates the table first.
+this = {
+  time: time,
+  class_uid: class_uid,
+  class_name: class_name,
+  category_uid: category_uid,
+  activity_id: activity_id,
+  activity_name: activity_name,
+  type_uid: type_uid,
+  severity_id: severity_id,
+  status_id: status_id,
+  duration: duration?.int(),
+  message: message?.string(),
+  event_code: metadata?.event_code?.string(),
+  product_name: metadata?.product?.name?.string(),
+  vendor_name: metadata?.product?.vendor_name?.string(),
+  correlation_uid: metadata?.correlation_uid?.string(),
+  original_event_uid: metadata?.original_event_uid?.string(),
+  tenant_uid: metadata?.tenant_uid?.string(),
+  app_name: actor?.application?.name?.string(),
+  session_uid: actor?.session?.uid?.string(),
+  user_uid: actor?.user?.uid?.string(),
+  user_email: actor?.user?.email_addr?.string(),
+  agent_name: ai_agent?.name?.string(),
+  agent_instance_uid: ai_agent?.instance_uid?.string(),
+  model_name: ai_agent?.ai_model?.name?.string(),
+  hostname: device?.hostname?.string(),
+  src_ip: src_endpoint?.ip?.ip(),
+  dst_ip: dst_endpoint?.ip?.ip(),
+  event: this,
+}
+to_clickhouse table="{{ inputs.clickhouse_database }}.events",
+              host=secret("CLICKHOUSE_HOST"),
+              user=secret("CLICKHOUSE_USERNAME"),
+              password=secret("CLICKHOUSE_PASSWORD"),
+              primary=time,
+              json=event,
+              low_cardinality=[class_name, activity_name, product_name,
+                               vendor_name, event_code, agent_name, model_name],
+              mode="create_append",
+              tls={}

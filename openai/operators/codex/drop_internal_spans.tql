@@ -1,0 +1,32 @@
+---
+description: >
+  Drops Codex spans that cannot reach an OCSF class. Codex instruments its
+  HTTP/2 and async-runtime internals with spans such as `try_reclaim_frame`,
+  `FramedRead::poll_next`, and `poll_ready`, which outnumber the
+  security-relevant spans by roughly three orders of magnitude. Removing them
+  before normalization avoids serializing every one into `raw_data` only to
+  discard it after mapping. The conditions mirror what
+  `openai::codex::ocsf::map` can actually map.
+args:
+  named:
+    - name: name
+      type: field
+      default: event_name
+      description: The field that holds the span name.
+---
+
+where $name.starts_with("codex.") or
+      $name in [
+        "built_tools",
+        "endpoint_session.execute_with",
+        "list_tools_for_server",
+        "plugins_for_config",
+        "recommended_plugins_mode_for_config",
+        "session_task.turn",
+      ] or
+      attributes.tool_name? != null or
+      attributes.file_operation? != null or
+      attributes["rpc.method"]? != null or
+      attributes["http.request.method"]? != null or
+      attributes["http.method"]? != null or
+      attributes["span.type"]? != null

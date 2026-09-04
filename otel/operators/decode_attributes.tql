@@ -1,0 +1,31 @@
+---
+description: Converts an OTLP KeyValue array into a typed Tenzir record.
+args:
+  positional:
+    - name: input
+      type: field
+      description: Field containing OTLP KeyValue entries.
+---
+
+_json_fields = ($input else []).map(a => a.key.print_json() + ":" + (
+  a.value.stringValue.print_json() if a.value.stringValue? != null and a.value.stringValue != "null" else
+  a.value.boolValue.print_json() if a.value.boolValue? != null else
+  a.value.intValue.print_json() if a.value.intValue? != null and (a.key.ends_with(".id") or a.key.ends_with("_id")) else
+  int(a.value.intValue).print_json() if a.value.intValue? != null and a.value.intValue.string().is_numeric() else
+  a.value.doubleValue.print_json() if a.value.doubleValue? != null else
+  "[" + a.value.arrayValue.values.map(v =>
+    v.stringValue.print_json() if v.stringValue? != null and v.stringValue != "null" else
+    v.boolValue.print_json() if v.boolValue? != null else
+    int(v.intValue).print_json() if v.intValue? != null and v.intValue.string().is_numeric() else
+    v.doubleValue.print_json() if v.doubleValue? != null else
+    v.bytesValue.print_json() if v.bytesValue? != null else
+    "null"
+  ).join(",") + "]" if a.value.arrayValue?.values? != null else
+  a.value.kvlistValue.print_json() if a.value.kvlistValue? != null else
+  a.value.bytesValue.print_json() if a.value.bytesValue? != null else
+  "null"
+))
+
+attributes = f"{{{_json_fields.join(",")}}}".parse_json()
+
+drop _json_fields

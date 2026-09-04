@@ -1,0 +1,97 @@
+---
+description: Normalizes unrolled Codex OTLP spans.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts and commands.
+---
+
+where event_name != "auth"
+
+openai::codex::drop_internal_spans
+
+_a = attributes
+_tool_name = _a.tool_name?
+_tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
+// The command has its own field and its own hash; repeating it here would
+// duplicate a mapped value into `unmapped`.
+_content = _a.user_prompt?
+
+select signal = "trace",
+  raw_data,
+  raw_data_size,
+  event_name,
+  span_type = _a["span.type"]?,
+  time,
+  start_time,
+  end_time,
+  duration = int(_a.duration_ms) if _a.duration_ms? != null else int((end_time - start_time).count_milliseconds()) if end_time? != null and start_time? != null else null,
+  session_id = _a["session.id"]? else _a["conversation.id"]?,
+  user_id = _a["user.id"]? else _a["user.account_id"]?,
+  user_uid_alt = _a["user.account_uuid"]?,
+  user_email = _a["user.email"]?,
+  organization_id = _a["organization.id"]?,
+  app_version = _a["app.version"]? else resource["service.version"]?,
+  app_entrypoint = _a["app.entrypoint"]?,
+  terminal_type = _a["terminal.type"]?,
+  model = _a["gen_ai.request.model"]? else _a.model?,
+  provider = "Anthropic" if (_a["gen_ai.system"]? else _a.provider?).to_lower() == "anthropic" else
+             "OpenAI" if (_a["gen_ai.system"]? else _a.provider?).to_lower() == "openai" else
+             _a["gen_ai.system"]? else _a.provider? else
+             "OpenAI" if (_a["gen_ai.request.model"]? else _a.model?) != null else null,
+  turn_id = _a["turn.id"]? else _a.turn_id?,
+  reasoning_effort = _a["codex.turn.reasoning_effort"]? else _a["codex.request.reasoning_effort"]?,
+  rpc_system = _a["rpc.system"]?,
+  rpc_method = _a["rpc.method"]?,
+  rpc_transport = _a["rpc.transport"]?,
+  rpc_request_id = _a["rpc.request_id"]?,
+  client_name = _a["app_server.client_name"]?,
+  client_version = _a["app_server.client_version"]?,
+  server_name = _a.server_name?,
+  plugins_enabled = _a.plugins_enabled?,
+  remote_plugin_enabled = _a.remote_plugin_enabled?,
+  apps_enabled = _a.apps_enabled?,
+  tool_name = _tool_name,
+  tool_use_id = _a["gen_ai.tool.call.id"]? else _a.tool_use_id? else _a.call_id?,
+  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
+  command = _a.full_command? if $include_content else null,
+  command_hash = hash_sha256(_a.full_command) if _a.full_command? != null else null,
+  error = _a.error?,
+  error_type = _a.error_type?,
+  source_status_code = _a.status_code?,
+  success = _a.success?,
+  request_id = _a["gen_ai.response.id"]? else _a.request_id?,
+  http_method = _a["http.request.method"]? else _a["http.method"]?,
+  http_status = int(_a["http.response.status_code"]) if _a["http.response.status_code"]? != null else null,
+  server_address = _a["server.address"]?,
+  server_port = int(_a["server.port"]) if _a["server.port"]? != null else null,
+  input_tokens = int(_a.input_tokens) if _a.input_tokens? != null else int(_a["gen_ai.usage.input_tokens"]) if _a["gen_ai.usage.input_tokens"]? != null else int(_a["codex.turn.token_usage.input_tokens"]) if _a["codex.turn.token_usage.input_tokens"]? != null else null,
+  output_tokens = int(_a.output_tokens) if _a.output_tokens? != null else int(_a["gen_ai.usage.output_tokens"]) if _a["gen_ai.usage.output_tokens"]? != null else int(_a["codex.turn.token_usage.output_tokens"]) if _a["codex.turn.token_usage.output_tokens"]? != null else null,
+  cached_input_tokens = int(_a["gen_ai.usage.cache_read.input_tokens"]) if _a["gen_ai.usage.cache_read.input_tokens"]? != null else int(_a["codex.turn.token_usage.cached_input_tokens"]) if _a["codex.turn.token_usage.cached_input_tokens"]? != null else null,
+  reasoning_output_tokens = int(_a["codex.usage.reasoning_output_tokens"]) if _a["codex.usage.reasoning_output_tokens"]? != null else int(_a["codex.turn.token_usage.reasoning_output_tokens"]) if _a["codex.turn.token_usage.reasoning_output_tokens"]? != null else null,
+  total_tokens = int(_a["codex.usage.total_tokens"]) if _a["codex.usage.total_tokens"]? != null else int(_a["codex.turn.token_usage.total_tokens"]) if _a["codex.turn.token_usage.total_tokens"]? != null else null,
+  content = _content if $include_content else null,
+  content_hash = hash_sha256(_content) if _content? != null else null,
+  trace_id,
+  span_id,
+  parent_span_id,
+  span_kind,
+  status_code,
+  status_message,
+  flags,
+  scope,
+  // The receiver records how the record arrived; every signal carries it.
+  transport = transport? else receiver?.transport?,
+  resource = {
+    service_name: resource["service.name"]?,
+    service_version: resource["service.version"]?,
+    host_name: resource["host.name"]?,
+    host_arch: resource["host.arch"]?,
+    os_type: resource["os.type"]? else resource.os?,
+    os_version: resource["os.version"]? else resource.os_version?,
+  },
+  attributes
+
+@name = "openai.codex.event"
