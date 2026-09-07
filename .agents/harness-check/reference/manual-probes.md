@@ -15,7 +15,9 @@ restart a child harness when the agent can do that itself.
 
 Use `manual.approval-deny`. Tell the user only that the next prompt is a safe
 denial probe. Request approval for a harmless, reversible action that the
-current harness genuinely gates—for example an HTTP HEAD request through a
+current harness genuinely gates—for example a request against the bundled
+loopback fixture (`assets/http-server.py`), whose log confirms server-side
+whether the call went through, or an HTTP HEAD request through a
 network-restricted shell. Ask the user to decline the actual approval dialog.
 Do not use a destructive command or touch an existing file.
 
@@ -39,10 +41,32 @@ corresponding `manual.*` result as `SKIP`, retain
 batch, and proceed. Never tell the user to reply after an automatic decision
 has already prevented the human dialog.
 
+## Agent-raised question
+
+Use `manual.claude.ask-question`. When the harness exposes a native
+question/choice tool, the agent can raise it but only the user answers, so it
+is a real prompt event with a required human decision. Ask exactly one
+throwaway multiple-choice question whose answer changes nothing (for example,
+which of two disposable labels to tag this run with), and wait. Record the
+answer as the observed result. Skip when the harness has no such tool, or when
+running fully autonomously where a blocking question would stall the workload.
+
+## Multi-agent workflow
+
+Use `manual.workflow.run`. A multi-agent workflow needs explicit user opt-in
+and can spawn many agents, so it is never launched autonomously for telemetry.
+Only when the user has asked for one, propose a minimal disposable workflow
+(one or two bounded agents that each return a marker), let the user approve it,
+and record the outcome. Otherwise retain `SKIP` and note that a workflow was
+not authorized.
+
 ## Claude Code permission mode
 
-Claude Code emits a dedicated permission-mode-change event. If the current
-mode can be changed only through the interactive UI:
+Claude Code emits a dedicated permission-mode-change event. Plan mode is
+reachable through the native plan-enter/plan-exit tools and is covered
+automatically in `agent-probes.md`; this manual step is only for a mode the
+agent cannot set itself. If that mode can be changed only through the
+interactive UI:
 
 1. Use `manual.claude.permission-mode` and ask the user to switch once to
    `manual` with the native permission control. Wait.

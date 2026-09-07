@@ -100,18 +100,44 @@ Use ids `child.claude.mcp` or `child.codex.mcp`.
 
 ## Skills, subagents, and schedulers
 
-- `native.skill.activated` is implicit because this skill is running; record
-  it without invoking another skill solely for telemetry.
+- `native.skill.activated` is implicit because this skill is running. When the
+  harness exposes a tool-search or deferred-tool mechanism, run one real
+  search for an unrelated capability and record `native.tool.search`; do not
+  invoke a second skill solely for telemetry.
 - When the harness exposes subagents, run one bounded child that returns
   exactly `harness-check-subagent`, wait for it, and record
-  `native.subagent.complete`.
-- When the harness exposes a native scheduler, create a disposable recurring
-  task whose only action writes a sentinel beneath `$HARNESS_CHECK_DIR`.
-  Inspect, update, disable, enable, and delete it. Use a native run-now control
-  to make it fire and verify the sentinel. If run-now is unavailable, use the
-  shortest safe schedule only when it fires within 60 seconds; otherwise
-  record `native.scheduler.start` as `SKIP`. Do not use staged cron files as
-  scheduler coverage.
+  `native.subagent.complete`. If the harness also exposes a forking subagent
+  that inherits context, run one that returns `harness-check-subagent-fork`
+  and record `native.subagent.fork`. If it exposes worktree or otherwise
+  isolated subagents, run one bounded isolated child and record
+  `native.subagent.isolated`; skip the variants the harness does not expose.
+- When the harness exposes background tasks, start one long bounded subagent
+  or background task, read its live output through the native task-output
+  control (`native.task.output`), then stop it through the native task-stop
+  control (`native.task.stop`). When it exposes a progress/monitor control,
+  watch one condition with it once and record `native.task.monitor`.
+- When the harness exposes a native scheduler (recurring wakeups or cron
+  jobs), create a disposable task whose only action writes a sentinel beneath
+  `$HARNESS_CHECK_DIR`. List, update, disable, enable, and delete it, recording
+  `native.scheduler.create`/`update`/`disable`/`enable`/`delete`. Use a native
+  run-now control to make it fire and verify the sentinel. If run-now is
+  unavailable, use the shortest safe schedule only when it fires within 60
+  seconds; otherwise record `native.scheduler.start` as `SKIP`. Do not use
+  staged cron files as scheduler coverage.
+
+## Permission mode and artifacts
+
+- When the harness exposes a native plan-mode control, enter plan mode and
+  then exit it through the native tools, recording
+  `native.permission.plan-enter` and `native.permission.plan-exit`. This is
+  the automatic path to a `permission_mode_changed` event. Modes the agent
+  cannot set itself remain the operator probe in `manual-probes.md`.
+- When the harness exposes a native artifact or canvas tool, publish one
+  disposable private page whose body contains `harness-check-artifact`, then
+  read it back through the native read action, recording
+  `native.artifact.publish` and `native.artifact.read`. The normalizer treats
+  an artifact write as a file create. Never publish anything that impersonates
+  a real person or organization, and keep it private.
 
 ## Session lifecycle
 

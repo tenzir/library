@@ -39,7 +39,7 @@ rm -f "$HARNESS_CHECK_LOG"
 
 failed=0
 for probe in probe-files.sh probe-bash.sh probe-process.sh probe-cli.sh \
-             probe-fixtures.sh; do
+             probe-security.sh probe-fixtures.sh; do
   echo "== $probe"
   case "$probe" in
     probe-cli.sh)    bash "$HERE/$probe" $NET_ARG ;;

@@ -14,15 +14,20 @@ are not.
 | `assistant_response` | every completed model turn | automatic |
 | `claude_code.interaction` | a normal model/tool interaction | automatic |
 | `tool_decision` | each real native tool call; include allowed and denied decisions | automatic except the user's allow/deny choice |
+| `tool_decision` (hook source) | run the `harness-check-hook-deny` marker in the child; its PreToolUse fixture hook denies it | automatic |
+| `tool_decision` (config source) | run the `harness-check-config-deny` marker in the child; a `permissions.deny` rule blocks it | automatic |
 | `tool_result` | successful and failing native calls | automatic |
 | `skill_activated` | invoking this skill | automatic |
 | `subagent_completed` | one real bounded subagent task | automatic when the tool exists |
 | `mcp_server_connection` | connect the child Claude session to the bundled fixture server | automatic |
-| `permission_mode_changed` | change the live permission mode | user-only interactive control |
+| `permission_mode_changed` | call EnterPlanMode then ExitPlanMode; only modes the agent cannot set need the interactive control | automatic for plan, user-only for the rest |
 | `user` records wrapping `<bash-input>`/`<bash-stdout>` (shell typed with `!`) | the user types a `!`-prefixed shell command | user-only interactive control |
 | `plugin_loaded` | load a real installed or session-scoped fixture plugin | automatic with `--plugin-dir` in a child Claude session |
-| `hook_registered` | start a real child Claude session with a fixture hook configuration | automatic |
-| `hook_execution` | trigger that registered hook through its matching native tool | automatic |
+| `hook_registered` | start a real child Claude session with the fixture hook configuration | automatic |
+| `hook_execution_start` / `hook_execution_complete` | the child fires PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, and Stop fixture hooks; the hook log proves which fired | automatic |
+| cost, token-usage, session-count, lines-of-code, code-edit, and commit metrics | emitted on the natural session activity; enhanced telemetry and a metric exporter must be enabled | automatic startup/interval observation |
+| `log_format` = `OTLP/gRPC` \| `OTLP/HTTP` \| `OTLP/JSON` | run the child once per transport with `run-child --transport grpc\|http\|json`; a run emits only its selected transport | conditional, one transport per run |
+| session resume | the child persists a fixed session id, then a second `--resume` reopens it | automatic when persistence is available |
 
 ## Codex
 
@@ -36,7 +41,7 @@ are not.
 | `session_task.turn` | complete a turn | automatic |
 | `codex.tool_decision` | each native tool call; include allowed and denied decisions | automatic except the user's allow/deny choice |
 | `codex.tool_result` | successful and failing native calls | automatic |
-| `codex.sandbox_outcome` | run shell work through the actual Codex sandbox | automatic |
+| `codex.sandbox_outcome` | run shell work through the actual Codex sandbox; vary it with `run-child --sandbox read-only\|workspace-write\|danger-full-access` for distinct outcomes | automatic, one policy per run |
 | `codex.skill.injected` | invoking this skill | automatic |
 | `codex.tool.call` | native tool calls | automatic |
 | `list_tools_for_server` | let the child Codex session discover the bundled fixture server | automatic |
@@ -74,6 +79,19 @@ Exercise each native tool family that the current harness actually exposes:
   hook registration/removal/firing, and scheduler create/update/delete/
   enable/disable/start;
 - an approval accepted and an approval declined.
+
+## Security-relevant shapes
+
+`probe-security.sh` generates harmless, sandbox-confined commands whose
+STRUCTURE matches techniques an OCSF detection is meant to flag: credential
+and private-key reads, single-variable environment capture, base64
+decode-and-execute, download-and-run and chmod-then-execute against a
+loopback HTTP fixture, a `.git/hooks` implant, an agent editing its own
+`.claude`/`.codex` configuration, a gated `sudo`, package-install attempts,
+and a `git push` to a local bare remote. The loopback fixture logs every
+request it serves, so egress is verifiable without leaving the host. These are
+real shell events with security-relevant shape, not fabricated telemetry; none
+carries a real secret or reaches the internet.
 
 Record unavailable or unconfigured conditional surfaces as gaps. Never claim
 coverage from a shell substitute when the event belongs to a native tool.

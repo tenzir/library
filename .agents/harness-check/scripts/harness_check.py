@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -219,11 +220,15 @@ STEPS = [
     ("automatic.approval-deny", "approval.auto-deny",
      "Automatic reviewer denied a requested action"),
     ("manual.claude.permission-mode", "permission.change",
-     "Switch Claude Code to manual permission mode"),
+     "Switch Claude Code to a mode the agent cannot set itself"),
     ("manual.claude.permission-restore", "permission.change",
      "Restore the original Claude Code permission mode"),
     ("manual.claude.shell-bang", "local_command.shell",
      "Type a `!`-prefixed shell command at the Claude Code prompt"),
+    ("manual.claude.ask-question", "user_prompt.question",
+     "Answer an AskUserQuestion prompt the agent raised"),
+    ("manual.workflow.run", "workflow.invoke",
+     "Approve a multi-agent Workflow the agent proposed"),
     ("manual.codex.config-write", "configuration.change",
      "Make or restore a reversible UI-only Codex configuration change"),
 ]
@@ -458,6 +463,8 @@ def cmd_inventory(args):
         ("probe-bash.sh", None, "shell execution"),
         ("probe-process.sh", None, "process lifecycle"),
         ("probe-cli.sh", None, "CLI and network execution"),
+        ("probe-security.sh", None,
+         "security-relevant command shapes"),
         ("probe-fixtures.sh", "python3",
          "builds material for native-tool probes"),
     ]
@@ -526,7 +533,7 @@ NOT DETECTABLE FROM THE SHELL
 # telemetry simulators: the child harness must discover, connect to, and
 # invoke them.
 
-def child_prompt(agent):
+def child_prompt(agent, http_url=None):
     # The fixture server's registered name differs per client: the Claude
     # child gets it from --mcp-config as "harness-check", the Codex child
     # from a config override key, which permits only "harness_check".
@@ -537,57 +544,144 @@ def child_prompt(agent):
     else:
         list_hint = f'for the server named "{server}"'
         read_hint = f'from the server named "{server}"'
-    return (
+    steps = [
         'This is a telemetry probe. Perform each step through the named '
-        'native tool and do nothing else. If a step fails, continue with '
-        f'the remaining steps. The MCP server is named "{server}". '
+        'native tool and do nothing else. If a step fails or is blocked, '
+        'do not retry it — continue with the remaining steps. The MCP '
+        f'server is named "{server}".',
         '1. Call the harness_echo MCP tool exactly once with text '
-        '"harness-check-mcp-called". 2. If a native MCP resource listing '
-        f'tool exists ({list_hint}), list resources with it. 3. If a '
-        f'native MCP resource read tool exists ({read_hint}), read the '
-        'resource harness-check://fixture/resource with it. 4. If a native '
-        'MCP prompt interface exists, get harness-check-prompt through it; '
-        'skip this step if prompts are only exposed as user slash commands. '
-        'Never substitute a different tool for a missing interface. 5. Use '
-        'the native shell tool to run: printf harness-check-child-shell. '
-        'Do not edit files. Return exactly harness-check-child-complete.')
+        '"harness-check-mcp-called".',
+        f'2. If a native MCP resource listing tool exists ({list_hint}), '
+        'list resources with it.',
+        f'3. If a native MCP resource read tool exists ({read_hint}), read '
+        'the resource harness-check://fixture/resource with it.',
+        '4. If a native MCP prompt interface exists, get harness-check-prompt '
+        'through it; skip this step if prompts are only exposed as user slash '
+        'commands. Never substitute a different tool for a missing interface.',
+        '5. Use the native shell tool to run: printf harness-check-child-shell',
+    ]
+    if agent == "claude":
+        steps += [
+            '6. Use the native shell tool to run exactly: '
+            'printf harness-check-hook-deny . A hook is expected to deny '
+            'this; if it is blocked, continue immediately without retrying.',
+            '7. Use the native shell tool to run exactly: '
+            'printf harness-check-config-deny . A permission rule is expected '
+            'to deny this; if it is blocked, continue without retrying.',
+            '8. Use the native shell tool to run exactly: '
+            'printf harness-check-hook-fail . Expect it to run; continue '
+            'regardless of any post-run hook warning.',
+        ]
+        if http_url:
+            steps.append(
+                f'9. If a native web-fetch tool exists, fetch {http_url} with '
+                'it once. If it refuses local URLs, skip this step.')
+    else:
+        steps.append(
+            '6. If a native file-patch tool exists, create a file '
+            'harness-check-child.txt containing harness-check-apply-patch, '
+            'then delete that same file with the patch tool.')
+    steps.append(
+        'Do not take any other action. Return exactly '
+        'harness-check-child-complete.')
+    return ' '.join(steps)
 
 
-def child_command(agent, mcp_log):
+def materialize_claude_settings(directory):
+    """Write a run-local settings file with __SKILL__ resolved to an absolute
+    path, so the fixture hooks can be invoked by absolute command. Returns the
+    written path, or the bundled template if substitution is not possible."""
+    template = SKILL / "assets" / "claude-settings.json"
+    try:
+        text = template.read_text(encoding="utf-8").replace(
+            "__SKILL__", str(SKILL))
+        out = directory / "child-claude-settings.json"
+        out.write_text(text, encoding="utf-8")
+        return out
+    except OSError:
+        return template
+
+
+def start_http_fixture(directory):
+    """Launch the loopback HTTP fixture. Returns (process, base_url, log_path)
+    or (None, None, None) when it cannot start. The fixture logs every request
+    it serves, so native/shell egress is verifiable server-side."""
+    server = SKILL / "assets" / "http-server.py"
+    if not (server.is_file() and shutil.which("python3")):
+        return None, None, None
+    log = directory / "child-http-fixture.log"
+    port_file = directory / "child-http-fixture.port"
+    log.write_text("")
+    if port_file.exists():
+        port_file.unlink()
+    try:
+        proc = subprocess.Popen(
+            ["python3", str(server), "--log", str(log),
+             "--port-file", str(port_file)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None, None, None
+    for _ in range(50):
+        if port_file.is_file() and port_file.read_text().strip():
+            break
+        import time
+        time.sleep(0.1)
+    port = port_file.read_text().strip() if port_file.is_file() else ""
+    if not port or proc.poll() is not None:
+        proc.terminate()
+        return None, None, None
+    return proc, f"http://127.0.0.1:{port}", log
+
+
+def child_command(agent, mcp_log, settings_path=None, session_id=None,
+                  http_url=None, sandbox_mode=None):
     server = str(SKILL / "assets" / "mcp-server.py")
     if agent == "claude":
         mcp_config = json.dumps({"mcpServers": {"harness-check": {
             "type": "stdio", "command": "python3",
             "args": [server, "--log", str(mcp_log)]}}})
-        return [
+        command = [
             "claude", "-p",
-            "--no-session-persistence",
             "--permission-mode", "auto",
             "--model", "haiku",
             "--max-budget-usd", "0.10",
             "--plugin-dir", str(SKILL / "assets" / "claude-plugin"),
-            "--settings", str(SKILL / "assets" / "claude-settings.json"),
+            "--settings", str(settings_path
+                              or SKILL / "assets" / "claude-settings.json"),
             "--strict-mcp-config",
             "--mcp-config", mcp_config,
             "--allowedTools",
-            "Bash,mcp__harness-check__harness_echo,"
+            "Bash,WebFetch,mcp__harness-check__harness_echo,"
             "ListMcpResourcesTool,ReadMcpResourceTool",
             "--verbose",
             "--output-format", "stream-json",
             "--include-hook-events",
-            child_prompt(agent),
         ]
-    return [
+        # A fixed session id lets a later --resume reopen this exact session,
+        # generating real session resume telemetry. Without it, persistence is
+        # off and the row is skipped.
+        if session_id:
+            command += ["--session-id", session_id]
+        else:
+            command.append("--no-session-persistence")
+        command.append(child_prompt(agent, http_url))
+        return command
+    codex_command = [
         "codex", "exec",
         "--ephemeral",
         "--approve-for-me",
         "--skip-git-repo-check",
         "--json",
+    ]
+    if sandbox_mode:
+        codex_command += ["--sandbox", sandbox_mode]
+    codex_command += [
         "-c", 'mcp_servers.harness_check.command="python3"',
         "-c", f'mcp_servers.harness_check.args=["{server}","--log",'
               f'"{mcp_log}"]',
-        child_prompt(agent),
+        child_prompt(agent, http_url),
     ]
+    return codex_command
 
 
 def claude_init_message(out_file):
@@ -623,18 +717,47 @@ def cmd_run_child(args):
     out_file = directory / f"child-{agent}.jsonl"
     mcp_log = directory / f"child-{agent}-mcp-methods.log"
     mcp_log.write_text("")
+    hook_log = directory / f"child-{agent}-hook-events.log"
+    hook_log.write_text("")
 
-    env = dict(os.environ, HARNESS_CHECK_MCP_LOG=str(mcp_log))
-    with open(out_file, "w", encoding="utf-8") as sink:
-        try:
-            proc = subprocess.run(
-                child_command(agent, mcp_log), cwd=workspace, env=env,
-                stdin=subprocess.DEVNULL, stdout=sink,
-                stderr=subprocess.STDOUT, timeout=600)
-            returncode = proc.returncode
-        except subprocess.TimeoutExpired:
-            returncode = -1
-            sink.write("\nharness-check: child timed out after 600s\n")
+    # A run-local settings file with fixture hook paths resolved, plus a
+    # loopback HTTP fixture the child can fetch. Both are disposable and
+    # verifiable server-side; neither simulates a native event.
+    settings_path = (materialize_claude_settings(directory)
+                     if agent == "claude" else None)
+    http_proc, http_url, http_log = start_http_fixture(directory)
+    session_id = str(uuid.uuid4()) if agent == "claude" else None
+
+    env = dict(os.environ, HARNESS_CHECK_MCP_LOG=str(mcp_log),
+               HARNESS_CHECK_HOOK_LOG=str(hook_log))
+    # Transport selection is a real, conditional configuration surface: a
+    # gRPC run does not emit an SSE/HTTP completion and vice versa. Honour an
+    # explicit --transport without inventing an endpoint when none is set.
+    if getattr(args, "transport", None):
+        protocol = {"grpc": "grpc", "http": "http/protobuf",
+                    "json": "http/json"}[args.transport]
+        env["OTEL_EXPORTER_OTLP_PROTOCOL"] = protocol
+    try:
+        with open(out_file, "w", encoding="utf-8") as sink:
+            try:
+                proc = subprocess.run(
+                    child_command(agent, mcp_log, settings_path=settings_path,
+                                  session_id=session_id, http_url=http_url,
+                                  sandbox_mode=getattr(args, "sandbox", None)),
+                    cwd=workspace, env=env,
+                    stdin=subprocess.DEVNULL, stdout=sink,
+                    stderr=subprocess.STDOUT, timeout=600)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
+                returncode = -1
+                sink.write("\nharness-check: child timed out after 600s\n")
+    finally:
+        if http_proc is not None:
+            http_proc.terminate()
+            try:
+                http_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                http_proc.kill()
 
     if returncode == 0:
         recorder.ok(f"child.{agent}.session",
@@ -722,8 +845,117 @@ def cmd_run_child(args):
             recorder.skip("child.claude.hook-remove",
                           "child did not stop cleanly")
 
-    if not recorder.summary(f"child-{agent}"):
+        # Which hook events actually fired is proved by the fixture hook log,
+        # not by the model's transcript. Each line is "<event>\t<tool>\t<out>".
+        verify_hook_events(recorder, hook_log)
+
+        # Denials with a hook source and a config source, generated without a
+        # human dialog. The transcript records the blocked tool attempt.
+        if "harness-check-hook-deny" in output:
+            recorder.ok("child.claude.decision.hook-deny",
+                        "hook-sourced tool denial attempted")
+        else:
+            recorder.skip("child.claude.decision.hook-deny",
+                          f"deny marker command not attempted; inspect "
+                          f"{out_file}")
+        if "harness-check-config-deny" in output:
+            recorder.ok("child.claude.decision.config-deny",
+                        "config-sourced tool denial attempted")
+        else:
+            recorder.skip("child.claude.decision.config-deny",
+                          f"config-deny command not attempted; inspect "
+                          f"{out_file}")
+
+        # Native web fetch of the loopback fixture, verified server-side.
+        if http_log is not None and http_log.is_file() and \
+                http_log.read_text(encoding="utf-8").strip():
+            recorder.ok("child.claude.web-fetch",
+                        "native fetch reached loopback fixture")
+        else:
+            recorder.skip("child.claude.web-fetch",
+                          "no request reached the fixture; the web tool may "
+                          "refuse local URLs")
+
+        # Session resume: reopen the exact persisted session id. This is the
+        # only row that needs the session to have persisted, so it is skipped
+        # cleanly when the first run did not exit successfully.
+        if session_id and returncode == 0:
+            run_claude_resume(recorder, directory, session_id, env)
+        else:
+            recorder.skip("child.claude.session.resume",
+                          "no persisted session to resume")
+
+    summary_ok = recorder.summary(f"child-{agent}")
+    if not summary_ok:
         raise SystemExit(1)
+
+
+HOOK_EVENTS = {
+    "PreToolUse": "pre-tool decision hook",
+    "PostToolUse": "post-tool hook",
+    "UserPromptSubmit": "prompt-submit hook",
+    "SessionStart": "session-start hook",
+    "SessionEnd": "session-end hook",
+    "Stop": "stop hook",
+    "SubagentStop": "subagent-stop hook",
+}
+
+
+def verify_hook_events(recorder, hook_log):
+    """Record which registered hook events fired, from the fixture hook log."""
+    try:
+        lines = hook_log.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    fired = {line.split("\t", 1)[0] for line in lines if line.strip()}
+    outcomes = {}
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) >= 3:
+            outcomes.setdefault(parts[0], parts[2])
+    for event, label in HOOK_EVENTS.items():
+        probe = f"child.claude.hook.{event.lower()}"
+        if event in fired:
+            detail = f"{label} fired"
+            if outcomes.get(event) in ("deny", "fail"):
+                detail += f" ({outcomes[event]})"
+            recorder.ok(probe, detail)
+        elif event in ("SubagentStop", "SessionEnd"):
+            recorder.skip(probe, f"{label} not triggered in this child")
+        else:
+            recorder.skip(probe, f"{label} did not fire; inspect {hook_log}")
+
+
+def run_claude_resume(recorder, directory, session_id, env):
+    """Resume the persisted child session once with a sentinel prompt."""
+    out_file = directory / "child-claude-resume.jsonl"
+    command = [
+        "claude", "-p",
+        "--resume", session_id,
+        "--model", "haiku",
+        "--max-budget-usd", "0.05",
+        "--allowedTools", "Bash",
+        "--output-format", "stream-json", "--verbose",
+        "Run this once through the native shell tool and nothing else: "
+        "printf harness-check-resumed . Then return harness-check-resume-done.",
+    ]
+    try:
+        with open(out_file, "w", encoding="utf-8") as sink:
+            proc = subprocess.run(command, cwd=directory / "child-workspace",
+                                  env=env, stdin=subprocess.DEVNULL,
+                                  stdout=sink, stderr=subprocess.STDOUT,
+                                  timeout=300)
+        text = out_file.read_text(encoding="utf-8", errors="replace")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        recorder.skip("child.claude.session.resume",
+                      f"resume did not run: {error}")
+        return
+    if proc.returncode == 0 and "harness-check-resumed" in text:
+        recorder.ok("child.claude.session.resume",
+                    "reopened the persisted session id")
+    else:
+        recorder.skip("child.claude.session.resume",
+                      f"resume produced no sentinel; inspect {out_file}")
 
 
 # --- entry point -------------------------------------------------------------
@@ -768,6 +1000,13 @@ def main(argv=None):
                              help="real child session for startup telemetry")
     p_child.add_argument("--agent", required=True,
                          choices=["claude", "codex"])
+    p_child.add_argument("--transport", choices=["grpc", "http", "json"],
+                         help="force the child's OTLP transport; a run emits "
+                              "only its selected transport's completion")
+    p_child.add_argument("--sandbox",
+                         choices=["read-only", "workspace-write",
+                                  "danger-full-access"],
+                         help="Codex sandbox policy for the child session")
     p_child.set_defaults(func=cmd_run_child)
 
     args = parser.parse_args(argv)

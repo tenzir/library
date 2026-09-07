@@ -36,8 +36,11 @@ For a new run:
    exactly one required setup/restart action and wait. Never print endpoint
    credentials or headers.
 4. Run `scripts/run-all.sh`. It generates dense real filesystem, command,
-   process, failure, CLI, and shell-network activity inside the harness
-   sandbox. Continue after individual failures.
+   process, failure, CLI, shell-network, and security-relevant-shape activity
+   (credential and key reads, decode-and-execute, download-and-run against a
+   loopback fixture, a git-hook implant, self-config edits, gated escalation,
+   and repository push) inside the harness sandbox. Continue after individual
+   failures.
 5. Read and execute `reference/agent-probes.md` using the current harness's
    native tools. Append every outcome through `python3
    scripts/harness_check.py record`.
