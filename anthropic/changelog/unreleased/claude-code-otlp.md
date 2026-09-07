@@ -40,10 +40,14 @@ single query. Unmapped events are ignored.
 
 Feedback survey events are discarded because they do not add security context.
 
-The OCSF mapping names tool invocations as `Other` with `Invoke` in
-`activity_name`; `api.operation` carries the tool name. Other API activity uses
-an HTTP verb or the source operation. Guessing read/write intent from the shape
-of a name would misclassify a tool such as `cleanup_stale_records` as a read.
+The OCSF mapping names explicit remote tool invocations as `Other` with
+`Invoke` in `activity_name`; `api.operation` carries the tool name as an
+interim home until the `ai_tool` object from ocsf/ocsf-schema#1729 lands. An unknown
+tool name alone is not evidence of a remote call and falls back to Base Event.
+Typed local file and process records keep their specific classes. Other API
+activity uses an HTTP verb or the source operation. Guessing read/write intent
+from the shape of a name would misclassify a tool such as
+`cleanup_stale_records` as a read.
 `metadata.original_event_uid` prefers
 identifiers that are
 unique per event, because `span_id` identifies the enclosing span and is shared
@@ -138,7 +142,17 @@ dedicated turn identifier.
 
 The serving MCP server lands in `api.service.name` and
 `dst_endpoint.svc_name` on every MCP event, derived from the
-`mcp__<server>__<tool>` tool-name convention.
+`mcp__<server>__<tool>` tool-name convention or from Claude Code's
+`tool_parameters`. The latter reports MCP calls as the generic `mcp_tool`, so
+the mapper extracts `mcp_server_name` and `mcp_tool_name` to retain the actual
+service and operation. With `include_content=true`, parsed tool input lands in
+`api.request.data`. MCP resource reads and web fetches also identify their URI
+as a target in `resources`.
+
+Discrete tool-result logs retain their runtime as `unmapped.duration_ms`.
+Top-level OCSF `duration` is reserved for aggregate windows. Tool spans instead
+use the Trace profile with the provider's real start time, end time, and
+`trace.span.duration`.
 
 Fields deprecated in OCSF 1.9.0 are not used. The acting application is
 `actor.application.name` rather than `actor.app_name`, and a skill or plugin

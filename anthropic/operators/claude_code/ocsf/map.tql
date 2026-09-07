@@ -241,11 +241,13 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.message = f"Plugin {_plugin_name} enabled for the agent"
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
-} else if $event.otel.event_name == "tool_decision" and $event.otel.process_name? == null {
+} else if $event.otel.event_name == "tool_decision" and
+          $event.otel.process_name? == null and
+          $event.otel.remote_tool? == true {
   // Local shell decisions fall through to Process Activity below. A remote
   // invocation remains API Activity, with `Invoke` as the action and the
   // capability name as the API operation.
-  _decision_operation = $event.otel.tool_name? else $event.otel.event_name
+  _decision_operation = $event.otel.api_operation? else $event.otel.tool_name? else $event.otel.event_name
   $event.ocsf.category_uid = 6
   $event.ocsf.class_uid = 6003
   $event.ocsf.activity_id = 99
@@ -256,10 +258,20 @@ if $event.otel.event_name == "permission_mode_changed" {
   // destination and stays in `unmapped`.
   $event.ocsf.api = {
     operation: _decision_operation,
-    request: {uid: move $event.otel.tool_use_id?},
+    request: {
+      uid: move $event.otel.tool_use_id?,
+    },
+  }
+  if $event.otel.request_data? != null {
+    $event.ocsf.api.request.data = move $event.otel.request_data
+    drop $event.otel.tool_input?,
+         $event.otel.tool_parameters?,
+         $event.otel.arguments?
   }
   _decision_parts = _decision_operation.split("__") if _decision_operation.starts_with("mcp__") else []
-  _decision_server = _decision_parts[1]? if _decision_parts.length() >= 3 else null
+  _decision_server = $event.otel.api_service? else
+                     _decision_parts[1]? if _decision_parts.length() >= 3 else
+                     null
   if _decision_server != null {
     $event.ocsf.api.service = {name: _decision_server}
     $event.ocsf.dst_endpoint = {svc_name: _decision_server}
@@ -372,10 +384,11 @@ if $event.otel.event_name == "permission_mode_changed" {
   "hook_execution_start",
   "hook_execution_complete",
   "subagent_completed",
-] or ($event.otel.tool_name? else "") != "" or
+] or $event.otel.remote_tool? == true or
   ($event.otel.http_method? else "") != "" or
-  $event.otel.span_type? in ["llm_request", "tool", "tool.execution", "tool.blocked_on_user"] {
+  $event.otel.span_type? == "llm_request" {
   _api_operation = $event.otel.http_method? else
+                   $event.otel.api_operation? else
                    $event.otel.tool_name? else
                    $event.otel.hook_name? else
                    $event.otel.agent_type? else
@@ -407,9 +420,24 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.activity_name = "Invoke" if _api_activity_id == 99 and ($event.otel.tool_name? else "") != "" else
                               _api_operation if _api_activity_id == 99 else null
   $event.ocsf.type_uid = 600300 + _api_activity_id
+  // Interim: for MCP and remote tool calls `api.operation` carries the
+  // capability name (`take_screenshot`), not the protocol operation
+  // (`tools/call`, `resources/read`). That collapses different MCP primitives
+  // on the same server into one string. The target home is `ai_tool.name` /
+  // `ai_tool.service.name` from ocsf/ocsf-schema#1729; move the capability
+  // there once it lands and keep `api.service.name` as the server identity.
+  // See ocsf/ocsf-schema#1736 for the discussion.
   $event.ocsf.api = {
     operation: _api_operation,
-    request: {uid: move $event.otel.request_id? else move $event.otel.tool_use_id?},
+    request: {
+      uid: move $event.otel.request_id? else move $event.otel.tool_use_id?,
+    },
+  }
+  if $event.otel.request_data? != null {
+    $event.ocsf.api.request.data = move $event.otel.request_data
+    drop $event.otel.tool_input?,
+         $event.otel.tool_parameters?,
+         $event.otel.arguments?
   }
   $event.ocsf.message = "User prompted the agent" if $event.otel.event_name in ["user_prompt", "claude_code.interaction"] else
                         "Agent responded to the user" if $event.otel.event_name == "assistant_response" else
@@ -446,10 +474,11 @@ if $event.otel.event_name == "permission_mode_changed" {
   // The serving MCP server goes into `api.service.name` and
   // `dst_endpoint.svc_name` on every MCP event, matching the connection events.
   // `mcp__<server>__<tool>`. A malformed name yields no server, and the tool
-  // name is already on `api.operation`, so publishing it as a service name
-  // would only put the wrong kind of value in `dst_endpoint`.
+  // name is already on `api.operation` (interim, see above), so publishing it
+  // as a service name would only put the wrong kind of value in `dst_endpoint`.
   _mcp_parts = $event.otel.tool_name.split("__") if ($event.otel.tool_name? else "").starts_with("mcp__") else []
-  _mcp_server = $event.otel.server_name? else
+  _mcp_server = $event.otel.api_service? else
+                $event.otel.server_name? else
                 (_mcp_parts[1]? if _mcp_parts.length() >= 3 else null)
   if _mcp_server != null {
     $event.ocsf.api.service = {name: _mcp_server}
@@ -457,6 +486,13 @@ if $event.otel.event_name == "permission_mode_changed" {
       ...($event.ocsf.dst_endpoint? else {}),
       svc_name: _mcp_server,
     }
+  }
+  if $event.otel.target_resource_uris? != null {
+    $event.ocsf.resources = (move $event.otel.target_resource_uris).map(uri => {
+      uid: uri,
+      type: $event.otel.target_resource_type?,
+      role_id: 1,
+    })
   }
   _total_tokens = $event.otel.input_tokens + $event.otel.output_tokens if
                   $event.otel.input_tokens? != null and
@@ -535,10 +571,14 @@ _scope_version = move $event.otel.scope.version?
 _host_arch = move $event.otel.resource.host_arch?
 _os_type = move $event.otel.resource.os_type?
 _os_version = move $event.otel.resource.os_version?
-if $event.otel.signal? == "metric" {
-  // Metric duration already populated the OCSF aggregation window. A tool
-  // runtime is not an aggregate window and remains in `unmapped.duration`.
+if $event.otel.signal? == "metric" or $event.ocsf.trace?.span? != null {
+  // Metric duration already populated the OCSF aggregation window. A mapped
+  // trace duration is on `trace.span.duration` with real span boundaries.
   drop $event.otel.duration?
+} else if $event.otel.duration? != null {
+  // Logs do not carry the span boundaries needed by the Trace profile.
+  // Preserve the provider's explicit unit without using aggregate duration.
+  $event.otel.duration_ms = move $event.otel.duration
 }
 
 // Values that feed multiple OCSF fields cannot be moved into a single target.
@@ -570,7 +610,13 @@ drop $event.otel.event_name?,
      $event.otel.skill_name?,
      $event.otel.agent_type?,
      $event.otel.tool_name?,
+     $event.otel.api_operation?,
+     $event.otel.api_service?,
+     $event.otel.remote_tool?,
      $event.otel.tool_use_id?,
+     $event.otel.request_data?,
+     $event.otel.target_resource_uris?,
+     $event.otel.target_resource_type?,
      $event.otel.file_path?,
      $event.otel.file_name?,
      $event.otel.file_operation?,

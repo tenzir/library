@@ -18,6 +18,24 @@ _tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
 _tool_payload_text = _a.tool_input? else _a.tool_parameters? else _a.arguments?
 _tool_payload = _tool_payload_text.parse_json() if _tool_payload_text? != null and _tool_payload_text.starts_with("{") else {}
 _tool_parameters_payload = _a.tool_parameters.parse_json() if _a.tool_parameters? != null and _a.tool_parameters.starts_with("{") else {}
+_mcp_server = _tool_parameters_payload.mcp_server_name? else
+              _tool_payload.server? if _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool"] else
+              null
+_mcp_tool = _tool_parameters_payload.mcp_tool_name?
+_mcp_parts = _tool_name.split("__") if (_tool_name? else "").starts_with("mcp__") else []
+_api_operation = _mcp_tool? else
+                 _mcp_parts[2]? if _mcp_parts.length() >= 3 else
+                 _tool_name
+_api_service = _mcp_server? else
+               _mcp_parts[1]? if _mcp_parts.length() >= 3 else
+               null
+_target_resource_uri = _tool_payload.uri? if _tool_name_lower == "readmcpresourcetool" else
+                       _tool_payload.url? if _tool_name_lower == "webfetch" else
+                       null
+_remote_tool = (_tool_name_lower == "mcp_tool" and _mcp_server? != null and _mcp_tool? != null) or
+               _mcp_parts.length() >= 3 or
+               (_tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool"] and _tool_payload.server? != null) or
+               _tool_name_lower in ["websearch", "webfetch"]
 _file_path = _tool_payload.file_path? else _tool_payload.path?
 _file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
@@ -60,6 +78,7 @@ select signal = "log",
   server_name = _a.server_name?,
   transport_type = _a.transport_type?,
   server_scope = _a.server_scope?,
+  mcp_server_scope = _a.mcp_server_scope?,
   source_status = _a.status?,
   plugin_name = _a["plugin.name"]?,
   plugin_marketplace = _a["marketplace.name"]?,
@@ -71,7 +90,15 @@ select signal = "log",
   skill_invocation_trigger = _a.invocation_trigger?,
   agent_type = _a.agent_type?,
   tool_name = _tool_name,
+  api_operation = _api_operation,
+  api_service = _api_service,
+  remote_tool = _remote_tool,
   tool_use_id = _a.tool_use_id? else _a.call_id?,
+  request_data = _tool_payload if $include_content and _a.tool_input? != null and _a.tool_input.starts_with("{") else null,
+  target_resource_uris = [_target_resource_uri] if _target_resource_uri? != null else null,
+  target_resource_type = "MCP Resource" if _tool_name_lower == "readmcpresourcetool" else
+                         "Web Resource" if _tool_name_lower == "webfetch" else
+                         null,
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
@@ -87,6 +114,8 @@ select signal = "log",
   decision_source = _a.source? else _a.decision_source?,
   success = _a.success.string() == "true" if _a.success? != null else null,
   duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
+  tool_input_size_bytes = int(_a.tool_input_size_bytes) if _a.tool_input_size_bytes? != null else null,
+  tool_result_size_bytes = int(_a.tool_result_size_bytes) if _a.tool_result_size_bytes? != null else null,
   error = _a.error?,
   error_type = _a.error_type?,
   source_status_code = _a.status_code?,
@@ -105,7 +134,9 @@ select signal = "log",
   tool_input = _a.tool_input? if $include_content else null,
   tool_parameters = _a.tool_parameters? if $include_content else null,
   arguments = _a.arguments? if $include_content else null,
-  tool_parameters_hash = hash_sha256(_tool_payload_text) if _tool_payload_text? != null else null,
+  tool_input_hash = hash_sha256(_a.tool_input) if _a.tool_input? != null else null,
+  tool_parameters_hash = hash_sha256(_a.tool_parameters) if _a.tool_parameters? != null else null,
+  arguments_hash = hash_sha256(_a.arguments) if _a.arguments? != null else null,
   trace_id,
   span_id,
   severity_number,
