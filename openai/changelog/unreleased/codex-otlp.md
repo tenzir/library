@@ -57,12 +57,14 @@ The OCSF mapping names explicit remote tool invocations as `Other` with
 `Invoke` in `activity_name`; `api.operation` carries the tool name. An unknown
 tool name alone is not evidence of a remote call and falls back to Base Event.
 Typed local file and process records keep their specific classes. Model
-calls, websocket setup and turns, completed responses, user prompts and turn
-spans are `Create`, the same reading the Claude Code mapping uses. MCP tool
-discovery (`list_tools_for_server`, Codex's own span for `tools/list`) is
-`Read`. JSON-RPC operations are `Other` with `Call` and the method in
-`api.operation`, because `activity_name` is the action rather than a name.
-Other API activity uses an HTTP verb. Guessing read/write intent from the
+requests and websocket setup are `Create`, the same reading the Claude Code
+mapping uses, so counting `Create` counts model calls. A conversation record
+is not an API call: a user prompt is `Other` with `Prompt`, a completed model
+response `Other` with `Respond`, and a turn span, which covers several model
+calls, `Other` with `Turn`. MCP tool discovery (`list_tools_for_server`,
+Codex's own span for `tools/list`) is `Read`. JSON-RPC operations are `Other`
+with `Call` and the method in `api.operation`, because `activity_name` is
+the action rather than a name. Other API activity uses an HTTP verb. Guessing read/write intent from the
 shape of a name would misclassify a tool such as `cleanup_stale_records` as a
 read.
 `metadata.original_event_uid` prefers identifiers that are
@@ -178,17 +180,13 @@ telemetry reports no hash of the skill content it loads, so charter integrity
 is not attestable; that is a vendor gap, not a mapping choice.
 
 A model call over the websocket is two log records with no shared
-identifier: `codex.websocket_request` is the request, with its outcome,
-duration and the credential-source flags, and the completed
-`codex.sse_event` is the response, with the token usage and the time to first
-token. They cannot be joined, so both stay their own API Activity `Create`
-event, the same shape as the Claude Code request and response pair, and
-`message_context.ai_role` tells them apart: the request carries the Agent role
-and the response the Assistant role. Count model calls on the completed
-response, which carries the usage, not on both. The request keeps which
-credential sources were present and whether the connection was reused in
-`unmapped`; the response keeps the cache and reasoning token counts and the
-time to first token.
+identifier: `codex.websocket_request` is the request, API Activity `Create`
+with the Agent role, its outcome, duration and the credential-source flags,
+and the completed `codex.sse_event` is the model's reply, `Other` with
+`Respond` and the Assistant role, carrying the token usage and the time to
+first token. They cannot be joined and are never merged. The request keeps
+which credential sources were present and whether the connection was reused
+in `unmapped`; the response keeps the cache and reasoning token counts.
 
 Exec-server HTTP spans carry the host, method, and usually a response status,
 so they map to HTTP Activity with `http_request`, `http_response`, and

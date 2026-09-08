@@ -434,14 +434,17 @@ if $event.otel.event_name == "permission_mode_changed" {
                    $event.otel.tool_name? else
                    $event.otel.event_name
   // Only an explicit statement of the operation names the activity: an HTTP
-  // verb, or an event kind that is a model call, a conversation turn or
-  // connection setup (`Create`, including the failed model call `api_error`
-  // and the request and response body records of one call). Everything else
+  // verb, or a record that is the model call itself or connection setup
+  // (`Create`, including the failed model call `api_error` and the request
+  // and response body records of one call), so that counting `Create` counts
+  // model calls. A conversation turn is not an API call: the user's input is
+  // `Other` with `Prompt` and the model's reply `Other` with `Respond`, which
+  // is also what `message_context.ai_role` says about them. Everything else
   // is `Other` with a fixed verb as the label and the name of the thing in
-  // `api.operation`: `activity_name` is the action, never a tool, hook or
-  // agent name. Guessing read/write intent from the shape of a name
-  // misclassifies: a tool called `cleanup_stale_records` would read as `Read`
-  // and then drop a table.
+  // `api.operation`: `activity_name` is the action, never a tool or event
+  // name. Guessing read/write intent from the shape of a name misclassifies:
+  // a tool called `cleanup_stale_records` would read as `Read` and then drop
+  // a table.
   _http_verb = ($event.otel.http_method? else "").to_lower()
   _api_activity_id = 2 if _http_verb in ["get", "head"] else
                      3 if _http_verb in ["put", "patch"] else
@@ -453,9 +456,6 @@ if $event.otel.event_name == "permission_mode_changed" {
                             "api_request_body",
                             "api_response_body",
                             "claude_code.llm_request",
-                            "claude_code.interaction",
-                            "user_prompt",
-                            "assistant_response",
                           ] or $event.otel.span_type? == "llm_request" else
                      99
   $event.ocsf.category_uid = 6
@@ -465,6 +465,8 @@ if $event.otel.event_name == "permission_mode_changed" {
   // no log record reports with a duration. It is neither the decision (the
   // `tool_decision` log, `Authorize`) nor the call (the result, `Invoke`).
   $event.ocsf.activity_name = "Invoke" if _api_activity_id == 99 and ($event.otel.tool_name? else "") != "" else
+                              "Prompt" if $event.otel.event_name in ["user_prompt", "claude_code.interaction"] else
+                              "Respond" if $event.otel.event_name == "assistant_response" else
                               _api_operation if _api_activity_id == 99 else null
   $event.ocsf.type_uid = 600300 + _api_activity_id
   // Interim: for MCP and remote tool calls `api.operation` carries the

@@ -46,8 +46,11 @@ interim home until the `ai_tool` object from ocsf/ocsf-schema#1729 lands. An unk
 tool name alone is not evidence of a remote call and falls back to Base Event.
 Typed local file and process records keep their specific classes. Model
 calls, including a failed one (`api_error`) and the request and response body
-records, conversation turns and MCP connections are `Create`. Other API
-activity uses an HTTP verb. Guessing read/write intent from the
+records, and MCP connections are `Create`, so counting `Create` counts model
+calls. A conversation turn is not an API call: a user prompt is `Other` with
+`Prompt` and an assistant response `Other` with `Respond`, which is also what
+`message_context.ai_role` says about them. Other API activity uses an HTTP
+verb. Guessing read/write intent from the
 shape of a name would misclassify a tool such as `cleanup_stale_records` as a
 read.
 `metadata.original_event_uid` prefers
@@ -124,10 +127,9 @@ and the cost per request, so they would report the same numbers twice. Legacy
 OTLP/JSON envelopes still discard metrics.
 
 A model call is two records that share `request_id`: the `api_request` log
-is the request and the `assistant_response` log the response. Both are API
-Activity `Create`, and `message_context.ai_role` tells them apart: the
-request carries the Agent role and the response the Assistant role. Count
-model calls on one of the two, not on both. The request keeps the cost, the
+is the call itself, API Activity `Create` with the Agent role, and the
+`assistant_response` log is the model's reply, `Other` with `Respond` and
+the Assistant role. The two are never merged. The call keeps the cost, the
 cache token counts, the query source, the effort and the subagent name in
 `unmapped`, since OCSF `message_context` has fields for prompt, completion
 and total tokens only.

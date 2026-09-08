@@ -490,14 +490,18 @@ if $event.otel.event_name == "codex.skill.injected" {
                    $event.otel.tool_name? else
                    $event.otel.event_name
   // Only an explicit statement of the operation names the activity: an HTTP
-  // verb, or an event kind that is a model call, a conversation turn or
-  // connection setup (`Create`, the same reading Claude Code uses). MCP tool
-  // discovery is `Read`: `list_tools_for_server` is Codex's own span for the
-  // `tools/list` request, not a tool name. Everything else is `Other` with a
-  // fixed verb as the label and the name of the thing in `api.operation`:
-  // `activity_name` is the action, never a tool or method name. Guessing
-  // read/write intent from the shape of a name misclassifies: a tool called
-  // `cleanup_stale_records` would read as `Read` and then drop a table.
+  // verb, or a record that is the model request itself or connection setup
+  // (`Create`, the same reading Claude Code uses), so that counting `Create`
+  // counts model calls. A conversation turn is not an API call: the user's
+  // input is `Other` with `Prompt`, the completed model response `Other`
+  // with `Respond`, and a turn span, which spans several model calls, `Other`
+  // with `Turn`. MCP tool discovery is `Read`: `list_tools_for_server` is
+  // Codex's own span for the `tools/list` request, not a tool name.
+  // Everything else is `Other` with a fixed verb as the label and the name of
+  // the thing in `api.operation`: `activity_name` is the action, never a tool
+  // or method name. Guessing read/write intent from the shape of a name
+  // misclassifies: a tool called `cleanup_stale_records` would read as
+  // `Read` and then drop a table.
   _http_verb = ($event.otel.http_method? else "").to_lower()
   _api_activity_id = 2 if _http_verb in ["get", "head"] else
                      3 if _http_verb in ["put", "patch"] else
@@ -506,9 +510,6 @@ if $event.otel.event_name == "codex.skill.injected" {
                             "codex.api_request",
                             "codex.websocket_request",
                             "codex.websocket_connect",
-                            "codex.sse_event",
-                            "codex.user_prompt",
-                            "session_task.turn",
                           ] or $event.otel.span_type? == "llm_request" else
                      2 if $event.otel.event_name == "list_tools_for_server" else
                      99
@@ -517,6 +518,9 @@ if $event.otel.event_name == "codex.skill.injected" {
   $event.ocsf.activity_id = _api_activity_id
   $event.ocsf.activity_name = "Invoke" if _api_activity_id == 99 and ($event.otel.tool_name? else "") != "" else
                               "Call" if _api_activity_id == 99 and ($event.otel.rpc_method? else "") != "" else
+                              "Prompt" if $event.otel.event_name == "codex.user_prompt" else
+                              "Respond" if $event.otel.event_name == "codex.sse_event" else
+                              "Turn" if $event.otel.event_name == "session_task.turn" else
                               _api_operation if _api_activity_id == 99 else null
   $event.ocsf.type_uid = 600300 + _api_activity_id
   $event.ocsf.api = {
