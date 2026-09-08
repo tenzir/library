@@ -100,10 +100,16 @@ call rather than the record, and the span, the decision and the result all
 share it, so it stays on `process.uid` and `api.request.uid`, and
 in `unmapped` on classes with no typed home for it.
 
-`metadata.correlation_uid` always identifies the trace, so grouping by it never
-mixes a single transaction with a whole session. Events whose source carries no
-trace leave it empty; the session is available as `ai_agent.instance_uid`, and
-on classes with an actor also as `actor.session.uid`.
+`metadata.correlation_uid` identifies the turn: the `prompt.id` of the prompt
+that caused the event, following the convention the OCSF `ai_tool` worked
+example uses, where the session is `ai_agent.instance_uid`, the turn is
+`correlation_uid` and the invocation is the tool-call id. Every mapped Claude
+Code event is a log record and logs carry the prompt id; a record outside any
+turn, such as a hook registration at session start, leaves the field empty.
+The trace is not lost: it is `trace.uid` on API Activity and stays in
+`unmapped.trace_id` on every other class. The session is available as
+`ai_agent.instance_uid`, and on classes with an actor also as
+`actor.session.uid`.
 
 Claude Code shell tools map to one Process Activity lifecycle. A Bash decision
 is `Launch`; a completed foreground result is `Terminate`. Both derive a

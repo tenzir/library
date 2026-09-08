@@ -28,9 +28,14 @@ $event.ocsf.metadata = {
   // and `api.request.uid`. Log and metric records carry no native identifier,
   // so the field is left empty rather than filled with something else.
   original_event_uid: $event.otel.span_id? if $event.otel.signal? == "trace" else null,
-  // `correlation_uid` always identifies the trace, so grouping by it never
-  // mixes scopes. The session is available as `ai_agent.instance_uid`.
-  correlation_uid: $event.otel.trace_id? if ($event.otel.trace_id? else "") != "" else null,
+  // `correlation_uid` identifies the turn, the prompt that caused this
+  // event, following the convention of the `ai_tool` worked example: the
+  // session is `ai_agent.instance_uid`, the turn is `correlation_uid`, the
+  // invocation is the tool-call id. Every mapped Claude Code event is a log
+  // record, and logs carry `prompt.id`; a record outside any turn, such as a
+  // session-start hook registration, leaves it empty. The trace stays on
+  // `trace.uid` where the Trace profile applies and in `unmapped` elsewhere.
+  correlation_uid: $event.otel.prompt_id? if ($event.otel.prompt_id? else "") != "" else null,
   sequence: $event.otel.event_sequence?,
   tenant_uid: $event.otel.organization_id?,
   product: {
@@ -736,7 +741,8 @@ drop $event.otel.event_name?,
      $event.otel.startup_status?,
      $event.otel.input_tokens?,
      $event.otel.output_tokens?,
-     $event.otel.trace_id?,
+     // `trace_id` is not dropped here: the API branch moves it into
+     // `trace.uid`, and on every other class it stays in `unmapped`.
      $event.otel.status_code?,
      $event.otel.status_message?,
      $event.otel.error?,
