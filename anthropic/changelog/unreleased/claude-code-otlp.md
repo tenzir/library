@@ -56,7 +56,9 @@ read.
 File tools map from the path the result reports: `file_path` on `Read`,
 `Write` and `Edit`, and `notebook_path` on `NotebookEdit`, whose cell edits
 are updates of the notebook file. `Write` is always `Create` because the
-source does not say whether the path existed before. With
+source does not say whether the path existed before. A read of a path that
+does not exist stays a Failure but is rated Informational, since probing for
+a file is a normal step for an agent and not a fault. With
 `include_content=true` an `Edit` keeps the text it replaced and the text it
 wrote in `file_diff`. The file type is `Regular File` unless a read failed
 with `EISDIR`, the one case where the operating system reported a folder. A

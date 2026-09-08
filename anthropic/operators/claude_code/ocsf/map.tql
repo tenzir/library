@@ -92,7 +92,14 @@ _authorizations = [{
 // informational baseline. OCSF `Low` reads as "the user decides if action is
 // needed", which fits a single denial; repeated denials are what warrant
 // attention, and that is a detection concern rather than a per-event severity.
-$event.ocsf.severity_id = 3 if $event.otel.success? == false or ($event.otel.http_status? != null and $event.otel.http_status >= 400) or $event.otel.status_code? == 2 else
+// A read of a path that does not exist is a normal outcome for an agent
+// probing a tree, not a fault: it stays a Failure but is rated Informational.
+// The source reports it only as text (`error_type` is the generic
+// `TelemetrySafeError`), so the message is the signal.
+_missing_file_read = $event.otel.file_operation? == "read" and
+                     ($event.otel.error? else "").starts_with("File does not exist")
+$event.ocsf.severity_id = 1 if _missing_file_read else
+                          3 if $event.otel.success? == false or ($event.otel.http_status? != null and $event.otel.http_status >= 400) or $event.otel.status_code? == 2 else
                           2 if _decision_status_id == 2 else 1
 // Claim an outcome only where the source states one: the `success` flag, an
 // HTTP response code, or an OTLP span status. A decision to allow is not an
