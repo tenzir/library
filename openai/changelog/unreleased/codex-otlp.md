@@ -175,9 +175,13 @@ session begins with, recorded in `privileges` against the agent's session. A
 A decision or result for a local tool that has no OCSF class, such as
 `write_stdin` or a file tool whose decision reports no path, falls back to
 Base Event but keeps the Security Control profile. Base Event cannot carry the
-AI Operation profile or an actor, so the session and the tool name stay in
-`unmapped` there rather than surviving only in `raw_data`, and `message` names
-the tool and the outcome.
+AI Operation profile, but the Host profile gives it `actor` and `device`, so
+the session and the user are typed there like everywhere else; only the tool
+name stays in `unmapped`, and `message` names the tool and the outcome. The
+sandbox outcome and Application Lifecycle events carry the Host profile for
+the same reason. As a result `actor.session.uid` is the session on every
+event this mapping emits, and `ai_agent.instance_uid` on every event that
+carries the AI Operation profile.
 
 A skill injection maps to Application Lifecycle with the `Enable` activity,
 and the skill document is the agent's charter in `ai_agent.charter`. The

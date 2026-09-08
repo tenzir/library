@@ -254,7 +254,11 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.type_uid = 600206
   $event.ocsf.application = {name: _skill_name}
   $event.ocsf.message = f"Skill {_skill_name} activated for the agent"
-  $event.ocsf.metadata.profiles = ["ai_operation"]
+  // Application Lifecycle defines no actor of its own; the Host profile adds
+  // it, so the session and the user are typed here as on every other class.
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.ai_agent = {..._ai_agent, charter: {name: _skill_name, type_id: 1}}
 } else if $event.otel.event_name == "hook_registered" {
   // A hook registered on the agent is a command wired into the agent's
@@ -270,7 +274,9 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.type_uid = 600206
   $event.ocsf.application = {name: _hook_label}
   $event.ocsf.message = f"Hook {_hook_label} registered on the agent"
-  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.event_name in ["hook_execution_start", "hook_execution_complete"] {
   // A hook run is the harness executing one or more local commands, so it is
@@ -318,7 +324,9 @@ if $event.otel.event_name == "permission_mode_changed" {
     product: {name: _plugin_name, vendor_name: move $event.otel.plugin_marketplace?},
   }
   $event.ocsf.message = f"Plugin {_plugin_name} enabled for the agent"
-  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.event_name == "tool_decision" and
           $event.otel.process_name? == null and
@@ -626,6 +634,13 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.activity_id = 99
   $event.ocsf.activity_name = $event.otel.event_name
   $event.ocsf.type_uid = 99
+  // Base Event cannot carry the AI Operation profile, but the Host profile
+  // gives it `actor` and `device`, so the session, the user and the host are
+  // typed here as on every other class: `actor.session.uid` is the session
+  // on every event this mapping emits.
+  $event.ocsf.metadata.profiles = ["host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.message = f"Tool call {_fallback_tool} " + (
                           "allowed" if _decision_status_id == 1 else
                           "denied" if _decision_status_id == 2 else "decided") if $event.otel.event_name == "tool_decision" and _fallback_tool != null else
@@ -666,10 +681,10 @@ if _decision_status_id != null {
   $event.ocsf.metadata.profiles = [...($event.ocsf.metadata.profiles? else []), "security_control"]
 }
 
-// Base Event has neither the AI Operation profile nor an actor, so the session
-// and the tool name would otherwise survive only in `raw_data`. They are
-// restored into `unmapped` after the drop below.
-_base_session_id = $event.otel.session_id? if $event.ocsf.class_uid == 0 else null
+// Base Event has no AI Operation profile, so the tool name, the model and the
+// subagent type would otherwise survive only in `raw_data`. They are restored
+// into `unmapped` after the drop below; the session is typed on
+// `actor.session.uid` through the Host profile.
 _base_tool_name = $event.otel.tool_name? if $event.ocsf.class_uid == 0 else null
 _base_model = $event.otel.model? if $event.ocsf.class_uid == 0 else null
 _base_agent_type = $event.otel.agent_type? if $event.ocsf.class_uid == 0 else null
@@ -759,9 +774,6 @@ drop $event.otel.event_name?,
      $event.otel.transport?,
      $event.otel.decision_source?
 
-if _base_session_id != null {
-  $event.otel.session_id = _base_session_id
-}
 if _base_tool_name != null {
   $event.otel.tool_name = _base_tool_name
 }

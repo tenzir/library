@@ -206,7 +206,11 @@ if $event.otel.event_name == "codex.skill.injected" {
   $event.ocsf.type_uid = 600206
   $event.ocsf.application = {name: _skill_name}
   $event.ocsf.message = f"Skill {_skill_name} injected into the agent context"
-  $event.ocsf.metadata.profiles = ["ai_operation"]
+  // Application Lifecycle defines no actor of its own; the Host profile adds
+  // it, so the session and the user are typed here as on every other class.
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.ai_agent = {..._ai_agent, charter: {name: _skill_name, type_id: 1}}
 } else if $event.otel.event_name == "codex.conversation_starts" {
   // Session posture at start: the approval policy and sandbox policy are the
@@ -363,8 +367,12 @@ if $event.otel.event_name == "codex.skill.injected" {
                         "Codex sandbox blocked the operation" if _decision_status_id == 2 else
                         "Codex sandbox reported an outcome"
   // Base Event does not carry the AI Operation profile in OCSF 1.9. The
-  // Security Control profile below carries the sandbox decision.
-  $event.ocsf.metadata.profiles = []
+  // Security Control profile below carries the sandbox decision, and the
+  // Host profile gives the event its actor, so the session is typed on
+  // `actor.session.uid` as on every other class.
+  $event.ocsf.metadata.profiles = ["host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
 } else if $event.otel.process_name? != null {
   // Codex invokes the top-level command through a shell process. Model that
   // one lifecycle consistently, including compound commands that may start
@@ -641,6 +649,13 @@ if $event.otel.event_name == "codex.skill.injected" {
   $event.ocsf.activity_id = 99
   $event.ocsf.activity_name = $event.otel.event_name
   $event.ocsf.type_uid = 99
+  // Base Event cannot carry the AI Operation profile, but the Host profile
+  // gives it `actor` and `device`, so the session, the user and the host are
+  // typed here as on every other class: `actor.session.uid` is the session
+  // on every event this mapping emits.
+  $event.ocsf.metadata.profiles = ["host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
   $event.ocsf.message = f"Tool call {_fallback_tool} " + (
                           "allowed" if _decision_status_id == 1 else
                           "denied" if _decision_status_id == 2 else "decided") if $event.otel.event_name == "codex.tool_decision" and _fallback_tool != null else
@@ -675,10 +690,10 @@ if _decision_status_id != null {
   $event.ocsf.metadata.profiles = [...($event.ocsf.metadata.profiles? else []), "security_control"]
 }
 
-// Base Event has neither the AI Operation profile nor an actor, so the session
-// and the tool name would otherwise survive only in `raw_data`. They are
-// restored into `unmapped` after the drop below.
-_base_session_id = $event.otel.session_id? if $event.ocsf.class_uid == 0 else null
+// Base Event has no AI Operation profile, so the tool name and the model
+// would otherwise survive only in `raw_data`. They are restored into
+// `unmapped` after the drop below; the session is typed on
+// `actor.session.uid` through the Host profile.
 _base_tool_name = $event.otel.tool_name? if $event.ocsf.class_uid == 0 else null
 _base_model = $event.otel.model? if $event.ocsf.class_uid == 0 else null
 _scope_version = move $event.otel.scope.version?
@@ -771,9 +786,6 @@ drop $event.otel.event_name?,
      $event.otel.transport?,
      $event.otel.decision_source?
 
-if _base_session_id != null {
-  $event.otel.session_id = _base_session_id
-}
 if _base_tool_name != null {
   $event.otel.tool_name = _base_tool_name
 }
