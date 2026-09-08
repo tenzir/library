@@ -127,7 +127,10 @@ A model call is two records that share `request_id`: the `api_request` log
 is the request and the `assistant_response` log the response. Both are API
 Activity `Create`, and `message_context.ai_role` tells them apart: the
 request carries the Agent role and the response the Assistant role. Count
-model calls on one of the two, not on both.
+model calls on one of the two, not on both. The request keeps the cost, the
+cache token counts, the query source, the effort and the subagent name in
+`unmapped`, since OCSF `message_context` has fields for prompt, completion
+and total tokens only.
 
 Hooks and subagents are local, not API calls. A hook run is the harness
 executing one or more local commands, so `hook_execution_start` is a Process
