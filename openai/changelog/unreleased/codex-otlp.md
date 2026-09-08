@@ -22,7 +22,10 @@ export envelopes remain available through
 
 The mapping recognizes API and model activity, JSON-RPC operations, completed
 model responses, turn summaries, MCP tool discovery, shell commands, and file
-operations. Skill injections and aggregate tool calls retain their invocation,
+operations. An `apply_patch` call that touches several files produces one File
+System Activity event per file header; an `*** Update File:` followed by
+`*** Move to:` is one Rename that names the old file in `file` and the new
+file in `file_result`. Skill injections and aggregate tool calls retain their invocation,
 status, sandbox, and policy context. Plugin, remote-plugin, and application
 enablement observations retain the resolved Codex posture. Potentially
 sensitive prompt, response, and copied tool-parameter content is hashed unless
@@ -44,13 +47,24 @@ single query. Unmapped events are ignored.
 Internal implementation spans and metric-like log events that do not add
 security context are discarded instead of producing OCSF Base Events.
 
+Codex reports a different service name per client: `codex_cli_rs` for the
+terminal client, `codex_exec` for non-interactive runs and `codex-app-server`
+for the desktop and IDE apps. The mapping recognizes the product by the
+`codex` prefix, so the app-server telemetry is no longer dropped by a service
+allow-list.
+
 The OCSF mapping names explicit remote tool invocations as `Other` with
 `Invoke` in `activity_name`; `api.operation` carries the tool name. An unknown
 tool name alone is not evidence of a remote call and falls back to Base Event.
-Typed local file and process records keep their specific classes. Other API
-activity uses an HTTP verb or the source operation. Guessing read/write intent
-from the shape of a name would misclassify a tool such as
-`cleanup_stale_records` as a read.
+Typed local file and process records keep their specific classes. Model
+calls, websocket setup and turns, completed responses, user prompts and turn
+spans are `Create`, the same reading the Claude Code mapping uses. MCP tool
+discovery (`list_tools_for_server`, Codex's own span for `tools/list`) is
+`Read`. JSON-RPC operations are `Other` with `Call` and the method in
+`api.operation`, because `activity_name` is the action rather than a name.
+Other API activity uses an HTTP verb. Guessing read/write intent from the
+shape of a name would misclassify a tool such as `cleanup_stale_records` as a
+read.
 `metadata.original_event_uid` prefers identifiers that are
 unique per event, because `span_id` identifies the enclosing span and is shared
 by every record emitted inside it; the span itself is preserved as described
@@ -87,8 +101,18 @@ Codex shell tools map to one Process Activity lifecycle. A tool decision is
 `process.uid` from `call_id`, with an `openai:codex:` prefix. `process.pid`
 stays empty because the source does not report an operating-system PID. A
 compound `arguments.cmd` value remains the command line of the top-level shell
-invocation and is always retained. Matching execution spans are suppressed
-because they repeat the lifecycle reported by the decision and result logs.
+invocation and is always retained. Spans named after a tool (`exec_command`,
+`write_stdin`, `apply_patch`, the `code_mode.broker.invoke_tool` wrapper) are
+suppressed on the native and the legacy envelope path alike, because they
+repeat the lifecycle reported by the decision and result logs; only the Code
+Mode `exec` span is kept as a provisional Launch, since no decision log exists
+for it.
+
+A `codex.tool.call` metric point is the agent's own aggregate over one export
+interval and names no call or session, so it never maps to an invocation of
+its own: the `codex.tool_result` log already is that. It stays a Base Event
+that keeps the count, the window and the sandbox mechanism and policy in
+`unmapped`, which no log record carries per call.
 
 No correlation window is required. The decision emits immediately, and the
 result emits immediately with the same UID whether it follows milliseconds or
@@ -101,10 +125,12 @@ delivered; it does not report the shell command's exit status. The mapper
 therefore extracts the `Process exited with code N` result line: zero maps to
 Success, a nonzero code maps to Failure, and the code populates OCSF
 `status_code` and `exit_code`. A result that says `Process running with session
-ID N` becomes a separate API status observation because the earlier decision
-already emitted the Launch. Later `write_stdin` calls remain separate tool
-interactions. Both retain the terminal session ID in `unmapped`. The background
-status retains its full command in `api.request.data.command`.
+ID N` reports that the launched process is still running, so it stays in
+Process Activity as `Other` with `Observe` in `activity_name`, under the same
+`process.uid` and with the command in `process.cmd_line`. It is neither a
+second Launch nor a Terminate, and its status is `Unknown`. Later
+`write_stdin` calls remain separate tool interactions. Both retain the terminal
+session ID in `unmapped`.
 
 Codex reports tool duration in milliseconds. Process Activity describes a
 discrete event, while the OCSF base `duration` field describes an aggregation
@@ -121,17 +147,30 @@ Activity launch request it governs. A decision without a named decider keeps an 
 disposition rather than implying that a rule fired. The `Unauthorized`
 disposition stays unused because the
 telemetry cannot distinguish a failed permission check from a policy block.
-Remote tool decisions use `Invoke` as the API activity, keep the tool name in
-`api.operation`, and place the MCP server in `api.service.name`. Local shell
-decisions map to the Process Activity launch request they govern. The provisioning source
-(`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized field
-for it.
+Remote tool decisions stay API Activity `Other`, keep the tool name in
+`api.operation` and the MCP server in `api.service.name`, but carry
+`Authorize` rather than `Invoke` in `activity_name`: the decision authorizes
+a pending call, and the result record is what reports the invocation as
+`Invoke`. The two labels keep one call from counting as two invocations, and
+both records emit independently however far apart they arrive, joined by
+`api.request.uid`. For Codex the decision is the only record that carries the
+authorization, because the result does not repeat it. Local shell decisions
+map to the Process Activity launch request they govern. The provisioning
+source (`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized
+field for it.
 
 A conversation start maps to Authorize Session with the `Assign Privileges`
 activity: the approval policy and sandbox policy are the privilege set the new
 session begins with, recorded in `privileges` against the agent's session. A
 `danger-full-access` sandbox is rated `Medium`. The MCP server list stays in
 `unmapped`.
+
+A decision or result for a local tool that has no OCSF class, such as
+`write_stdin` or a file tool whose decision reports no path, falls back to
+Base Event but keeps the Security Control profile. Base Event cannot carry the
+AI Operation profile or an actor, so the session and the tool name stay in
+`unmapped` there rather than surviving only in `raw_data`, and `message` names
+the tool and the outcome.
 
 A skill injection maps to Application Lifecycle with the `Enable` activity,
 and the skill document is the agent's charter in `ai_agent.charter`. The

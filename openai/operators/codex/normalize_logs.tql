@@ -49,14 +49,30 @@ _remote_tool = _namespace_mcp_parts.length() >= 2 or
                (_tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] and _payload_server? != null) or
                _tool_namespace == "web" or
                _tool_name_lower == "webrun"
-_patch_lines = _a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if _a.arguments? != null else []
-_patch_line = _patch_lines[0]? if _patch_lines.length() > 0 else null
-_patch_path = _patch_line.replace_regex("^\\*\\*\\* (Add|Update|Delete) File: |^\\*\\*\\* Move to: ", "") if _patch_line? != null else null
-_file_path = _tool_payload.file_path? else _tool_payload.path? else _patch_path
-_file_operation = "create" if (_patch_line? else "").starts_with("*** Add File: ") or _tool_name_lower in ["write", "create", "artifact"] else
-                  "delete" if (_patch_line? else "").starts_with("*** Delete File: ") or _tool_name_lower in ["delete", "remove"] else
-                  "rename" if (_patch_line? else "").starts_with("*** Move to: ") or _tool_name_lower in ["rename", "move"] else
-                  "update" if (_patch_line? else "").starts_with("*** Update File: ") or _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
+// An `apply_patch` payload can touch several files. Every `*** ... File:`
+// header is one file operation, and each becomes its own event below. A
+// `*** Move to:` header follows the `*** Update File:` it renames, so each
+// header is paired with its neighbours and that pair reads as one rename
+// with the old and the new path. A `*** Move to:` without such a predecessor
+// still counts as a rename that names only the new path.
+_patch_headers = _a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if _a.arguments? != null else []
+_patch_next = [..._patch_headers, ""].slice(begin=1)
+_patch_prev = ["", ..._patch_headers].slice(end=-1)
+_patch_operations = zip(zip(_patch_headers, _patch_next), _patch_prev).where(triple =>
+  not (triple.left.left.starts_with("*** Move to: ") and triple.right.starts_with("*** Update File: "))
+).map(triple => {
+  operation: "rename" if triple.left.right.starts_with("*** Move to: ") or triple.left.left.starts_with("*** Move to: ") else
+             "create" if triple.left.left.starts_with("*** Add File: ") else
+             "delete" if triple.left.left.starts_with("*** Delete File: ") else
+             "update",
+  path: triple.left.left.replace_regex("^\\*\\*\\* (Add|Update|Delete) File: |^\\*\\*\\* Move to: ", ""),
+  new_path: triple.left.right.replace_regex("^\\*\\*\\* Move to: ", "") if triple.left.right.starts_with("*** Move to: ") else null,
+})
+_file_path = _tool_payload.file_path? else _tool_payload.path?
+_file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
+                  "delete" if _tool_name_lower in ["delete", "remove"] else
+                  "rename" if _tool_name_lower in ["rename", "move"] else
+                  "update" if _tool_name_lower in ["edit", "notebookedit"] else
                   "read" if _tool_name_lower in ["read", "view_image"] else
                   null
 _command_value = _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
@@ -122,6 +138,8 @@ select signal = "log",
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
+  file_new_path = null,
+  patch_operations = _patch_operations if _patch_operations.length() > 0 else null,
   process_name = "bash" if _tool_name_lower == "bash" else
                  "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
                  null,
@@ -187,5 +205,16 @@ select signal = "log",
     os_version: resource["os.version"]? else resource.os_version?,
   },
   attributes
+
+if patch_operations != null {
+  // One record, one event per patched file. Everything else about the record
+  // is duplicated onto each event, including `raw_data`.
+  unroll patch_operations
+  file_operation = patch_operations.operation
+  file_path = patch_operations.path
+  file_name = patch_operations.path.split("/")[-1]
+  file_new_path = patch_operations.new_path
+}
+drop patch_operations
 
 @name = "openai.codex.event"
