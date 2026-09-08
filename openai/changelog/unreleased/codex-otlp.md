@@ -185,7 +185,10 @@ token. They cannot be joined, so both stay their own API Activity `Create`
 event, the same shape as the Claude Code request and response pair, and
 `message_context.ai_role` tells them apart: the request carries the Agent role
 and the response the Assistant role. Count model calls on the completed
-response, which carries the usage, not on both.
+response, which carries the usage, not on both. The request keeps which
+credential sources were present and whether the connection was reused in
+`unmapped`; the response keeps the cache and reasoning token counts and the
+time to first token.
 
 Exec-server HTTP spans carry the host, method, and usually a response status,
 so they map to HTTP Activity with `http_request`, `http_response`, and
