@@ -177,6 +177,16 @@ and the skill document is the agent's charter in `ai_agent.charter`. The
 telemetry reports no hash of the skill content it loads, so charter integrity
 is not attestable; that is a vendor gap, not a mapping choice.
 
+A model call over the websocket is two log records with no shared
+identifier: `codex.websocket_request` is the request, with its outcome,
+duration and the credential-source flags, and the completed
+`codex.sse_event` is the response, with the token usage and the time to first
+token. They cannot be joined, so both stay their own API Activity `Create`
+event, the same shape as the Claude Code request and response pair, and
+`message_context.ai_role` tells them apart: the request carries the Agent role
+and the response the Assistant role. Count model calls on the completed
+response, which carries the usage, not on both.
+
 Exec-server HTTP spans carry the host, method, and usually a response status,
 so they map to HTTP Activity with `http_request`, `http_response`, and
 `dst_endpoint` populated. Model websocket connections report no host or HTTP
