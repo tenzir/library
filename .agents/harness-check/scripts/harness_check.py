@@ -885,6 +885,14 @@ def cmd_run_child(args):
             recorder.skip("child.claude.session.resume",
                           "no persisted session to resume")
 
+        # The vendor API-error path, driven without touching real credentials.
+        run_api_error_child(recorder, directory, env)
+
+        # The content-inclusion posture: the same trivial turn with prompt and
+        # tool-detail logging redacted and then verbose, so both event shapes
+        # appear in one run.
+        run_content_toggle_children(recorder, directory, env)
+
     summary_ok = recorder.summary(f"child-{agent}")
     if not summary_ok:
         raise SystemExit(1)
@@ -898,7 +906,15 @@ HOOK_EVENTS = {
     "SessionEnd": "session-end hook",
     "Stop": "stop hook",
     "SubagentStop": "subagent-stop hook",
+    "PreCompact": "pre-compact hook",
+    "Notification": "notification hook",
 }
+
+# Hooks that fire only under a condition this short child rarely reaches
+# (a subagent stopping, the session ending inside the captured window,
+# context compaction, or a permission notification). A miss is a clean skip,
+# not a failure.
+BEST_EFFORT_HOOKS = {"SubagentStop", "SessionEnd", "PreCompact", "Notification"}
 
 
 def verify_hook_events(recorder, hook_log):
@@ -920,7 +936,7 @@ def verify_hook_events(recorder, hook_log):
             if outcomes.get(event) in ("deny", "fail"):
                 detail += f" ({outcomes[event]})"
             recorder.ok(probe, detail)
-        elif event in ("SubagentStop", "SessionEnd"):
+        elif event in BEST_EFFORT_HOOKS:
             recorder.skip(probe, f"{label} not triggered in this child")
         else:
             recorder.skip(probe, f"{label} did not fire; inspect {hook_log}")
@@ -956,6 +972,92 @@ def run_claude_resume(recorder, directory, session_id, env):
     else:
         recorder.skip("child.claude.session.resume",
                       f"resume produced no sentinel; inspect {out_file}")
+
+
+def run_api_error_child(recorder, directory, env):
+    """Trigger the vendor API-error path without real credentials.
+
+    Point the API base URL at a closed loopback port so the very first model
+    request fails to connect. This exercises the `api_request` -> `api_error`
+    path the mapping normalizes. No token is sent anywhere reachable, and the
+    closed port refuses instantly, so the turn costs nothing.
+    """
+    out_file = directory / "child-claude-api-error.jsonl"
+    # Port 1 is not a listening service; the connection is refused at once.
+    bad = dict(env, ANTHROPIC_BASE_URL="http://127.0.0.1:1",
+               ANTHROPIC_API_KEY=env.get("ANTHROPIC_API_KEY",
+                                         "harness-check-unusable"))
+    command = [
+        "claude", "-p",
+        "--no-session-persistence",
+        "--model", "haiku",
+        "--max-budget-usd", "0.05",
+        "--allowedTools", "Bash",
+        "--output-format", "stream-json", "--verbose",
+        "Return the single word ready.",
+    ]
+    try:
+        with open(out_file, "w", encoding="utf-8") as sink:
+            proc = subprocess.run(command, cwd=directory / "child-workspace",
+                                  env=bad, stdin=subprocess.DEVNULL,
+                                  stdout=sink, stderr=subprocess.STDOUT,
+                                  timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        recorder.skip("child.claude.api-error",
+                      f"api-error child did not run: {error}")
+        return
+    # A refused base URL must NOT complete successfully; a nonzero exit means
+    # the request-then-error path really executed.
+    if proc.returncode != 0:
+        recorder.ok("child.claude.api-error",
+                    "model request against a closed endpoint failed as expected")
+    else:
+        recorder.skip("child.claude.api-error",
+                      f"request unexpectedly succeeded; inspect {out_file}")
+
+
+def run_content_toggle_children(recorder, directory, env):
+    """Run the same trivial turn under redacted and verbose content posture.
+
+    OTEL_LOG_USER_PROMPTS and OTEL_LOG_TOOL_DETAILS change the shape of the
+    user_prompt and tool_decision events. Running both postures in one call
+    generates the redacted and the detailed variants together.
+    """
+    postures = [("redacted", "0"), ("verbose", "1")]
+    for name, flag in postures:
+        out_file = directory / f"child-claude-content-{name}.jsonl"
+        posture_env = dict(env, OTEL_LOG_USER_PROMPTS=flag,
+                           OTEL_LOG_TOOL_DETAILS=flag)
+        command = [
+            "claude", "-p",
+            "--no-session-persistence",
+            "--model", "haiku",
+            "--max-budget-usd", "0.05",
+            "--allowedTools", "Bash",
+            "--output-format", "stream-json", "--verbose",
+            "Run this once through the native shell tool and nothing else: "
+            f"printf harness-check-content-{name}",
+        ]
+        try:
+            with open(out_file, "w", encoding="utf-8") as sink:
+                proc = subprocess.run(
+                    command, cwd=directory / "child-workspace", env=posture_env,
+                    stdin=subprocess.DEVNULL, stdout=sink,
+                    stderr=subprocess.STDOUT, timeout=180)
+            ok = proc.returncode == 0 and \
+                f"harness-check-content-{name}" in \
+                out_file.read_text(encoding="utf-8", errors="replace")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            recorder.skip(f"child.claude.content.{name}",
+                          f"content-{name} child did not run: {error}")
+            continue
+        if ok:
+            recorder.ok(f"child.claude.content.{name}",
+                        f"generated {name} prompt/tool-detail posture")
+        else:
+            recorder.skip(f"child.claude.content.{name}",
+                          f"no sentinel under {name} posture; inspect "
+                          f"{out_file}")
 
 
 # --- entry point -------------------------------------------------------------

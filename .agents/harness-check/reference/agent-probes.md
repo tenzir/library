@@ -138,6 +138,21 @@ Use ids `child.claude.mcp` or `child.codex.mcp`.
   `native.artifact.publish` and `native.artifact.read`. The normalizer treats
   an artifact write as a file create. Never publish anything that impersonates
   a real person or organization, and keep it private.
+- Exercise the artifact tool's other actions against that same disposable
+  page when they are exposed: republish an edit and confirm the watch/version
+  path (`native.artifact.republish`), read its comment threads
+  (`native.artifact.comments`), and do one round-trip through the artifact
+  database with a `harness-check` document, a set and a get
+  (`native.artifact.db-write` and `native.artifact.db-read`). Upload one small
+  disposable asset only if the page declares the assets capability
+  (`native.artifact.asset-upload`). Skip any action the tool does not expose;
+  never post a comment or asset to a page you do not own.
+- When the harness exposes local inter-agent messaging, list the running
+  agents once (`native.agent.list`) and send one bounded message to a subagent
+  you spawned, asking it to return `harness-check-agent-message`
+  (`native.agent.message`). Message only an agent this session started; never
+  message another user's session, a teammate, or a remote or cloud session
+  for telemetry.
 
 ## Session lifecycle
 

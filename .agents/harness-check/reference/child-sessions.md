@@ -51,7 +51,14 @@ The loopback fixture's request log proves the native fetch reached it.
 
 After a successful run, the driver reopens the persisted session once with
 `--resume` and a sentinel prompt to generate real session-resume telemetry,
-then leaves the session artifact for the harness to expire.
+then leaves the session artifact for the harness to expire. It then runs two
+short extra children: one whose API base URL points at a closed loopback port,
+so the first model request fails and drives the `api_error` path without
+sending a usable credential anywhere reachable; and one trivial turn repeated
+with `OTEL_LOG_USER_PROMPTS` and `OTEL_LOG_TOOL_DETAILS` first redacted and
+then verbose, so both content shapes appear in one run. The settings fixture
+also registers PreCompact and Notification hooks; these fire only if the
+session compacts or raises a notification, so a miss is recorded as a skip.
 
 Transport is conditional: pass `run-child --transport grpc|http|json` to force
 `OTEL_EXPORTER_OTLP_PROTOCOL`, since one run emits only its selected

@@ -24,7 +24,10 @@ are not.
 | `user` records wrapping `<bash-input>`/`<bash-stdout>` (shell typed with `!`) | the user types a `!`-prefixed shell command | user-only interactive control |
 | `plugin_loaded` | load a real installed or session-scoped fixture plugin | automatic with `--plugin-dir` in a child Claude session |
 | `hook_registered` | start a real child Claude session with the fixture hook configuration | automatic |
-| `hook_execution_start` / `hook_execution_complete` | the child fires PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, and Stop fixture hooks; the hook log proves which fired | automatic |
+| `hook_execution_start` / `hook_execution_complete` | the child fires PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, Stop, plus best-effort PreCompact and Notification fixture hooks; the hook log proves which fired | automatic, PreCompact and Notification conditional |
+| `api_error` | a child whose API base URL points at a closed loopback port; the first model request fails to connect | automatic, no credential sent |
+| `user_prompt` / `tool_decision` content shapes | the child repeats a trivial turn with prompt and tool-detail logging redacted and then verbose | automatic |
+| `retention_sweep` | context compaction, reached only if the session compacts | conditional; the PreCompact hook marks it best-effort |
 | cost, token-usage, session-count, lines-of-code, code-edit, and commit metrics | emitted on the natural session activity; enhanced telemetry and a metric exporter must be enabled | automatic startup/interval observation |
 | `log_format` = `OTLP/gRPC` \| `OTLP/HTTP` \| `OTLP/JSON` | run the child once per transport with `run-child --transport grpc\|http\|json`; a run emits only its selected transport | conditional, one transport per run |
 | session resume | the child persists a fixed session id, then a second `--resume` reopens it | automatic when persistence is available |
