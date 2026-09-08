@@ -225,9 +225,16 @@ that carries the AI Operation profile.
 
 A skill activation maps to Application Lifecycle with the `Enable` activity,
 and the skill document is the agent's charter in `ai_agent.charter`. A plugin
-load is the same lifecycle verb, `Enable`. The telemetry reports no hash of
-the skill or plugin content it loads, so charter integrity is not attestable;
-that is a vendor gap, not a mapping choice.
+load is the same lifecycle verb, `Enable`, with the plugin's version and
+Claude Code's own plugin identity hash on `application`, and whether it
+brings hooks or MCP servers, how it was enabled, and how many skills,
+commands and agents it adds in `unmapped` and in the message. The telemetry
+reports no hash of the skill or plugin content it loads, so charter integrity
+is not attestable; that is a vendor gap, not a mapping choice. A session
+start is reported only as the `session.count` metric point, one per start
+with a `start_type` of fresh or resume; it maps to Application Lifecycle
+`Start` for the agent application, with the kind of start in the message and
+in `unmapped`.
 
 With `include_content=true`, the text of a user prompt or assistant response
 lands in `message_context.prompt_text` and `response_text`, the fields OCSF

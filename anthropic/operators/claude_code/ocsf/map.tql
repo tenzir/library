@@ -253,6 +253,8 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.activity_id = 6
   $event.ocsf.type_uid = 600206
   $event.ocsf.application = {name: _skill_name}
+  // The record reports an activation that happened.
+  $event.ocsf.status_id = 1
   $event.ocsf.message = f"Skill {_skill_name} activated for the agent"
   // Application Lifecycle defines no actor of its own; the Host profile adds
   // it, so the session and the user are typed here as on every other class.
@@ -273,6 +275,7 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.activity_id = 6
   $event.ocsf.type_uid = 600206
   $event.ocsf.application = {name: _hook_label}
+  $event.ocsf.status_id = 1
   $event.ocsf.message = f"Hook {_hook_label} registered on the agent"
   $event.ocsf.metadata.profiles = ["ai_operation", "host"]
   $event.ocsf.actor = _actor
@@ -306,6 +309,28 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.message_context = {..._message_context, ai_role_id: 4}
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.event_name == "claude_code.session.count" {
+  // The only record of a session beginning is this metric point: one per
+  // start, with `start_type` saying whether the session is fresh or resumed.
+  // It is the agent application starting, so it is Application Lifecycle
+  // `Start`, with the kind of start in the message and in `unmapped`.
+  _start_type = $event.otel.start_type? else "unknown"
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6002
+  $event.ocsf.activity_id = 3
+  $event.ocsf.type_uid = 600203
+  $event.ocsf.application = {
+    name: $event.otel.resource.service_name? else "Claude Code",
+    version: $event.otel.resource.service_version? else $event.otel.app_version?,
+  }
+  $event.ocsf.status_id = 1
+  $event.ocsf.message = "Agent session resumed" if _start_type == "resume" else
+                        "Agent session started" if _start_type == "fresh" else
+                        f"Agent session started ({_start_type})"
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.event_name == "plugin_loaded" {
   // Loading a plugin enables a capability on the agent for the session, the
   // same lifecycle verb as a skill activation. No content hash is reported,
@@ -317,13 +342,19 @@ if $event.otel.event_name == "permission_mode_changed" {
   _plugin_name = move $event.otel.plugin_name? else "Unknown"
   $event.ocsf.application = {
     name: _plugin_name,
+    uid: move $event.otel.plugin_uid?,
+    version: move $event.otel.plugin_version?,
     // `application` has no `vendor_name`; the marketplace the plugin came from
     // is the product identity behind it. `product` constrains itself to at
     // least one of `name` or `uid`, so the product carries the plugin name and
     // the marketplace as its vendor.
     product: {name: _plugin_name, vendor_name: move $event.otel.plugin_marketplace?},
   }
-  $event.ocsf.message = f"Plugin {_plugin_name} enabled for the agent"
+  // The record reports a load that happened.
+  $event.ocsf.status_id = 1
+  $event.ocsf.message = f"Plugin {_plugin_name} enabled for the agent" + (
+    " with hooks" if $event.otel.plugin_has_hooks? == true else "") + (
+    " with MCP servers" if $event.otel.plugin_has_mcp? == true else "")
   $event.ocsf.metadata.profiles = ["ai_operation", "host"]
   $event.ocsf.actor = _actor
   $event.ocsf.device = _device
