@@ -18,8 +18,37 @@ where not _event_name.starts_with("metrics counter [")
 
 _tool_name = _a.tool_name?
 _tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
+_tool_namespace = _a.tool_namespace?
 _tool_payload_text = _a.tool_input? else _a.tool_parameters? else _a.arguments?
 _tool_payload = _tool_payload_text.parse_json() if _tool_payload_text? != null and _tool_payload_text.starts_with("{") else {}
+_namespace_mcp_parts = _tool_namespace.split("__") if (_tool_namespace? else "").starts_with("mcp__") else []
+_name_mcp_parts = _tool_name.split("__") if (_tool_name? else "").starts_with("mcp__") else []
+_payload_server = _tool_payload.server? if _tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] else null
+_api_service = _a.mcp_server? if (_a.mcp_server? else "") != "" else
+               _payload_server? else
+               _namespace_mcp_parts[1]? if _namespace_mcp_parts.length() >= 2 else
+               _name_mcp_parts[1]? if _name_mcp_parts.length() >= 3 else
+               "web" if _tool_namespace == "web" or _tool_name_lower == "webrun" else
+               null
+_api_operation = f"web.{_tool_name}" if _tool_namespace == "web" else
+                 "web.run" if _tool_name_lower == "webrun" else
+                 _name_mcp_parts[2]? if _name_mcp_parts.length() >= 3 else
+                 _tool_name
+_direct_target_uri = _tool_payload.uri? if _tool_name_lower == "read_mcp_resource" else
+                     _tool_payload.url?
+_open_target_uris = (_tool_payload.open? else []).where(x => x.ref_id? != null and (
+  x.ref_id.starts_with("http://") or x.ref_id.starts_with("https://")
+)).map(x => x.ref_id)
+_target_resource_uris = [
+  _direct_target_uri,
+  ..._open_target_uris,
+].where(x => x != null)
+_remote_tool = _namespace_mcp_parts.length() >= 2 or
+               _name_mcp_parts.length() >= 3 or
+               (_a.mcp_server? else "") != "" or
+               (_tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] and _payload_server? != null) or
+               _tool_namespace == "web" or
+               _tool_name_lower == "webrun"
 _patch_lines = _a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if _a.arguments? != null else []
 _patch_line = _patch_lines[0]? if _patch_lines.length() > 0 else null
 _patch_path = _patch_line.replace_regex("^\\*\\*\\* (Add|Update|Delete) File: |^\\*\\*\\* Move to: ", "") if _patch_line? != null else null
@@ -78,8 +107,18 @@ select signal = "log",
   sandbox_policy = _a.sandbox_policy?,
   mcp_servers = _a.mcp_servers?,
   tool_name = _tool_name,
+  tool_namespace = _tool_namespace,
+  api_operation = _api_operation,
+  api_service = _api_service,
+  remote_tool = _remote_tool,
   tool_use_id = _a.tool_use_id? else _a.call_id?,
   mcp_server = _a.mcp_server? if (_a.mcp_server? else "") != "" else null,
+  mcp_server_origin = _a.mcp_server_origin? if (_a.mcp_server_origin? else "") != "" else null,
+  request_data = _tool_payload if $include_content and _tool_payload_text? != null and _tool_payload_text.starts_with("{") else null,
+  target_resource_uris = _target_resource_uris if _target_resource_uris.length() > 0 else null,
+  target_resource_type = "MCP Resource" if _tool_name_lower == "read_mcp_resource" else
+                         "Web Resource" if _tool_namespace == "web" or _tool_payload.url? != null else
+                         null,
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
@@ -99,6 +138,14 @@ select signal = "log",
   command_running = _command_running if _command_result else null,
   terminal_session_id = _terminal_session_id,
   duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
+  arguments_length = int(_a.arguments_length) if _a.arguments_length? != null else null,
+  output_length = int(_a.output_length) if _a.output_length? != null else null,
+  output_line_count = int(_a.output_line_count) if _a.output_line_count? != null else null,
+  output_truncated = _a.output_truncated?,
+  tool_origin = _a.tool_origin?,
+  tool_result_seq = int(_a.tool_result_seq) if _a.tool_result_seq? != null else null,
+  agent_name = _a.agent_name?,
+  is_mcp_tool = _a.mcp_tool?,
   error = _a.error?,
   error_type = _a.error_type?,
   source_status_code = _a.status_code?,
@@ -120,7 +167,9 @@ select signal = "log",
   tool_input = _a.tool_input? if $include_content else null,
   tool_parameters = _a.tool_parameters? if $include_content else null,
   arguments = _a.arguments? if $include_content else null,
-  tool_parameters_hash = hash_sha256(_tool_payload_text) if _tool_payload_text? != null else null,
+  tool_input_hash = hash_sha256(_a.tool_input) if _a.tool_input? != null else null,
+  tool_parameters_hash = hash_sha256(_a.tool_parameters) if _a.tool_parameters? != null else null,
+  arguments_hash = hash_sha256(_a.arguments) if _a.arguments? != null else null,
   trace_id,
   span_id,
   severity_number,

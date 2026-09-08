@@ -44,10 +44,13 @@ single query. Unmapped events are ignored.
 Internal implementation spans and metric-like log events that do not add
 security context are discarded instead of producing OCSF Base Events.
 
-The OCSF mapping names tool invocations as `Other` with `Invoke` in
-`activity_name`; `api.operation` carries the tool name. Other API activity uses
-an HTTP verb or the source operation. Guessing read/write intent from the shape
-of a name would misclassify a tool such as `cleanup_stale_records` as a read.
+The OCSF mapping names explicit remote tool invocations as `Other` with
+`Invoke` in `activity_name`; `api.operation` carries the tool name. An unknown
+tool name alone is not evidence of a remote call and falls back to Base Event.
+Typed local file and process records keep their specific classes. Other API
+activity uses an HTTP verb or the source operation. Guessing read/write intent
+from the shape of a name would misclassify a tool such as
+`cleanup_stale_records` as a read.
 `metadata.original_event_uid` prefers identifiers that are
 unique per event, because `span_id` identifies the enclosing span and is shared
 by every record emitted inside it; the span itself is preserved as described
@@ -105,7 +108,7 @@ status retains its full command in `api.request.data.command`.
 
 Codex reports tool duration in milliseconds. Process Activity describes a
 discrete event, while the OCSF base `duration` field describes an aggregation
-window. The mapper therefore retains the tool duration in `unmapped.duration`
+window. The mapper therefore retains the tool duration in `unmapped.duration_ms`
 instead of populating the OCSF window field.
 
 Tool decisions carry the Security Control profile, which makes an autonomous
@@ -158,6 +161,13 @@ The serving MCP server lands in `api.service.name` and
 `dst_endpoint.svc_name` when the source provides `mcp_server`, a discovery
 span's server name, or a complete `mcp__<server>__<tool>` name. A malformed
 tool name does not invent a server.
+
+Current Codex logs can report the tool and its namespace separately. The
+mapper now retains `tool_namespace`, so `mcp__harness_check` identifies the MCP
+service and the Web tool becomes `web.run` instead of the ambiguous `run`.
+With `include_content=true`, parsed arguments land in `api.request.data`.
+Resource reads and URLs opened by a combined Web call also appear as target
+resources without splitting the source call into invented events.
 
 `openai::codex::drop_internal_spans` removes Codex's HTTP/2 and async-runtime
 spans, such as `try_reclaim_frame` and `FramedRead::poll_next`, before

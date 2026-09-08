@@ -268,12 +268,14 @@ if $event.otel.event_name == "codex.skill.injected" {
     }
     $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
   }
-} else if $event.otel.event_name == "codex.tool_decision" and $event.otel.process_name? == null {
+} else if $event.otel.event_name == "codex.tool_decision" and
+          $event.otel.process_name? == null and
+          $event.otel.remote_tool? == true {
   // Shell tool decisions fall through to the local shell branch below. A
   // contentless decision maps to the governed process-launch request. A remote
   // invocation remains API Activity, with `Invoke` as the action and the
   // capability name as the API operation.
-  _decision_operation = $event.otel.tool_name? else $event.otel.event_name
+  _decision_operation = $event.otel.api_operation? else $event.otel.tool_name? else $event.otel.event_name
   $event.ocsf.category_uid = 6
   $event.ocsf.class_uid = 6003
   $event.ocsf.activity_id = 99
@@ -281,10 +283,19 @@ if $event.otel.event_name == "codex.skill.injected" {
   $event.ocsf.type_uid = 600399
   $event.ocsf.api = {
     operation: _decision_operation,
-    request: {uid: move $event.otel.tool_use_id?},
+    request: {
+      uid: move $event.otel.tool_use_id?,
+    },
+  }
+  if $event.otel.request_data? != null {
+    $event.ocsf.api.request.data = move $event.otel.request_data
+    drop $event.otel.tool_input?,
+         $event.otel.tool_parameters?,
+         $event.otel.arguments?
   }
   _decision_parts = _decision_operation.split("__") if _decision_operation.starts_with("mcp__") else []
-  _decision_server = $event.otel.mcp_server? else
+  _decision_server = $event.otel.api_service? else
+                     $event.otel.mcp_server? else
                      (_decision_parts[1]? if _decision_parts.length() >= 3 else null)
   if _decision_server != null {
     $event.ocsf.api.service = {name: _decision_server}
@@ -475,13 +486,14 @@ if $event.otel.event_name == "codex.skill.injected" {
   "codex.user_prompt",
   "session_task.turn",
   "list_tools_for_server",
-] or ($event.otel.tool_name? else "") != "" or
+] or $event.otel.remote_tool? == true or
   ($event.otel.rpc_method? else "") != "" or
   ($event.otel.http_method? else "") != "" or
-  $event.otel.span_type? in ["llm_request", "tool", "tool.execution", "tool.blocked_on_user"] {
+  $event.otel.span_type? == "llm_request" {
   _api_operation = $event.otel.rpc_method? else
                    $event.otel.event_kind? if $event.otel.event_name == "codex.sse_event" else
                    $event.otel.http_method? else
+                   $event.otel.api_operation? else
                    $event.otel.tool_name? else
                    $event.otel.event_name
   // Only an explicit HTTP verb names the activity. Tool invocations get
@@ -509,6 +521,12 @@ if $event.otel.event_name == "codex.skill.injected" {
            move $event.otel.tool_use_id?,
     },
   }
+  if $event.otel.request_data? != null {
+    $event.ocsf.api.request.data = move $event.otel.request_data
+    drop $event.otel.tool_input?,
+         $event.otel.tool_parameters?,
+         $event.otel.arguments?
+  }
   $event.ocsf.message = "User prompted the agent" if $event.otel.event_name == "codex.user_prompt" else
                         "Model response completed" if $event.otel.event_name == "codex.sse_event" else
                         "Agent called the vendor API" if $event.otel.event_name == "codex.api_request" else
@@ -535,7 +553,8 @@ if $event.otel.event_name == "codex.skill.injected" {
   // name is already on `api.operation`, so publishing it as a service name
   // would only put the wrong kind of value in `dst_endpoint`.
   _mcp_parts = $event.otel.tool_name.split("__") if ($event.otel.tool_name? else "").starts_with("mcp__") else []
-  _mcp_server = $event.otel.mcp_server? else
+  _mcp_server = $event.otel.api_service? else
+                $event.otel.mcp_server? else
                 $event.otel.server_name? else
                 (_mcp_parts[1]? if _mcp_parts.length() >= 3 else null)
   if _mcp_server != null {
@@ -544,6 +563,13 @@ if $event.otel.event_name == "codex.skill.injected" {
       ...($event.ocsf.dst_endpoint? else {}),
       svc_name: _mcp_server,
     }
+  }
+  if $event.otel.target_resource_uris? != null {
+    $event.ocsf.resources = (move $event.otel.target_resource_uris).map(uri => {
+      uid: uri,
+      type: $event.otel.target_resource_type?,
+      role_id: 1,
+    })
   }
   _total_tokens = $event.otel.total_tokens? else
                   $event.otel.input_tokens + $event.otel.output_tokens if
@@ -623,9 +649,14 @@ _scope_version = move $event.otel.scope.version?
 _host_arch = move $event.otel.resource.host_arch?
 _os_type = move $event.otel.resource.os_type?
 _os_version = move $event.otel.resource.os_version?
-if $event.otel.signal? == "metric" {
-  // Metric duration already populated the OCSF aggregation window.
+if $event.otel.signal? == "metric" or $event.ocsf.trace?.span? != null {
+  // Metric duration already populated the OCSF aggregation window. A mapped
+  // trace duration is on `trace.span.duration` with real span boundaries.
   drop $event.otel.duration?
+} else if $event.otel.duration? != null {
+  // Logs do not carry the span boundaries needed by the Trace profile.
+  // Preserve the provider's explicit unit without using aggregate duration.
+  $event.otel.duration_ms = move $event.otel.duration
 }
 
 // Values that feed multiple OCSF fields cannot be moved into a single target.
@@ -656,8 +687,15 @@ drop $event.otel.event_name?,
      $event.otel.client_version?,
      $event.otel.source_status?,
      $event.otel.tool_name?,
+     $event.otel.tool_namespace?,
+     $event.otel.api_operation?,
+     $event.otel.api_service?,
+     $event.otel.remote_tool?,
      $event.otel.tool_use_id?,
      $event.otel.mcp_server?,
+     $event.otel.request_data?,
+     $event.otel.target_resource_uris?,
+     $event.otel.target_resource_type?,
      $event.otel.server_name?,
      $event.otel.file_path?,
      $event.otel.file_name?,
