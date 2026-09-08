@@ -1,0 +1,65 @@
+---
+description: Normalizes Claude Code OTLP metric points.
+---
+
+where @name.starts_with("otel.metric.")
+where metric.name.starts_with("claude_code.")
+
+_raw_data = this.print_json()
+_attributes = attributes
+_resource_attributes = resource.attributes
+
+// A metric point is an aggregate the agent already computed over one export
+// interval: token and cost usage, active time, lines of code, session starts
+// and the outcome of a code-edit tool decision, each with its own attribute
+// set. There is no OCSF class for these, so they become Base Events that keep
+// the aggregation window, the value and the attributes; a code-edit decision
+// also carries the Security Control profile from `decision` and `source`.
+select signal = "metric",
+  raw_data = _raw_data,
+  raw_data_size = _raw_data.length_bytes(),
+  event_name = metric.name,
+  metric_name = metric.name,
+  metric_value = value.double_value? else value.int_value?,
+  metric_unit = metric.unit?,
+  metric_type = _attributes.type?,
+  aggregation_temporality,
+  is_monotonic = monotonic?,
+  time,
+  start_time,
+  end_time = time,
+  duration = int((time - start_time).count_milliseconds()) if time? != null and start_time? != null else null,
+  session_id = _attributes["session.id"]?,
+  user_id = _attributes["user.id"]? else _attributes["user.account_id"]?,
+  user_uid_alt = _attributes["user.account_uuid"]?,
+  user_email = _attributes["user.email"]?,
+  organization_id = _attributes["organization.id"]?,
+  app_version = _attributes["app.version"]? else _resource_attributes["service.version"]?,
+  terminal_type = _attributes["terminal.type"]?,
+  model = _attributes.model?,
+  provider = "Anthropic" if _attributes.model? != null else null,
+  query_source = _attributes.query_source?,
+  agent_name = _attributes["agent.name"]?,
+  effort = _attributes.effort?,
+  language = _attributes.language?,
+  start_type = _attributes.start_type?,
+  tool_name = _attributes.tool_name?,
+  decision = _attributes.decision?,
+  decision_source = _attributes.source?,
+  // The receiver records how the record arrived; every signal carries it.
+  transport = transport? else receiver?.transport?,
+  scope = {
+    name: scope.name?,
+    version: scope.version?,
+  },
+  resource = {
+    service_name: _resource_attributes["service.name"]?,
+    service_version: _resource_attributes["service.version"]?,
+    host_name: _resource_attributes["host.name"]?,
+    host_arch: _resource_attributes["host.arch"]?,
+    os_type: _resource_attributes["os.type"]? else _resource_attributes.os?,
+    os_version: _resource_attributes["os.version"]? else _resource_attributes.os_version?,
+  },
+  attributes = _attributes
+
+@name = "anthropic.claude_code.event"

@@ -52,7 +52,13 @@ if $event.otel.signal? == "metric" {
   $event.ocsf.start_time = $event.otel.start_time?
   $event.ocsf.end_time = $event.otel.end_time?
   $event.ocsf.duration = $event.otel.duration?
-  $event.ocsf.count = int($event.otel.metric_value?) if $event.otel.metric_value? != null else null
+  // `count` is the number of occurrences the event summarizes. Only the
+  // metrics that count occurrences fill it; a token, cost or time total is a
+  // quantity and stays in `unmapped.metric_value` with its unit.
+  $event.ocsf.count = int($event.otel.metric_value) if $event.otel.metric_value? != null and $event.otel.metric_name? in [
+                        "claude_code.session.count",
+                        "claude_code.code_edit_tool.decision",
+                      ] else null
 }
 // `message` is a human-readable summary for display; the raw event name stays
 // in `metadata.event_code`. Branches override this fallback with a sentence.
@@ -221,6 +227,50 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.message = f"Skill {_skill_name} activated for the agent"
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = {..._ai_agent, charter: {name: _skill_name, type_id: 1}}
+} else if $event.otel.event_name == "hook_registered" {
+  // A hook registered on the agent is a command wired into the agent's
+  // lifecycle for the session, the same capability change as a plugin or a
+  // skill being enabled. The registration names the lifecycle event and the
+  // tool matcher but not the command it will run.
+  _hook_matcher = $event.otel.hook_matcher?
+  _hook_event = $event.otel.hook_event? else "Unknown"
+  _hook_label = f"{_hook_event}:{_hook_matcher}" if _hook_matcher != null else _hook_event
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6002
+  $event.ocsf.activity_id = 6
+  $event.ocsf.type_uid = 600206
+  $event.ocsf.application = {name: _hook_label}
+  $event.ocsf.message = f"Hook {_hook_label} registered on the agent"
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.event_name in ["hook_execution_start", "hook_execution_complete"] {
+  // A hook run is the harness executing one or more local commands, so it is
+  // Process Activity: the start is the Launch and the completion the
+  // Terminate. The source reports the hook group's name but no command line,
+  // PID or execution id, so `process.cmd_line` is the empty string OCSF
+  // requires when it is unavailable, `process.uid` stays empty, and the two
+  // events cannot be paired beyond session, hook name and time. A group can
+  // run several hooks; the counts are in `unmapped`.
+  _hook_completed = $event.otel.event_name == "hook_execution_complete"
+  _hook_name = move $event.otel.hook_name? else $event.otel.hook_event? else "Unknown"
+  $event.ocsf.category_uid = 1
+  $event.ocsf.class_uid = 1007
+  $event.ocsf.activity_id = 2 if _hook_completed else 1
+  $event.ocsf.type_uid = 100702 if _hook_completed else 100701
+  $event.ocsf.launch_type_id = 0 if not _hook_completed else null
+  $event.ocsf.process = {
+    name: _hook_name,
+    cmd_line: "",
+    created_time: $event.otel.time if not _hook_completed else null,
+    terminated_time: $event.otel.time if _hook_completed else null,
+  }
+  $event.ocsf.message = f"Agent hook {_hook_name} " + (
+    ("completed" if $event.otel.success? != false else "failed") if _hook_completed else "started")
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.message_context = {..._message_context, ai_role_id: 4}
+  $event.ocsf.metadata.profiles = ["ai_operation"]
+  $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.event_name == "plugin_loaded" {
   // Loading a plugin enables a capability on the agent for the session, the
   // same lifecycle verb as a skill activation. No content hash is reported,
@@ -245,13 +295,16 @@ if $event.otel.event_name == "permission_mode_changed" {
           $event.otel.process_name? == null and
           $event.otel.remote_tool? == true {
   // Local shell decisions fall through to Process Activity below. A remote
-  // invocation remains API Activity, with `Invoke` as the action and the
-  // capability name as the API operation.
+  // decision stays API Activity with the capability name as the API
+  // operation, but its action is the authorization, not the invocation: the
+  // result record reports the invocation as `Invoke`. Two distinct labels keep
+  // one call from counting as two invocations while both records remain
+  // independently emitted, however far apart they arrive.
   _decision_operation = $event.otel.api_operation? else $event.otel.tool_name? else $event.otel.event_name
   $event.ocsf.category_uid = 6
   $event.ocsf.class_uid = 6003
   $event.ocsf.activity_id = 99
-  $event.ocsf.activity_name = "Invoke"
+  $event.ocsf.activity_name = "Authorize"
   $event.ocsf.type_uid = 600399
   // `tool_source` does not belong in `api.service.name`: that field identifies
   // the serving system. The provisioning source has no normalized OCSF 1.9
@@ -303,54 +356,46 @@ if $event.otel.event_name == "permission_mode_changed" {
     type_id: 1,
     is_deleted: true if $event.otel.file_operation == "delete" else null,
   }
+  if $event.otel.file_new_path? != null {
+    // A rename names the file before in `file` and the file after in
+    // `file_result`.
+    $event.ocsf.file_result = {
+      name: $event.otel.file_new_path.split("/")[-1],
+      path: move $event.otel.file_new_path,
+      type_id: 1,
+    }
+  }
   let $file_verbs = {create: "created", read: "read", update: "updated", delete: "deleted", rename: "renamed"}
   $event.ocsf.message = f"Agent {$file_verbs[$event.otel.file_operation]} file {$event.ocsf.file.name}"
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
-} else if $event.otel.process_name? != null and $event.otel.background? == true and
-          $event.otel.event_name == "tool_result" {
-  // The result reports that an already-launched background command remains
-  // active. It is a tool status observation, not another process launch.
-  $event.ocsf.category_uid = 6
-  $event.ocsf.class_uid = 6003
-  $event.ocsf.activity_id = 99
-  $event.ocsf.activity_name = "Observe"
-  $event.ocsf.type_uid = 600399
-  $event.ocsf.api = {
-    operation: move $event.otel.tool_name,
-    request: {
-      uid: move $event.otel.tool_use_id?,
-      // OCSF Request Elements has no command attribute. Its `data` field is
-      // the typed home for provider-specific request elements carried on a
-      // result, so retain the original shell request here.
-      data: {command: move $event.otel.command?} if $event.otel.command? != null else null,
-    },
-  }
-  $event.ocsf.actor = _actor
-  $event.ocsf.src_endpoint = {
-    hostname: $event.otel.resource.host_name?,
-    svc_name: $event.otel.resource.service_name,
-  }
-  // `success=true` describes delivery of this tool-result observation. It
-  // does not claim that the background process completed successfully.
-  $event.ocsf.message = "Agent successfully observed that the shell process is still running" if $event.otel.success? == true else
-                        "Agent observed that the shell process is still running"
-  $event.ocsf.message_context = {..._message_context, ai_role_id: 3}
-  $event.ocsf.metadata.profiles = ["ai_operation"]
-  $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.process_name? != null {
   // Claude Code's Bash tool describes one top-level shell invocation. Keep
-  // that invocation in Process Activity for both request and completion.
+  // that invocation in Process Activity for request, completion and the
+  // background status observation, so the whole lifecycle shares one class
+  // and one `process.uid`. A background result says the launched process is
+  // still running: it is neither a second Launch nor a Terminate, so it is
+  // `Other` with `Observe` as the label. Keeping it here rather than in API
+  // Activity also avoids presenting a local tool name as an API operation.
   _process_result = $event.otel.event_name == "tool_result"
-  _process_running = $event.otel.background? == true
+  _process_running = _process_result and $event.otel.background? == true
   _process_completed = _process_result and not _process_running
   $event.ocsf.category_uid = 1
   $event.ocsf.class_uid = 1007
-  $event.ocsf.activity_id = 2 if _process_completed else 1
-  $event.ocsf.type_uid = 100702 if _process_completed else 100701
+  $event.ocsf.activity_id = 2 if _process_completed else 99 if _process_running else 1
+  $event.ocsf.activity_name = "Observe" if _process_running else null
+  $event.ocsf.type_uid = 100702 if _process_completed else 100799 if _process_running else 100701
   // Claude Code does not report the operating-system creation primitive.
-  $event.ocsf.launch_type_id = 0 if not _process_completed else null
+  $event.ocsf.launch_type_id = 0 if not _process_result else null
+  if _process_running {
+    // `success=true` describes delivery of the status observation, not the
+    // outcome of the process, which is still unknown.
+    $event.ocsf.status_id = 0
+  }
   _process_uid = f"anthropic:claude-code:{$event.otel.tool_use_id}" if ($event.otel.tool_use_id? else "") != "" else null
+  // The id is now on `process.uid`; keeping it in `unmapped` too would
+  // duplicate a mapped value.
+  drop $event.otel.tool_use_id?
   $event.ocsf.process = {
     name: move $event.otel.process_name,
     cmd_line: move $event.otel.command? else "",
@@ -363,6 +408,7 @@ if $event.otel.event_name == "permission_mode_changed" {
     // correlation identifier, not an operating-system PID.
   }
   $event.ocsf.message = "Agent shell process terminated" if _process_completed else
+                        "Agent observed that the shell process is still running" if _process_running else
                         "Agent shell process launch denied" if _decision_status_id == 2 else
                         "Agent requested a shell process"
   $event.ocsf.actor = _actor
@@ -380,24 +426,20 @@ if $event.otel.event_name == "permission_mode_changed" {
   "user_prompt",
   "assistant_response",
   "mcp_server_connection",
-  "hook_registered",
-  "hook_execution_start",
-  "hook_execution_complete",
-  "subagent_completed",
 ] or $event.otel.remote_tool? == true or
   ($event.otel.http_method? else "") != "" or
   $event.otel.span_type? == "llm_request" {
   _api_operation = $event.otel.http_method? else
                    $event.otel.api_operation? else
                    $event.otel.tool_name? else
-                   $event.otel.hook_name? else
-                   $event.otel.agent_type? else
                    $event.otel.event_name
   // Only an explicit statement of the operation names the activity: an HTTP
-  // verb, or an event kind that is a model completion or connection setup
-  // (`Create`). Tool invocations get `Other` with `Invoke` as the activity
-  // label. Other method paths keep the operation as their label. Guessing
-  // read/write intent from the shape of a name
+  // verb, or an event kind that is a model call, a conversation turn or
+  // connection setup (`Create`, including the failed model call `api_error`
+  // and the request and response body records of one call). Everything else
+  // is `Other` with a fixed verb as the label and the name of the thing in
+  // `api.operation`: `activity_name` is the action, never a tool, hook or
+  // agent name. Guessing read/write intent from the shape of a name
   // misclassifies: a tool called `cleanup_stale_records` would read as `Read`
   // and then drop a table.
   _http_verb = ($event.otel.http_method? else "").to_lower()
@@ -406,17 +448,22 @@ if $event.otel.event_name == "permission_mode_changed" {
                      4 if _http_verb == "delete" else
                      1 if _http_verb == "post" or $event.otel.event_name in [
                             "mcp_server_connection",
-                            "hook_registered",
                             "api_request",
+                            "api_error",
+                            "api_request_body",
+                            "api_response_body",
                             "claude_code.llm_request",
                             "claude_code.interaction",
                             "user_prompt",
                             "assistant_response",
-                          ] else
+                          ] or $event.otel.span_type? == "llm_request" else
                      99
   $event.ocsf.category_uid = 6
   $event.ocsf.class_uid = 6003
   $event.ocsf.activity_id = _api_activity_id
+  // A `tool.blocked_on_user` span is the wait for a person to decide, which
+  // no log record reports with a duration. It is neither the decision (the
+  // `tool_decision` log, `Authorize`) nor the call (the result, `Invoke`).
   $event.ocsf.activity_name = "Invoke" if _api_activity_id == 99 and ($event.otel.tool_name? else "") != "" else
                               _api_operation if _api_activity_id == 99 else null
   $event.ocsf.type_uid = 600300 + _api_activity_id
@@ -445,11 +492,6 @@ if $event.otel.event_name == "permission_mode_changed" {
                         "Agent called the vendor API" if $event.otel.event_name in ["api_request", "api_request_body", "api_response_body"] else
                         "Agent vendor API call failed" if $event.otel.event_name == "api_error" else
                         f"Agent connected to MCP server {$event.otel.server_name? else "unknown"}" if $event.otel.event_name == "mcp_server_connection" else
-                        "Hook registered on the agent" if $event.otel.event_name == "hook_registered" else
-                        f"Agent hook {_api_operation} executed" if $event.otel.event_name in ["hook_execution_start", "hook_execution_complete"] else
-                        f"Agent subagent {_api_operation} completed" if $event.otel.event_name == "subagent_completed" else
-                        "Agent waited for a tool approval" if $event.otel.span_type? == "tool.blocked_on_user" else
-                        "Agent tool call ran" if $event.otel.span_type? == "tool.execution" else
                         f"Agent sent an HTTP {_api_operation} request" if ($event.otel.http_method? else "") != "" else
                         f"Agent called tool {_api_operation}"
   $event.ocsf.actor = _actor
@@ -537,19 +579,43 @@ if $event.otel.event_name == "permission_mode_changed" {
     $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
   }
 } else {
+  // A local tool the schema has no class for (`Skill`, `Agent`, `CronCreate`,
+  // or a file tool whose decision carries no path), or a finished subagent,
+  // which is a local agent run rather than an API call. Base Event cannot
+  // carry the AI Operation profile, so the agent identity is lost here, but
+  // the governance outcome below and the tool name survive: a person
+  // rejecting a `Skill` call is the same supervised-versus-autonomous signal
+  // as on any other class. Hooks and subagents are the agent-layer set that
+  // ocsf-schema#1704 is expected to give a class of its own.
+  _fallback_tool = $event.otel.tool_name?
   $event.ocsf.category_uid = 0
   $event.ocsf.class_uid = 0
   $event.ocsf.activity_id = 99
   $event.ocsf.activity_name = $event.otel.event_name
   $event.ocsf.type_uid = 99
+  $event.ocsf.message = f"Tool call {_fallback_tool} " + (
+                          "allowed" if _decision_status_id == 1 else
+                          "denied" if _decision_status_id == 2 else "decided") if $event.otel.event_name == "tool_decision" and _fallback_tool != null else
+                        f"Tool call {_fallback_tool} " + (
+                          "succeeded" if $event.otel.success? == true else
+                          "failed" if $event.otel.success? == false else "completed") if $event.otel.event_name == "tool_result" and _fallback_tool != null else
+                        f"Subagent {$event.otel.agent_type? else "unknown"} " + (
+                          "completed" if $event.otel.success? != false else "failed") if $event.otel.event_name == "subagent_completed" else
+                        f"Code edit tool {_fallback_tool} " + (
+                          "allowed" if _decision_status_id == 1 else
+                          "denied" if _decision_status_id == 2 else "decided") if $event.otel.metric_name? == "claude_code.code_edit_tool.decision" else
+                        f"Metric {$event.otel.metric_name} ({$event.otel.metric_type}): {$event.otel.metric_value}" if $event.otel.signal? == "metric" and $event.otel.metric_type? != null else
+                        f"Metric {$event.otel.metric_name}: {$event.otel.metric_value}" if $event.otel.signal? == "metric" else
+                        $event.otel.event_name
 }
 
 // The Security Control profile carries the governance outcome on the event
 // the decision governed. `disposition_id` is what separates an autonomous
 // action from a supervised one: an interactive source (`user_*`, `User`) means
 // a person decided (Approved/Rejected), anything else means a rule fired
-// (Allowed/Blocked) and is named in `policy`.
-if _decision_status_id != null and $event.ocsf.class_uid != 0 {
+// (Allowed/Blocked) and is named in `policy`. Base Event carries the profile
+// too: a decision on a tool without a class is still a decision.
+if _decision_status_id != null {
   // A decision without a named decider must not imply that a rule fired, so
   // its disposition stays `Unknown` and no `policy` is attached.
   $event.ocsf.action_id = _decision_status_id
@@ -567,6 +633,13 @@ if _decision_status_id != null and $event.ocsf.class_uid != 0 {
   $event.ocsf.metadata.profiles = [...($event.ocsf.metadata.profiles? else []), "security_control"]
 }
 
+// Base Event has neither the AI Operation profile nor an actor, so the session
+// and the tool name would otherwise survive only in `raw_data`. They are
+// restored into `unmapped` after the drop below.
+_base_session_id = $event.otel.session_id? if $event.ocsf.class_uid == 0 else null
+_base_tool_name = $event.otel.tool_name? if $event.ocsf.class_uid == 0 else null
+_base_model = $event.otel.model? if $event.ocsf.class_uid == 0 else null
+_base_agent_type = $event.otel.agent_type? if $event.ocsf.class_uid == 0 else null
 _scope_version = move $event.otel.scope.version?
 _host_arch = move $event.otel.resource.host_arch?
 _os_type = move $event.otel.resource.os_type?
@@ -613,7 +686,9 @@ drop $event.otel.event_name?,
      $event.otel.api_operation?,
      $event.otel.api_service?,
      $event.otel.remote_tool?,
-     $event.otel.tool_use_id?,
+     // `tool_use_id` is not dropped here: the API and process branches move it
+     // into `api.request.uid` and `process.uid`, and on every other class it
+     // stays in `unmapped` as the only join key to the call's decision.
      $event.otel.request_data?,
      $event.otel.target_resource_uris?,
      $event.otel.target_resource_type?,
@@ -650,6 +725,18 @@ drop $event.otel.event_name?,
      $event.otel.transport?,
      $event.otel.decision_source?
 
+if _base_session_id != null {
+  $event.otel.session_id = _base_session_id
+}
+if _base_tool_name != null {
+  $event.otel.tool_name = _base_tool_name
+}
+if _base_model != null {
+  $event.otel.model = _base_model
+}
+if _base_agent_type != null {
+  $event.otel.agent_type = _base_agent_type
+}
 if (_scope_version? else "") != "" {
   $event.otel.scope = {version: _scope_version}
 }

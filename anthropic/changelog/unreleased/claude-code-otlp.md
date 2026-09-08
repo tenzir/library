@@ -8,8 +8,8 @@ components:
 created: 2026-07-29T00:00:00Z
 ---
 
-The Anthropic package now normalizes Claude Code OTLP logs and traces and maps
-them directly to OCSF 1.9.0. Agent-mediated activity uses the AI Operation
+The Anthropic package now normalizes Claude Code OTLP logs, metrics and traces
+and maps them directly to OCSF 1.9.0. Agent-mediated activity uses the AI Operation
 profile and its `ai_agent` object, including the Claude Code session, runtime
 version, and backing model when available.
 
@@ -44,10 +44,12 @@ The OCSF mapping names explicit remote tool invocations as `Other` with
 `Invoke` in `activity_name`; `api.operation` carries the tool name as an
 interim home until the `ai_tool` object from ocsf/ocsf-schema#1729 lands. An unknown
 tool name alone is not evidence of a remote call and falls back to Base Event.
-Typed local file and process records keep their specific classes. Other API
-activity uses an HTTP verb or the source operation. Guessing read/write intent
-from the shape of a name would misclassify a tool such as
-`cleanup_stale_records` as a read.
+Typed local file and process records keep their specific classes. Model
+calls, including a failed one (`api_error`) and the request and response body
+records, conversation turns and MCP connections are `Create`. Other API
+activity uses an HTTP verb. Guessing read/write intent from the
+shape of a name would misclassify a tool such as `cleanup_stale_records` as a
+read.
 `metadata.original_event_uid` prefers
 identifiers that are
 unique per event, because `span_id` identifies the enclosing span and is shared
@@ -85,16 +87,55 @@ is `Launch`; a completed foreground result is `Terminate`. Both derive a
 stable `process.uid` from `tool_use_id`, with an `anthropic:claude-code:`
 prefix. `process.pid` stays empty because the source does not report an
 operating-system PID. The mapper prefers `tool_parameters.full_command` because
-Claude can truncate `tool_input.command`. Matching tool spans are suppressed
-because they repeat the lifecycle reported by the decision and result logs.
+Claude can truncate `tool_input.command`.
 
 No correlation window is required. Each lifecycle record emits immediately
 and uses the same UID, including commands that run for several minutes. A
 denied decision produces a failed Launch without a Terminate. A background
-result becomes a separate API status observation because the decision already
-reported the Launch. It retains the full command in `api.request.data.command`.
-Its successful status describes delivery of the observation, not completion of
-the background process.
+result reports that the launched process is still running, so it stays in
+Process Activity as `Other` with `Observe` in `activity_name`, under the same
+`process.uid` and with the full command in `process.cmd_line`. It is neither
+a second Launch nor a Terminate, and its status is `Unknown` because the
+source's `success` flag describes delivery of the observation, not the
+outcome of the process.
+
+Spans are suppressed, on the native and the legacy envelope path alike. Every
+Claude Code span repeats a log record: the decision and result logs already
+report each tool call with its outcome and duration, and the `api_request`,
+`api_error`, `user_prompt` and `assistant_response` logs report each model
+call and turn together with the prompt id and the cost, which the
+`claude_code.llm_request` and `claude_code.interaction` spans lack. What only
+a span carries (time to first token, attempt number, stop reason, the
+approval wait) is not security relevant, and current versions report neither
+a tool name nor a tool-call id on the `tool.execution` and
+`tool.blocked_on_user` spans, so they cannot be tied to the call they belong
+to. Mapping the spans would only add one to three duplicate events per call.
+
+Metric points map to Base Event. Token and cost usage, active time, lines of
+code, session starts and code-edit tool decisions are aggregates the agent
+computed over one export interval, and OCSF 1.9 has no class for them. Each
+point keeps its window in `start_time`, `end_time` and `duration`, its value
+and unit in `unmapped`, and its attributes such as the token type, the model
+and the query source. `count` is filled only for the metrics that count
+occurrences, session starts and code-edit decisions. A code-edit decision
+point carries `decision` and `source`, so it also carries the Security Control
+profile. Legacy OTLP/JSON envelopes still discard metrics.
+
+Hooks and subagents are local, not API calls. A hook run is the harness
+executing one or more local commands, so `hook_execution_start` is a Process
+Activity Launch and `hook_execution_complete` a Terminate, with the hook
+group's name in `process.name`. The source reports no command line, PID or
+execution id, so `process.cmd_line` is the empty string and `process.uid`
+stays empty. A hook registration wires a command into the agent's lifecycle
+for the session, the same capability change as a plugin or skill being
+enabled, so it is Application Lifecycle `Enable` naming the lifecycle event
+and matcher. A finished subagent is a local agent run with no class of its
+own and falls back to Base Event, which names the subagent type and the
+outcome. Hook records retain their attributes: the hook event, source, type
+and matcher on registration, and the hook count and the success, blocking,
+error and cancelled counts on completion. A completed hook run is a success
+when no hook errored or was cancelled; a blocking hook did its job and is not
+a failure of the run.
 
 Tool decisions carry the Security Control profile, which makes an autonomous
 action distinguishable from a supervised one. A rule that fires reports
@@ -107,17 +148,29 @@ a named decider, which Claude Code reports as source `unknown`, keeps an
 `Unknown` disposition rather than implying that a rule fired. The
 `Unauthorized` disposition stays unused
 because the telemetry cannot distinguish a failed permission check from a
-policy block. Remote tool decisions use `Invoke` as the API activity, keep the
-tool name in `api.operation`, and place the MCP server in `api.service.name`.
-Local shell decisions map to the Process Activity launch request they govern. The provisioning
-source (`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized
-field for it.
+policy block. Remote tool decisions stay API Activity `Other`, keep the tool
+name in `api.operation` and the MCP server in `api.service.name`, but carry
+`Authorize` rather than `Invoke` in `activity_name`: the decision authorizes
+a pending call, and the result record is what reports the invocation as
+`Invoke`. The two labels keep one call from counting as two invocations, and
+both records emit independently however far apart they arrive, joined by
+`api.request.uid`. Local shell decisions map to the Process Activity launch
+request they govern. The provisioning source (`tool_source`) stays in
+`unmapped` because OCSF 1.9 has no normalized field for it.
 
 A permission-mode change maps to Authorize Session with the `Assign
 Privileges` activity and the new mode in `privileges` against the agent's
 session. Device Config State Change cannot carry the AI Operation profile, so
 it cannot name the agent that changed the setting. Switching to
 `bypassPermissions` is rated `Medium`.
+
+A decision on a local tool that has no OCSF class, such as `Skill`, `Agent`,
+`CronCreate`, or a file tool whose decision reports no path, falls back to
+Base Event but keeps the Security Control profile: a person rejecting a
+`Skill` call is the same supervised-versus-autonomous signal as on any other
+class. Base Event cannot carry the AI Operation profile or an actor, so the
+session and the tool name stay in `unmapped` there rather than surviving only
+in `raw_data`, and `message` names the tool and the outcome.
 
 A skill activation maps to Application Lifecycle with the `Enable` activity,
 and the skill document is the agent's charter in `ai_agent.charter`. A plugin
@@ -150,9 +203,9 @@ service and operation. With `include_content=true`, parsed tool input lands in
 as a target in `resources`.
 
 Discrete tool-result logs retain their runtime as `unmapped.duration_ms`.
-Top-level OCSF `duration` is reserved for aggregate windows. Tool spans instead
-use the Trace profile with the provider's real start time, end time, and
-`trace.span.duration`.
+Top-level OCSF `duration` is reserved for aggregate windows. Spans that are
+mapped use the Trace profile with the provider's real start time, end time,
+and `trace.span.duration`.
 
 Fields deprecated in OCSF 1.9.0 are not used. The acting application is
 `actor.application.name` rather than `actor.app_name`, and a skill or plugin

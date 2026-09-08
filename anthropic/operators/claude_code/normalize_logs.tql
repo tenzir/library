@@ -32,10 +32,12 @@ _api_service = _mcp_server? else
 _target_resource_uri = _tool_payload.uri? if _tool_name_lower == "readmcpresourcetool" else
                        _tool_payload.url? if _tool_name_lower == "webfetch" else
                        null
+// The MCP resource tools and the web tools are remote by definition, so a
+// decision record, which carries no `tool_input` and therefore no server,
+// still counts as remote and lands in the same class as its result.
 _remote_tool = (_tool_name_lower == "mcp_tool" and _mcp_server? != null and _mcp_tool? != null) or
                _mcp_parts.length() >= 3 or
-               (_tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool"] and _tool_payload.server? != null) or
-               _tool_name_lower in ["websearch", "webfetch"]
+               _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch"]
 _file_path = _tool_payload.file_path? else _tool_payload.path?
 _file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
@@ -85,6 +87,16 @@ select signal = "log",
   plugin_scope = _a["plugin.scope"]?,
   hook_event = _a.hook_event?,
   hook_name = _a.hook_name?,
+  hook_source = _a.hook_source?,
+  hook_type = _a.hook_type?,
+  hook_matcher = _a.hook_matcher?,
+  hook_safe_mode = _a.safe_mode.string() == "true" if _a.safe_mode? != null else null,
+  hook_managed_only = _a.managed_only.string() == "true" if _a.managed_only? != null else null,
+  hook_count = int(_a.num_hooks) if _a.num_hooks? != null else null,
+  hook_success_count = int(_a.num_success) if _a.num_success? != null else null,
+  hook_blocking_count = int(_a.num_blocking) if _a.num_blocking? != null else null,
+  hook_error_count = int(_a.num_non_blocking_error) if _a.num_non_blocking_error? != null else null,
+  hook_cancelled_count = int(_a.num_cancelled) if _a.num_cancelled? != null else null,
   skill_name = _a.skill?.name? else _a["skill.name"]?,
   skill_source = _a.skill?.source? else _a["skill.source"]?,
   skill_invocation_trigger = _a.invocation_trigger?,
@@ -112,8 +124,14 @@ select signal = "log",
   decision = _a.decision? else _a.decision_type?,
   tool_source = _a.tool_source?,
   decision_source = _a.source? else _a.decision_source?,
-  success = _a.success.string() == "true" if _a.success? != null else null,
-  duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
+  // A completed hook run reports counts rather than a flag: it succeeded when
+  // no hook errored or was cancelled. A blocking hook is a hook that did its
+  // job, not a failure of the run.
+  success = _a.success.string() == "true" if _a.success? != null else
+            (int(_a.num_non_blocking_error) == 0 and int(_a.num_cancelled) == 0) if _a.num_non_blocking_error? != null and _a.num_cancelled? != null else
+            null,
+  duration = int(_a.duration_ms) if _a.duration_ms? != null else
+             int(_a.total_duration_ms) if _a.total_duration_ms? != null else null,
   tool_input_size_bytes = int(_a.tool_input_size_bytes) if _a.tool_input_size_bytes? != null else null,
   tool_result_size_bytes = int(_a.tool_result_size_bytes) if _a.tool_result_size_bytes? != null else null,
   error = _a.error?,
