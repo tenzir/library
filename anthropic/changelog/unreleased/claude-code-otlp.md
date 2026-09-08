@@ -65,7 +65,11 @@ decision and the tool name; the result that follows carries the path and
 repeats the decision. The `Artifact` tool publishes a local page to claude.ai
 or reads one back, so it is a remote call rather than a file operation: an
 API Activity `Invoke` with the artifact URL as a target resource when the
-call names one.
+call names one. `Glob` and `Grep` read the files under their search root:
+when the call names that root, the event is a File System Activity `Read` of
+the folder, typed as such, with the pattern in `unmapped.search_pattern`.
+Without a root the tool searches the working directory, which the record does
+not state, so the call stays a Base Event.
 
 `metadata.original_event_uid` prefers
 identifiers that are

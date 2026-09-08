@@ -47,11 +47,16 @@ _file_path = (_tool_payload.file_path? else _tool_payload.path? else _tool_paylo
 // An `Edit` states the change it made as the text it replaced and the text
 // it wrote; that is the file difference, kept only when content is included.
 _file_diff = f"-{_tool_payload.old_string}\n+{_tool_payload.new_string}" if $include_content and _tool_payload.old_string? != null and _tool_payload.new_string? != null else null
+// `Glob` and `Grep` read the files under their search root. When the call
+// names that root, the event is a read of the folder, with the pattern kept
+// alongside; without one the tool searches the working directory, which the
+// record does not state, so nothing can be named.
+_search_tool = _tool_name_lower in ["glob", "grep"]
 _file_operation = "create" if _tool_name_lower in ["write", "create"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
                   "rename" if _tool_name_lower in ["rename", "move"] else
                   "update" if _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
-                  "read" if _tool_name_lower in ["read", "view_image"] else
+                  "read" if _tool_name_lower in ["read", "view_image"] or _search_tool else
                   null
 // Claude can truncate `tool_input.command` while retaining the complete value
 // in `tool_parameters.full_command`. Prefer that complete provider field.
@@ -125,7 +130,8 @@ select signal = "log",
   file_diff = _file_diff,
   // The source reports no file type. A read that fails with `EISDIR` is the
   // one case where the operating system said what the path is.
-  file_type_id = (2 if (_a.error? else "").contains("EISDIR") else 1) if _file_path? != null else null,
+  file_type_id = (2 if _search_tool or (_a.error? else "").contains("EISDIR") else 1) if _file_path? != null else null,
+  search_pattern = _tool_payload.pattern? if _search_tool else null,
   process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
   command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
