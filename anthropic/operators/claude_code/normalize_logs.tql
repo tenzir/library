@@ -30,16 +30,24 @@ _api_service = _mcp_server? else
                _mcp_parts[1]? if _mcp_parts.length() >= 3 else
                null
 _target_resource_uri = _tool_payload.uri? if _tool_name_lower == "readmcpresourcetool" else
-                       _tool_payload.url? if _tool_name_lower == "webfetch" else
+                       _tool_payload.url? if _tool_name_lower in ["webfetch", "artifact"] else
                        null
-// The MCP resource tools and the web tools are remote by definition, so a
-// decision record, which carries no `tool_input` and therefore no server,
-// still counts as remote and lands in the same class as its result.
+// The MCP resource tools, the web tools and `Artifact` are remote by
+// definition, so a decision record, which carries no `tool_input` and
+// therefore no server, still counts as remote and lands in the same class as
+// its result. `Artifact` publishes a local page to claude.ai or reads one
+// back: a call to a remote service, not a file operation, even though
+// publishing names the local file it uploads.
 _remote_tool = (_tool_name_lower == "mcp_tool" and _mcp_server? != null and _mcp_tool? != null) or
                _mcp_parts.length() >= 3 or
-               _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch"]
-_file_path = _tool_payload.file_path? else _tool_payload.path?
-_file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
+               _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch", "artifact"]
+// `NotebookEdit` names its file `notebook_path`; every other file tool uses
+// `file_path`.
+_file_path = (_tool_payload.file_path? else _tool_payload.path? else _tool_payload.notebook_path?) if _tool_name_lower != "artifact" else null
+// An `Edit` states the change it made as the text it replaced and the text
+// it wrote; that is the file difference, kept only when content is included.
+_file_diff = f"-{_tool_payload.old_string}\n+{_tool_payload.new_string}" if $include_content and _tool_payload.old_string? != null and _tool_payload.new_string? != null else null
+_file_operation = "create" if _tool_name_lower in ["write", "create"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
                   "rename" if _tool_name_lower in ["rename", "move"] else
                   "update" if _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
@@ -109,11 +117,15 @@ select signal = "log",
   request_data = _tool_payload if $include_content and _a.tool_input? != null and _a.tool_input.starts_with("{") else null,
   target_resource_uris = [_target_resource_uri] if _target_resource_uri? != null else null,
   target_resource_type = "MCP Resource" if _tool_name_lower == "readmcpresourcetool" else
-                         "Web Resource" if _tool_name_lower == "webfetch" else
+                         "Web Resource" if _tool_name_lower in ["webfetch", "artifact"] else
                          null,
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
+  file_diff = _file_diff,
+  // The source reports no file type. A read that fails with `EISDIR` is the
+  // one case where the operating system said what the path is.
+  file_type_id = (2 if (_a.error? else "").contains("EISDIR") else 1) if _file_path? != null else null,
   process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
   command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,

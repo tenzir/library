@@ -53,6 +53,20 @@ calls. A conversation turn is not an API call: a user prompt is `Other` with
 verb. Guessing read/write intent from the
 shape of a name would misclassify a tool such as `cleanup_stale_records` as a
 read.
+File tools map from the path the result reports: `file_path` on `Read`,
+`Write` and `Edit`, and `notebook_path` on `NotebookEdit`, whose cell edits
+are updates of the notebook file. `Write` is always `Create` because the
+source does not say whether the path existed before. With
+`include_content=true` an `Edit` keeps the text it replaced and the text it
+wrote in `file_diff`. The file type is `Regular File` unless a read failed
+with `EISDIR`, the one case where the operating system reported a folder. A
+file-tool decision reports no path at all, so it stays a Base Event with the
+decision and the tool name; the result that follows carries the path and
+repeats the decision. The `Artifact` tool publishes a local page to claude.ai
+or reads one back, so it is a remote call rather than a file operation: an
+API Activity `Invoke` with the artifact URL as a target resource when the
+call names one.
+
 `metadata.original_event_uid` prefers
 identifiers that are
 unique per event, because `span_id` identifies the enclosing span and is shared
