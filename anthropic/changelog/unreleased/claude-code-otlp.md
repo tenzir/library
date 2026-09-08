@@ -111,15 +111,23 @@ a tool name nor a tool-call id on the `tool.execution` and
 `tool.blocked_on_user` spans, so they cannot be tied to the call they belong
 to. Mapping the spans would only add one to three duplicate events per call.
 
-Metric points map to Base Event. Token and cost usage, active time, lines of
-code, session starts and code-edit tool decisions are aggregates the agent
-computed over one export interval, and OCSF 1.9 has no class for them. Each
-point keeps its window in `start_time`, `end_time` and `duration`, its value
-and unit in `unmapped`, and its attributes such as the token type, the model
-and the query source. `count` is filled only for the metrics that count
-occurrences, session starts and code-edit decisions. A code-edit decision
-point carries `decision` and `source`, so it also carries the Security Control
-profile. Legacy OTLP/JSON envelopes still discard metrics.
+Metric points map to Base Event. Active time, lines of code, session starts
+and code-edit tool decisions are aggregates the agent computed over one export
+interval, and OCSF 1.9 has no class for them. Each point keeps its window in
+`start_time`, `end_time` and `duration`, its value and unit in `unmapped`, and
+its attributes such as the model and the query source. `count` is filled only
+for the metrics that count occurrences, session starts and code-edit
+decisions. A code-edit decision point carries `decision` and `source`, so it
+also carries the Security Control profile. The token and cost usage metrics
+are dropped: every `api_request` log already carries the same token counts
+and the cost per request, so they would report the same numbers twice. Legacy
+OTLP/JSON envelopes still discard metrics.
+
+A model call is two records that share `request_id`: the `api_request` log
+is the request and the `assistant_response` log the response. Both are API
+Activity `Create`, and `message_context.ai_role` tells them apart: the
+request carries the Agent role and the response the Assistant role. Count
+model calls on one of the two, not on both.
 
 Hooks and subagents are local, not API calls. A hook run is the harness
 executing one or more local commands, so `hook_execution_start` is a Process
