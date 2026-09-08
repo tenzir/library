@@ -205,6 +205,14 @@ if $event.otel.event_name == "permission_mode_changed" {
   // name the agent on the one event where that is the question; Authorize
   // Session models the grant directly.
   _permission_to = move $event.otel.permission_to?
+  _permission_from = $event.otel.permission_from?
+  // The trigger says who changed the mode: a keypress (`shift_tab`) or a
+  // command is the person, `auto_gate_denied` is the harness demoting the
+  // session on its own after the automatic gate refused a call. The source
+  // names the trigger but not the person, so it stays in `unmapped` and
+  // shapes the message.
+  _permission_trigger = $event.otel.permission_trigger? else ""
+  _permission_by_harness = _permission_trigger.starts_with("auto_")
   $event.ocsf.category_uid = 3
   $event.ocsf.class_uid = 3003
   $event.ocsf.activity_id = 1
@@ -216,8 +224,17 @@ if $event.otel.event_name == "permission_mode_changed" {
   // the agent must ask, so the two products answer the same question in the
   // same vocabulary.
   $event.ocsf.privileges = [f"approval:{_permission_to}" if _permission_to != null else "approval:unknown"]
-  $event.ocsf.severity_id = 3 if _permission_to == "bypassPermissions" else 1
-  $event.ocsf.message = f"Agent session permission mode set to {_permission_to else "unknown"}"
+  // The record reports a change that happened, not a request.
+  $event.ocsf.status_id = 1
+  // Rated by how much autonomy the new mode grants: bypassing every check is
+  // Medium, letting a classifier approve on the agent's behalf is Low, and
+  // anything that asks a person or only plans is Informational.
+  $event.ocsf.severity_id = 3 if _permission_to == "bypassPermissions" else
+                            2 if _permission_to == "auto" else 1
+  $event.ocsf.message = f"Agent session permission mode changed from {_permission_from else "unknown"} to {_permission_to else "unknown"}" + (
+                          " by the harness after its automatic gate denied a call" if _permission_trigger == "auto_gate_denied" else
+                          " by the harness" if _permission_by_harness else
+                          " by the user" if _permission_trigger != "" else "")
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.event_name == "skill_activated" {

@@ -194,8 +194,16 @@ request they govern. The provisioning source (`tool_source`) stays in
 A permission-mode change maps to Authorize Session with the `Assign
 Privileges` activity and the new mode in `privileges` against the agent's
 session. Device Config State Change cannot carry the AI Operation profile, so
-it cannot name the agent that changed the setting. Switching to
-`bypassPermissions` is rated `Medium`.
+it cannot name the agent that changed the setting. The previous mode and the
+trigger stay in `unmapped`, and the message says who changed it: a keypress
+or command is the person, while `auto_gate_denied` is the harness demoting
+the session on its own after its automatic gate refused a call. The record
+reports a change that happened, so its status is Success. Severity follows
+the autonomy the new mode grants: `bypassPermissions` is `Medium`, `auto`,
+which lets a classifier approve on the agent's behalf, is `Low`, and modes
+that ask a person or only plan are `Informational`. Codex reports its
+approval and sandbox policy only at conversation start and emits nothing
+when a person changes them during a session, so no Codex counterpart exists.
 
 A decision on a local tool that has no OCSF class, such as `Skill`, `Agent`,
 `CronCreate`, or a file tool whose decision reports no path, falls back to
