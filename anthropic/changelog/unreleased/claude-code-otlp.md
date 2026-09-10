@@ -52,7 +52,8 @@ can retain selected native metrics.
 
 The default `include_content=false` omits copied content from normalized fields;
 it does not redact `raw_data` or shell commands. Review storage access and
-retention accordingly. Legacy OTLP/JSON envelopes remain supported separately.
+retention accordingly. Input is native OTLP records only; no shared OTEL
+package or legacy-envelope operators are required or included.
 
 See the package README for the mapping tables, identifiers, filtering rules,
 and configuration.
