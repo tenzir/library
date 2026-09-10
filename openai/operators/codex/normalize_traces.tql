@@ -5,7 +5,7 @@ args:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts and commands.
+      description: Retain prompts. Shell commands are always retained.
 ---
 
 where event_name != "auth"
@@ -13,8 +13,13 @@ where event_name != "auth"
 openai::codex::drop_internal_spans
 
 _a = attributes
-_tool_name = _a.tool_name?
+_mcp_hook = event_name == "codex.hooks.mcp_tool" and (_a["hook.server"]? else "") != "" and (_a["hook.tool"]? else "") != ""
+_tool_name = _a["hook.tool"] if _mcp_hook else _a.tool_name?
 _tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
+_tool_namespace = _a.tool_namespace?
+_namespace_mcp_parts = _tool_namespace.split("__") if (_tool_namespace? else "").starts_with("mcp__") else []
+_name_mcp_parts = _tool_name.split("__") if (_tool_name? else "").starts_with("mcp__") else []
+_command = _a.full_command.string() if _a.full_command? != null else null
 // The command has its own field and its own hash; repeating it here would
 // duplicate a mapped value into `unmapped`.
 _content = _a.user_prompt?
@@ -54,10 +59,28 @@ select signal = "trace",
   remote_plugin_enabled = _a.remote_plugin_enabled?,
   apps_enabled = _a.apps_enabled?,
   tool_name = _tool_name,
+  tool_namespace = _tool_namespace,
+  api_operation = f"web.{_tool_name}" if _tool_namespace == "web" else
+                  "web.run" if _tool_name_lower == "webrun" else
+                  _name_mcp_parts[2]? if _name_mcp_parts.length() >= 3 else
+                  _tool_name,
+  api_service = _a["hook.server"] if _mcp_hook else _a.mcp_server? else
+                _namespace_mcp_parts[1]? if _namespace_mcp_parts.length() >= 2 else
+                _name_mcp_parts[1]? if _name_mcp_parts.length() >= 3 else
+                "web" if _tool_namespace == "web" or _tool_name_lower == "webrun" else
+                null,
+  remote_tool = _mcp_hook or _namespace_mcp_parts.length() >= 2 or
+                _name_mcp_parts.length() >= 3 or
+                (_a.mcp_server? else "") != "" or
+                _tool_namespace == "web" or
+                _tool_name_lower == "webrun",
   tool_use_id = _a["gen_ai.tool.call.id"]? else _a.tool_use_id? else _a.call_id?,
-  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _a.full_command? if $include_content else null,
-  command_hash = hash_sha256(_a.full_command) if _a.full_command? != null else null,
+  hook_timeout_sec = int(_a["hook.timeout_sec"]) if _mcp_hook and _a["hook.timeout_sec"]? != null else null,
+  process_name = "bash" if _tool_name_lower == "bash" else
+                 "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
+                 null,
+  command = _command,
+  command_hash = hash_sha256(_command) if _command? != null else null,
   error = _a.error?,
   error_type = _a.error_type?,
   source_status_code = _a.status_code?,
@@ -76,7 +99,7 @@ select signal = "trace",
   content_hash = hash_sha256(_content) if _content? != null else null,
   trace_id,
   span_id,
-  parent_span_id,
+  parent_span_id = parent_span_id?,
   span_kind,
   status_code,
   status_message,

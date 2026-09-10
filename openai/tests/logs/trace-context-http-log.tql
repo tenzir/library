@@ -1,0 +1,24 @@
+// Synthetic mapper regression: a log has span context, not span lifetime.
+// Inject the normalized HTTP target to exercise the HTTP mapping branch.
+from {
+  time: 2026-09-10T15:30:00Z,
+  observed_time: 2026-09-10T15:30:00Z,
+  body: {kind: "empty"},
+  attributes: {"event.name": "codex.http_request", "event.timestamp": "2026-09-10T15:30:00Z", "http.request.method": "GET", "http.response.status_code": 200, "server.address": "example.test"},
+  resource: {attributes: {"service.name": "codex-app-server"}},
+  scope: {name: "regression"},
+  receiver: {transport: "grpc"},
+  trace_id: "11111111111111111111111111111111",
+  span_id: "2222222222222222",
+}
+@name = "otel.log"
+openai::codex::normalize
+server_address = "example.test"
+openai::codex::ocsf::map
+ocsf_derive
+ocsf_cast
+assert trace.uid == "11111111111111111111111111111111"
+assert class_uid == 4002
+assert trace.span? == null
+assert unmapped.span_id? == "2222222222222222"
+select class_uid, trace.uid, span=trace.span?, span_id=unmapped.span_id?

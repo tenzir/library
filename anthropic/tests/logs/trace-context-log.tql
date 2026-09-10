@@ -1,0 +1,20 @@
+// Synthetic regression: a log has span context, not span lifetime.
+from {
+  time: 2026-09-10T15:30:00Z,
+  observed_time: 2026-09-10T15:30:00Z,
+  body: {kind: "empty"},
+  attributes: {"event.name": "user_prompt", "event.timestamp": "2026-09-10T15:30:00Z"},
+  resource: {attributes: {"service.name": "claude-code"}},
+  scope: {name: "regression"},
+  receiver: {transport: "grpc"},
+  trace_id: "11111111111111111111111111111111",
+  span_id: "2222222222222222",
+}
+@name = "otel.log"
+anthropic::claude_code::ocsf
+ocsf_derive
+ocsf_cast
+assert trace.uid == "11111111111111111111111111111111"
+assert trace.span? == null
+assert unmapped.span_id? == "2222222222222222"
+select class_uid, trace.uid, span=trace.span?, span_id=unmapped.span_id?

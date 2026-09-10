@@ -1,0 +1,19 @@
+// Real Claude Code metric points captured from log-lab on 2026-09-07: cost,
+// the four token types, one code-edit tool decision, active time, a session
+// start and lines of code. Identity fields are omitted; values are unchanged.
+// Token and cost usage repeat the `api_request` logs and are dropped; the
+// rest have no OCSF class and stay Base Events that keep the window, the
+// value and the attributes.
+from_file f"{env("TENZIR_INPUTS")}/native-metrics.ndjson" {
+  read_ndjson
+}
+@name = "otel.metric.sum"
+anthropic::claude_code::ocsf
+ocsf_derive
+ocsf_cast
+select time, start_time, end_time, duration, count, metadata.event_code,
+       metadata.profiles?, class_name, message, action?, disposition?,
+       metric_value=unmapped.metric_value, metric_type=unmapped.metric_type?,
+       model=unmapped.model?, tool_name=unmapped.tool_name?,
+       session=actor.session.uid, query_source=unmapped.query_source?,
+       language=unmapped.language?, start_type=unmapped.start_type?

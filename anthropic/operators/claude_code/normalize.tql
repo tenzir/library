@@ -1,11 +1,11 @@
 ---
-description: Normalizes native Claude Code OTLP logs and traces.
+description: Normalizes native Claude Code OTLP logs, metrics, and traces.
 args:
   named:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, commands, and tool parameters.
+      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
 if @name == "otel.log" {
@@ -32,9 +32,11 @@ if @name == "otel.log" {
   time = start_time
   span_kind = kind_id
   status_code = status.code_id
-  status_message = status.message
+  status_message = status.message?
   resource = _resource_attributes
   anthropic::claude_code::normalize_event include_content=$include_content
+} else if @name.starts_with("otel.metric.") {
+  anthropic::claude_code::normalize_metrics
 } else {
   discard
 }

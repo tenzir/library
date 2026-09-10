@@ -8,6 +8,7 @@ where metric.name in ["codex.skill.injected", "codex.tool.call"]
 _raw_data = this.print_json()
 _attributes = attributes
 _resource_attributes = resource.attributes
+_tool_name = _attributes.tool?
 
 _success = _attributes.success.string() == "true" if _attributes.success? != null else
            _attributes.status == "ok" if _attributes.status? != null else
@@ -34,7 +35,12 @@ select signal = "metric",
   skill_name = _attributes.skill?,
   invocation_type = _attributes.invoke_type?,
   source_status = _attributes.status?,
-  tool_name = _attributes.tool?,
+  // A `codex.tool.call` point is the agent's own aggregate over one export
+  // interval and names no call or session, so it never maps to an invocation
+  // of its own: the `codex.tool_result` log already is that. It stays a Base
+  // Event that keeps the count, the window and the sandbox posture, which no
+  // log record carries per call.
+  tool_name = _tool_name,
   success = _success,
   sandbox = _attributes.sandbox?,
   sandbox_policy = _attributes.sandbox_policy?,

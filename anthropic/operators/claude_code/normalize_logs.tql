@@ -5,7 +5,7 @@ args:
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, commands, and tool parameters.
+      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
 _a = attributes
@@ -17,15 +17,59 @@ _tool_name = _a.tool_name?
 _tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
 _tool_payload_text = _a.tool_input? else _a.tool_parameters? else _a.arguments?
 _tool_payload = _tool_payload_text.parse_json() if _tool_payload_text? != null and _tool_payload_text.starts_with("{") else {}
-_file_path = _tool_payload.file_path? else _tool_payload.path?
-_file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
+_tool_parameters_payload = _a.tool_parameters.parse_json() if _a.tool_parameters? != null and _a.tool_parameters.starts_with("{") else {}
+_mcp_server = _tool_parameters_payload.mcp_server_name? else
+              _tool_payload.server? if _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool"] else
+              null
+_mcp_tool = _tool_parameters_payload.mcp_tool_name?
+_mcp_parts = _tool_name.split("__") if (_tool_name? else "").starts_with("mcp__") else []
+_api_operation = _mcp_tool? else
+                 _mcp_parts[2]? if _mcp_parts.length() >= 3 else
+                 _tool_name
+_api_service = _mcp_server? else
+               _mcp_parts[1]? if _mcp_parts.length() >= 3 else
+               null
+_target_resource_uri = _tool_payload.uri? if _tool_name_lower == "readmcpresourcetool" else
+                       _tool_payload.url? if _tool_name_lower in ["webfetch", "artifact"] else
+                       null
+// The MCP resource tools, the web tools and `Artifact` are remote by
+// definition, so a decision record, which carries no `tool_input` and
+// therefore no server, still counts as remote and lands in the same class as
+// its result. `Artifact` publishes a local page to claude.ai or reads one
+// back: a call to a remote service, not a file operation, even though
+// publishing names the local file it uploads.
+_remote_tool = (_tool_name_lower == "mcp_tool" and _mcp_server? != null and _mcp_tool? != null) or
+               _mcp_parts.length() >= 3 or
+               _tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch", "artifact"]
+// `NotebookEdit` names its file `notebook_path`; every other file tool uses
+// `file_path`.
+_file_path = (_tool_payload.file_path? else _tool_payload.path? else _tool_payload.notebook_path?) if _tool_name_lower != "artifact" else null
+// An `Edit` states the change it made as the text it replaced and the text
+// it wrote; that is the file difference, kept only when content is included.
+_file_diff = f"-{_tool_payload.old_string}\n+{_tool_payload.new_string}" if $include_content and _tool_payload.old_string? != null and _tool_payload.new_string? != null else null
+// Glob searches filenames; Grep searches content. Preserve the stated target
+// without inferring its type or individual files accessed beneath it.
+_search_tool = _tool_name_lower in ["glob", "grep"]
+// A generic Write does not establish whether the file was newly created.
+_file_operation = "create" if _tool_name_lower == "create" else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
                   "rename" if _tool_name_lower in ["rename", "move"] else
-                  "update" if _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
-                  "read" if _tool_name_lower in ["read", "view_image"] else
+                  "update" if _tool_name_lower in ["write", "edit", "apply_patch", "notebookedit"] else
+                  "search" if _tool_name_lower == "glob" else
+                  "read" if _tool_name_lower in ["read", "view_image", "grep"] else
                   null
-_command = _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
-_content = _a.body? else _a.response? else _a.prompt? else body?
+// Claude can truncate `tool_input.command` while retaining the complete value
+// in `tool_parameters.full_command`. Prefer that complete provider field.
+_command_value = _tool_parameters_payload.full_command? else
+                 _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
+// Parsed tool payloads may infer a shell literal such as `true` as a boolean.
+// A command is text regardless of its spelling, and its hash must cover that
+// text rather than the inferred scalar representation.
+_command = _command_value.string() if _command_value? != null else null
+// Conversation text lives in the `prompt`, `response` or `body` attribute.
+// The record body itself is never content: Claude Code sets it to the event
+// name, such as `claude_code.tool_result`, on every log.
+_content = _a.body? else _a.response? else _a.prompt?
 
 select signal = "log",
   raw_data,
@@ -33,7 +77,7 @@ select signal = "log",
   event_name = _event_name,
   event_kind = _a["event.kind"]?,
   time = time? else time(_a["event.timestamp"].string()) if _a["event.timestamp"]? != null else null,
-  observed_time,
+  observed_time = observed_time?,
   event_sequence = int(_a["event.sequence"]) if _a["event.sequence"]? != null else null,
   session_id = _a["session.id"]?,
   prompt_id = _a["prompt.id"]?,
@@ -52,23 +96,66 @@ select signal = "log",
   server_name = _a.server_name?,
   transport_type = _a.transport_type?,
   server_scope = _a.server_scope?,
+  mcp_server_scope = _a.mcp_server_scope?,
   source_status = _a.status?,
+  auth_action = _a.action? if _event_name == "auth" else null,
+  auth_method = _a.auth_method? if _event_name == "auth" else null,
+  install_trigger = _a["install.trigger"]?,
+  total_attempts = int(_a.total_attempts) if _a.total_attempts? != null else null,
+  total_retry_duration_ms = int(_a.total_retry_duration_ms) if _a.total_retry_duration_ms? != null else null,
   plugin_name = _a["plugin.name"]?,
   plugin_marketplace = _a["marketplace.name"]?,
   plugin_scope = _a["plugin.scope"]?,
+  plugin_version = _a["plugin.version"]?,
+  // Claude Code's own identity for the plugin, stable across sessions.
+  plugin_uid = _a.plugin_id_hash?,
+  plugin_enabled_via = _a.enabled_via?,
+  // What the plugin brings into the agent: hooks and MCP servers are the
+  // capabilities that matter for posture, the counts say how much it adds.
+  plugin_has_hooks = _a.has_hooks?,
+  plugin_has_mcp = _a.has_mcp?,
+  plugin_host_owned_mcp = _a.host_owned_mcp?,
+  plugin_skill_count = int(_a.skill_path_count) if _a.skill_path_count? != null else null,
+  plugin_command_count = int(_a.command_path_count) if _a.command_path_count? != null else null,
+  plugin_agent_count = int(_a.agent_path_count) if _a.agent_path_count? != null else null,
   hook_event = _a.hook_event?,
   hook_name = _a.hook_name?,
+  hook_source = _a.hook_source?,
+  hook_type = _a.hook_type?,
+  hook_matcher = _a.hook_matcher?,
+  // Reported on hook and plugin records alike: whether the session runs in
+  // safe mode.
+  safe_mode = _a.safe_mode.string() == "true" if _a.safe_mode? != null else null,
+  hook_managed_only = _a.managed_only.string() == "true" if _a.managed_only? != null else null,
+  hook_count = int(_a.num_hooks) if _a.num_hooks? != null else null,
+  hook_success_count = int(_a.num_success) if _a.num_success? != null else null,
+  hook_blocking_count = int(_a.num_blocking) if _a.num_blocking? != null else null,
+  hook_error_count = int(_a.num_non_blocking_error) if _a.num_non_blocking_error? != null else null,
+  hook_cancelled_count = int(_a.num_cancelled) if _a.num_cancelled? != null else null,
   skill_name = _a.skill?.name? else _a["skill.name"]?,
   skill_source = _a.skill?.source? else _a["skill.source"]?,
   skill_invocation_trigger = _a.invocation_trigger?,
   agent_type = _a.agent_type?,
   tool_name = _tool_name,
+  api_operation = _api_operation,
+  api_service = _api_service,
+  remote_tool = _remote_tool,
   tool_use_id = _a.tool_use_id? else _a.call_id?,
+  request_data = _tool_payload if $include_content and _a.tool_input? != null and _a.tool_input.starts_with("{") else null,
+  target_resource_uris = [_target_resource_uri] if _target_resource_uri? != null else null,
+  target_resource_type = "MCP Resource" if _tool_name_lower == "readmcpresourcetool" else
+                         "Web Resource" if _tool_name_lower in ["webfetch", "artifact"] else
+                         null,
   file_path = _file_path,
   file_name = _file_path.split("/")[-1] if _file_path? != null else null,
   file_operation = _file_operation,
+  file_diff = _file_diff,
+  // The source reports no file type. A read that fails with `EISDIR` is the
+  // one case where the operating system said what the path is.
+  file_type_id = (2 if (_a.error? else "").contains("EISDIR") else 0 if _search_tool else 1) if _file_path? != null else null,
+  search_pattern = _tool_payload.pattern? if _search_tool else null,
   process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _command if $include_content else null,
+  command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
   background = _tool_payload.run_in_background? == true if _tool_payload.run_in_background? != null else null,
   // `tool_decision` reports the decision as `decision` plus `source`;
@@ -77,8 +164,16 @@ select signal = "log",
   decision = _a.decision? else _a.decision_type?,
   tool_source = _a.tool_source?,
   decision_source = _a.source? else _a.decision_source?,
-  success = _a.success.string() == "true" if _a.success? != null else null,
-  duration = int(_a.duration_ms) if _a.duration_ms? != null else null,
+  // A completed hook run reports counts rather than a flag: it succeeded when
+  // no hook errored or was cancelled. A blocking hook is a hook that did its
+  // job, not a failure of the run.
+  success = _a.success.string() == "true" if _a.success? != null else
+            (int(_a.num_non_blocking_error) == 0 and int(_a.num_cancelled) == 0) if _a.num_non_blocking_error? != null and _a.num_cancelled? != null else
+            null,
+  duration = int(_a.duration_ms) if _a.duration_ms? != null else
+             int(_a.total_duration_ms) if _a.total_duration_ms? != null else null,
+  tool_input_size_bytes = int(_a.tool_input_size_bytes) if _a.tool_input_size_bytes? != null else null,
+  tool_result_size_bytes = int(_a.tool_result_size_bytes) if _a.tool_result_size_bytes? != null else null,
   error = _a.error?,
   error_type = _a.error_type?,
   source_status_code = _a.status_code?,
@@ -90,6 +185,15 @@ select signal = "log",
   startup_status = _a["startup.status"]?,
   input_tokens = int(_a.input_tokens) if _a.input_tokens? != null else int(_a.input_token_count) if _a.input_token_count? != null else null,
   output_tokens = int(_a.output_tokens) if _a.output_tokens? != null else int(_a.output_token_count) if _a.output_token_count? != null else null,
+  // The `api_request` log is the only mapped record that carries the cost
+  // and the cache token counts per model call; the token and cost metrics
+  // that repeated them are dropped, so these must survive here.
+  cache_read_tokens = int(_a.cache_read_tokens) if _a.cache_read_tokens? != null else null,
+  cache_creation_tokens = int(_a.cache_creation_tokens) if _a.cache_creation_tokens? != null else null,
+  cost_usd = _a.cost_usd?,
+  query_source = _a.query_source?,
+  agent_name = _a["agent.name"]?,
+  effort = _a.effort?,
   content = _content if $include_content else null,
   content_hash = hash_sha256(_content) if _content? != null else null,
   // Keep the source's own keys with the source's own values: a record may
@@ -97,12 +201,14 @@ select signal = "log",
   tool_input = _a.tool_input? if $include_content else null,
   tool_parameters = _a.tool_parameters? if $include_content else null,
   arguments = _a.arguments? if $include_content else null,
-  tool_parameters_hash = hash_sha256(_tool_payload_text) if _tool_payload_text? != null else null,
-  trace_id,
-  span_id,
-  severity_number,
-  severity_text,
-  flags,
+  tool_input_hash = hash_sha256(_a.tool_input) if _a.tool_input? != null else null,
+  tool_parameters_hash = hash_sha256(_a.tool_parameters) if _a.tool_parameters? != null else null,
+  arguments_hash = hash_sha256(_a.arguments) if _a.arguments? != null else null,
+  trace_id = trace_id?,
+  span_id = span_id?,
+  severity_number = severity_number?,
+  severity_text = severity_text?,
+  flags = flags?,
   scope,
   // The receiver records how the record arrived; every signal carries it.
   transport = transport? else receiver?.transport?,
