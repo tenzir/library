@@ -8,251 +8,53 @@ components:
 created: 2026-07-29T00:00:00Z
 ---
 
-The OpenAI package now normalizes security-relevant Codex OTLP logs, metrics,
-and traces and maps them directly to OCSF 1.9.0. Agent-mediated activity uses
-the AI Operation profile and its `ai_agent` object, including the Codex session,
-runtime version, and backing model when available.
+The OpenAI package normalizes security-relevant Codex OTLP telemetry to OCSF
+1.9.0, including process and file activity, remote calls, conversation records,
+JSON-RPC operations, HTTP activity, authorization, and skill activation.
 
-Use `accept_otlp "0.0.0.0:4318", schema="record"` to receive telemetry and
-publish its native `otel.log`, `otel.span`, and `otel.metric.*` events to the
-`otlp` topic. The `openai::codex::ocsf` operator consumes native record events
-directly, where OTLP attributes are already record fields. Legacy OTLP/JSON
-export envelopes remain available through
-`openai::codex::ocsf_legacy_envelope`.
+```tql
+subscribe "otlp"
+where @name in ["otel.log", "otel.span"]
+openai::codex::ocsf
+ocsf_derive
+ocsf_cast
+```
 
-The mapping recognizes API and model activity, JSON-RPC operations, completed
-model responses, turn summaries, MCP tool discovery, shell commands, and file
-operations. An `apply_patch` call that touches several files produces one File
-System Activity event per file header; an `*** Update File:` followed by
-`*** Move to:` is one Rename that names the old file in `file` and the new
-file in `file_result`. Skill injections and aggregate tool calls retain their invocation,
-status, sandbox, and policy context. Plugin, remote-plugin, and application
-enablement observations retain the resolved Codex posture. Potentially
-sensitive prompt, response, and copied tool-parameter content is hashed unless
-`include_content=true` is explicitly set. Shell command text is always retained
-in `process.cmd_line`; its SHA-256 hash is retained as well.
-Fields with an OCSF destination are removed from `unmapped`; the complete
-native OTLP event remains available in `raw_data`.
+Shell decisions and confirmed completions use Process Activity Launch and
+Terminate with a shared call-derived UID. The mapper reads command exit codes
+from `exec_command` result envelopes instead of treating tool success as process
+success. Running or unrecognized results use Observe with Unknown status.
+Argument-validation failures remain Base Events, not process launches.
+Records emit independently; `write_stdin` remains a separate tool interaction.
 
-An optional pipeline writes mapped activity to a single `events` table in
-ClickHouse using the `CLICKHOUSE_HOST`, `CLICKHOUSE_USERNAME`, and
-`CLICKHOUSE_PASSWORD` secrets, defaulting to the `ocsf` database. Rather than
-one wide table per OCSF class, every class shares one table: a fixed set of
-first-class columns carries the fields worth indexing, and the complete event
-lands in a ClickHouse `JSON` column named `event`. Optional columns are cast
-explicitly, so the table shape does not depend on which class arrives first,
-and events from different classes and products stay directly comparable in a
-single query. Unmapped events are ignored.
+Shell command text is always retained, but process creation time and PID are
+not inferred. File patches produce one event per affected file. Explicit Add
+File operations map to Create and generic Write to Update. Deletion flags and
+rename results describe successful, non-denied changes only.
 
-Internal implementation spans and metric-like log events that do not add
-security context are discarded instead of producing OCSF Base Events.
+Remote authorization and invocation use API Activity Authorize and Invoke.
+MCP service, operation, call ID, and resource URI retain their separate
+destinations, including separately reported tool namespaces. MCP hook spans
+with explicit server and tool identities map to Invoke with actual trace timing.
+Unknown local activity remains Base Event.
 
-Codex reports a different service name per client: `codex_cli_rs` for the
-terminal client, `codex_exec` for non-interactive runs and `codex-app-server`
-for the desktop and IDE apps. The mapping recognizes the product by the
-`codex` prefix, so the app-server telemetry is no longer dropped by a service
-allow-list.
+Conversation records use API Activity Prompt, Respond, and Turn. JSON-RPC
+operations use Call. HTTP records with a method and server address use HTTP
+Activity. Internal runtime spans and duplicate tool spans are filtered.
 
-The OCSF mapping names explicit remote tool invocations as `Other` with
-`Invoke` in `activity_name`; `api.operation` carries the tool name. An unknown
-tool name alone is not evidence of a remote call and falls back to Base Event.
-Typed local file and process records keep their specific classes. Model
-requests and websocket setup are `Create`, the same reading the Claude Code
-mapping uses, so counting `Create` counts model calls. A conversation record
-is not an API call: a user prompt is `Other` with `Prompt`, a completed model
-response `Other` with `Respond`, and a turn span, which covers several model
-calls, `Other` with `Turn`. MCP tool discovery (`list_tools_for_server`,
-Codex's own span for `tools/list`) is `Read`. JSON-RPC operations are `Other`
-with `Call` and the method in `api.operation`, because `activity_name` is
-the action rather than a name. Other API activity uses an HTTP verb. Guessing read/write intent from the
-shape of a name would misclassify a tool such as `cleanup_stale_records` as a
-read.
-`metadata.original_event_uid` prefers identifiers that are
-unique per event, because `span_id` identifies the enclosing span and is shared
-by every record emitted inside it; the span itself is preserved as described
-below. A denied tool call is rated `Low` instead of
-`Informational`. Normalization artifacts no longer leak into `unmapped`:
-`signal` and `transport` are internal, and `decision_source` lands in the
-Security Control `policy` and `authorizations[].policy.type`.
-Envelope input reports `metadata.log_format` as `OTLP/JSON`.
+Trace IDs and log span IDs survive normalization. Logs retain span context
+without inventing a span lifetime; complete mapped spans retain their timing.
+Missing parent IDs, status messages, and log attributes are handled without
+warnings.
 
-`message` carries a human-readable summary of each event (for example
-"Agent shell process terminated", "Skill tenzir injected into the agent context") instead of repeating the raw event name, which stays available in
-`metadata.event_code`.
+The optional ClickHouse pipeline retains Base Events alongside specific
+classes, excludes metrics, and stores queryable nested JSON in event.
+Its application column uses `actor.application.name`. Other pipeline paths
+can retain selected native metrics.
 
-Span identifiers are preserved where the schema has no home for them. The Trace
-profile applies only to API Activity and HTTP Activity, so on every other class
-`span_id` and `parent_span_id` land in `unmapped` rather than being discarded;
-`trace_id` is available as `metadata.correlation_uid`.
+The default `include_content=false` omits copied content from normalized fields;
+it does not redact `raw_data` or shell commands. Review storage access and
+retention accordingly. Legacy OTLP/JSON envelopes remain supported separately.
 
-`metadata.original_event_uid` holds the identifier the source assigned to the
-record itself, which is what traces an event back to the raw entry. Only spans
-carry one, so it is set from `span_id` for span-sourced events and left empty
-for logs and metrics, which have none. A tool-call id such as `call_id` names the
-call rather than the record, and the span, the decision and the result all
-share it, so it stays on `process.uid` and `api.request.uid`, and
-in `unmapped` on classes with no typed home for it.
-
-`metadata.correlation_uid` identifies the turn, following the convention the
-OCSF `ai_tool` worked example uses, where the session is
-`ai_agent.instance_uid`, the turn is `correlation_uid` and the invocation is
-the tool-call id. Codex reports a turn id only on its turn spans, so the
-field is filled there and stays empty on every log record rather than
-holding an identifier of a different kind. The trace is not lost: it is
-`trace.uid` on API and HTTP Activity and stays in `unmapped.trace_id` on
-every other class. The session is available as `ai_agent.instance_uid`, and
-on classes with an actor also as `actor.session.uid`.
-
-Codex shell tools map to one Process Activity lifecycle. A tool decision is
-`Launch`; a completed foreground result is `Terminate`. Both derive a stable
-`process.uid` from `call_id`, with an `openai:codex:` prefix. `process.pid`
-stays empty because the source does not report an operating-system PID. A
-compound `arguments.cmd` value remains the command line of the top-level shell
-invocation and is always retained. Spans named after a tool (`exec_command`,
-`write_stdin`, `apply_patch`, the `code_mode.broker.invoke_tool` wrapper) are
-suppressed on the native and the legacy envelope path alike, because they
-repeat the lifecycle reported by the decision and result logs; only the Code
-Mode `exec` span is kept as a provisional Launch, since no decision log exists
-for it.
-
-A `codex.tool.call` metric point is the agent's own aggregate over one export
-interval and names no call or session, so it never maps to an invocation of
-its own: the `codex.tool_result` log already is that. It stays a Base Event
-that keeps the count, the window and the sandbox mechanism and policy in
-`unmapped`, which no log record carries per call.
-
-No correlation window is required. The decision emits immediately, and the
-result emits immediately with the same UID whether it follows milliseconds or
-minutes later. A denied decision produces a failed Launch without a Terminate.
-Code Mode `exec` remains a separate provisional lifecycle mapping because its
-arguments contain JavaScript wrapper source rather than native process data.
-
-Codex's `success` field confirms that an `exec_command` tool result was
-delivered; it does not report the shell command's exit status. The mapper
-therefore extracts the `Process exited with code N` result line: zero maps to
-Success, a nonzero code maps to Failure, and the code populates OCSF
-`status_code` and `exit_code`. A result that says `Process running with session
-ID N` reports that the launched process is still running, so it stays in
-Process Activity as `Other` with `Observe` in `activity_name`, under the same
-`process.uid` and with the command in `process.cmd_line`. It is neither a
-second Launch nor a Terminate, and its status is `Unknown`. Later
-`write_stdin` calls remain separate tool interactions. Both retain the terminal
-session ID in `unmapped`.
-
-Codex reports tool duration in milliseconds. Process Activity describes a
-discrete event, while the OCSF base `duration` field describes an aggregation
-window. The mapper therefore retains the tool duration in `unmapped.duration_ms`
-instead of populating the OCSF window field.
-
-Tool decisions carry the Security Control profile, which makes an autonomous
-action distinguishable from a supervised one. A rule that fires — `Config`,
-`AutomatedReviewer`, or the sandbox — reports `Allowed`/`Allowed` or
-`Denied`/`Blocked` in `action_id` and `disposition_id` with the rule named in
-`policy`, while a person's decision reports `Allowed`/`Approved` or
-`Denied`/`Rejected`. A shell tool decision maps to the contentless Process
-Activity launch request it governs. A decision without a named decider keeps an `Unknown`
-disposition rather than implying that a rule fired. The `Unauthorized`
-disposition stays unused because the
-telemetry cannot distinguish a failed permission check from a policy block.
-Remote tool decisions stay API Activity `Other`, keep the tool name in
-`api.operation` and the MCP server in `api.service.name`, but carry
-`Authorize` rather than `Invoke` in `activity_name`: the decision authorizes
-a pending call, and the result record is what reports the invocation as
-`Invoke`. The two labels keep one call from counting as two invocations, and
-both records emit independently however far apart they arrive, joined by
-`api.request.uid`. For Codex the decision is the only record that carries the
-authorization, because the result does not repeat it. Local shell decisions
-map to the Process Activity launch request they govern. The provisioning
-source (`tool_source`) stays in `unmapped` because OCSF 1.9 has no normalized
-field for it.
-
-A conversation start maps to Authorize Session with the `Assign Privileges`
-activity: the approval policy and sandbox policy are the privilege set the new
-session begins with, recorded in `privileges` against the agent's session. A
-`danger-full-access` sandbox is rated `Medium`. The MCP server list stays in
-`unmapped`.
-
-A decision or result for a local tool that has no OCSF class, such as
-`write_stdin` or a file tool whose decision reports no path, falls back to
-Base Event but keeps the Security Control profile. Base Event cannot carry the
-AI Operation profile, but the Host profile gives it `actor` and `device`, so
-the session and the user are typed there like everywhere else; only the tool
-name stays in `unmapped`, and `message` names the tool and the outcome. The
-sandbox outcome and Application Lifecycle events carry the Host profile for
-the same reason. As a result `actor.session.uid` is the session on every
-event this mapping emits, and `ai_agent.instance_uid` on every event that
-carries the AI Operation profile.
-
-A skill injection maps to Application Lifecycle with the `Enable` activity,
-and the skill document is the agent's charter in `ai_agent.charter`. The
-telemetry reports no hash of the skill content it loads, so charter integrity
-is not attestable; that is a vendor gap, not a mapping choice.
-
-A model call over the websocket is two log records with no shared
-identifier: `codex.websocket_request` is the request, API Activity `Create`
-with the Agent role, its outcome, duration and the credential-source flags,
-and the completed `codex.sse_event` is the model's reply, `Other` with
-`Respond` and the Assistant role, carrying the token usage and the time to
-first token. They cannot be joined and are never merged. The request keeps
-which credential sources were present and whether the connection was reused
-in `unmapped`; the response keeps the cache and reasoning token counts.
-
-Exec-server HTTP spans carry the host, method, and usually a response status,
-so they map to HTTP Activity with `http_request`, `http_response`, and
-`dst_endpoint` populated. Model websocket connections report no host or HTTP
-method, so they remain API Activity and leave those HTTP fields empty.
-
-With `include_content=true`, the text of a user prompt lands in
-`message_context.prompt_text`, the field OCSF 1.9 added for conversation
-text. The SHA-256 hash stays in `unmapped.content_hash` as the integrity
-handle, which has no schema home yet. Each conversation turn stays its own
-API Activity event because the agent emits it as a discrete record; folding
-it into the model call would need a stateful cross-event join.
-
-API Activity is a local fallback for conversation turns, not a claim that the
-audit transport is the activity. OCSF 1.9 has no concrete prompt activity class
-that can carry the AI Operation profile without introducing unrelated required
-fields. The session stays in `message_context.uid`; a reported `prompt.id`
-stays temporarily in `message_context.name` and `unmapped` because OCSF has no
-dedicated turn identifier.
-
-The serving MCP server lands in `api.service.name` and
-`dst_endpoint.svc_name` when the source provides `mcp_server`, a discovery
-span's server name, or a complete `mcp__<server>__<tool>` name. A malformed
-tool name does not invent a server.
-
-Current Codex logs can report the tool and its namespace separately. The
-mapper now retains `tool_namespace`, so `mcp__harness_check` identifies the MCP
-service and the Web tool becomes `web.run` instead of the ambiguous `run`.
-With `include_content=true`, parsed arguments land in `api.request.data`.
-Resource reads and URLs opened by a combined Web call also appear as target
-resources without splitting the source call into invented events.
-
-`openai::codex::drop_internal_spans` removes Codex's HTTP/2 and async-runtime
-spans, such as `try_reclaim_frame` and `FramedRead::poll_next`, before
-normalization. They outnumber security-relevant spans by roughly three orders
-of magnitude, and dropping them up front avoids serializing every one into
-`raw_data` only to discard it after mapping.
-
-Fields deprecated in OCSF 1.9.0 are not used. The acting application is
-`actor.application.name` rather than `actor.app_name`, and a skill or plugin
-lifecycle event names its subject in `application` rather than `app`. Because
-`application` carries no `vendor_name` of its own, a plugin's marketplace lands
-in `application.product.vendor_name`.
-
-`device.type_id` is required, so it is now set on every event that carries a
-device, including the ones that report a hostname. Its value is `0` (Unknown)
-throughout: the telemetry never says whether the host is a laptop, a server or
-a VM, and guessing would be worse than saying so.
-
-The source of an authorization decision fills `policy.type` in both places it
-appears, on the top-level `policy` and on `authorizations[].policy`. It
-names the kind of control that decided rather than a named rule, and
-`policy.name` stays empty because inventing a rule identity would make a
-category look like a specific rule.
-
-The `device` object is attached only when the resource names the host. OCSF
-constrains `device` to at least one identifying attribute, so a device built
-from `type_id` alone is not a valid object, and inventing a host the source
-never reported would be worse than leaving the required field empty. Events
-without a host therefore carry no `device` at all.
+See the package README for the mapping tables, identifiers, filtering rules,
+and configuration.
