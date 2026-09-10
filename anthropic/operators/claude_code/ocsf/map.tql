@@ -204,7 +204,54 @@ _ai_agent = {
   } if ($event.otel.model? else "") != "" else null,
 }
 
-if $event.otel.event_name == "permission_mode_changed" {
+if $event.otel.event_name == "auth" and $event.otel.auth_action? == "login" {
+  $event.ocsf.category_uid = 3
+  $event.ocsf.class_uid = 3002
+  $event.ocsf.activity_id = 1
+  $event.ocsf.type_uid = 300201
+  $event.ocsf.user = _actor.user
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.service = {name: $event.otel.resource.service_name}
+  // The source says oauth, without specifying a protocol version.
+  $event.ocsf.auth_protocol_id = 99 if ($event.otel.auth_method? else "") != "" else 0
+  $event.ocsf.auth_protocol = move $event.otel.auth_method?
+  $event.ocsf.message = "Claude Code login succeeded" if $event.ocsf.status_id == 1 else
+                        "Claude Code login failed" if $event.ocsf.status_id == 2 else
+                        "Claude Code login requested"
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.ai_agent = _ai_agent
+  // The conversation ID stays on actor.session, not the authenticated session.
+  drop $event.otel.auth_action?
+} else if $event.otel.event_name == "plugin_installed" {
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6002
+  $event.ocsf.activity_id = 1
+  $event.ocsf.type_uid = 600201
+  $event.ocsf.application = {
+    name: move $event.otel.plugin_name? else "Unknown",
+    uid: move $event.otel.plugin_uid?,
+    version: move $event.otel.plugin_version?,
+  }
+  // The marketplace is provenance, not necessarily the plugin's vendor.
+  $event.ocsf.message = f"Plugin installation reported: {$event.ocsf.application.name}"
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.event_name == "api_retries_exhausted" {
+  $event.ocsf.category_uid = 6
+  $event.ocsf.class_uid = 6008
+  $event.ocsf.activity_id = 1
+  $event.ocsf.type_uid = 600801
+  $event.ocsf.status_id = 2
+  $event.ocsf.severity_id = 3
+  $event.ocsf.message = $event.otel.error? else "API retries exhausted"
+  $event.ocsf.metadata.profiles = ["ai_operation", "host"]
+  $event.ocsf.actor = _actor
+  $event.ocsf.device = _device
+  $event.ocsf.ai_agent = _ai_agent
+} else if $event.otel.event_name == "permission_mode_changed" {
   // A mode switch grants the agent session a different privilege set. Device
   // Config State Change cannot carry the AI Operation profile, so it cannot
   // name the agent on the one event where that is the question; Authorize
@@ -411,10 +458,11 @@ if $event.otel.event_name == "permission_mode_changed" {
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.file_operation? != null and $event.otel.file_path? != null {
-  let $activity_ids = {create: 1, read: 2, update: 3, delete: 4, rename: 5}
+  let $activity_ids = {create: 1, read: 2, update: 3, delete: 4, rename: 5, search: 99}
   $event.ocsf.category_uid = 1
   $event.ocsf.class_uid = 1001
   $event.ocsf.activity_id = $activity_ids[$event.otel.file_operation]
+  $event.ocsf.activity_name = "Search" if $event.otel.file_operation == "search" else null
   $event.ocsf.type_uid = 100100 + $event.ocsf.activity_id
   $event.ocsf.actor = _actor
   $event.ocsf.device = _device
@@ -422,10 +470,14 @@ if $event.otel.event_name == "permission_mode_changed" {
     name: move $event.otel.file_name,
     path: move $event.otel.file_path,
     type_id: move $event.otel.file_type_id? else 1,
-    is_deleted: true if $event.otel.file_operation == "delete" else null,
+    is_deleted: true if $event.otel.file_operation == "delete" and $event.ocsf.status_id == 1 and _decision_status_id != 2 else null,
   }
-  $event.ocsf.file_diff = move $event.otel.file_diff?
-  if $event.otel.file_new_path? != null {
+  if $event.ocsf.status_id == 1 and _decision_status_id != 2 {
+    $event.ocsf.file_diff = move $event.otel.file_diff?
+  }
+  // Unapplied edits remain in the retained source tool input, not file_diff.
+  drop $event.otel.file_diff?
+  if $event.otel.file_new_path? != null and $event.ocsf.status_id == 1 and _decision_status_id != 2 {
     // A rename names the file before in `file` and the file after in
     // `file_result`.
     $event.ocsf.file_result = {
@@ -435,31 +487,34 @@ if $event.otel.event_name == "permission_mode_changed" {
     }
   }
   let $file_verbs = {create: "created", read: "read", update: "updated", delete: "deleted", rename: "renamed"}
-  $event.ocsf.message = f"Agent searched files under {$event.ocsf.file.path}" if $event.otel.search_pattern? != null else
+  $event.ocsf.message = f"Agent file {$event.otel.file_operation} denied: {$event.ocsf.file.path}" if _decision_status_id == 2 else
+                        f"Agent failed to {$event.otel.file_operation} file {$event.ocsf.file.path}" if $event.ocsf.status_id == 2 else
+                        f"Agent requested a file {$event.otel.file_operation}: {$event.ocsf.file.path}" if $event.ocsf.status_id == 0 else
+                        f"Agent searched filenames at {$event.ocsf.file.path}" if $event.otel.file_operation == "search" else
+                        f"Agent searched content at {$event.ocsf.file.path}" if $event.otel.search_pattern? != null else
                         f"Agent {$file_verbs[$event.otel.file_operation]} file {$event.ocsf.file.name}"
   $event.ocsf.metadata.profiles = ["ai_operation"]
   $event.ocsf.ai_agent = _ai_agent
 } else if $event.otel.process_name? != null {
   // Claude Code's Bash tool describes one top-level shell invocation. Keep
   // that invocation in Process Activity for request, completion and the
-  // background status observation, so the whole lifecycle shares one class
-  // and one `process.uid`. A background result says the launched process is
-  // still running: it is neither a second Launch nor a Terminate, so it is
-  // `Other` with `Observe` as the label. Keeping it here rather than in API
-  // Activity also avoids presenting a local tool name as an API operation.
+  // background tool result, so the lifecycle shares one class and one UID.
+  // Requested background execution does not establish the process state.
+  // Keep its result as Observe without claiming it is still running or ended.
   _process_result = $event.otel.event_name == "tool_result"
-  _process_running = _process_result and $event.otel.background? == true
-  _process_completed = _process_result and not _process_running
+  _background_result = _process_result and $event.otel.background? == true
+  _process_completed = _process_result and not _background_result
+  $event.otel.background_requested = move $event.otel.background?
   $event.ocsf.category_uid = 1
   $event.ocsf.class_uid = 1007
-  $event.ocsf.activity_id = 2 if _process_completed else 99 if _process_running else 1
-  $event.ocsf.activity_name = "Observe" if _process_running else null
-  $event.ocsf.type_uid = 100702 if _process_completed else 100799 if _process_running else 100701
+  $event.ocsf.activity_id = 2 if _process_completed else 99 if _background_result else 1
+  $event.ocsf.activity_name = "Observe" if _background_result else null
+  $event.ocsf.type_uid = 100702 if _process_completed else 100799 if _background_result else 100701
   // Claude Code does not report the operating-system creation primitive.
   $event.ocsf.launch_type_id = 0 if not _process_result else null
-  if _process_running {
-    // `success=true` describes delivery of the status observation, not the
-    // outcome of the process, which is still unknown.
+  if _background_result {
+    // Tool success or failure does not establish the process outcome.
+    $event.otel.tool_success = $event.otel.success?
     $event.ocsf.status_id = 0
   }
   _process_uid = f"anthropic:claude-code:{$event.otel.tool_use_id}" if ($event.otel.tool_use_id? else "") != "" else null
@@ -470,15 +525,13 @@ if $event.otel.event_name == "permission_mode_changed" {
     name: move $event.otel.process_name,
     cmd_line: move $event.otel.command? else "",
     uid: _process_uid,
-    created_time: $event.otel.start_time? else
-                  $event.otel.time - $event.otel.duration * 1ms if _process_completed and $event.otel.duration? != null else
-                  null,
+    // Tool timing does not establish the process creation time.
     terminated_time: $event.otel.time? if _process_completed else null,
     // `process.pid` is intentionally absent. `tool_use_id` is the producer's
     // correlation identifier, not an operating-system PID.
   }
   $event.ocsf.message = "Agent shell process terminated" if _process_completed else
-                        "Agent observed that the shell process is still running" if _process_running else
+                        "Agent received a tool result for requested background execution; process outcome unknown" if _background_result else
                         "Agent shell process launch denied" if _decision_status_id == 2 else
                         "Agent requested a shell process"
   $event.ocsf.actor = _actor
@@ -634,11 +687,11 @@ if $event.otel.event_name == "permission_mode_changed" {
         name: $event.otel.resource.service_name,
         version: $event.otel.resource.service_version?,
       },
-      // `span.start_time` and `span.end_time` are required, and only a span
-      // record has them. A log emitted inside a span knows the context but not
-      // the span's lifetime, so it carries the trace alone and its `span_id`
-      // stays in `unmapped`.
-      span: {
+    }
+    // Logs have span context but not the required span lifetime. Move IDs
+    // only inside this branch so log context remains in unmapped.
+    if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null {
+      $event.ocsf.trace.span = {
         uid: move $event.otel.span_id,
         parent_uid: move $event.otel.parent_span_id?,
         operation: $event.otel.event_name,
@@ -646,7 +699,7 @@ if $event.otel.event_name == "permission_mode_changed" {
         end_time: $event.otel.end_time,
         duration: $event.otel.duration?,
         status_code: $event.otel.status_code.string() if $event.otel.status_code? != null else null,
-      } if $event.otel.signal? == "trace" and $event.otel.start_time? != null and $event.otel.end_time? != null else null,
+      }
     }
     $event.ocsf.metadata.profiles = ["ai_operation", "trace"]
   }
@@ -716,7 +769,7 @@ if _decision_status_id != null {
 // subagent type would otherwise survive only in `raw_data`. They are restored
 // into `unmapped` after the drop below; the session is typed on
 // `actor.session.uid` through the Host profile.
-_base_tool_name = $event.otel.tool_name? if $event.ocsf.class_uid == 0 else null
+_retained_tool_name = $event.otel.tool_name? if $event.ocsf.class_uid == 0 or $event.otel.tool_name? in ["Glob", "Grep"] else null
 _base_model = $event.otel.model? if $event.ocsf.class_uid == 0 else null
 _base_agent_type = $event.otel.agent_type? if $event.ocsf.class_uid == 0 else null
 _scope_version = move $event.otel.scope.version?
@@ -757,7 +810,6 @@ drop $event.otel.event_name?,
      $event.otel.server_name?,
      $event.otel.source_status?,
      $event.otel.plugin_name?,
-     $event.otel.plugin_marketplace?,
      $event.otel.hook_name?,
      $event.otel.skill_name?,
      $event.otel.agent_type?,
@@ -805,8 +857,8 @@ drop $event.otel.event_name?,
      $event.otel.transport?,
      $event.otel.decision_source?
 
-if _base_tool_name != null {
-  $event.otel.tool_name = _base_tool_name
+if _retained_tool_name != null {
+  $event.otel.tool_name = _retained_tool_name
 }
 if _base_model != null {
   $event.otel.model = _base_model

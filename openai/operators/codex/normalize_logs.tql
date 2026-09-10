@@ -8,7 +8,7 @@ args:
       description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
-_a = attributes
+_a = attributes? else {}
 _event_name = _a["event.name"]? else body? else "unknown"
 
 where _event_name not in ["codex.startup_phase", "codex.turn_ttft"]
@@ -69,10 +69,11 @@ _patch_operations = zip(zip(_patch_headers, _patch_next), _patch_prev).where(tri
   new_path: triple.left.right.replace_regex("^\\*\\*\\* Move to: ", "") if triple.left.right.starts_with("*** Move to: ") else null,
 })
 _file_path = _tool_payload.file_path? else _tool_payload.path?
-_file_operation = "create" if _tool_name_lower in ["write", "create", "artifact"] else
+// A generic Write does not establish whether the file was newly created.
+_file_operation = "create" if _tool_name_lower in ["create", "artifact"] else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
                   "rename" if _tool_name_lower in ["rename", "move"] else
-                  "update" if _tool_name_lower in ["edit", "notebookedit"] else
+                  "update" if _tool_name_lower in ["write", "edit", "notebookedit"] else
                   "read" if _tool_name_lower in ["read", "view_image"] else
                   null
 _command_value = _tool_payload.command? else _tool_payload.full_command? else _tool_payload.cmd?
@@ -86,6 +87,10 @@ _tool_output = _a.output?
 // result, not that the shell command succeeded. Preserve that fact while also
 // extracting the command state from the human-readable result envelope.
 _command_result = _event_name == "codex.tool_result" and _tool_name_lower == "exec_command"
+// This producer error occurs before execution. Match the result prefix, not
+// text printed inside a command's output, and require a failed tool call.
+_argument_error = _command_result and _tool_success == false and
+                  (_tool_output? else "").starts_with("failed to parse function arguments:")
 _exit_lines = _tool_output.split("\n").where(line => line.starts_with("Process exited with code ")) if _command_result and _tool_output? != null else []
 _exit_line = _exit_lines[0]? if _exit_lines.length() > 0 else null
 _command_exit_code = int(_exit_line.replace_regex("^Process exited with code ", "")) if _exit_line? != null else null
@@ -107,7 +112,7 @@ select signal = "log",
   event_name = _event_name,
   event_kind = _a["event.kind"]?,
   time = time? else time(_a["event.timestamp"].string()) if _a["event.timestamp"]? != null else null,
-  observed_time,
+  observed_time = observed_time?,
   event_sequence = int(_a["event.sequence"]) if _a["event.sequence"]? != null else null,
   session_id = _a["session.id"]? else _a["conversation.id"]?,
   prompt_id = _a["prompt.id"]?,
@@ -144,7 +149,7 @@ select signal = "log",
   file_new_path = null,
   patch_operations = _patch_operations if _patch_operations.length() > 0 else null,
   process_name = "bash" if _tool_name_lower == "bash" else
-                 "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
+                 "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] and not _argument_error else
                  null,
   command = _command,
   command_hash = hash_sha256(_command) if _command? != null else null,
@@ -167,7 +172,7 @@ select signal = "log",
   tool_result_seq = int(_a.tool_result_seq) if _a.tool_result_seq? != null else null,
   agent_name = _a.agent_name?,
   is_mcp_tool = _a.mcp_tool?,
-  error = _a.error?,
+  error = _tool_output if _argument_error else _a.error?,
   error_type = _a.error_type?,
   source_status_code = _a.status_code?,
   request_id = _a.request_id?,
@@ -199,11 +204,11 @@ select signal = "log",
   tool_input_hash = hash_sha256(_a.tool_input) if _a.tool_input? != null else null,
   tool_parameters_hash = hash_sha256(_a.tool_parameters) if _a.tool_parameters? != null else null,
   arguments_hash = hash_sha256(_a.arguments) if _a.arguments? != null else null,
-  trace_id,
-  span_id,
-  severity_number,
-  severity_text,
-  flags,
+  trace_id = trace_id?,
+  span_id = span_id?,
+  severity_number = severity_number?,
+  severity_text = severity_text?,
+  flags = flags?,
   scope,
   // The receiver records how the record arrived; every signal carries it.
   transport = transport? else receiver?.transport?,
@@ -215,7 +220,7 @@ select signal = "log",
     os_type: resource["os.type"]? else resource.os?,
     os_version: resource["os.version"]? else resource.os_version?,
   },
-  attributes
+  attributes = attributes?
 
 if patch_operations != null {
   // One record, one event per patched file. Everything else about the record

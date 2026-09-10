@@ -47,16 +47,16 @@ _file_path = (_tool_payload.file_path? else _tool_payload.path? else _tool_paylo
 // An `Edit` states the change it made as the text it replaced and the text
 // it wrote; that is the file difference, kept only when content is included.
 _file_diff = f"-{_tool_payload.old_string}\n+{_tool_payload.new_string}" if $include_content and _tool_payload.old_string? != null and _tool_payload.new_string? != null else null
-// `Glob` and `Grep` read the files under their search root. When the call
-// names that root, the event is a read of the folder, with the pattern kept
-// alongside; without one the tool searches the working directory, which the
-// record does not state, so nothing can be named.
+// Glob searches filenames; Grep searches content. Preserve the stated target
+// without inferring its type or individual files accessed beneath it.
 _search_tool = _tool_name_lower in ["glob", "grep"]
-_file_operation = "create" if _tool_name_lower in ["write", "create"] else
+// A generic Write does not establish whether the file was newly created.
+_file_operation = "create" if _tool_name_lower == "create" else
                   "delete" if _tool_name_lower in ["delete", "remove"] else
                   "rename" if _tool_name_lower in ["rename", "move"] else
-                  "update" if _tool_name_lower in ["edit", "apply_patch", "notebookedit"] else
-                  "read" if _tool_name_lower in ["read", "view_image"] or _search_tool else
+                  "update" if _tool_name_lower in ["write", "edit", "apply_patch", "notebookedit"] else
+                  "search" if _tool_name_lower == "glob" else
+                  "read" if _tool_name_lower in ["read", "view_image", "grep"] else
                   null
 // Claude can truncate `tool_input.command` while retaining the complete value
 // in `tool_parameters.full_command`. Prefer that complete provider field.
@@ -77,7 +77,7 @@ select signal = "log",
   event_name = _event_name,
   event_kind = _a["event.kind"]?,
   time = time? else time(_a["event.timestamp"].string()) if _a["event.timestamp"]? != null else null,
-  observed_time,
+  observed_time = observed_time?,
   event_sequence = int(_a["event.sequence"]) if _a["event.sequence"]? != null else null,
   session_id = _a["session.id"]?,
   prompt_id = _a["prompt.id"]?,
@@ -98,6 +98,11 @@ select signal = "log",
   server_scope = _a.server_scope?,
   mcp_server_scope = _a.mcp_server_scope?,
   source_status = _a.status?,
+  auth_action = _a.action? if _event_name == "auth" else null,
+  auth_method = _a.auth_method? if _event_name == "auth" else null,
+  install_trigger = _a["install.trigger"]?,
+  total_attempts = int(_a.total_attempts) if _a.total_attempts? != null else null,
+  total_retry_duration_ms = int(_a.total_retry_duration_ms) if _a.total_retry_duration_ms? != null else null,
   plugin_name = _a["plugin.name"]?,
   plugin_marketplace = _a["marketplace.name"]?,
   plugin_scope = _a["plugin.scope"]?,
@@ -147,7 +152,7 @@ select signal = "log",
   file_diff = _file_diff,
   // The source reports no file type. A read that fails with `EISDIR` is the
   // one case where the operating system said what the path is.
-  file_type_id = (2 if _search_tool or (_a.error? else "").contains("EISDIR") else 1) if _file_path? != null else null,
+  file_type_id = (2 if (_a.error? else "").contains("EISDIR") else 0 if _search_tool else 1) if _file_path? != null else null,
   search_pattern = _tool_payload.pattern? if _search_tool else null,
   process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
   command = _command,
@@ -199,11 +204,11 @@ select signal = "log",
   tool_input_hash = hash_sha256(_a.tool_input) if _a.tool_input? != null else null,
   tool_parameters_hash = hash_sha256(_a.tool_parameters) if _a.tool_parameters? != null else null,
   arguments_hash = hash_sha256(_a.arguments) if _a.arguments? != null else null,
-  trace_id,
-  span_id,
-  severity_number,
-  severity_text,
-  flags,
+  trace_id = trace_id?,
+  span_id = span_id?,
+  severity_number = severity_number?,
+  severity_text = severity_text?,
+  flags = flags?,
   scope,
   // The receiver records how the record arrived; every signal carries it.
   transport = transport? else receiver?.transport?,

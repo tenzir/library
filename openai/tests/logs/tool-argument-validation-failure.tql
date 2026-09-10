@@ -1,0 +1,14 @@
+// Captured raw log-lab event, 2026-09-09, Codex 0.153.4.
+// Personal identity and unrelated attributes omitted. Dotted OTEL keys
+// restored from ClickHouse's nested representation; timestamps use ISO form.
+from_file f"{env("TENZIR_INPUTS")}/../logs/tool-argument-validation-failure.input" {
+  read_ndjson
+}
+@name = "otel.log"
+openai::codex::ocsf include_content=true
+ocsf_derive
+ocsf_cast
+select time, class_name, activity_name, status, status_detail, message,
+       process?, tool_name=unmapped.tool_name, call_id=unmapped.tool_use_id,
+       arguments=unmapped.arguments?, session=actor.session.uid,
+       trace_id=unmapped.trace_id?, span_id=unmapped.span_id?

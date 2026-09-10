@@ -1,0 +1,29 @@
+// Synthetic patch-rename regression: a destination is not proof of success.
+from {
+  time: 2026-09-10T12:00:00Z,
+  observed_time: 2026-09-10T12:00:00Z,
+  trace_id: null,
+  span_id: null,
+  severity_number: 0,
+  severity_text: null,
+  flags: 1,
+  resource: {attributes: {"service.name": "codex_cli_rs"}},
+  scope: {name: "codex_otel.log_only"},
+  receiver: {transport: "grpc"},
+  body: null,
+  attributes: {
+    "event.name": "codex.tool_decision",
+    tool_name: "apply_patch",
+    call_id: "synthetic-rename-unknown",
+    arguments: "*** Begin Patch\n*** Update File: /tmp/example.txt\n*** Move to: /tmp/renamed.txt\n@@\n-old\n+new\n*** End Patch",
+    decision: "accept",
+    source: "config",
+  },
+}
+@name = "otel.log"
+openai::codex::ocsf
+ocsf_derive
+ocsf_cast
+select class_name, activity_name, status, file.path,
+       result_path=file_result?.path?, requested_path=unmapped.file_new_path?,
+       call_id=unmapped.tool_use_id
