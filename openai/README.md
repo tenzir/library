@@ -28,9 +28,9 @@ The schema filter excludes metrics, not Base Events. Remove it if you also want
 the metric mappings described below. The packaged OCSF publishing pipeline
 accepts metrics; the ClickHouse pipeline excludes them.
 
-For legacy OTLP/JSON export envelopes, use
-`openai::codex::ocsf_legacy_envelope` instead. Legacy envelopes do not
-map metrics.
+Install this vendor package only; no shared `otel` package is required.
+Input must be native records from `accept_otlp` with `schema="record"`.
+Saved OTLP/JSON export envelopes are not supported.
 
 ## Content and identifiers
 

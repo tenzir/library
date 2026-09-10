@@ -28,9 +28,9 @@ The schema filter excludes metrics, not Base Events. Remove it if you also want
 the metric mappings described below. The packaged OCSF publishing pipeline
 accepts metrics; the ClickHouse pipeline excludes them.
 
-For legacy OTLP/JSON export envelopes, use
-`anthropic::claude_code::ocsf_legacy_envelope` instead. Legacy envelopes do not
-map metrics.
+Install this vendor package only; no shared `otel` package is required.
+Input must be native records from `accept_otlp` with `schema="record"`.
+Saved OTLP/JSON export envelopes are not supported.
 
 ## Content and identifiers
 
@@ -185,7 +185,7 @@ count and total retry duration without creating another model call.
 ### Filtering and metrics
 
 Tool, tool-execution, approval-wait, model-request, and interaction spans that
-duplicate logs are suppressed on native and legacy inputs. Feedback survey
+duplicate logs are suppressed on native inputs. Feedback survey
 events are discarded.
 
 Native `claude_code.session.count` metrics map to Application Lifecycle /
