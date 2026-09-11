@@ -12,8 +12,6 @@ Receive and normalize native records:
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
 ```
 
 Add the destination operator in your deployment. The package contains operators
@@ -59,7 +57,8 @@ individual tool runtimes.
 ## Operator structure
 
 `anthropic::claude_code::canonicalize` prepares native OTLP records and applies
-source-specific noise and duplicate filters. It operates on the event stream.
+source-specific noise and duplicate filters. Its `event` field argument defaults
+to `this`; filtering still applies to the event stream.
 
 `anthropic::claude_code::ocsf::map claude_code, ocsf` consumes a canonical source
 field and writes the mapped event to a separate destination field. It leaves
@@ -68,7 +67,9 @@ The dispatcher calls shared context, event-specific mapping, and finalization
 operators under `ocsf/`.
 
 `anthropic::claude_code::ocsf::normalize` combines those stages and preserves
-`raw_data` and `raw_data_size`. Use it for native receiver records.
+`raw_data` and `raw_data_size`. Use it for native receiver records. Its `into`
+argument defaults to `this`; set `into=result` to retain the surrounding event
+and write OCSF into `result`.
 
 ## Tests
 

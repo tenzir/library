@@ -10,11 +10,15 @@ args:
       description: The destination OCSF event.
 ---
 
+let $transports = {grpc: "OTLP/gRPC", http: "OTLP/HTTP"}
+let $decisions = {
+  accept: 1, approved: 1, approved_for_session: 1, allow: 1, allowed: 1,
+  deny: 2, denied: 2, reject: 2, rejected: 2, abort: 2, aborted: 2,
+}
+
 $ocsf.metadata = {
   event_code: $codex.event_name,
-  log_format: "OTLP/gRPC" if $codex.transport? == "grpc" else
-              "OTLP/HTTP" if $codex.transport? == "http" else
-              "OTLP",
+  log_format: $transports[$codex.transport?]? else "OTLP",
   log_provider: "OpenTelemetry",
   log_source: $codex.scope.name?,
   log_level: $codex.severity_text?,
@@ -42,10 +46,7 @@ if $codex.signal? == "metric" {
 // `message` is a human-readable summary for display; the raw event name stays
 // in `metadata.event_code`. Branches override this fallback with a sentence.
 $ocsf.message = $codex.event_name
-$ocsf._mapping.decision = ($codex.decision? else "").to_lower()
-$ocsf._mapping.decision_status_id = 1 if $ocsf._mapping.decision in ["accept", "approved", "approved_for_session", "allow", "allowed"] else
-                      2 if $ocsf._mapping.decision in ["deny", "denied", "reject", "rejected", "abort", "aborted"] else
-                      null
+$ocsf._mapping.decision_status_id = $decisions[($codex.decision? else "").to_lower()]?
 // Who decided, resolved once and reused: an interactive source means a person,
 // anything else named means a rule fired. An unnamed decider is neither.
 $ocsf._mapping.decision_source = ($codex.decision_source? else "").to_lower()
@@ -67,9 +68,7 @@ $ocsf.status_id = 0 if $codex.command_running? == true else
                              $codex.status_code? == 2 or
                              $ocsf._mapping.decision_status_id == 2 else
                         0
-$ocsf.status_code = $codex.source_status_code.string() if $codex.source_status_code? != null else
-                          $codex.command_exit_code.string() if $codex.command_exit_code? != null else
-                          $codex.http_status.string() if $codex.http_status? != null else null
+$ocsf.status_code = ($codex.source_status_code? else $codex.command_exit_code? else $codex.http_status?).string()
 // Why the outcome happened. The decision is not a reason: it is already
 // carried by `action_id`, `disposition_id` and `authorizations`.
 $ocsf.status_detail = $codex.error? else

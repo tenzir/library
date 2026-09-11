@@ -28,12 +28,14 @@ if $ocsf._mapping.decision_status_id != null {
   $ocsf.metadata.profiles = [...($ocsf.metadata.profiles? else []), "security_control"]
 }
 
-$ocsf._mapping.base_tool_name = $codex.tool_name? if $ocsf.class_uid == 0 else null
-$ocsf._mapping.base_model = $codex.model? if $ocsf.class_uid == 0 else null
-$ocsf._mapping.scope_version = move $codex.scope.version?
-$ocsf._mapping.host_arch = move $codex.resource.host_arch?
-$ocsf._mapping.os_type = move $codex.resource.os_type?
-$ocsf._mapping.os_version = move $codex.resource.os_version?
+$codex.tool_name = $codex.tool_name? if $ocsf.class_uid == 0 else null
+$codex.model = $codex.model? if $ocsf.class_uid == 0 else null
+$codex.scope = {version: $codex.scope.version?} if ($codex.scope.version? else "") != "" else null
+$codex.resource = {
+  host_arch: $codex.resource.host_arch?,
+  os_type: $codex.resource.os_type?,
+  os_version: $codex.resource.os_version?,
+} if $codex.resource.host_arch? != null or $codex.resource.os_type? != null or $codex.resource.os_version? != null else null
 if $codex.signal? == "metric" or $ocsf.trace?.span? != null {
   // Metric duration already populated the OCSF aggregation window. A mapped
   // trace duration is on `trace.span.duration` with real span boundaries.
@@ -61,14 +63,12 @@ drop $codex.event_name?,
      $codex.app_version?,
      $codex.app_entrypoint?,
      $codex.terminal_type?,
-     $codex.model?,
      $codex.provider?,
      $codex.rpc_method?,
      $codex.rpc_request_id?,
      $codex.client_name?,
      $codex.client_version?,
      $codex.source_status?,
-     $codex.tool_name?,
      $codex.tool_namespace?,
      $codex.api_operation?,
      $codex.api_service?,
@@ -104,29 +104,10 @@ drop $codex.event_name?,
      $codex.error_type?,
      $codex.source_status_code?,
      $codex.severity_text?,
-     $codex.scope?,
-     $codex.resource?,
      $codex.attributes?,
      $codex.signal?,
      $codex.transport?,
      $codex.decision_source?
-
-if $ocsf._mapping.base_tool_name != null {
-  $codex.tool_name = $ocsf._mapping.base_tool_name
-}
-if $ocsf._mapping.base_model != null {
-  $codex.model = $ocsf._mapping.base_model
-}
-if ($ocsf._mapping.scope_version? else "") != "" {
-  $codex.scope = {version: $ocsf._mapping.scope_version}
-}
-if $ocsf._mapping.host_arch? != null or $ocsf._mapping.os_type? != null or $ocsf._mapping.os_version? != null {
-  $codex.resource = {
-    host_arch: $ocsf._mapping.host_arch,
-    os_type: $ocsf._mapping.os_type,
-    os_version: $ocsf._mapping.os_version,
-  }
-}
 
 $ocsf.unmapped = drop_null_fields(move $codex)
 drop $ocsf._mapping

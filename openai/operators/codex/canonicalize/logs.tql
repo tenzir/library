@@ -53,12 +53,7 @@ $event._remote_tool = $event._namespace_mcp_parts.length() >= 2 or
                ($event._tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] and $event._payload_server? != null) or
                $event._tool_namespace == "web" or
                $event._tool_name_lower == "webrun"
-// An `apply_patch` payload can touch several files. Every `*** ... File:`
-// header is one file operation, and each becomes its own event below. A
-// `*** Move to:` header follows the `*** Update File:` it renames, so each
-// header is paired with its neighbours and that pair reads as one rename
-// with the old and the new path. A `*** Move to:` without such a predecessor
-// still counts as a rename that names only the new path.
+// Emit one event per patch target; pair Update File with Move to for renames.
 $event._patch_headers = $event._a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if $event._a.arguments? != null else []
 $event._patch_next = [...$event._patch_headers, ""].slice(begin=1)
 $event._patch_prev = ["", ...$event._patch_headers].slice(end=-1)
@@ -74,22 +69,26 @@ $event._patch_operations = zip(zip($event._patch_headers, $event._patch_next), $
 })
 $event._file_path = $event._tool_payload.file_path? else $event._tool_payload.path?
 // A generic Write does not establish whether the file was newly created.
-$event._file_operation = "create" if $event._tool_name_lower in ["create", "artifact"] else
-                  "delete" if $event._tool_name_lower in ["delete", "remove"] else
-                  "rename" if $event._tool_name_lower in ["rename", "move"] else
-                  "update" if $event._tool_name_lower in ["write", "edit", "notebookedit"] else
-                  "read" if $event._tool_name_lower in ["read", "view_image"] else
-                  null
+let $file_operations = {
+  create: "create",
+  artifact: "create",
+  delete: "delete",
+  remove: "delete",
+  rename: "rename",
+  "move": "rename",
+  write: "update",
+  edit: "update",
+  notebookedit: "update",
+  read: "read",
+  view_image: "read",
+}
+$event._file_operation = $file_operations[$event._tool_name_lower]?
 $event._command_value = $event._tool_payload.command? else $event._tool_payload.full_command? else $event._tool_payload.cmd?
-// Parsed tool payloads may infer a shell literal such as `true` as a boolean.
-// A command is text regardless of its spelling, and its hash must cover that
-// text rather than the inferred scalar representation.
+// Keep shell literals such as `true` as command text, including when hashing.
 $event._command = $event._command_value.string() if $event._command_value? != null else null
 $event._tool_success = $event._a.success.string() == "true" if $event._a.success? != null else null
 $event._tool_output = $event._a.output?
-// For `exec_command`, Codex's `success` says that the tool call returned a
-// result, not that the shell command succeeded. Preserve that fact while also
-// extracting the command state from the human-readable result envelope.
+// Tool success is not command success; extract exit state from the result envelope.
 $event._command_result = $event._event_name == "codex.tool_result" and $event._tool_name_lower == "exec_command"
 // This producer error occurs before execution. Match the result prefix, not
 // text printed inside a command's output, and require a failed tool call.
@@ -105,9 +104,7 @@ $event._session_line = $event._session_lines[0]? if $event._session_lines.length
 $event._terminal_session_id = $event._tool_payload.session_id.string() if $event._tool_payload.session_id? != null else
                        $event._session_line.replace_regex("^.*Process running with session ID ", "") if $event._session_line? != null else
                        null
-// Conversation text lives in the `prompt`, `response` or `body` attribute.
-// The record body itself is never content: Codex leaves it empty on every
-// structured event, and its free-text log lines are filtered out above.
+// Read conversation text from attributes; the record body is not conversation content.
 $event._content = $event._a.body? else $event._a.response? else $event._a.prompt?
 
 $event = {
@@ -158,9 +155,7 @@ $event = {
                  null,
   command: $event._command,
   command_hash: hash_sha256($event._command) if $event._command? != null else null,
-  // `codex.tool_decision` reports `decision` plus `source`;
-  // `codex.sandbox_outcome` reports the sandbox's verdict as `outcome` with no
-  // source, so the sandbox itself is the authorizing control.
+  // Sandbox outcomes have no decision source; the sandbox is the control.
   decision: $event._a.decision? else $event._a.outcome?,
   tool_source: $event._a.tool_source?,
   decision_source: $event._a.source? else "sandbox" if $event._a.outcome? != null else null,
