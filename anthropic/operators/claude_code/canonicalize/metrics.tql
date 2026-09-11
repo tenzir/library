@@ -10,22 +10,14 @@ args:
 
 where @name.starts_with("otel.metric.")
 where $event.metric.name.starts_with("claude_code.")
-// Token and cost usage repeat what every `api_request` log already carries
-// per request: the input, output and cache token counts and the cost. Keeping
-// them would report the same numbers twice. Active time, session starts,
-// lines of code and code-edit decisions have no log equivalent and stay.
+// Drop token and cost metrics already reported by API request logs.
 where $event.metric.name not in ["claude_code.token.usage", "claude_code.cost.usage"]
 
 $event._raw_data = $event.print_json()
 $event._attributes = $event.attributes
 $event._resource_attributes = $event.resource.attributes
 
-// A metric point is an aggregate the agent already computed over one export
-// interval: token and cost usage, active time, lines of code, session starts
-// and the outcome of a code-edit tool decision, each with its own attribute
-// set. There is no OCSF class for these, so they become Base Events that keep
-// the aggregation window, the value and the attributes; a code-edit decision
-// also carries the Security Control profile from `decision` and `source`.
+// Retain metric aggregation windows and values without inventing individual actions.
 $event = {
   signal: "metric",
   raw_data: $event._raw_data,

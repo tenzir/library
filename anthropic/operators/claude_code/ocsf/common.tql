@@ -10,11 +10,15 @@ args:
       description: The destination OCSF event.
 ---
 
+let $transports = {grpc: "OTLP/gRPC", http: "OTLP/HTTP"}
+let $decisions = {
+  accept: 1, approved: 1, approved_for_session: 1, allow: 1, allowed: 1,
+  deny: 2, denied: 2, reject: 2, rejected: 2, abort: 2, aborted: 2,
+}
+
 $ocsf.metadata = {
   event_code: $claude_code.event_name,
-  log_format: "OTLP/gRPC" if $claude_code.transport? == "grpc" else
-              "OTLP/HTTP" if $claude_code.transport? == "http" else
-              "OTLP",
+  log_format: $transports[$claude_code.transport?]? else "OTLP",
   log_provider: "OpenTelemetry",
   log_source: $claude_code.scope.name?,
   log_level: $claude_code.severity_text?,
@@ -46,10 +50,7 @@ if $claude_code.signal? == "metric" {
                       ] else null
 }
 $ocsf.message = $claude_code.event_name
-$ocsf._mapping.decision = ($claude_code.decision? else "").to_lower()
-$ocsf._mapping.decision_status_id = 1 if $ocsf._mapping.decision in ["accept", "approved", "approved_for_session", "allow", "allowed"] else
-                      2 if $ocsf._mapping.decision in ["deny", "denied", "reject", "rejected", "abort", "aborted"] else
-                      null
+$ocsf._mapping.decision_status_id = $decisions[($claude_code.decision? else "").to_lower()]?
 // An unnamed decider must not imply either a person or a policy.
 $ocsf._mapping.decision_source = ($claude_code.decision_source? else "").to_lower()
 $ocsf._mapping.human_decision = $ocsf._mapping.decision_source.starts_with("user")
@@ -77,8 +78,7 @@ $ocsf.status_id = 1 if $claude_code.success? == true or
                              $ocsf._mapping.decision_status_id == 2 else
                         0
 // Keep OTLP span status separate from the producer's error-code namespace.
-$ocsf.status_code = $claude_code.source_status_code.string() if $claude_code.source_status_code? != null else
-                          $claude_code.http_status.string() if $claude_code.http_status? != null else null
+$ocsf.status_code = ($claude_code.source_status_code? else $claude_code.http_status?).string()
 $ocsf.status_detail = $claude_code.error? else
                             $claude_code.error_type? else
                             $claude_code.status_message? else

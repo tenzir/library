@@ -36,12 +36,7 @@ $event._api_service = $event._mcp_server? else
 $event._target_resource_uri = $event._tool_payload.uri? if $event._tool_name_lower == "readmcpresourcetool" else
                        $event._tool_payload.url? if $event._tool_name_lower in ["webfetch", "artifact"] else
                        null
-// The MCP resource tools, the web tools and `Artifact` are remote by
-// definition, so a decision record, which carries no `tool_input` and
-// therefore no server, still counts as remote and lands in the same class as
-// its result. `Artifact` publishes a local page to claude.ai or reads one
-// back: a call to a remote service, not a file operation, even though
-// publishing names the local file it uploads.
+// MCP resource, web, and Artifact calls are remote even when decisions omit input.
 $event._remote_tool = ($event._tool_name_lower == "mcp_tool" and $event._mcp_server? != null and $event._mcp_tool? != null) or
                $event._mcp_parts.length() >= 3 or
                $event._tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch", "artifact"]
@@ -55,24 +50,29 @@ $event._file_diff = f"-{$event._tool_payload.old_string}\n+{$event._tool_payload
 // without inferring its type or individual files accessed beneath it.
 $event._search_tool = $event._tool_name_lower in ["glob", "grep"]
 // A generic Write does not establish whether the file was newly created.
-$event._file_operation = "create" if $event._tool_name_lower == "create" else
-                  "delete" if $event._tool_name_lower in ["delete", "remove"] else
-                  "rename" if $event._tool_name_lower in ["rename", "move"] else
-                  "update" if $event._tool_name_lower in ["write", "edit", "apply_patch", "notebookedit"] else
-                  "search" if $event._tool_name_lower == "glob" else
-                  "read" if $event._tool_name_lower in ["read", "view_image", "grep"] else
-                  null
+let $file_operations = {
+  create: "create",
+  delete: "delete",
+  remove: "delete",
+  rename: "rename",
+  "move": "rename",
+  write: "update",
+  edit: "update",
+  apply_patch: "update",
+  notebookedit: "update",
+  glob: "search",
+  read: "read",
+  view_image: "read",
+  grep: "read",
+}
+$event._file_operation = $file_operations[$event._tool_name_lower]?
 // Claude can truncate `tool_input.command` while retaining the complete value
 // in `tool_parameters.full_command`. Prefer that complete provider field.
 $event._command_value = $event._tool_parameters_payload.full_command? else
                  $event._tool_payload.command? else $event._tool_payload.full_command? else $event._tool_payload.cmd?
-// Parsed tool payloads may infer a shell literal such as `true` as a boolean.
-// A command is text regardless of its spelling, and its hash must cover that
-// text rather than the inferred scalar representation.
+// Keep shell literals such as `true` as command text, including when hashing.
 $event._command = $event._command_value.string() if $event._command_value? != null else null
-// Conversation text lives in the `prompt`, `response` or `body` attribute.
-// The record body itself is never content: Claude Code sets it to the event
-// name, such as `claude_code.tool_result`, on every log.
+// Read conversation text from attributes; the record body is not conversation content.
 $event._content = $event._a.body? else $event._a.response? else $event._a.prompt?
 
 $event = {
@@ -163,15 +163,11 @@ $event = {
   command: $event._command,
   command_hash: hash_sha256($event._command) if $event._command? != null else null,
   background: $event._tool_payload.run_in_background? == true if $event._tool_payload.run_in_background? != null else null,
-  // `tool_decision` reports the decision as `decision` plus `source`;
-  // `tool_result` repeats it on the completed action as `decision_type` plus
-  // `decision_source`.
+  // Results repeat approval in decision_type/decision_source instead of decision/source.
   decision: $event._a.decision? else $event._a.decision_type?,
   tool_source: $event._a.tool_source?,
   decision_source: $event._a.source? else $event._a.decision_source?,
-  // A completed hook run reports counts rather than a flag: it succeeded when
-  // no hook errored or was cancelled. A blocking hook is a hook that did its
-  // job, not a failure of the run.
+  // Hook errors and cancellations indicate failure; a blocking hook can succeed.
   success: $event._a.success.string() == "true" if $event._a.success? != null else
             (int($event._a.num_non_blocking_error) == 0 and int($event._a.num_cancelled) == 0) if $event._a.num_non_blocking_error? != null and $event._a.num_cancelled? != null else
             null,
@@ -190,9 +186,7 @@ $event = {
   startup_status: $event._a["startup.status"]?,
   input_tokens: int($event._a.input_tokens) if $event._a.input_tokens? != null else int($event._a.input_token_count) if $event._a.input_token_count? != null else null,
   output_tokens: int($event._a.output_tokens) if $event._a.output_tokens? != null else int($event._a.output_token_count) if $event._a.output_token_count? != null else null,
-  // The `api_request` log is the only mapped record that carries the cost
-  // and the cache token counts per model call; the token and cost metrics
-  // that repeated them are dropped, so these must survive here.
+  // Keep per-call cost and cache tokens; duplicate usage metrics are filtered.
   cache_read_tokens: int($event._a.cache_read_tokens) if $event._a.cache_read_tokens? != null else null,
   cache_creation_tokens: int($event._a.cache_creation_tokens) if $event._a.cache_creation_tokens? != null else null,
   cost_usd: $event._a.cost_usd?,

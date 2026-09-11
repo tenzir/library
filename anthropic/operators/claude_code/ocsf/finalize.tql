@@ -29,13 +29,15 @@ if $ocsf._mapping.decision_status_id != null {
 }
 
 // Preserve agent details in unmapped where the AI Operation profile is unavailable.
-$ocsf._mapping.retained_tool_name = $claude_code.tool_name? if $ocsf.class_uid == 0 or $claude_code.tool_name? in ["Glob", "Grep"] else null
-$ocsf._mapping.base_model = $claude_code.model? if $ocsf.class_uid == 0 else null
-$ocsf._mapping.base_agent_type = $claude_code.agent_type? if $ocsf.class_uid == 0 else null
-$ocsf._mapping.scope_version = move $claude_code.scope.version?
-$ocsf._mapping.host_arch = move $claude_code.resource.host_arch?
-$ocsf._mapping.os_type = move $claude_code.resource.os_type?
-$ocsf._mapping.os_version = move $claude_code.resource.os_version?
+$claude_code.tool_name = $claude_code.tool_name? if $ocsf.class_uid == 0 or $claude_code.tool_name? in ["Glob", "Grep"] else null
+$claude_code.model = $claude_code.model? if $ocsf.class_uid == 0 else null
+$claude_code.agent_type = $claude_code.agent_type? if $ocsf.class_uid == 0 else null
+$claude_code.scope = {version: $claude_code.scope.version?} if ($claude_code.scope.version? else "") != "" else null
+$claude_code.resource = {
+  host_arch: $claude_code.resource.host_arch?,
+  os_type: $claude_code.resource.os_type?,
+  os_version: $claude_code.resource.os_version?,
+} if $claude_code.resource.host_arch? != null or $claude_code.resource.os_type? != null or $claude_code.resource.os_version? != null else null
 if $claude_code.signal? == "metric" or $ocsf.trace?.span? != null {
   // Drop duration only when aggregation or trace timing already carries it.
   drop $claude_code.duration?
@@ -60,7 +62,6 @@ drop $claude_code.event_name?,
      $claude_code.app_version?,
      $claude_code.app_entrypoint?,
      $claude_code.terminal_type?,
-     $claude_code.model?,
      $claude_code.provider?,
      $claude_code.permission_to?,
      $claude_code.server_name?,
@@ -68,8 +69,6 @@ drop $claude_code.event_name?,
      $claude_code.plugin_name?,
      $claude_code.hook_name?,
      $claude_code.skill_name?,
-     $claude_code.agent_type?,
-     $claude_code.tool_name?,
      $claude_code.api_operation?,
      $claude_code.api_service?,
      $claude_code.remote_tool?,
@@ -100,32 +99,10 @@ drop $claude_code.event_name?,
      $claude_code.error_type?,
      $claude_code.source_status_code?,
      $claude_code.severity_text?,
-     $claude_code.scope?,
-     $claude_code.resource?,
      $claude_code.attributes?,
      $claude_code.signal?,
      $claude_code.transport?,
      $claude_code.decision_source?
-
-if $ocsf._mapping.retained_tool_name != null {
-  $claude_code.tool_name = $ocsf._mapping.retained_tool_name
-}
-if $ocsf._mapping.base_model != null {
-  $claude_code.model = $ocsf._mapping.base_model
-}
-if $ocsf._mapping.base_agent_type != null {
-  $claude_code.agent_type = $ocsf._mapping.base_agent_type
-}
-if ($ocsf._mapping.scope_version? else "") != "" {
-  $claude_code.scope = {version: $ocsf._mapping.scope_version}
-}
-if $ocsf._mapping.host_arch? != null or $ocsf._mapping.os_type? != null or $ocsf._mapping.os_version? != null {
-  $claude_code.resource = {
-    host_arch: $ocsf._mapping.host_arch,
-    os_type: $ocsf._mapping.os_type,
-    os_version: $ocsf._mapping.os_version,
-  }
-}
 
 $ocsf.unmapped = drop_null_fields(move $claude_code)
 drop $ocsf._mapping
