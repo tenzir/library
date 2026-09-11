@@ -2,15 +2,19 @@
 description: Normalizes native codex OTLP records to OCSF 1.9.0.
 args:
   named:
+    - name: into
+      type: field
+      default: this
+      description: The destination OCSF record.
     - name: include_content
       type: bool
       default: false
       description: Retain conversation text and tool input. Shell commands are always retained.
 ---
 
-openai::codex::canonicalize include_content=$include_content
-this = {codex: this}
-raw_data = move codex.raw_data?
-raw_data_size = move codex.raw_data_size?
-openai::codex::ocsf::map codex, ocsf
-this = {...ocsf, raw_data: raw_data, raw_data_size: raw_data_size}
+$into.codex = this
+openai::codex::canonicalize event=$into.codex, include_content=$include_content
+$into.raw_data = move $into.codex.raw_data?
+$into.raw_data_size = move $into.codex.raw_data_size?
+openai::codex::ocsf::map $into.codex, $into.ocsf
+$into = {...$into.ocsf, raw_data: $into.raw_data, raw_data_size: $into.raw_data_size}

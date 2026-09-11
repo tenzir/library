@@ -1,45 +1,49 @@
 ---
-description: Canonicalizes native Codex OTLP logs, metrics, and traces.
+description: Builds a canonical codex record from native OTLP input.
 args:
   named:
+    - name: event
+      type: field
+      default: this
+      description: The native record to canonicalize.
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
+      description: Retain conversation text and tool input. Shell commands are always retained.
 ---
 
 if @name == "otel.log" {
-  _raw_data = this.print_json()
-  _transport = receiver.transport?
-  _resource_attributes = resource.attributes
-  _body = body.string_value? else body.json_value?
-  signal = "log"
-  transport = _transport
-  raw_data = _raw_data
-  raw_data_size = _raw_data.length_bytes()
-  body = _body
-  resource = _resource_attributes
-  openai::codex::canonicalize::event include_content=$include_content
+  $event._raw_data = $event.print_json()
+  $event._transport = $event.receiver.transport?
+  $event._resource_attributes = $event.resource.attributes
+  $event._body = $event.body.string_value? else $event.body.json_value?
+  $event.signal = "log"
+  $event.transport = $event._transport
+  $event.raw_data = $event._raw_data
+  $event.raw_data_size = $event._raw_data.length_bytes()
+  $event.body = $event._body
+  $event.resource = $event._resource_attributes
+  openai::codex::canonicalize::event event=$event, include_content=$include_content
 } else if @name == "otel.span" {
   // Drop internal spans before serializing anything into `raw_data`: that
   // print_json call is the dominant cost, and it would run for every span.
-  openai::codex::drop_internal_spans name=name
-  _raw_data = this.print_json()
-  _transport = receiver.transport?
-  _resource_attributes = resource.attributes
-  signal = "trace"
-  transport = _transport
-  raw_data = _raw_data
-  raw_data_size = _raw_data.length_bytes()
-  event_name = name
-  time = start_time
-  span_kind = kind_id
-  status_code = status.code_id
-  status_message = status.message?
-  resource = _resource_attributes
-  openai::codex::canonicalize::event include_content=$include_content
+  openai::codex::drop_internal_spans name=$event.name, event=$event
+  $event._raw_data = $event.print_json()
+  $event._transport = $event.receiver.transport?
+  $event._resource_attributes = $event.resource.attributes
+  $event.signal = "trace"
+  $event.transport = $event._transport
+  $event.raw_data = $event._raw_data
+  $event.raw_data_size = $event._raw_data.length_bytes()
+  $event.event_name = $event.name
+  $event.time = $event.start_time
+  $event.span_kind = $event.kind_id
+  $event.status_code = $event.status.code_id
+  $event.status_message = $event.status.message?
+  $event.resource = $event._resource_attributes
+  openai::codex::canonicalize::event event=$event, include_content=$include_content
 } else if @name.starts_with("otel.metric.") {
-  openai::codex::canonicalize::metrics
+  openai::codex::canonicalize::metrics event=$event
 } else {
   discard
 }

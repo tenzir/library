@@ -1,39 +1,44 @@
 ---
-description: Normalizes a decoded Codex OTLP log, span, or metric point.
+description: Canonicalizes codex event records in the selected field.
 args:
   named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
+      description: Retain conversation text and tool input. Shell commands are always retained.
 ---
 
 // Codex clients share an event vocabulary but use different service names.
-match signal {
+match $event.signal {
   "log" => {
-    _service = resource["service.name"]? else ""
-    where _service.starts_with("codex")
-    openai::codex::canonicalize::logs include_content=$include_content
+    $event._service = $event.resource["service.name"]? else ""
+    where $event._service.starts_with("codex")
+    openai::codex::canonicalize::logs event=$event, include_content=$include_content
   }
   "trace" => {
-    _service = resource["service.name"]? else ""
-    where _service.starts_with("codex")
-    openai::codex::canonicalize::traces include_content=$include_content
+    $event._service = $event.resource["service.name"]? else ""
+    where $event._service.starts_with("codex")
+    openai::codex::canonicalize::traces event=$event, include_content=$include_content
     // Drop tool spans duplicated by logs; retain exec without a decision log
     // and MCP hook callbacks.
-    where not (tool_name? != null and tool_name != "exec") or
-          (event_name == "codex.hooks.mcp_tool" and remote_tool? == true)
-    if event_name in [
+    where not ($event.tool_name? != null and $event.tool_name != "exec") or
+          ($event.event_name == "codex.hooks.mcp_tool" and $event.remote_tool? == true)
+    if $event.event_name in [
       "plugins_for_config",
       "recommended_plugins_mode_for_config",
       "built_tools",
     ] {
-      deduplicate event_name,
-                  plugins_enabled,
-                  remote_plugin_enabled,
-                  apps_enabled,
-                  model,
-                  create_timeout=1h
+      deduplicate {
+        event_name: $event.event_name,
+        plugins_enabled: $event.plugins_enabled,
+        remote_plugin_enabled: $event.remote_plugin_enabled,
+        apps_enabled: $event.apps_enabled,
+        model: $event.model,
+      }, create_timeout=1h
     }
   }
   _ => {

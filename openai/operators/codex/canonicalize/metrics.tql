@@ -1,63 +1,71 @@
 ---
-description: Normalizes security-relevant Codex OTLP metric points.
+description: Canonicalizes codex metrics records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
 ---
 
 where @name.starts_with("otel.metric.")
-where metric.name in ["codex.skill.injected", "codex.tool.call"]
+where $event.metric.name in ["codex.skill.injected", "codex.tool.call"]
 
-_raw_data = this.print_json()
-_attributes = attributes
-_resource_attributes = resource.attributes
-_tool_name = _attributes.tool?
+$event._raw_data = $event.print_json()
+$event._attributes = $event.attributes
+$event._resource_attributes = $event.resource.attributes
+$event._tool_name = $event._attributes.tool?
 
-_success = _attributes.success.string() == "true" if _attributes.success? != null else
-           _attributes.status == "ok" if _attributes.status? != null else
+$event._success = $event._attributes.success.string() == "true" if $event._attributes.success? != null else
+           $event._attributes.status == "ok" if $event._attributes.status? != null else
            null
 
-select signal = "metric",
-  raw_data = _raw_data,
-  raw_data_size = _raw_data.length_bytes(),
-  event_name = metric.name,
-  metric_name = metric.name,
-  metric_value = value.int_value? else value.double_value?,
-  aggregation_temporality,
-  is_monotonic = monotonic?,
-  time,
-  start_time,
-  end_time = time,
-  duration = int((time - start_time).count_milliseconds()) if time? != null and start_time? != null else null,
-  app_version = _attributes["app.version"]? else _resource_attributes["service.version"]?,
-  app_entrypoint = _attributes.originator?,
-  model = _attributes.model?,
-  provider = "OpenAI",
-  auth_mode = _attributes.auth_mode?,
-  session_source = _attributes.session_source?,
-  skill_name = _attributes.skill?,
-  invocation_type = _attributes.invoke_type?,
-  source_status = _attributes.status?,
+$event = {
+  signal: "metric",
+  raw_data: $event._raw_data,
+  raw_data_size: $event._raw_data.length_bytes(),
+  event_name: $event.metric.name,
+  metric_name: $event.metric.name,
+  metric_value: $event.value.int_value? else $event.value.double_value?,
+  aggregation_temporality: $event.aggregation_temporality,
+  is_monotonic: $event.monotonic?,
+  time: $event.time,
+  start_time: $event.start_time,
+  end_time: $event.time,
+  duration: int(($event.time - $event.start_time).count_milliseconds()) if $event.time? != null and $event.start_time? != null else null,
+  app_version: $event._attributes["app.version"]? else $event._resource_attributes["service.version"]?,
+  app_entrypoint: $event._attributes.originator?,
+  model: $event._attributes.model?,
+  provider: "OpenAI",
+  auth_mode: $event._attributes.auth_mode?,
+  session_source: $event._attributes.session_source?,
+  skill_name: $event._attributes.skill?,
+  invocation_type: $event._attributes.invoke_type?,
+  source_status: $event._attributes.status?,
   // A `codex.tool.call` point is the agent's own aggregate over one export
   // interval and names no call or session, so it never maps to an invocation
   // of its own: the `codex.tool_result` log already is that. It stays a Base
   // Event that keeps the count, the window and the sandbox posture, which no
   // log record carries per call.
-  tool_name = _tool_name,
-  success = _success,
-  sandbox = _attributes.sandbox?,
-  sandbox_policy = _attributes.sandbox_policy?,
+  tool_name: $event._tool_name,
+  success: $event._success,
+  sandbox: $event._attributes.sandbox?,
+  sandbox_policy: $event._attributes.sandbox_policy?,
   // The receiver records how the record arrived; every signal carries it.
-  transport = transport? else receiver?.transport?,
-  scope = {
-    name: scope.name?,
-    version: scope.version?,
+  transport: $event.transport? else $event.receiver?.transport?,
+  scope: {
+    name: $event.scope.name?,
+    version: $event.scope.version?,
   },
-  resource = {
-    service_name: _resource_attributes["service.name"]?,
-    service_version: _resource_attributes["service.version"]?,
-    host_name: _resource_attributes["host.name"]?,
-    host_arch: _resource_attributes["host.arch"]?,
-    os_type: _resource_attributes["os.type"]? else _resource_attributes.os?,
-    os_version: _resource_attributes["os.version"]? else _resource_attributes.os_version?,
+  resource: {
+    service_name: $event._resource_attributes["service.name"]?,
+    service_version: $event._resource_attributes["service.version"]?,
+    host_name: $event._resource_attributes["host.name"]?,
+    host_arch: $event._resource_attributes["host.arch"]?,
+    os_type: $event._resource_attributes["os.type"]? else $event._resource_attributes.os?,
+    os_version: $event._resource_attributes["os.version"]? else $event._resource_attributes.os_version?,
   },
-  attributes = _attributes
+  attributes: $event._attributes
+}
 
 @name = "openai.codex.event"
