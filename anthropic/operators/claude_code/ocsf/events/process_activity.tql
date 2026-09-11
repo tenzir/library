@@ -26,16 +26,15 @@ if $ocsf._mapping.background_result {
   $claude_code.tool_success = $claude_code.success?
   $ocsf.status_id = 0
 }
-$ocsf._mapping.process_uid = f"anthropic:claude-code:{$claude_code.tool_use_id}" if ($claude_code.tool_use_id? else "") != "" else null
-drop $claude_code.tool_use_id?
 $ocsf.process = {
   name: move $claude_code.process_name,
   cmd_line: move $claude_code.command? else "",
-  uid: $ocsf._mapping.process_uid,
+  uid: move $claude_code.tool_use_id?,
   // Tool timing does not establish the process creation time.
   terminated_time: $claude_code.time? if $ocsf._mapping.process_completed else null,
   // tool_use_id is a correlation key, not an OS PID.
 }
+replace $ocsf.process.uid, what="", with=null
 $ocsf.message = "Agent shell process terminated" if $ocsf._mapping.process_completed else
                       "Agent received a tool result for requested background execution; process outcome unknown" if $ocsf._mapping.background_result else
                       "Agent shell process launch denied" if $ocsf._mapping.decision_status_id == 2 else

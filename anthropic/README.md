@@ -39,7 +39,7 @@ The mapping preserves these identifiers when the source supplies them:
 | --- | --- |
 | Source event name | `metadata.event_code` |
 | Session ID | `actor.session.uid`; also `ai_agent.instance_uid` where the AI Operation profile applies |
-| Tool-call ID | Prefixed `process.uid` for shell lifecycle, `api.request.uid` for remote calls, otherwise `unmapped.tool_use_id` |
+| Tool-call ID | Unchanged `process.uid` for shell lifecycle, `api.request.uid` for remote calls, otherwise `unmapped.tool_use_id` |
 | Trace ID | `trace.uid` on branches using the Trace profile, otherwise `unmapped.trace_id` |
 | Log's enclosing span ID | `unmapped.span_id`, even when the log has `trace.uid` |
 | Complete span's ID and parent | `trace.span.uid` and `trace.span.parent_uid` on branches using the Trace profile |
@@ -121,7 +121,7 @@ count because connections and body records also use Create.
 ### Shell and file outcomes
 
 Shell records emit independently, without a join or five-second wait. Decision
-and result records use `anthropic:claude-code:<tool_use_id>` as their
+and result records use the original `tool_use_id` as their
 `process.uid`. A denied decision is a failed Launch. Shell commands never
 map to Script Activity. The mapper prefers `tool_parameters.full_command`
 over potentially truncated `tool_input.command`; it does not invent a PID
