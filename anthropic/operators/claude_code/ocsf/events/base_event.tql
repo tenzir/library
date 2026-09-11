@@ -1,0 +1,36 @@
+---
+description: Maps base event fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// Use Base Event when the record establishes no supported typed activity.
+$ocsf._mapping.fallback_tool = $claude_code.tool_name?
+$ocsf.category_uid = 0
+$ocsf.class_uid = 0
+$ocsf.activity_id = 99
+$ocsf.activity_name = $claude_code.event_name
+// The Host profile preserves actor/session identity on Base Event.
+$ocsf.metadata.profiles = ["host"]
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.message = f"Tool call {$ocsf._mapping.fallback_tool} " + (
+                        "allowed" if $ocsf._mapping.decision_status_id == 1 else
+                        "denied" if $ocsf._mapping.decision_status_id == 2 else "decided") if $claude_code.event_name == "tool_decision" and $ocsf._mapping.fallback_tool != null else
+                      f"Tool call {$ocsf._mapping.fallback_tool} " + (
+                        "succeeded" if $claude_code.success? == true else
+                        "failed" if $claude_code.success? == false else "completed") if $claude_code.event_name == "tool_result" and $ocsf._mapping.fallback_tool != null else
+                      f"Subagent {$claude_code.agent_type? else "unknown"} " + (
+                        "completed" if $claude_code.success? != false else "failed") if $claude_code.event_name == "subagent_completed" else
+                      f"Code edit tool {$ocsf._mapping.fallback_tool} " + (
+                        "allowed" if $ocsf._mapping.decision_status_id == 1 else
+                        "denied" if $ocsf._mapping.decision_status_id == 2 else "decided") if $claude_code.metric_name? == "claude_code.code_edit_tool.decision" else
+                      f"Metric {$claude_code.metric_name} ({$claude_code.metric_type}): {$claude_code.metric_value}" if $claude_code.signal? == "metric" and $claude_code.metric_type? != null else
+                      f"Metric {$claude_code.metric_name}: {$claude_code.metric_value}" if $claude_code.signal? == "metric" else
+                      $claude_code.event_name

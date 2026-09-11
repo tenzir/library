@@ -1,0 +1,29 @@
+---
+description: Maps authentication fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1
+$ocsf.user = $ocsf._mapping.actor.user
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.service = {name: $claude_code.resource.service_name}
+// The source says oauth, without specifying a protocol version.
+$ocsf.auth_protocol_id = 99 if ($claude_code.auth_method? else "") != "" else 0
+$ocsf.auth_protocol = move $claude_code.auth_method?
+$ocsf.message = "Claude Code login succeeded" if $ocsf.status_id == 1 else
+                      "Claude Code login failed" if $ocsf.status_id == 2 else
+                      "Claude Code login requested"
+$ocsf.metadata.profiles = ["ai_operation", "host"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent
+// The conversation ID stays on actor.session, not the authenticated session.
+drop $claude_code.auth_action?

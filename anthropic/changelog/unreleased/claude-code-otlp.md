@@ -13,9 +13,9 @@ including process and file activity, remote tool calls, conversation records,
 authorization, authentication, and application lifecycle events.
 
 ```tql
-subscribe "otlp"
+accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
-anthropic::claude_code::ocsf
+anthropic::claude_code::ocsf::normalize
 ocsf_derive
 ocsf_cast
 ```
@@ -45,10 +45,10 @@ Trace IDs and log span IDs survive normalization. Logs retain span context
 without inventing a span lifetime; complete mapped spans retain their timing.
 Missing optional span fields no longer produce warnings.
 
-The optional ClickHouse pipeline retains Base Events alongside specific
-classes, excludes metrics, and stores queryable nested JSON in event.
-Its application column uses `actor.application.name`. Other pipeline paths
-can retain selected native metrics.
+The package contains operators and receiver examples, without packaged pipelines.
+A thin `ocsf::normalize` wrapper preserves raw input around the canonicalizer
+and field-based mapper. Shared context and event-specific operators keep the
+mapping dispatcher small.
 
 The default `include_content=false` omits copied content from normalized fields;
 it does not redact `raw_data` or shell commands. Review storage access and

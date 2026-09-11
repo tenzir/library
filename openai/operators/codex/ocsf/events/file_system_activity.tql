@@ -1,0 +1,40 @@
+---
+description: Maps file system activity fields.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+let $activity_ids = {create: 1, read: 2, update: 3, delete: 4, rename: 5}
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+$ocsf.activity_id = $activity_ids[$codex.file_operation]
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.file = {
+  name: move $codex.file_name,
+  path: move $codex.file_path,
+  type_id: 1,
+  is_deleted: true if $codex.file_operation == "delete" and $ocsf.status_id == 1 and $ocsf._mapping.decision_status_id != 2 else null,
+}
+if $codex.file_new_path? != null and $ocsf.status_id == 1 and $ocsf._mapping.decision_status_id != 2 {
+  // A rename names the file before in `file` and the file after in
+  // `file_result`.
+  $ocsf.file_result = {
+    name: $codex.file_new_path.split("/")[-1],
+    path: move $codex.file_new_path,
+    type_id: 1,
+  }
+}
+let $file_verbs = {create: "created", read: "read", update: "updated", delete: "deleted", rename: "renamed"}
+$ocsf.message = f"Agent file {$codex.file_operation} denied: {$ocsf.file.path}" if $ocsf._mapping.decision_status_id == 2 else
+                      f"Agent failed to {$codex.file_operation} file {$ocsf.file.path}" if $ocsf.status_id == 2 else
+                      f"Agent requested a file {$codex.file_operation}: {$ocsf.file.path}" if $ocsf.status_id == 0 else
+                      f"Agent {$file_verbs[$codex.file_operation]} file {$ocsf.file.name}"
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

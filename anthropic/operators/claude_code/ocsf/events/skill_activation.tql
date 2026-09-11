@@ -1,0 +1,25 @@
+---
+description: Maps skill activation fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// No skill content hash is reported, so charter integrity cannot be attested.
+$ocsf._mapping.skill_name = move $claude_code.skill_name? else "Unknown"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 6
+$ocsf.application = {name: $ocsf._mapping.skill_name}
+$ocsf.status_id = 1
+$ocsf.message = f"Skill {$ocsf._mapping.skill_name} activated for the agent"
+// The Host profile supplies actor identity for Application Lifecycle.
+$ocsf.metadata.profiles = ["ai_operation", "host"]
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.ai_agent = {...$ocsf._mapping.ai_agent, charter: {name: $ocsf._mapping.skill_name, type_id: 1}}

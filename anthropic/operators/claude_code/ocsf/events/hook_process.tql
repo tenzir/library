@@ -1,0 +1,32 @@
+---
+description: Maps hook process fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// Hook groups report no PID or execution ID, so lifecycle pairing remains ambiguous.
+$ocsf._mapping.hook_completed = $claude_code.event_name == "hook_execution_complete"
+$ocsf._mapping.hook_name = move $claude_code.hook_name? else $claude_code.hook_event? else "Unknown"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2 if $ocsf._mapping.hook_completed else 1
+$ocsf.launch_type_id = 0 if not $ocsf._mapping.hook_completed else null
+$ocsf.process = {
+  name: $ocsf._mapping.hook_name,
+  cmd_line: "",
+  created_time: $claude_code.time if not $ocsf._mapping.hook_completed else null,
+  terminated_time: $claude_code.time if $ocsf._mapping.hook_completed else null,
+}
+$ocsf.message = f"Agent hook {$ocsf._mapping.hook_name} " + (
+  ("completed" if $claude_code.success? != false else "failed") if $ocsf._mapping.hook_completed else "started")
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 4}
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent
