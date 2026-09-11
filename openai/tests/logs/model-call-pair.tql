@@ -1,0 +1,25 @@
+// One real model call captured from log-lab on 2026-09-07: the
+// `codex.websocket_request` log and the completed `codex.sse_event` log
+// share no identifier. Both are API Activity `Create`;
+// `message_context.ai_role` tells the request (Agent) from the response
+// (Assistant). The request carries the credential posture, the response the
+// usage. Identity fields are omitted.
+from_file f"{env("TENZIR_INPUTS")}/../logs/model-call-pair.input" {
+  read_ndjson
+}
+@name = "otel.log"
+openai::codex::ocsf::normalize include_content=true
+ocsf_derive
+ocsf_cast
+select time, metadata.event_code, class_name, activity_name, message, status,
+       request_uid=api.request.uid?, ai_role=message_context.ai_role,
+       prompt_tokens=message_context.prompt_tokens?,
+       completion_tokens=message_context.completion_tokens?,
+       total_tokens=message_context.total_tokens?,
+       cached_input_tokens=unmapped.cached_input_tokens?,
+       reasoning_output_tokens=unmapped.reasoning_output_tokens?,
+       ttft_ms=unmapped.ttft_ms?, duration_ms=unmapped.duration_ms?,
+       auth_mode=unmapped.auth_mode?,
+       auth_openai_api_key_present=unmapped.auth_openai_api_key_present?,
+       auth_codex_api_key_present=unmapped.auth_codex_api_key_present?,
+       auth_connection_reused=unmapped.auth_connection_reused?

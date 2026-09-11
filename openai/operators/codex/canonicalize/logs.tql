@@ -1,0 +1,237 @@
+---
+description: Canonicalizes codex logs records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+$event._a = $event.attributes? else {}
+$event._event_name = $event._a["event.name"]? else $event.body? else "unknown"
+
+where $event._event_name not in ["codex.startup_phase", "codex.turn_ttft"]
+where $event._event_name != "codex.sse_event" or $event._a["event.kind"]? == "response.completed"
+where not $event._event_name.starts_with("runtime metrics reset skipped:")
+where not $event._event_name.starts_with("metrics counter [")
+
+$event._tool_name = $event._a.tool_name?
+$event._tool_name_lower = $event._tool_name.to_lower() if $event._tool_name? != null else ""
+$event._tool_namespace = $event._a.tool_namespace?
+$event._tool_payload_text = $event._a.tool_input? else $event._a.tool_parameters? else $event._a.arguments?
+$event._tool_payload = $event._tool_payload_text.parse_json() if $event._tool_payload_text? != null and $event._tool_payload_text.starts_with("{") else {}
+$event._namespace_mcp_parts = $event._tool_namespace.split("__") if ($event._tool_namespace? else "").starts_with("mcp__") else []
+$event._name_mcp_parts = $event._tool_name.split("__") if ($event._tool_name? else "").starts_with("mcp__") else []
+$event._payload_server = $event._tool_payload.server? if $event._tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] else null
+$event._api_service = $event._a.mcp_server? if ($event._a.mcp_server? else "") != "" else
+               $event._payload_server? else
+               $event._namespace_mcp_parts[1]? if $event._namespace_mcp_parts.length() >= 2 else
+               $event._name_mcp_parts[1]? if $event._name_mcp_parts.length() >= 3 else
+               "web" if $event._tool_namespace == "web" or $event._tool_name_lower == "webrun" else
+               null
+$event._api_operation = f"web.{$event._tool_name}" if $event._tool_namespace == "web" else
+                 "web.run" if $event._tool_name_lower == "webrun" else
+                 $event._name_mcp_parts[2]? if $event._name_mcp_parts.length() >= 3 else
+                 $event._tool_name
+$event._direct_target_uri = $event._tool_payload.uri? if $event._tool_name_lower == "read_mcp_resource" else
+                     $event._tool_payload.url?
+$event._open_target_uris = ($event._tool_payload.open? else []).where(x => x.ref_id? != null and (
+  x.ref_id.starts_with("http://") or x.ref_id.starts_with("https://")
+)).map(x => x.ref_id)
+$event._target_resource_uris = [
+  $event._direct_target_uri,
+  ...$event._open_target_uris,
+].where(x => x != null)
+$event._remote_tool = $event._namespace_mcp_parts.length() >= 2 or
+               $event._name_mcp_parts.length() >= 3 or
+               ($event._a.mcp_server? else "") != "" or
+               ($event._tool_name_lower in ["list_mcp_resources", "read_mcp_resource"] and $event._payload_server? != null) or
+               $event._tool_namespace == "web" or
+               $event._tool_name_lower == "webrun"
+// Emit one event per patch target; pair Update File with Move to for renames.
+$event._patch_headers = $event._a.arguments.split("\n").where(line => line.starts_with("*** Add File: ") or line.starts_with("*** Update File: ") or line.starts_with("*** Delete File: ") or line.starts_with("*** Move to: ")) if $event._a.arguments? != null else []
+$event._patch_next = [...$event._patch_headers, ""].slice(begin=1)
+$event._patch_prev = ["", ...$event._patch_headers].slice(end=-1)
+$event._patch_operations = zip(zip($event._patch_headers, $event._patch_next), $event._patch_prev).where(triple =>
+  not (triple.left.left.starts_with("*** Move to: ") and triple.right.starts_with("*** Update File: "))
+).map(triple => {
+  operation: "rename" if triple.left.right.starts_with("*** Move to: ") or triple.left.left.starts_with("*** Move to: ") else
+             "create" if triple.left.left.starts_with("*** Add File: ") else
+             "delete" if triple.left.left.starts_with("*** Delete File: ") else
+             "update",
+  path: triple.left.left.replace_regex("^\\*\\*\\* (Add|Update|Delete) File: |^\\*\\*\\* Move to: ", ""),
+  new_path: triple.left.right.replace_regex("^\\*\\*\\* Move to: ", "") if triple.left.right.starts_with("*** Move to: ") else null,
+})
+$event._file_path = $event._tool_payload.file_path? else $event._tool_payload.path?
+// A generic Write does not establish whether the file was newly created.
+let $file_operations = {
+  create: "create",
+  artifact: "create",
+  delete: "delete",
+  remove: "delete",
+  rename: "rename",
+  "move": "rename",
+  write: "update",
+  edit: "update",
+  notebookedit: "update",
+  read: "read",
+  view_image: "read",
+}
+$event._file_operation = $file_operations[$event._tool_name_lower]?
+$event._command_value = $event._tool_payload.command? else $event._tool_payload.full_command? else $event._tool_payload.cmd?
+// Keep shell literals such as `true` as command text, including when hashing.
+$event._command = $event._command_value.string() if $event._command_value? != null else null
+$event._tool_success = $event._a.success.string() == "true" if $event._a.success? != null else null
+$event._tool_output = $event._a.output?
+// Tool success is not command success; extract exit state from the result envelope.
+$event._command_result = $event._event_name == "codex.tool_result" and $event._tool_name_lower == "exec_command"
+// This producer error occurs before execution. Match the result prefix, not
+// text printed inside a command's output, and require a failed tool call.
+$event._argument_error = $event._command_result and $event._tool_success == false and
+                  ($event._tool_output? else "").starts_with("failed to parse function arguments:")
+$event._exit_lines = $event._tool_output.split("\n").where(line => line.starts_with("Process exited with code ")) if $event._command_result and $event._tool_output? != null else []
+$event._exit_line = $event._exit_lines[0]? if $event._exit_lines.length() > 0 else null
+$event._command_exit_code = int($event._exit_line.replace_regex("^Process exited with code ", "")) if $event._exit_line? != null else null
+$event._command_running = $event._command_result and $event._tool_output? != null and
+                   $event._tool_output.contains("Process running with session ID ")
+$event._session_lines = $event._tool_output.split("\n").where(line => line.contains("Process running with session ID ")) if $event._command_running else []
+$event._session_line = $event._session_lines[0]? if $event._session_lines.length() > 0 else null
+$event._terminal_session_id = $event._tool_payload.session_id.string() if $event._tool_payload.session_id? != null else
+                       $event._session_line.replace_regex("^.*Process running with session ID ", "") if $event._session_line? != null else
+                       null
+// Read conversation text from attributes; the record body is not conversation content.
+$event._content = $event._a.body? else $event._a.response? else $event._a.prompt?
+
+$event = {
+  signal: "log",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data_size,
+  event_name: $event._event_name,
+  event_kind: $event._a["event.kind"]?,
+  time: $event.time? else time($event._a["event.timestamp"].string()) if $event._a["event.timestamp"]? != null else null,
+  observed_time: $event.observed_time?,
+  event_sequence: int($event._a["event.sequence"]) if $event._a["event.sequence"]? != null else null,
+  session_id: $event._a["session.id"]? else $event._a["conversation.id"]?,
+  prompt_id: $event._a["prompt.id"]?,
+  user_id: $event._a["user.id"]? else $event._a["user.account_id"]?,
+  user_uid_alt: $event._a["user.account_uuid"]?,
+  user_email: $event._a["user.email"]?,
+  organization_id: $event._a["organization.id"]?,
+  app_version: $event._a["app.version"]? else $event.resource["service.version"]?,
+  app_entrypoint: $event._a["app.entrypoint"]? else $event._a.originator?,
+  terminal_type: $event._a["terminal.type"]?,
+  model: $event._a.model?,
+  provider: $event._a.provider_name? else "OpenAI" if $event._a.model? != null else null,
+  auth_mode: $event._a.auth_mode?,
+  reasoning_effort: $event._a.model_reasoning_effort? else $event._a.reasoning_effort?,
+  approval_policy: $event._a.approval_policy?,
+  sandbox_policy: $event._a.sandbox_policy?,
+  mcp_servers: $event._a.mcp_servers?,
+  tool_name: $event._tool_name,
+  tool_namespace: $event._tool_namespace,
+  api_operation: $event._api_operation,
+  api_service: $event._api_service,
+  remote_tool: $event._remote_tool,
+  tool_use_id: $event._a.tool_use_id? else $event._a.call_id?,
+  mcp_server: $event._a.mcp_server? if ($event._a.mcp_server? else "") != "" else null,
+  mcp_server_origin: $event._a.mcp_server_origin? if ($event._a.mcp_server_origin? else "") != "" else null,
+  request_data: $event._tool_payload if $include_content and $event._tool_payload_text? != null and $event._tool_payload_text.starts_with("{") else null,
+  target_resource_uris: $event._target_resource_uris if $event._target_resource_uris.length() > 0 else null,
+  target_resource_type: "MCP Resource" if $event._tool_name_lower == "read_mcp_resource" else
+                         "Web Resource" if $event._tool_namespace == "web" or $event._tool_payload.url? != null else
+                         null,
+  file_path: $event._file_path,
+  file_name: $event._file_path.split("/")[-1] if $event._file_path? != null else null,
+  file_operation: $event._file_operation,
+  file_new_path: null,
+  patch_operations: $event._patch_operations if $event._patch_operations.length() > 0 else null,
+  process_name: "bash" if $event._tool_name_lower == "bash" else
+                 "shell" if $event._tool_name_lower in ["exec", "exec_command", "shell", "terminal"] and not $event._argument_error else
+                 null,
+  command: $event._command,
+  command_hash: hash_sha256($event._command) if $event._command? != null else null,
+  // Sandbox outcomes have no decision source; the sandbox is the control.
+  decision: $event._a.decision? else $event._a.outcome?,
+  tool_source: $event._a.tool_source?,
+  decision_source: $event._a.source? else "sandbox" if $event._a.outcome? != null else null,
+  success: $event._command_exit_code == 0 if $event._command_exit_code != null else $event._tool_success,
+  command_exit_code: $event._command_exit_code,
+  command_running: $event._command_running if $event._command_result else null,
+  terminal_session_id: $event._terminal_session_id,
+  duration: int($event._a.duration_ms) if $event._a.duration_ms? != null else null,
+  arguments_length: int($event._a.arguments_length) if $event._a.arguments_length? != null else null,
+  output_length: int($event._a.output_length) if $event._a.output_length? != null else null,
+  output_line_count: int($event._a.output_line_count) if $event._a.output_line_count? != null else null,
+  output_truncated: $event._a.output_truncated?,
+  tool_origin: $event._a.tool_origin?,
+  tool_result_seq: int($event._a.tool_result_seq) if $event._a.tool_result_seq? != null else null,
+  agent_name: $event._a.agent_name?,
+  is_mcp_tool: $event._a.mcp_tool?,
+  error: $event._tool_output if $event._argument_error else $event._a.error?,
+  error_type: $event._a.error_type?,
+  source_status_code: $event._a.status_code?,
+  request_id: $event._a.request_id?,
+  endpoint: $event._a.endpoint?,
+  http_method: $event._a["http.request.method"]?,
+  http_status: int($event._a["http.response.status_code"]) if $event._a["http.response.status_code"]? != null else null,
+  startup_phase: $event._a["startup.phase"]?,
+  startup_status: $event._a["startup.status"]?,
+  input_tokens: int($event._a.input_tokens) if $event._a.input_tokens? != null else int($event._a.input_token_count) if $event._a.input_token_count? != null else null,
+  output_tokens: int($event._a.output_tokens) if $event._a.output_tokens? != null else int($event._a.output_token_count) if $event._a.output_token_count? != null else null,
+  cached_input_tokens: int($event._a.cached_token_count) if $event._a.cached_token_count? != null else null,
+  cache_write_tokens: int($event._a.cache_write_token_count) if $event._a.cache_write_token_count? != null else null,
+  ttft_ms: int($event._a.ttft_ms) if $event._a.ttft_ms? != null else null,
+  // Which credential source a model request used is the security-relevant
+  // part of the request record; the completed response carries the usage.
+  auth_openai_api_key_present: $event._a["auth.env_openai_api_key_present"]?,
+  auth_codex_api_key_present: $event._a["auth.env_codex_api_key_present"]?,
+  auth_codex_api_key_enabled: $event._a["auth.env_codex_api_key_enabled"]?,
+  auth_connection_reused: $event._a["auth.connection_reused"]?,
+  reasoning_output_tokens: int($event._a.reasoning_token_count) if $event._a.reasoning_token_count? != null else null,
+  total_tokens: int($event._a.tool_token_count) if $event._a.tool_token_count? != null else null,
+  content: $event._content if $include_content else null,
+  content_hash: hash_sha256($event._content) if $event._content? != null else null,
+  // Keep the source's own keys with the source's own values: a record may
+  // carry both, and relabelling one as the other loses a real attribute.
+  tool_input: $event._a.tool_input? if $include_content else null,
+  tool_parameters: $event._a.tool_parameters? if $include_content else null,
+  arguments: $event._a.arguments? if $include_content else null,
+  tool_input_hash: hash_sha256($event._a.tool_input) if $event._a.tool_input? != null else null,
+  tool_parameters_hash: hash_sha256($event._a.tool_parameters) if $event._a.tool_parameters? != null else null,
+  arguments_hash: hash_sha256($event._a.arguments) if $event._a.arguments? != null else null,
+  trace_id: $event.trace_id?,
+  span_id: $event.span_id?,
+  severity_number: $event.severity_number?,
+  severity_text: $event.severity_text?,
+  flags: $event.flags?,
+  scope: $event.scope,
+  // The receiver records how the record arrived; every signal carries it.
+  transport: $event.transport? else $event.receiver?.transport?,
+  resource: {
+    service_name: $event.resource["service.name"]?,
+    service_version: $event.resource["service.version"]?,
+    host_name: $event.resource["host.name"]?,
+    host_arch: $event.resource["host.arch"]?,
+    os_type: $event.resource["os.type"]? else $event.resource.os?,
+    os_version: $event.resource["os.version"]? else $event.resource.os_version?,
+  },
+  attributes: $event.attributes?
+}
+
+if $event.patch_operations != null {
+  // One record, one event per patched file. Everything else about the record
+  // is duplicated onto each event, including `raw_data`.
+  unroll $event.patch_operations
+  $event.file_operation = $event.patch_operations.operation
+  $event.file_path = $event.patch_operations.path
+  $event.file_name = $event.patch_operations.path.split("/")[-1]
+  $event.file_new_path = $event.patch_operations.new_path
+}
+drop $event.patch_operations
+
+@name = "openai.codex.event"

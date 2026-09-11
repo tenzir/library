@@ -1,0 +1,225 @@
+---
+description: Canonicalizes claude_code logs records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+$event._a = $event.attributes
+$event._event_name = $event._a["event.name"]? else $event.body? else "unknown"
+
+where $event._event_name != "feedback_survey"
+
+$event._tool_name = $event._a.tool_name?
+$event._tool_name_lower = $event._tool_name.to_lower() if $event._tool_name? != null else ""
+$event._tool_payload_text = $event._a.tool_input? else $event._a.tool_parameters? else $event._a.arguments?
+$event._tool_payload = $event._tool_payload_text.parse_json() if $event._tool_payload_text? != null and $event._tool_payload_text.starts_with("{") else {}
+$event._tool_parameters_payload = $event._a.tool_parameters.parse_json() if $event._a.tool_parameters? != null and $event._a.tool_parameters.starts_with("{") else {}
+$event._mcp_server = $event._tool_parameters_payload.mcp_server_name? else
+              $event._tool_payload.server? if $event._tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool"] else
+              null
+$event._mcp_tool = $event._tool_parameters_payload.mcp_tool_name?
+$event._mcp_parts = $event._tool_name.split("__") if ($event._tool_name? else "").starts_with("mcp__") else []
+$event._api_operation = $event._mcp_tool? else
+                 $event._mcp_parts[2]? if $event._mcp_parts.length() >= 3 else
+                 $event._tool_name
+$event._api_service = $event._mcp_server? else
+               $event._mcp_parts[1]? if $event._mcp_parts.length() >= 3 else
+               null
+$event._target_resource_uri = $event._tool_payload.uri? if $event._tool_name_lower == "readmcpresourcetool" else
+                       $event._tool_payload.url? if $event._tool_name_lower in ["webfetch", "artifact"] else
+                       null
+// MCP resource, web, and Artifact calls are remote even when decisions omit input.
+$event._remote_tool = ($event._tool_name_lower == "mcp_tool" and $event._mcp_server? != null and $event._mcp_tool? != null) or
+               $event._mcp_parts.length() >= 3 or
+               $event._tool_name_lower in ["listmcpresourcestool", "readmcpresourcetool", "websearch", "webfetch", "artifact"]
+// `NotebookEdit` names its file `notebook_path`; every other file tool uses
+// `file_path`.
+$event._file_path = ($event._tool_payload.file_path? else $event._tool_payload.path? else $event._tool_payload.notebook_path?) if $event._tool_name_lower != "artifact" else null
+// An `Edit` states the change it made as the text it replaced and the text
+// it wrote; that is the file difference, kept only when content is included.
+$event._file_diff = f"-{$event._tool_payload.old_string}\n+{$event._tool_payload.new_string}" if $include_content and $event._tool_payload.old_string? != null and $event._tool_payload.new_string? != null else null
+// Glob searches filenames; Grep searches content. Preserve the stated target
+// without inferring its type or individual files accessed beneath it.
+$event._search_tool = $event._tool_name_lower in ["glob", "grep"]
+// A generic Write does not establish whether the file was newly created.
+let $file_operations = {
+  create: "create",
+  delete: "delete",
+  remove: "delete",
+  rename: "rename",
+  "move": "rename",
+  write: "update",
+  edit: "update",
+  apply_patch: "update",
+  notebookedit: "update",
+  glob: "search",
+  read: "read",
+  view_image: "read",
+  grep: "read",
+}
+$event._file_operation = $file_operations[$event._tool_name_lower]?
+// Claude can truncate `tool_input.command` while retaining the complete value
+// in `tool_parameters.full_command`. Prefer that complete provider field.
+$event._command_value = $event._tool_parameters_payload.full_command? else
+                 $event._tool_payload.command? else $event._tool_payload.full_command? else $event._tool_payload.cmd?
+// Keep shell literals such as `true` as command text, including when hashing.
+$event._command = $event._command_value.string() if $event._command_value? != null else null
+// Read conversation text from attributes; the record body is not conversation content.
+$event._content = $event._a.body? else $event._a.response? else $event._a.prompt?
+
+$event = {
+  signal: "log",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data_size,
+  event_name: $event._event_name,
+  event_kind: $event._a["event.kind"]?,
+  time: $event.time? else time($event._a["event.timestamp"].string()) if $event._a["event.timestamp"]? != null else null,
+  observed_time: $event.observed_time?,
+  event_sequence: int($event._a["event.sequence"]) if $event._a["event.sequence"]? != null else null,
+  session_id: $event._a["session.id"]?,
+  prompt_id: $event._a["prompt.id"]?,
+  user_id: $event._a["user.id"]? else $event._a["user.account_id"]?,
+  user_uid_alt: $event._a["user.account_uuid"]?,
+  user_email: $event._a["user.email"]?,
+  organization_id: $event._a["organization.id"]?,
+  app_version: $event._a["app.version"]? else $event.resource["service.version"]?,
+  app_entrypoint: $event._a["app.entrypoint"]?,
+  terminal_type: $event._a["terminal.type"]?,
+  model: $event._a.model?,
+  provider: $event._a.provider_name? else "Anthropic" if $event._a.model? != null else null,
+  permission_from: $event._a.from_mode?,
+  permission_to: $event._a.to_mode?,
+  permission_trigger: $event._a.trigger?,
+  server_name: $event._a.server_name?,
+  transport_type: $event._a.transport_type?,
+  server_scope: $event._a.server_scope?,
+  mcp_server_scope: $event._a.mcp_server_scope?,
+  source_status: $event._a.status?,
+  auth_action: $event._a.action? if $event._event_name == "auth" else null,
+  auth_method: $event._a.auth_method? if $event._event_name == "auth" else null,
+  install_trigger: $event._a["install.trigger"]?,
+  total_attempts: int($event._a.total_attempts) if $event._a.total_attempts? != null else null,
+  total_retry_duration_ms: int($event._a.total_retry_duration_ms) if $event._a.total_retry_duration_ms? != null else null,
+  plugin_name: $event._a["plugin.name"]?,
+  plugin_marketplace: $event._a["marketplace.name"]?,
+  plugin_scope: $event._a["plugin.scope"]?,
+  plugin_version: $event._a["plugin.version"]?,
+  // Claude Code's own identity for the plugin, stable across sessions.
+  plugin_uid: $event._a.plugin_id_hash?,
+  plugin_enabled_via: $event._a.enabled_via?,
+  // What the plugin brings into the agent: hooks and MCP servers are the
+  // capabilities that matter for posture, the counts say how much it adds.
+  plugin_has_hooks: $event._a.has_hooks?,
+  plugin_has_mcp: $event._a.has_mcp?,
+  plugin_host_owned_mcp: $event._a.host_owned_mcp?,
+  plugin_skill_count: int($event._a.skill_path_count) if $event._a.skill_path_count? != null else null,
+  plugin_command_count: int($event._a.command_path_count) if $event._a.command_path_count? != null else null,
+  plugin_agent_count: int($event._a.agent_path_count) if $event._a.agent_path_count? != null else null,
+  hook_event: $event._a.hook_event?,
+  hook_name: $event._a.hook_name?,
+  hook_source: $event._a.hook_source?,
+  hook_type: $event._a.hook_type?,
+  hook_matcher: $event._a.hook_matcher?,
+  // Reported on hook and plugin records alike: whether the session runs in
+  // safe mode.
+  safe_mode: $event._a.safe_mode.string() == "true" if $event._a.safe_mode? != null else null,
+  hook_managed_only: $event._a.managed_only.string() == "true" if $event._a.managed_only? != null else null,
+  hook_count: int($event._a.num_hooks) if $event._a.num_hooks? != null else null,
+  hook_success_count: int($event._a.num_success) if $event._a.num_success? != null else null,
+  hook_blocking_count: int($event._a.num_blocking) if $event._a.num_blocking? != null else null,
+  hook_error_count: int($event._a.num_non_blocking_error) if $event._a.num_non_blocking_error? != null else null,
+  hook_cancelled_count: int($event._a.num_cancelled) if $event._a.num_cancelled? != null else null,
+  skill_name: $event._a.skill?.name? else $event._a["skill.name"]?,
+  skill_source: $event._a.skill?.source? else $event._a["skill.source"]?,
+  skill_invocation_trigger: $event._a.invocation_trigger?,
+  agent_type: $event._a.agent_type?,
+  tool_name: $event._tool_name,
+  api_operation: $event._api_operation,
+  api_service: $event._api_service,
+  remote_tool: $event._remote_tool,
+  tool_use_id: $event._a.tool_use_id? else $event._a.call_id?,
+  request_data: $event._tool_payload if $include_content and $event._a.tool_input? != null and $event._a.tool_input.starts_with("{") else null,
+  target_resource_uris: [$event._target_resource_uri] if $event._target_resource_uri? != null else null,
+  target_resource_type: "MCP Resource" if $event._tool_name_lower == "readmcpresourcetool" else
+                         "Web Resource" if $event._tool_name_lower in ["webfetch", "artifact"] else
+                         null,
+  file_path: $event._file_path,
+  file_name: $event._file_path.split("/")[-1] if $event._file_path? != null else null,
+  file_operation: $event._file_operation,
+  file_diff: $event._file_diff,
+  // The source reports no file type. A read that fails with `EISDIR` is the
+  // one case where the operating system said what the path is.
+  file_type_id: (2 if ($event._a.error? else "").contains("EISDIR") else 0 if $event._search_tool else 1) if $event._file_path? != null else null,
+  search_pattern: $event._tool_payload.pattern? if $event._search_tool else null,
+  process_name: "bash" if $event._tool_name_lower == "bash" else "shell" if $event._tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
+  command: $event._command,
+  command_hash: hash_sha256($event._command) if $event._command? != null else null,
+  background: $event._tool_payload.run_in_background? == true if $event._tool_payload.run_in_background? != null else null,
+  // Results repeat approval in decision_type/decision_source instead of decision/source.
+  decision: $event._a.decision? else $event._a.decision_type?,
+  tool_source: $event._a.tool_source?,
+  decision_source: $event._a.source? else $event._a.decision_source?,
+  // Hook errors and cancellations indicate failure; a blocking hook can succeed.
+  success: $event._a.success.string() == "true" if $event._a.success? != null else
+            (int($event._a.num_non_blocking_error) == 0 and int($event._a.num_cancelled) == 0) if $event._a.num_non_blocking_error? != null and $event._a.num_cancelled? != null else
+            null,
+  duration: int($event._a.duration_ms) if $event._a.duration_ms? != null else
+             int($event._a.total_duration_ms) if $event._a.total_duration_ms? != null else null,
+  tool_input_size_bytes: int($event._a.tool_input_size_bytes) if $event._a.tool_input_size_bytes? != null else null,
+  tool_result_size_bytes: int($event._a.tool_result_size_bytes) if $event._a.tool_result_size_bytes? != null else null,
+  error: $event._a.error?,
+  error_type: $event._a.error_type?,
+  source_status_code: $event._a.status_code?,
+  request_id: $event._a.request_id?,
+  endpoint: $event._a.endpoint?,
+  http_method: $event._a["http.request.method"]?,
+  http_status: int($event._a["http.response.status_code"]) if $event._a["http.response.status_code"]? != null else null,
+  startup_phase: $event._a["startup.phase"]?,
+  startup_status: $event._a["startup.status"]?,
+  input_tokens: int($event._a.input_tokens) if $event._a.input_tokens? != null else int($event._a.input_token_count) if $event._a.input_token_count? != null else null,
+  output_tokens: int($event._a.output_tokens) if $event._a.output_tokens? != null else int($event._a.output_token_count) if $event._a.output_token_count? != null else null,
+  // Keep per-call cost and cache tokens; duplicate usage metrics are filtered.
+  cache_read_tokens: int($event._a.cache_read_tokens) if $event._a.cache_read_tokens? != null else null,
+  cache_creation_tokens: int($event._a.cache_creation_tokens) if $event._a.cache_creation_tokens? != null else null,
+  cost_usd: $event._a.cost_usd?,
+  query_source: $event._a.query_source?,
+  agent_name: $event._a["agent.name"]?,
+  effort: $event._a.effort?,
+  content: $event._content if $include_content else null,
+  content_hash: hash_sha256($event._content) if $event._content? != null else null,
+  // Keep the source's own keys with the source's own values: a record may
+  // carry both, and relabelling one as the other loses a real attribute.
+  tool_input: $event._a.tool_input? if $include_content else null,
+  tool_parameters: $event._a.tool_parameters? if $include_content else null,
+  arguments: $event._a.arguments? if $include_content else null,
+  tool_input_hash: hash_sha256($event._a.tool_input) if $event._a.tool_input? != null else null,
+  tool_parameters_hash: hash_sha256($event._a.tool_parameters) if $event._a.tool_parameters? != null else null,
+  arguments_hash: hash_sha256($event._a.arguments) if $event._a.arguments? != null else null,
+  trace_id: $event.trace_id?,
+  span_id: $event.span_id?,
+  severity_number: $event.severity_number?,
+  severity_text: $event.severity_text?,
+  flags: $event.flags?,
+  scope: $event.scope,
+  // The receiver records how the record arrived; every signal carries it.
+  transport: $event.transport? else $event.receiver?.transport?,
+  resource: {
+    service_name: $event.resource["service.name"]?,
+    service_version: $event.resource["service.version"]?,
+    host_name: $event.resource["host.name"]?,
+    host_arch: $event.resource["host.arch"]?,
+    os_type: $event.resource["os.type"]? else $event.resource.os?,
+    os_version: $event.resource["os.version"]? else $event.resource.os_version?,
+  },
+  attributes: $event.attributes,
+}
+
+@name = "anthropic.claude_code.event"

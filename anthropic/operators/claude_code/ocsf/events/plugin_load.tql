@@ -1,0 +1,31 @@
+---
+description: Maps plugin load fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// No plugin content hash is reported.
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 6
+$ocsf._mapping.plugin_name = move $claude_code.plugin_name? else "Unknown"
+$ocsf.application = {
+  name: $ocsf._mapping.plugin_name,
+  uid: move $claude_code.plugin_uid?,
+  version: move $claude_code.plugin_version?,
+  product: {name: $ocsf._mapping.plugin_name, vendor_name: move $claude_code.plugin_marketplace?},
+}
+$ocsf.status_id = 1
+$ocsf.message = f"Plugin {$ocsf._mapping.plugin_name} enabled for the agent" + (
+  " with hooks" if $claude_code.plugin_has_hooks? == true else "") + (
+  " with MCP servers" if $claude_code.plugin_has_mcp? == true else "")
+$ocsf.metadata.profiles = ["ai_operation", "host"]
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

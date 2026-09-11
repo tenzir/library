@@ -1,0 +1,126 @@
+---
+description: Canonicalizes codex traces records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+where $event.event_name != "auth"
+
+openai::codex::drop_internal_spans name=$event.event_name, event=$event
+
+$event._a = $event.attributes
+$event._mcp_hook = $event.event_name == "codex.hooks.mcp_tool" and ($event._a["hook.server"]? else "") != "" and ($event._a["hook.tool"]? else "") != ""
+$event._tool_name = $event._a["hook.tool"] if $event._mcp_hook else $event._a.tool_name?
+$event._tool_name_lower = $event._tool_name.to_lower() if $event._tool_name? != null else ""
+$event._tool_namespace = $event._a.tool_namespace?
+$event._namespace_mcp_parts = $event._tool_namespace.split("__") if ($event._tool_namespace? else "").starts_with("mcp__") else []
+$event._name_mcp_parts = $event._tool_name.split("__") if ($event._tool_name? else "").starts_with("mcp__") else []
+$event._command = $event._a.full_command.string() if $event._a.full_command? != null else null
+// The command has its own field and its own hash; repeating it here would
+// duplicate a mapped value into `unmapped`.
+$event._content = $event._a.user_prompt?
+
+$event = {
+  signal: "trace",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data_size,
+  event_name: $event.event_name,
+  span_type: $event._a["span.type"]?,
+  time: $event.time,
+  start_time: $event.start_time,
+  end_time: $event.end_time,
+  duration: int($event._a.duration_ms) if $event._a.duration_ms? != null else int(($event.end_time - $event.start_time).count_milliseconds()) if $event.end_time? != null and $event.start_time? != null else null,
+  session_id: $event._a["session.id"]? else $event._a["conversation.id"]?,
+  user_id: $event._a["user.id"]? else $event._a["user.account_id"]?,
+  user_uid_alt: $event._a["user.account_uuid"]?,
+  user_email: $event._a["user.email"]?,
+  organization_id: $event._a["organization.id"]?,
+  app_version: $event._a["app.version"]? else $event.resource["service.version"]?,
+  app_entrypoint: $event._a["app.entrypoint"]?,
+  terminal_type: $event._a["terminal.type"]?,
+  model: $event._a["gen_ai.request.model"]? else $event._a.model?,
+  provider: "Anthropic" if ($event._a["gen_ai.system"]? else $event._a.provider?).to_lower() == "anthropic" else
+             "OpenAI" if ($event._a["gen_ai.system"]? else $event._a.provider?).to_lower() == "openai" else
+             $event._a["gen_ai.system"]? else $event._a.provider? else
+             "OpenAI" if ($event._a["gen_ai.request.model"]? else $event._a.model?) != null else null,
+  turn_id: $event._a["turn.id"]? else $event._a.turn_id?,
+  reasoning_effort: $event._a["codex.turn.reasoning_effort"]? else $event._a["codex.request.reasoning_effort"]?,
+  rpc_system: $event._a["rpc.system"]?,
+  rpc_method: $event._a["rpc.method"]?,
+  rpc_transport: $event._a["rpc.transport"]?,
+  rpc_request_id: $event._a["rpc.request_id"]?,
+  client_name: $event._a["app_server.client_name"]?,
+  client_version: $event._a["app_server.client_version"]?,
+  server_name: $event._a.server_name?,
+  plugins_enabled: $event._a.plugins_enabled?,
+  remote_plugin_enabled: $event._a.remote_plugin_enabled?,
+  apps_enabled: $event._a.apps_enabled?,
+  tool_name: $event._tool_name,
+  tool_namespace: $event._tool_namespace,
+  api_operation: f"web.{$event._tool_name}" if $event._tool_namespace == "web" else
+                  "web.run" if $event._tool_name_lower == "webrun" else
+                  $event._name_mcp_parts[2]? if $event._name_mcp_parts.length() >= 3 else
+                  $event._tool_name,
+  api_service: $event._a["hook.server"] if $event._mcp_hook else $event._a.mcp_server? else
+                $event._namespace_mcp_parts[1]? if $event._namespace_mcp_parts.length() >= 2 else
+                $event._name_mcp_parts[1]? if $event._name_mcp_parts.length() >= 3 else
+                "web" if $event._tool_namespace == "web" or $event._tool_name_lower == "webrun" else
+                null,
+  remote_tool: $event._mcp_hook or $event._namespace_mcp_parts.length() >= 2 or
+                $event._name_mcp_parts.length() >= 3 or
+                ($event._a.mcp_server? else "") != "" or
+                $event._tool_namespace == "web" or
+                $event._tool_name_lower == "webrun",
+  tool_use_id: $event._a["gen_ai.tool.call.id"]? else $event._a.tool_use_id? else $event._a.call_id?,
+  hook_timeout_sec: int($event._a["hook.timeout_sec"]) if $event._mcp_hook and $event._a["hook.timeout_sec"]? != null else null,
+  process_name: "bash" if $event._tool_name_lower == "bash" else
+                 "shell" if $event._tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else
+                 null,
+  command: $event._command,
+  command_hash: hash_sha256($event._command) if $event._command? != null else null,
+  error: $event._a.error?,
+  error_type: $event._a.error_type?,
+  source_status_code: $event._a.status_code?,
+  success: $event._a.success?,
+  request_id: $event._a["gen_ai.response.id"]? else $event._a.request_id?,
+  http_method: $event._a["http.request.method"]? else $event._a["http.method"]?,
+  http_status: int($event._a["http.response.status_code"]) if $event._a["http.response.status_code"]? != null else null,
+  server_address: $event._a["server.address"]?,
+  server_port: int($event._a["server.port"]) if $event._a["server.port"]? != null else null,
+  input_tokens: int($event._a.input_tokens) if $event._a.input_tokens? != null else int($event._a["gen_ai.usage.input_tokens"]) if $event._a["gen_ai.usage.input_tokens"]? != null else int($event._a["codex.turn.token_usage.input_tokens"]) if $event._a["codex.turn.token_usage.input_tokens"]? != null else null,
+  output_tokens: int($event._a.output_tokens) if $event._a.output_tokens? != null else int($event._a["gen_ai.usage.output_tokens"]) if $event._a["gen_ai.usage.output_tokens"]? != null else int($event._a["codex.turn.token_usage.output_tokens"]) if $event._a["codex.turn.token_usage.output_tokens"]? != null else null,
+  cached_input_tokens: int($event._a["gen_ai.usage.cache_read.input_tokens"]) if $event._a["gen_ai.usage.cache_read.input_tokens"]? != null else int($event._a["codex.turn.token_usage.cached_input_tokens"]) if $event._a["codex.turn.token_usage.cached_input_tokens"]? != null else null,
+  reasoning_output_tokens: int($event._a["codex.usage.reasoning_output_tokens"]) if $event._a["codex.usage.reasoning_output_tokens"]? != null else int($event._a["codex.turn.token_usage.reasoning_output_tokens"]) if $event._a["codex.turn.token_usage.reasoning_output_tokens"]? != null else null,
+  total_tokens: int($event._a["codex.usage.total_tokens"]) if $event._a["codex.usage.total_tokens"]? != null else int($event._a["codex.turn.token_usage.total_tokens"]) if $event._a["codex.turn.token_usage.total_tokens"]? != null else null,
+  content: $event._content if $include_content else null,
+  content_hash: hash_sha256($event._content) if $event._content? != null else null,
+  trace_id: $event.trace_id,
+  span_id: $event.span_id,
+  parent_span_id: $event.parent_span_id?,
+  span_kind: $event.span_kind,
+  status_code: $event.status_code,
+  status_message: $event.status_message,
+  flags: $event.flags,
+  scope: $event.scope,
+  // The receiver records how the record arrived; every signal carries it.
+  transport: $event.transport? else $event.receiver?.transport?,
+  resource: {
+    service_name: $event.resource["service.name"]?,
+    service_version: $event.resource["service.version"]?,
+    host_name: $event.resource["host.name"]?,
+    host_arch: $event.resource["host.arch"]?,
+    os_type: $event.resource["os.type"]? else $event.resource.os?,
+    os_version: $event.resource["os.version"]? else $event.resource.os_version?,
+  },
+  attributes: $event.attributes,
+}
+
+@name = "openai.codex.event"

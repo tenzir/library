@@ -1,0 +1,51 @@
+---
+description: Builds a canonical claude_code record from native OTLP input.
+args:
+  positional:
+    - name: input
+      type: field
+      default: this
+      description: The native OTLP record.
+    - name: event
+      type: field
+      default: this
+      description: The destination canonical record.
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+if @name == "otel.log" {
+  $event = {
+    ...$input,
+    raw_data: $input.print_json(),
+    signal: "log",
+    transport: $input.receiver.transport?,
+    body: $input.body.string_value? else $input.body.json_value?,
+    resource: $input.resource.attributes,
+  }
+  $event.raw_data_size = $event.raw_data.length_bytes()
+  anthropic::claude_code::canonicalize::event event=$event, include_content=$include_content
+} else if @name == "otel.span" {
+  $event = {
+    ...$input,
+    raw_data: $input.print_json(),
+    signal: "trace",
+    transport: $input.receiver.transport?,
+    event_name: $input.name,
+    time: $input.start_time,
+    span_kind: $input.kind_id,
+    status_code: $input.status.code_id,
+    status_message: $input.status.message?,
+    resource: $input.resource.attributes,
+  }
+  $event.raw_data_size = $event.raw_data.length_bytes()
+  anthropic::claude_code::canonicalize::event event=$event, include_content=$include_content
+} else if @name.starts_with("otel.metric.") {
+  $event = $input
+  anthropic::claude_code::canonicalize::metrics event=$event
+} else {
+  discard
+}

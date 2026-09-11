@@ -1,0 +1,60 @@
+---
+description: Maps a canonical codex event to OCSF 1.9.0.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf = {}
+openai::codex::ocsf::common $codex, $ocsf
+
+match $codex.event_name {
+  "codex.skill.injected" => {
+    openai::codex::ocsf::events::skill_activation $codex, $ocsf
+  }
+  "codex.conversation_starts" => {
+    openai::codex::ocsf::events::authorize_session $codex, $ocsf
+  }
+  "plugins_for_config" | "recommended_plugins_mode_for_config" | "built_tools" => {
+    openai::codex::ocsf::events::posture_read $codex, $ocsf
+  }
+  _ => {
+    if $codex.event_name == "codex.tool_decision" and
+              $codex.process_name? == null and
+              $codex.remote_tool? == true {
+      openai::codex::ocsf::events::api_authorization $codex, $ocsf
+    } else if $codex.file_operation? != null and $codex.file_path? != null {
+      openai::codex::ocsf::events::file_system_activity $codex, $ocsf
+    } else if $codex.event_name == "codex.sandbox_outcome" {
+      openai::codex::ocsf::events::sandbox_outcome $codex, $ocsf
+    } else if $codex.process_name? != null {
+      openai::codex::ocsf::events::process_activity $codex, $ocsf
+    } else if ($codex.http_method? else "") != "" and
+      $codex.server_address? != null {
+      openai::codex::ocsf::events::http_activity $codex, $ocsf
+    } else if $codex.event_name in [
+      "codex.api_request",
+      "codex.websocket_request",
+      "codex.websocket_connect",
+      "codex.sse_event",
+      "codex.user_prompt",
+      "session_task.turn",
+      "list_tools_for_server",
+    ] or $codex.remote_tool? == true or
+      ($codex.rpc_method? else "") != "" or
+      ($codex.http_method? else "") != "" or
+      $codex.span_type? == "llm_request" {
+      openai::codex::ocsf::events::api_activity $codex, $ocsf
+    } else {
+      openai::codex::ocsf::events::base_event $codex, $ocsf
+    }
+  }
+}
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+openai::codex::ocsf::finalize $codex, $ocsf

@@ -1,0 +1,20 @@
+---
+description: Normalizes native claude_code OTLP records to OCSF 1.9.0.
+args:
+  named:
+    - name: into
+      type: field
+      default: this
+      description: The destination OCSF record.
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+$into = {source: this}
+anthropic::claude_code::canonicalize $into.source, $into.claude_code, include_content=$include_content
+$into.raw_data = move $into.claude_code.raw_data?
+$into.raw_data_size = move $into.claude_code.raw_data_size?
+anthropic::claude_code::ocsf::map $into.claude_code, $into.ocsf
+$into = {...$into.ocsf, raw_data: $into.raw_data, raw_data_size: $into.raw_data_size}

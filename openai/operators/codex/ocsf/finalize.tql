@@ -1,0 +1,113 @@
+---
+description: Preserves governance and unmapped source fields.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+if $ocsf._mapping.decision_status_id != null {
+  // A decision without a named decider must not imply that a rule fired, so
+  // its disposition stays `Unknown` and no `policy` is attached.
+  $ocsf.action_id = $ocsf._mapping.decision_status_id
+  $ocsf.authorizations = $ocsf._mapping.authorizations
+  $ocsf.disposition_id = (8 if $ocsf._mapping.human_decision else 1 if $ocsf._mapping.policy_decision else 0) if $ocsf._mapping.decision_status_id == 1 else
+                               (25 if $ocsf._mapping.human_decision else 2 if $ocsf._mapping.policy_decision else 0)
+  if $ocsf._mapping.policy_decision {
+    // Neither product names the rule that fired, so `name` stays empty rather
+    // than repeating the decider. `type` is where the kind of decider belongs.
+    $ocsf.policy = {
+      type: $codex.decision_source,
+      is_applied: true,
+    }
+  }
+  $ocsf.metadata.profiles = [...($ocsf.metadata.profiles? else []), "security_control"]
+}
+
+$codex.tool_name = $codex.tool_name? if $ocsf.class_uid == 0 else null
+$codex.model = $codex.model? if $ocsf.class_uid == 0 else null
+$codex.scope = {version: $codex.scope.version?} if ($codex.scope.version? else "") != "" else null
+$codex.resource = {
+  host_arch: $codex.resource.host_arch?,
+  os_type: $codex.resource.os_type?,
+  os_version: $codex.resource.os_version?,
+} if $codex.resource.host_arch? != null or $codex.resource.os_type? != null or $codex.resource.os_version? != null else null
+if $codex.signal? == "metric" or $ocsf.trace?.span? != null {
+  // Metric duration already populated the OCSF aggregation window. A mapped
+  // trace duration is on `trace.span.duration` with real span boundaries.
+  drop $codex.duration?
+} else if $codex.duration? != null {
+  // Logs do not carry the span boundaries needed by the Trace profile.
+  // Preserve the provider's explicit unit without using aggregate duration.
+  $codex.duration_ms = move $codex.duration
+}
+
+drop $codex.event_name?,
+     $codex.metric_name?,
+     $codex.time?,
+     $codex.observed_time?,
+     $codex.start_time?,
+     $codex.end_time?,
+     $codex.event_sequence?,
+     $codex.session_id?,
+     $codex.turn_id?,
+     $codex.prompt_id?,
+     $codex.user_id?,
+     $codex.user_uid_alt?,
+     $codex.user_email?,
+     $codex.organization_id?,
+     $codex.app_version?,
+     $codex.app_entrypoint?,
+     $codex.terminal_type?,
+     $codex.provider?,
+     $codex.rpc_method?,
+     $codex.rpc_request_id?,
+     $codex.client_name?,
+     $codex.client_version?,
+     $codex.source_status?,
+     $codex.tool_namespace?,
+     $codex.api_operation?,
+     $codex.api_service?,
+     $codex.remote_tool?,
+     $codex.mcp_server?,
+     $codex.request_data?,
+     $codex.target_resource_uris?,
+     $codex.target_resource_type?,
+     $codex.server_name?,
+     $codex.file_path?,
+     $codex.file_name?,
+     $codex.file_operation?,
+     $codex.process_name?,
+     $codex.command?,
+     $codex.command_exit_code?,
+     $codex.command_running?,
+     $codex.decision?,
+     $codex.success?,
+     $codex.request_id?,
+     $codex.http_method?,
+     $codex.http_status?,
+     $codex.server_address?,
+     $codex.server_port?,
+     $codex.startup_status?,
+     $codex.input_tokens?,
+     $codex.output_tokens?,
+     $codex.total_tokens?,
+     // `trace_id` is not dropped here: the API and HTTP branches move it into
+     // `trace.uid`, and on every other class it stays in `unmapped`.
+     $codex.status_code?,
+     $codex.status_message?,
+     $codex.error?,
+     $codex.error_type?,
+     $codex.source_status_code?,
+     $codex.severity_text?,
+     $codex.attributes?,
+     $codex.signal?,
+     $codex.transport?,
+     $codex.decision_source?
+
+$ocsf.unmapped = drop_null_fields(move $codex)
+drop $ocsf._mapping

@@ -1,0 +1,47 @@
+---
+description: Canonicalizes codex event records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain conversation text and tool input. Shell commands are always retained.
+---
+
+// Codex clients share an event vocabulary but use different service names.
+match $event.signal {
+  "log" => {
+    $event._service = $event.resource["service.name"]? else ""
+    where $event._service.starts_with("codex")
+    openai::codex::canonicalize::logs event=$event, include_content=$include_content
+  }
+  "trace" => {
+    $event._service = $event.resource["service.name"]? else ""
+    where $event._service.starts_with("codex")
+    openai::codex::canonicalize::traces event=$event, include_content=$include_content
+    // Drop tool spans duplicated by logs; retain exec without a decision log
+    // and MCP hook callbacks.
+    where not ($event.tool_name? != null and $event.tool_name != "exec") or
+          ($event.event_name == "codex.hooks.mcp_tool" and $event.remote_tool? == true)
+    if $event.event_name in [
+      "plugins_for_config",
+      "recommended_plugins_mode_for_config",
+      "built_tools",
+    ] {
+      deduplicate {
+        event_name: $event.event_name,
+        plugins_enabled: $event.plugins_enabled,
+        remote_plugin_enabled: $event.remote_plugin_enabled,
+        apps_enabled: $event.apps_enabled,
+        model: $event.model,
+      }, create_timeout=1h
+    }
+  }
+  _ => {
+    discard
+  }
+}

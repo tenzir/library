@@ -1,0 +1,138 @@
+---
+description: Maps api activity fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf._mapping.api_operation = $claude_code.http_method? else
+                 $claude_code.api_operation? else
+                 $claude_code.tool_name? else
+                 $claude_code.event_name
+// Use explicit operation evidence; never infer read/write intent from a tool name.
+$ocsf._mapping.http_verb = ($claude_code.http_method? else "").to_lower()
+$ocsf._mapping.api_activity_id = 2 if $ocsf._mapping.http_verb in ["get", "head"] else
+                   3 if $ocsf._mapping.http_verb in ["put", "patch"] else
+                   4 if $ocsf._mapping.http_verb == "delete" else
+                   1 if $ocsf._mapping.http_verb == "post" or $claude_code.event_name in [
+                          "mcp_server_connection",
+                          "api_request",
+                          "api_error",
+                          "api_request_body",
+                          "api_response_body",
+                          "claude_code.llm_request",
+                        ] or $claude_code.span_type? == "llm_request" else
+                   99
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6003
+$ocsf.activity_id = $ocsf._mapping.api_activity_id
+// A wait for approval is neither the authorization nor the invocation.
+$ocsf.activity_name = "Invoke" if $ocsf._mapping.api_activity_id == 99 and ($claude_code.tool_name? else "") != "" else
+                            "Prompt" if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] else
+                            "Respond" if $claude_code.event_name == "assistant_response" else
+                            $ocsf._mapping.api_operation if $ocsf._mapping.api_activity_id == 99 else null
+// Use the observed capability as api.operation; do not invent an MCP protocol method.
+$ocsf.api = {
+  operation: $ocsf._mapping.api_operation,
+  request: {
+    uid: move $claude_code.request_id? else move $claude_code.tool_use_id?,
+  },
+}
+if $claude_code.request_data? != null {
+  $ocsf.api.request.data = move $claude_code.request_data
+  drop $claude_code.tool_input?,
+       $claude_code.tool_parameters?,
+       $claude_code.arguments?
+}
+$ocsf.message = "User prompted the agent" if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] else
+                      "Agent responded to the user" if $claude_code.event_name == "assistant_response" else
+                      "Agent called the model" if $claude_code.event_name == "claude_code.llm_request" else
+                      "Agent called the vendor API" if $claude_code.event_name in ["api_request", "api_request_body", "api_response_body"] else
+                      "Agent vendor API call failed" if $claude_code.event_name == "api_error" else
+                      f"Agent connected to MCP server {$claude_code.server_name? else "unknown"}" if $claude_code.event_name == "mcp_server_connection" else
+                      f"Agent sent an HTTP {$ocsf._mapping.api_operation} request" if ($claude_code.http_method? else "") != "" else
+                      f"Agent called tool {$ocsf._mapping.api_operation}"
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.src_endpoint = {
+  hostname: $claude_code.resource.host_name?,
+  svc_name: $claude_code.resource.service_name,
+}
+if $claude_code.event_name == "mcp_server_connection" {
+  $ocsf.dst_endpoint = {
+    svc_name: $claude_code.server_name?,
+  }
+  $ocsf.status_id = 1 if $claude_code.source_status == "connected" else
+                          2 if $claude_code.source_status in ["failed", "error"] else
+                          0
+}
+if $claude_code.server_address? != null or $claude_code.server_port? != null {
+  $ocsf.dst_endpoint = {
+    hostname: $claude_code.server_address.string() if $claude_code.server_address? != null else null,
+    port: $claude_code.server_port?,
+  }
+}
+// A malformed MCP name must not become a server identity.
+$ocsf._mapping.mcp_parts = $claude_code.tool_name.split("__") if ($claude_code.tool_name? else "").starts_with("mcp__") else []
+$ocsf._mapping.mcp_server = $claude_code.api_service? else
+              $claude_code.server_name? else
+              ($ocsf._mapping.mcp_parts[1]? if $ocsf._mapping.mcp_parts.length() >= 3 else null)
+if $ocsf._mapping.mcp_server != null {
+  $ocsf.api.service = {name: $ocsf._mapping.mcp_server}
+  $ocsf.dst_endpoint = {
+    ...($ocsf.dst_endpoint? else {}),
+    svc_name: $ocsf._mapping.mcp_server,
+  }
+}
+if $claude_code.target_resource_uris? != null {
+  $ocsf.resources = (move $claude_code.target_resource_uris).map(uri => {
+    uid: uri,
+    type: $claude_code.target_resource_type?,
+    role_id: 1,
+  })
+}
+$ocsf._mapping.total_tokens = $claude_code.input_tokens + $claude_code.output_tokens if
+                $claude_code.input_tokens? != null and
+                $claude_code.output_tokens? != null else
+                null
+$ocsf.message_context = {
+  ...$ocsf._mapping.message_context,
+  prompt_tokens: move $claude_code.input_tokens?,
+  completion_tokens: move $claude_code.output_tokens?,
+  total_tokens: $ocsf._mapping.total_tokens,
+}
+// OCSF has no field for the conversation content hash.
+if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] {
+  $ocsf.message_context.prompt_text = move $claude_code.content?
+} else if $claude_code.event_name == "assistant_response" {
+  $ocsf.message_context.response_text = move $claude_code.content?
+}
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent
+if ($claude_code.trace_id? else "") != "" {
+  $ocsf.trace = {
+    uid: move $claude_code.trace_id,
+    service: {
+      name: $claude_code.resource.service_name,
+      version: $claude_code.resource.service_version?,
+    },
+  }
+  // Logs have span context but not the required span lifetime. Move IDs
+  // only inside this branch so log context remains in unmapped.
+  if $claude_code.signal? == "trace" and $claude_code.start_time? != null and $claude_code.end_time? != null {
+    $ocsf.trace.span = {
+      uid: move $claude_code.span_id,
+      parent_uid: move $claude_code.parent_span_id?,
+      operation: $claude_code.event_name,
+      start_time: $claude_code.start_time,
+      end_time: $claude_code.end_time,
+      duration: $claude_code.duration?,
+      status_code: $claude_code.status_code.string() if $claude_code.status_code? != null else null,
+    }
+  }
+  $ocsf.metadata.profiles = ["ai_operation", "trace"]
+}

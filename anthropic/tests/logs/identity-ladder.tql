@@ -1,0 +1,15 @@
+// The three correlation grains on one file event: the session on
+// `ai_agent.instance_uid`, the turn on `metadata.correlation_uid` (the
+// prompt id), and the invocation on the tool-call id. The trace has no
+// typed home on File System Activity and stays in `unmapped`.
+from_file f"{env("TENZIR_INPUTS")}/../logs/file-tools.input" {
+  read_ndjson
+}
+head 1
+@name = "otel.log"
+anthropic::claude_code::ocsf::normalize
+ocsf_derive
+ocsf_cast
+select class_name, session=ai_agent.instance_uid, turn=metadata.correlation_uid,
+       invocation=unmapped.tool_use_id, trace=unmapped.trace_id,
+       original_event_uid=metadata.original_event_uid

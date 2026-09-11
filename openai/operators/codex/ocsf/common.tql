@@ -1,0 +1,129 @@
+---
+description: Builds shared OCSF context and decision state.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+let $transports = {grpc: "OTLP/gRPC", http: "OTLP/HTTP"}
+let $decisions = {
+  accept: 1, approved: 1, approved_for_session: 1, allow: 1, allowed: 1,
+  deny: 2, denied: 2, reject: 2, rejected: 2, abort: 2, aborted: 2,
+}
+
+$ocsf.metadata = {
+  event_code: $codex.event_name,
+  log_format: $transports[$codex.transport?]? else "OTLP",
+  log_provider: "OpenTelemetry",
+  log_source: $codex.scope.name?,
+  log_level: $codex.severity_text?,
+  logged_time: $codex.observed_time?,
+  original_event_uid: $codex.span_id? if $codex.signal? == "trace" else null,
+  correlation_uid: $codex.prompt_id? if ($codex.prompt_id? else "") != "" else
+                   $codex.turn_id? if ($codex.turn_id? else "") != "" else null,
+  sequence: $codex.event_sequence?,
+  tenant_uid: $codex.organization_id?,
+  product: {
+    name: "Codex",
+    vendor_name: "OpenAI",
+    version: $codex.resource.service_version? else $codex.app_version?,
+  },
+  version: "1.9.0",
+}
+
+$ocsf.time = $codex.time? else $codex.start_time? else $codex.observed_time?
+if $codex.signal? == "metric" {
+  $ocsf.start_time = $codex.start_time?
+  $ocsf.end_time = $codex.end_time?
+  $ocsf.duration = $codex.duration?
+  $ocsf.count = int($codex.metric_value?) if $codex.metric_value? != null else null
+}
+// `message` is a human-readable summary for display; the raw event name stays
+// in `metadata.event_code`. Branches override this fallback with a sentence.
+$ocsf.message = $codex.event_name
+$ocsf._mapping.decision_status_id = $decisions[($codex.decision? else "").to_lower()]?
+// Who decided, resolved once and reused: an interactive source means a person,
+// anything else named means a rule fired. An unnamed decider is neither.
+$ocsf._mapping.decision_source = ($codex.decision_source? else "").to_lower()
+$ocsf._mapping.human_decision = $ocsf._mapping.decision_source.starts_with("user")
+$ocsf._mapping.policy_decision = not $ocsf._mapping.human_decision and $ocsf._mapping.decision_source not in ["", "unknown"]
+$ocsf._mapping.authorizations = [{
+  decision: $codex.decision?,
+  policy: {type: $codex.decision_source} if $ocsf._mapping.policy_decision else null,
+}] if $codex.decision? != null else null
+
+$ocsf.severity_id = 3 if $codex.success? == false or ($codex.http_status? != null and $codex.http_status >= 400) or $codex.status_code? == 2 else
+                          2 if $ocsf._mapping.decision_status_id == 2 else 1
+$ocsf.status_id = 0 if $codex.command_running? == true else
+                        1 if $codex.success? == true or
+                             ($codex.http_status? != null and $codex.http_status < 400) or
+                             $codex.status_code? == 1 else
+                        2 if $codex.success? == false or
+                             ($codex.http_status? != null and $codex.http_status >= 400) or
+                             $codex.status_code? == 2 or
+                             $ocsf._mapping.decision_status_id == 2 else
+                        0
+$ocsf.status_code = ($codex.source_status_code? else $codex.command_exit_code? else $codex.http_status?).string()
+// Why the outcome happened. The decision is not a reason: it is already
+// carried by `action_id`, `disposition_id` and `authorizations`.
+$ocsf.status_detail = $codex.error? else
+                            $codex.error_type? else
+                            $codex.status_message? else
+                            $codex.startup_status? else
+                            $codex.source_status?
+
+$ocsf._mapping.actor = {
+  // `app_name` is deprecated in OCSF 1.9.0 in favour of `application.name`.
+  application: {name: $codex.resource.service_name},
+  session: {
+    uid: $codex.session_id?,
+    terminal: $codex.terminal_type?,
+  },
+  user: {
+    uid: $codex.user_id?,
+    uid_alt: $codex.user_uid_alt?,
+    email_addr: $codex.user_email?,
+  },
+}
+$ocsf._mapping.device = {
+  hostname: $codex.resource.host_name?,
+  name: $codex.resource.host_name?,
+  // The OS the agent runs on, which both products report even when they
+  // report no host name.
+  os: {
+    name: $codex.resource.os_type?,
+    version: $codex.resource.os_version?,
+  } if $codex.resource.os_type? != null else null,
+  // `type_id` is required. Agent telemetry never says whether the host is a
+  // laptop, a server or a VM, so `0` (Unknown) is the honest answer.
+  type_id: 0,
+} if $codex.resource.host_name? != null else null
+$ocsf._mapping.message_context = {
+  // `uid` is the context the messages belong to, the session. `name` is the
+  // turn within it when the source reports one; it never repeats `uid`.
+  uid: $codex.session_id?,
+  name: $codex.prompt_id? else $codex.turn_id?,
+  ai_role_id: 1 if $codex.event_name == "codex.user_prompt" else
+              2 if $codex.event_name == "codex.sse_event" else
+              3 if $codex.tool_name? != null else
+              4,
+  application: {
+    name: $codex.client_name? else $codex.app_entrypoint? else $codex.resource.service_name,
+    version: $codex.client_version? else $codex.app_version?,
+  },
+}
+$ocsf._mapping.ai_agent = {
+  name: $codex.resource.service_name? else "Codex",
+  instance_uid: $codex.session_id?,
+  version: $codex.resource.service_version? else $codex.app_version?,
+  type_id: 1,
+  ai_model: {
+    name: $codex.model,
+    ai_provider: $codex.provider? else "OpenAI",
+  } if ($codex.model? else "") != "" else null,
+}

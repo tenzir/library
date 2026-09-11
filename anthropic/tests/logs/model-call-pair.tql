@@ -1,0 +1,22 @@
+// One real model call captured from log-lab on 2026-09-07: the
+// `api_request` log and the `assistant_response` log share `request_id`.
+// Both are API Activity `Create`; `message_context.ai_role` tells the request
+// (Agent) from the response (Assistant), and only the request carries the
+// cost and cache token counts. Identity fields are omitted.
+from_file f"{env("TENZIR_INPUTS")}/../logs/model-call-pair.input" {
+  read_ndjson
+}
+@name = "otel.log"
+anthropic::claude_code::ocsf::normalize include_content=true
+ocsf_derive
+ocsf_cast
+select time, metadata.event_code, class_name, activity_name, message, status,
+       request_uid=api.request.uid, ai_role=message_context.ai_role,
+       prompt_tokens=message_context.prompt_tokens?,
+       completion_tokens=message_context.completion_tokens?,
+       total_tokens=message_context.total_tokens?,
+       response_text=message_context.response_text?,
+       cost_usd=unmapped.cost_usd?, cache_read_tokens=unmapped.cache_read_tokens?,
+       cache_creation_tokens=unmapped.cache_creation_tokens?,
+       query_source=unmapped.query_source?, agent_name=unmapped.agent_name?,
+       effort=unmapped.effort?, duration_ms=unmapped.duration_ms?

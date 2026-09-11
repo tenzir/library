@@ -1,0 +1,74 @@
+---
+description: Maps a canonical claude_code event to OCSF 1.9.0.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf = {}
+anthropic::claude_code::ocsf::common $claude_code, $ocsf
+
+match $claude_code.event_name {
+  "auth" if $claude_code.auth_action? == "login" => {
+    anthropic::claude_code::ocsf::events::authentication $claude_code, $ocsf
+  }
+  "plugin_installed" => {
+    anthropic::claude_code::ocsf::events::plugin_install $claude_code, $ocsf
+  }
+  "api_retries_exhausted" => {
+    anthropic::claude_code::ocsf::events::application_error $claude_code, $ocsf
+  }
+  "permission_mode_changed" => {
+    anthropic::claude_code::ocsf::events::authorize_session $claude_code, $ocsf
+  }
+  "skill_activated" => {
+    anthropic::claude_code::ocsf::events::skill_activation $claude_code, $ocsf
+  }
+  "hook_registered" => {
+    anthropic::claude_code::ocsf::events::hook_registration $claude_code, $ocsf
+  }
+  "hook_execution_start" | "hook_execution_complete" => {
+    anthropic::claude_code::ocsf::events::hook_process $claude_code, $ocsf
+  }
+  "claude_code.session.count" => {
+    anthropic::claude_code::ocsf::events::session_start $claude_code, $ocsf
+  }
+  "plugin_loaded" => {
+    anthropic::claude_code::ocsf::events::plugin_load $claude_code, $ocsf
+  }
+  _ => {
+    if $claude_code.event_name == "tool_decision" and
+              $claude_code.process_name? == null and
+              $claude_code.remote_tool? == true {
+      anthropic::claude_code::ocsf::events::api_authorization $claude_code, $ocsf
+    } else if $claude_code.file_operation? != null and $claude_code.file_path? != null {
+      anthropic::claude_code::ocsf::events::file_system_activity $claude_code, $ocsf
+    } else if $claude_code.process_name? != null {
+      anthropic::claude_code::ocsf::events::process_activity $claude_code, $ocsf
+    } else if $claude_code.event_name in [
+      "api_request",
+      "api_error",
+      "api_request_body",
+      "api_response_body",
+      "claude_code.llm_request",
+      "claude_code.interaction",
+      "user_prompt",
+      "assistant_response",
+      "mcp_server_connection",
+    ] or $claude_code.remote_tool? == true or
+      ($claude_code.http_method? else "") != "" or
+      $claude_code.span_type? == "llm_request" {
+      anthropic::claude_code::ocsf::events::api_activity $claude_code, $ocsf
+    } else {
+      anthropic::claude_code::ocsf::events::base_event $claude_code, $ocsf
+    }
+  }
+}
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+anthropic::claude_code::ocsf::finalize $claude_code, $ocsf

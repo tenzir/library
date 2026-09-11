@@ -1,0 +1,14 @@
+// Verify that mapping a nested source does not overwrite its envelope.
+from_file f"{env("TENZIR_INPUTS")}/../native-log.input" {
+  read_ndjson
+}
+@name = "otel.log"
+anthropic::claude_code::canonicalize
+this = {source: this, keep: "unchanged", _decision: "caller-owned"}
+source.extra_context = "retained"
+anthropic::claude_code::ocsf::map source, result
+select envelope_preserved=keep == "unchanged" and _decision == "caller-owned",
+  source_consumed=source? == null,
+  residue_preserved=result.unmapped.extra_context == "retained",
+  scratch_removed=result._mapping? == null,
+  mapped=result.class_uid != null

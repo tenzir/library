@@ -1,0 +1,46 @@
+---
+description: Maps process activity fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// Keep shell lifecycle records in one class; a background request proves no exit.
+$ocsf._mapping.process_result = $claude_code.event_name == "tool_result"
+$ocsf._mapping.background_result = $ocsf._mapping.process_result and $claude_code.background? == true
+$ocsf._mapping.process_completed = $ocsf._mapping.process_result and not $ocsf._mapping.background_result
+$claude_code.background_requested = move $claude_code.background?
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2 if $ocsf._mapping.process_completed else 99 if $ocsf._mapping.background_result else 1
+$ocsf.activity_name = "Observe" if $ocsf._mapping.background_result else null
+// Claude Code does not report the operating-system creation primitive.
+$ocsf.launch_type_id = 0 if not $ocsf._mapping.process_result else null
+if $ocsf._mapping.background_result {
+  // Tool success or failure does not establish the process outcome.
+  $claude_code.tool_success = $claude_code.success?
+  $ocsf.status_id = 0
+}
+$ocsf.process = {
+  name: move $claude_code.process_name,
+  cmd_line: move $claude_code.command? else "",
+  uid: move $claude_code.tool_use_id?,
+  // Tool timing does not establish the process creation time.
+  terminated_time: $claude_code.time? if $ocsf._mapping.process_completed else null,
+  // tool_use_id is a correlation key, not an OS PID.
+}
+replace $ocsf.process.uid, what="", with=null
+$ocsf.message = "Agent shell process terminated" if $ocsf._mapping.process_completed else
+                      "Agent received a tool result for requested background execution; process outcome unknown" if $ocsf._mapping.background_result else
+                      "Agent shell process launch denied" if $ocsf._mapping.decision_status_id == 2 else
+                      "Agent requested a shell process"
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 3}
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

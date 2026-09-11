@@ -1,0 +1,35 @@
+// Synthetic mapper regression: inject the normalized rename destination.
+// Claude log captures currently do not supply this field.
+from {
+  time: 2026-09-10T12:00:00Z,
+  observed_time: 2026-09-10T12:00:00Z,
+  trace_id: null,
+  span_id: null,
+  severity_number: 0,
+  severity_text: null,
+  flags: 1,
+  resource: {attributes: {"service.name": "claude-code"}},
+  scope: {name: "com.anthropic.claude_code.events"},
+  receiver: {transport: "grpc"},
+  body: null,
+  attributes: {
+    "event.name": "tool_result",
+    tool_name: "Rename",
+    tool_use_id: "synthetic-rename-success",
+    tool_input: "{\"file_path\":\"/tmp/example.txt\"}",
+    success: "true",
+  },
+}
+@name = "otel.log"
+anthropic::claude_code::canonicalize
+file_new_path = "/tmp/renamed.txt"
+this = {claude_code: this}
+raw_data = move claude_code.raw_data?
+raw_data_size = move claude_code.raw_data_size?
+anthropic::claude_code::ocsf::map claude_code, ocsf
+this = {...ocsf, raw_data: raw_data, raw_data_size: raw_data_size}
+ocsf_derive
+ocsf_cast
+select class_name, activity_name, status, file.path,
+       result_path=file_result?.path?, requested_path=unmapped.file_new_path?,
+       call_id=unmapped.tool_use_id

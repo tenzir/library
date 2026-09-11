@@ -1,0 +1,68 @@
+---
+description: Canonicalizes claude_code metrics records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+---
+
+where @name.starts_with("otel.metric.")
+where $event.metric.name.starts_with("claude_code.")
+// Drop token and cost metrics already reported by API request logs.
+where $event.metric.name not in ["claude_code.token.usage", "claude_code.cost.usage"]
+
+$event.raw_data = $event.print_json()
+
+// Retain metric aggregation windows and values without inventing individual actions.
+$event = {
+  signal: "metric",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data.length_bytes(),
+  event_name: $event.metric.name,
+  metric_name: $event.metric.name,
+  metric_value: $event.value.double_value? else $event.value.int_value?,
+  metric_unit: $event.metric.unit?,
+  metric_type: $event.attributes.type?,
+  aggregation_temporality: $event.aggregation_temporality,
+  is_monotonic: $event.monotonic?,
+  time: $event.time,
+  start_time: $event.start_time,
+  end_time: $event.time,
+  duration: int(($event.time - $event.start_time).count_milliseconds()) if $event.time? != null and $event.start_time? != null else null,
+  session_id: $event.attributes["session.id"]?,
+  user_id: $event.attributes["user.id"]? else $event.attributes["user.account_id"]?,
+  user_uid_alt: $event.attributes["user.account_uuid"]?,
+  user_email: $event.attributes["user.email"]?,
+  organization_id: $event.attributes["organization.id"]?,
+  app_version: $event.attributes["app.version"]? else $event.resource.attributes["service.version"]?,
+  terminal_type: $event.attributes["terminal.type"]?,
+  model: $event.attributes.model?,
+  provider: "Anthropic" if $event.attributes.model? != null else null,
+  query_source: $event.attributes.query_source?,
+  agent_name: $event.attributes["agent.name"]?,
+  effort: $event.attributes.effort?,
+  language: $event.attributes.language?,
+  start_type: $event.attributes.start_type?,
+  tool_name: $event.attributes.tool_name?,
+  decision: $event.attributes.decision?,
+  decision_source: $event.attributes.source?,
+  // The receiver records how the record arrived; every signal carries it.
+  transport: $event.transport? else $event.receiver?.transport?,
+  scope: {
+    name: $event.scope.name?,
+    version: $event.scope.version?,
+  },
+  resource: {
+    service_name: $event.resource.attributes["service.name"]?,
+    service_version: $event.resource.attributes["service.version"]?,
+    host_name: $event.resource.attributes["host.name"]?,
+    host_arch: $event.resource.attributes["host.arch"]?,
+    os_type: $event.resource.attributes["os.type"]? else $event.resource.attributes.os?,
+    os_version: $event.resource.attributes["os.version"]? else $event.resource.attributes.os_version?,
+  },
+  attributes: $event.attributes
+}
+
+@name = "anthropic.claude_code.event"

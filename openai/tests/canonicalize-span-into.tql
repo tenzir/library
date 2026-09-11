@@ -1,0 +1,13 @@
+from_file f"{env("TENZIR_INPUTS")}/../native-span.input" {
+  read_json
+}
+@name = "otel.span"
+this = {source: this, keep: "unchanged", result: {sibling: "preserved"}}
+original = source.print_json()
+openai::codex::canonicalize source, result.event
+select source_preserved=source.print_json() == original,
+  envelope_preserved=keep == "unchanged" and result.sibling == "preserved",
+  raw_preserved=result.event.raw_data == original,
+  raw_size_correct=result.event.raw_data_size == original.length_bytes(),
+  signal_correct=result.event.signal == "trace",
+  scratch_removed=result.event._raw_data? == null and result.event._transport? == null and result.event._resource_attributes? == null and result.event._body? == null

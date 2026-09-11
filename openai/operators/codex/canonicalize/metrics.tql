@@ -1,0 +1,65 @@
+---
+description: Canonicalizes codex metrics records in the selected field.
+args:
+  named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
+---
+
+where @name.starts_with("otel.metric.")
+where $event.metric.name in ["codex.skill.injected", "codex.tool.call"]
+
+$event.raw_data = $event.print_json()
+$event._tool_name = $event.attributes.tool?
+
+$event._success = $event.attributes.success.string() == "true" if $event.attributes.success? != null else
+           $event.attributes.status == "ok" if $event.attributes.status? != null else
+           null
+
+$event = {
+  signal: "metric",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data.length_bytes(),
+  event_name: $event.metric.name,
+  metric_name: $event.metric.name,
+  metric_value: $event.value.int_value? else $event.value.double_value?,
+  aggregation_temporality: $event.aggregation_temporality,
+  is_monotonic: $event.monotonic?,
+  time: $event.time,
+  start_time: $event.start_time,
+  end_time: $event.time,
+  duration: int(($event.time - $event.start_time).count_milliseconds()) if $event.time? != null and $event.start_time? != null else null,
+  app_version: $event.attributes["app.version"]? else $event.resource.attributes["service.version"]?,
+  app_entrypoint: $event.attributes.originator?,
+  model: $event.attributes.model?,
+  provider: "OpenAI",
+  auth_mode: $event.attributes.auth_mode?,
+  session_source: $event.attributes.session_source?,
+  skill_name: $event.attributes.skill?,
+  invocation_type: $event.attributes.invoke_type?,
+  source_status: $event.attributes.status?,
+  // Tool-call metrics are aggregates, not individual invocations.
+  tool_name: $event._tool_name,
+  success: $event._success,
+  sandbox: $event.attributes.sandbox?,
+  sandbox_policy: $event.attributes.sandbox_policy?,
+  // The receiver records how the record arrived; every signal carries it.
+  transport: $event.transport? else $event.receiver?.transport?,
+  scope: {
+    name: $event.scope.name?,
+    version: $event.scope.version?,
+  },
+  resource: {
+    service_name: $event.resource.attributes["service.name"]?,
+    service_version: $event.resource.attributes["service.version"]?,
+    host_name: $event.resource.attributes["host.name"]?,
+    host_arch: $event.resource.attributes["host.arch"]?,
+    os_type: $event.resource.attributes["os.type"]? else $event.resource.attributes.os?,
+    os_version: $event.resource.attributes["os.version"]? else $event.resource.attributes.os_version?,
+  },
+  attributes: $event.attributes
+}
+
+@name = "openai.codex.event"
