@@ -8,28 +8,19 @@ args:
       description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
 ---
 
-// Codex reports a different service name per client: `codex_cli_rs` for the
-// terminal client, `codex_exec` for non-interactive runs and
-// `codex-app-server` for the desktop and IDE apps. All emit the same event
-// vocabulary, so the product is recognized by its prefix rather than by an
-// allow-list that silently drops the next client.
+// Codex clients share an event vocabulary but use different service names.
 match signal {
   "log" => {
     _service = resource["service.name"]? else ""
     where _service.starts_with("codex")
-    openai::codex::normalize_logs include_content=$include_content
+    openai::codex::canonicalize::logs include_content=$include_content
   }
   "trace" => {
     _service = resource["service.name"]? else ""
     where _service.starts_with("codex")
-    openai::codex::normalize_traces include_content=$include_content
-    // Decision and result logs report every tool call. Codex also exports a
-    // span named after the tool (`exec_command`, `write_stdin`, `apply_patch`,
-    // the `code_mode.broker.invoke_tool` wrapper) later in a separate batch;
-    // mapping it would repeat the lifecycle the logs already carry. The Code
-    // Mode `exec` span is the exception: no decision log exists for it, so
-    // the span is its provisional Launch.
-    // MCP hook spans report harness callbacks, not duplicated agent tool logs.
+    openai::codex::canonicalize::traces include_content=$include_content
+    // Drop tool spans duplicated by logs; retain exec without a decision log
+    // and MCP hook callbacks.
     where not (tool_name? != null and tool_name != "exec") or
           (event_name == "codex.hooks.mcp_tool" and remote_tool? == true)
     if event_name in [

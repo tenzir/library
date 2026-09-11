@@ -1,0 +1,29 @@
+---
+description: Maps session start fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// The session-count metric is the source's session-start evidence.
+$ocsf._mapping.start_type = $claude_code.start_type? else "unknown"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 3
+$ocsf.application = {
+  name: $claude_code.resource.service_name? else "Claude Code",
+  version: $claude_code.resource.service_version? else $claude_code.app_version?,
+}
+$ocsf.status_id = 1
+$ocsf.message = "Agent session resumed" if $ocsf._mapping.start_type == "resume" else
+                      "Agent session started" if $ocsf._mapping.start_type == "fresh" else
+                      f"Agent session started ({$ocsf._mapping.start_type})"
+$ocsf.metadata.profiles = ["ai_operation", "host"]
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

@@ -1,0 +1,50 @@
+---
+description: Maps api authorization fields.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf._mapping.decision_operation = $codex.api_operation? else $codex.tool_name? else $codex.event_name
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6003
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Authorize"
+$ocsf.api = {
+  operation: $ocsf._mapping.decision_operation,
+  request: {
+    uid: move $codex.tool_use_id?,
+  },
+}
+if $codex.request_data? != null {
+  $ocsf.api.request.data = move $codex.request_data
+  drop $codex.tool_input?,
+       $codex.tool_parameters?,
+       $codex.arguments?
+}
+$ocsf._mapping.decision_parts = $ocsf._mapping.decision_operation.split("__") if $ocsf._mapping.decision_operation.starts_with("mcp__") else []
+$ocsf._mapping.decision_server = $codex.api_service? else
+                   $codex.mcp_server? else
+                   ($ocsf._mapping.decision_parts[1]? if $ocsf._mapping.decision_parts.length() >= 3 else null)
+if $ocsf._mapping.decision_server != null {
+  $ocsf.api.service = {name: $ocsf._mapping.decision_server}
+  $ocsf.dst_endpoint = {svc_name: $ocsf._mapping.decision_server}
+}
+$ocsf.actor = $ocsf._mapping.actor
+// API Activity requires `src_endpoint`; the agent host is the source of the
+// call the decision governs.
+$ocsf.src_endpoint = {
+  hostname: $codex.resource.host_name?,
+  svc_name: $codex.resource.service_name,
+}
+$ocsf.message = f"Tool call {$ocsf._mapping.decision_operation} " + (
+  "allowed" if $ocsf._mapping.decision_status_id == 1 else
+  "denied" if $ocsf._mapping.decision_status_id == 2 else "decided")
+$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 3}
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

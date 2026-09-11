@@ -6,27 +6,19 @@ including `codex_cli_rs`, `codex_exec`, and `codex-app-server`.
 
 ## Normalize telemetry
 
-Receive native record events and publish them to the `otlp` topic:
+Receive and normalize native records:
 
 ```tql
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
-publish "otlp"
-```
-
-Run this separately to normalize logs and spans:
-
-```tql
-subscribe "otlp"
 where @name in ["otel.log", "otel.span"]
-openai::codex::ocsf
+openai::codex::ocsf::normalize
 ocsf_derive
 ocsf_cast
-publish "ocsf"
 ```
 
-The schema filter excludes metrics, not Base Events. Remove it if you also want
-the metric mappings described below. The packaged OCSF publishing pipeline
-accepts metrics; the ClickHouse pipeline excludes them.
+Add the destination operator in your deployment. The package contains operators
+and examples, but no pipelines. The schema filter excludes metrics, not Base
+Events. Remove it to include the metric mappings described below.
 
 Install this vendor package only; no shared `otel` package is required.
 Input must be native records from `accept_otlp` with `schema="record"`.
@@ -64,24 +56,19 @@ use `trace.span.start_time`, `end_time`, and `duration`. Top-level
 `start_time`, `end_time`, and `duration` describe aggregate windows, not
 individual tool runtimes.
 
-## Store events in ClickHouse
+## Operator structure
 
-The packaged ClickHouse pipeline is disabled by default. Configure these
-secrets before enabling it:
+`openai::codex::canonicalize` prepares native OTLP records and applies
+source-specific noise and duplicate filters. It operates on the event stream.
 
-- `CLICKHOUSE_HOST`
-- `CLICKHOUSE_USERNAME`
-- `CLICKHOUSE_PASSWORD`
+`openai::codex::ocsf::map codex, ocsf` consumes a canonical source
+field and writes the mapped event to a separate destination field. It leaves
+unrelated fields intact and retains source residue in `ocsf.unmapped`.
+The dispatcher calls shared context, event-specific mapping, and finalization
+operators under `ocsf/`.
 
-The `clickhouse_database` package input defaults to `ocsf`. The pipeline
-uses TLS and appends to `<database>.events`. All retained classes, including
-Base Event, share the table. Metrics are excluded before normalization.
-
-Frequently queried fields are columns; the complete mapped event is the JSON
-column `event`. Its nested `unmapped` fields remain JSON fields, not an
-encoded JSON string. The indexed `app_name` comes from
-`actor.application.name`. The operator's existing noise and duplicate-span
-filters still apply.
+`openai::codex::ocsf::normalize` combines those stages and preserves
+`raw_data` and `raw_data_size`. Use it for native receiver records.
 
 ## Tests
 
@@ -198,4 +185,4 @@ spans retain their separate mappings. Unknown local tools remain Base Events.
 Native `codex.skill.injected` metrics map to Application Lifecycle / Enable.
 `codex.tool.call` metrics remain Base Events with their aggregate count,
 window, and sandbox context; they are not individual invocations. Other
-metrics are filtered. The ClickHouse pipeline excludes all metrics.
+metrics are filtered. The receiver example excludes all metrics.

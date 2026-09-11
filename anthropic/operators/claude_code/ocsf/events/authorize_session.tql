@@ -1,0 +1,37 @@
+---
+description: Maps authorize session fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+// Authorize Session models the privilege grant and supports the AI Operation profile.
+$ocsf._mapping.permission_to = move $claude_code.permission_to?
+$ocsf._mapping.permission_from = $claude_code.permission_from?
+// The trigger distinguishes user changes from automatic demotion, but identifies no user.
+$ocsf._mapping.permission_trigger = $claude_code.permission_trigger? else ""
+$ocsf._mapping.permission_by_harness = $ocsf._mapping.permission_trigger.starts_with("auto_")
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3003
+$ocsf.activity_id = 1
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.user = $ocsf._mapping.actor.user
+$ocsf.session = $ocsf._mapping.actor.session
+// Use the same approval-policy vocabulary as Codex.
+$ocsf.privileges = [f"approval:{$ocsf._mapping.permission_to}" if $ocsf._mapping.permission_to != null else "approval:unknown"]
+// The record reports a change that happened, not a request.
+$ocsf.status_id = 1
+// Severity reflects the autonomy granted by the new mode.
+$ocsf.severity_id = 3 if $ocsf._mapping.permission_to == "bypassPermissions" else
+                          2 if $ocsf._mapping.permission_to == "auto" else 1
+$ocsf.message = f"Agent session permission mode changed from {$ocsf._mapping.permission_from else "unknown"} to {$ocsf._mapping.permission_to else "unknown"}" + (
+                        " by the harness after its automatic gate denied a call" if $ocsf._mapping.permission_trigger == "auto_gate_denied" else
+                        " by the harness" if $ocsf._mapping.permission_by_harness else
+                        " by the user" if $ocsf._mapping.permission_trigger != "" else "")
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

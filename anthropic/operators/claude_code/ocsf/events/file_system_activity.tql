@@ -1,0 +1,46 @@
+---
+description: Maps file system activity fields.
+args:
+  positional:
+    - name: claude_code
+      type: field
+      description: The canonical claude_code event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+let $activity_ids = {create: 1, read: 2, update: 3, delete: 4, rename: 5, search: 99}
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+$ocsf.activity_id = $activity_ids[$claude_code.file_operation]
+$ocsf.activity_name = "Search" if $claude_code.file_operation == "search" else null
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.file = {
+  name: move $claude_code.file_name,
+  path: move $claude_code.file_path,
+  type_id: move $claude_code.file_type_id? else 1,
+  is_deleted: true if $claude_code.file_operation == "delete" and $ocsf.status_id == 1 and $ocsf._mapping.decision_status_id != 2 else null,
+}
+if $ocsf.status_id == 1 and $ocsf._mapping.decision_status_id != 2 {
+  $ocsf.file_diff = move $claude_code.file_diff?
+}
+// Unapplied edits remain in the retained source tool input, not file_diff.
+drop $claude_code.file_diff?
+if $claude_code.file_new_path? != null and $ocsf.status_id == 1 and $ocsf._mapping.decision_status_id != 2 {
+  $ocsf.file_result = {
+    name: $claude_code.file_new_path.split("/")[-1],
+    path: move $claude_code.file_new_path,
+    type_id: 1,
+  }
+}
+let $file_verbs = {create: "created", read: "read", update: "updated", delete: "deleted", rename: "renamed"}
+$ocsf.message = f"Agent file {$claude_code.file_operation} denied: {$ocsf.file.path}" if $ocsf._mapping.decision_status_id == 2 else
+                      f"Agent failed to {$claude_code.file_operation} file {$ocsf.file.path}" if $ocsf.status_id == 2 else
+                      f"Agent requested a file {$claude_code.file_operation}: {$ocsf.file.path}" if $ocsf.status_id == 0 else
+                      f"Agent searched filenames at {$ocsf.file.path}" if $claude_code.file_operation == "search" else
+                      f"Agent searched content at {$ocsf.file.path}" if $claude_code.search_pattern? != null else
+                      f"Agent {$file_verbs[$claude_code.file_operation]} file {$ocsf.file.name}"
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent

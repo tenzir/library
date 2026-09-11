@@ -1,0 +1,31 @@
+---
+description: Normalizes a decoded Claude Code OTLP log or span.
+args:
+  named:
+    - name: include_content
+      type: bool
+      default: false
+      description: Retain prompts, responses, and copied tool parameters. Shell commands are always retained.
+---
+
+match signal {
+  "log" => {
+    where resource["service.name"] == "claude-code"
+    anthropic::claude_code::canonicalize::logs include_content=$include_content
+  }
+  "trace" => {
+    where resource["service.name"] == "claude-code"
+    anthropic::claude_code::canonicalize::traces include_content=$include_content
+    // These spans duplicate logs, which also carry outcomes and prompt IDs.
+    where not (tool_name? != null or (span_type? else "") in [
+      "tool",
+      "tool.execution",
+      "tool.blocked_on_user",
+      "llm_request",
+      "interaction",
+    ])
+  }
+  _ => {
+    discard
+  }
+}

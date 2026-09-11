@@ -1,0 +1,70 @@
+---
+description: Maps http activity fields.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+let $http_activities = {connect: 1, delete: 2, get: 3, head: 4, options: 5, post: 6, put: 7, trace: 8, patch: 9}
+$ocsf._mapping.http_method = move $codex.http_method
+$ocsf._mapping.server_address = $codex.server_address.string()
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
+$ocsf.activity_id = $http_activities[$ocsf._mapping.http_method.to_lower()]? else 0
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.src_endpoint = {
+  hostname: $codex.resource.host_name?,
+  svc_name: $codex.resource.service_name,
+}
+$ocsf.dst_endpoint = {
+  hostname: $ocsf._mapping.server_address,
+  port: $codex.server_port?,
+}
+$ocsf._mapping.url_path = move $codex.endpoint?
+$ocsf.http_request = {
+  http_method: $ocsf._mapping.http_method,
+  url: {
+    hostname: $ocsf._mapping.server_address,
+    port: $codex.server_port?,
+    path: $ocsf._mapping.url_path,
+  } if $ocsf._mapping.url_path != null else null,
+}
+if $codex.http_status? != null {
+  $ocsf.http_response = {
+    code: $codex.http_status,
+  }
+}
+$ocsf.message = f"Agent sent HTTP {$ocsf._mapping.http_method} to {$ocsf._mapping.server_address}"
+$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 4}
+// HTTP Activity takes `actor` from the Host profile rather than natively,
+// so the profile has to be declared or the actor is dropped on cast.
+$ocsf.metadata.profiles = ["ai_operation", "host"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent
+if ($codex.trace_id? else "") != "" {
+  $ocsf.trace = {
+    uid: move $codex.trace_id,
+    service: {
+      name: $codex.resource.service_name,
+      version: $codex.resource.service_version?,
+    },
+  }
+  // Logs have span context but not the required span lifetime. Move IDs
+  // only inside this branch so log context remains in unmapped.
+  if $codex.signal? == "trace" and $codex.start_time? != null and $codex.end_time? != null {
+    $ocsf.trace.span = {
+      uid: move $codex.span_id,
+      parent_uid: move $codex.parent_span_id?,
+      operation: $codex.event_name,
+      start_time: $codex.start_time,
+      end_time: $codex.end_time,
+      duration: $codex.duration?,
+      status_code: $codex.status_code.string() if $codex.status_code? != null else null,
+    }
+  }
+  $ocsf.metadata.profiles = ["ai_operation", "host", "trace"]
+}

@@ -1,0 +1,53 @@
+---
+description: Maps process activity fields.
+args:
+  positional:
+    - name: codex
+      type: field
+      description: The canonical codex event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF event.
+---
+
+$ocsf._mapping.process_result = $codex.event_name == "codex.tool_result"
+$ocsf._mapping.process_running = $ocsf._mapping.process_result and $codex.command_running? == true
+$ocsf._mapping.process_completed = $ocsf._mapping.process_result and $codex.command_exit_code? != null and not $ocsf._mapping.process_running
+if $ocsf._mapping.process_result {
+  $codex.tool_success = $codex.attributes.success.string() == "true" if $codex.attributes.success? != null else null
+}
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 2 if $ocsf._mapping.process_completed else 99 if $ocsf._mapping.process_result else 1
+$ocsf.activity_name = "Observe" if $ocsf._mapping.process_result and not $ocsf._mapping.process_completed else null
+if $ocsf._mapping.process_result and not $ocsf._mapping.process_completed {
+  // A tool result without an exit code does not establish process outcome.
+  $ocsf.status_id = 0
+}
+// Codex does not report whether the shell was spawned, forked, or exec'd.
+$ocsf.launch_type_id = 0 if not $ocsf._mapping.process_result else null
+$ocsf._mapping.process_uid = f"openai:codex:{$codex.tool_use_id}" if ($codex.tool_use_id? else "") != "" else null
+// The id is now on `process.uid`; keeping it in `unmapped` too would
+// duplicate a mapped value.
+drop $codex.tool_use_id?
+$ocsf.process = {
+  name: move $codex.process_name,
+  // OCSF requires an empty string when the full command line is unavailable.
+  cmd_line: move $codex.command? else "",
+  uid: $ocsf._mapping.process_uid,
+  // Tool timing does not establish the process creation time.
+  terminated_time: $codex.time? if $ocsf._mapping.process_completed else null,
+  // `process.pid` is intentionally absent. A tool call identifier is a
+  // producer-assigned correlation UID, not an operating-system PID.
+}
+$ocsf.exit_code = $codex.command_exit_code? if $ocsf._mapping.process_completed else null
+$ocsf.message = "Agent shell process terminated" if $ocsf._mapping.process_completed else
+                      "Agent observed that the shell process is still running" if $ocsf._mapping.process_running else
+                      "Agent received a tool result without a confirmed process outcome" if $ocsf._mapping.process_result else
+                      "Agent shell process launch denied" if $ocsf._mapping.decision_status_id == 2 else
+                      "Agent requested a shell process"
+$ocsf.actor = $ocsf._mapping.actor
+$ocsf.device = $ocsf._mapping.device
+$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 3}
+$ocsf.metadata.profiles = ["ai_operation"]
+$ocsf.ai_agent = $ocsf._mapping.ai_agent
