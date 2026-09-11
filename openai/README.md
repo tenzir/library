@@ -39,7 +39,7 @@ The mapping preserves these identifiers when the source supplies them:
 | --- | --- |
 | Source event name | `metadata.event_code` |
 | Session ID | `actor.session.uid`; also `ai_agent.instance_uid` where the AI Operation profile applies |
-| Tool-call ID | Prefixed `process.uid` for shell lifecycle, `api.request.uid` for remote calls, otherwise `unmapped.tool_use_id` |
+| Tool-call ID | Unchanged `process.uid` for shell lifecycle, `api.request.uid` for remote calls, otherwise `unmapped.tool_use_id` |
 | Trace ID | `trace.uid` on branches using the Trace profile, otherwise `unmapped.trace_id` |
 | Log's enclosing span ID | `unmapped.span_id`, even when the log has `trace.uid` |
 | Complete span's ID and parent | `trace.span.uid` and `trace.span.parent_uid` on branches using the Trace profile |
@@ -120,7 +120,7 @@ websocket setup, so they are not a count of model calls.
 ### Shell and file outcomes
 
 Shell decisions and results emit independently, without a join or five-second
-wait. They share `openai:codex:<call_id>` as `process.uid` when a call ID is
+wait. They share the original tool-call ID as `process.uid` when a call ID is
 available. A denied decision is a failed Launch. Shell commands never map to
 Script Activity. Compound shell commands stay intact in `process.cmd_line`.
 Neither a PID nor `process.created_time` is inferred.
