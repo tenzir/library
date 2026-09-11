@@ -2,7 +2,7 @@
 title: Normalize Codex OTLP telemetry
 type: feature
 authors:
-  - philip
+  - zedoraps
 components:
   - openai
 created: 2026-07-29T00:00:00Z
