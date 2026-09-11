@@ -1,97 +1,103 @@
 ---
-description: Normalizes unrolled Claude Code OTLP spans.
+description: Canonicalizes claude_code traces records in the selected field.
 args:
   named:
+    - name: event
+      type: field
+      default: this
+      description: The record to canonicalize.
     - name: include_content
       type: bool
       default: false
-      description: Retain prompts. Shell commands are always retained.
+      description: Retain conversation text and tool input. Shell commands are always retained.
 ---
 
-_a = attributes
-_tool_name = _a.tool_name?
-_tool_name_lower = _tool_name.to_lower() if _tool_name? != null else ""
-_tool_parameters = _a.tool_parameters.parse_json() if _a.tool_parameters? != null and _a.tool_parameters.starts_with("{") else {}
-_mcp_parts = _tool_name.split("__") if (_tool_name? else "").starts_with("mcp__") else []
-_mcp_server = _tool_parameters.mcp_server_name?
-_mcp_tool = _tool_parameters.mcp_tool_name?
-_command = _a.full_command.string() if _a.full_command? != null else null
+$event._a = $event.attributes
+$event._tool_name = $event._a.tool_name?
+$event._tool_name_lower = $event._tool_name.to_lower() if $event._tool_name? != null else ""
+$event._tool_parameters = $event._a.tool_parameters.parse_json() if $event._a.tool_parameters? != null and $event._a.tool_parameters.starts_with("{") else {}
+$event._mcp_parts = $event._tool_name.split("__") if ($event._tool_name? else "").starts_with("mcp__") else []
+$event._mcp_server = $event._tool_parameters.mcp_server_name?
+$event._mcp_tool = $event._tool_parameters.mcp_tool_name?
+$event._command = $event._a.full_command.string() if $event._a.full_command? != null else null
 // The command has its own field and its own hash; repeating it here would
 // duplicate a mapped value into `unmapped`.
-_content = _a.user_prompt?
+$event._content = $event._a.user_prompt?
 
-select signal = "trace",
-  raw_data,
-  raw_data_size,
-  event_name,
-  span_type = _a["span.type"]?,
-  time,
-  start_time,
-  end_time,
-  duration = int(_a.duration_ms) if _a.duration_ms? != null else int((end_time - start_time).count_milliseconds()) if end_time? != null and start_time? != null else null,
-  session_id = _a["session.id"]?,
-  user_id = _a["user.id"]? else _a["user.account_id"]?,
-  user_uid_alt = _a["user.account_uuid"]?,
-  user_email = _a["user.email"]?,
-  organization_id = _a["organization.id"]?,
-  app_version = _a["app.version"]? else resource["service.version"]?,
-  app_entrypoint = _a["app.entrypoint"]?,
-  terminal_type = _a["terminal.type"]?,
-  model = _a["gen_ai.request.model"]? else _a.model?,
-  provider = "Anthropic" if (_a["gen_ai.system"]? else _a.provider?).to_lower() == "anthropic" else
-             "OpenAI" if (_a["gen_ai.system"]? else _a.provider?).to_lower() == "openai" else
-             _a["gen_ai.system"]? else _a.provider? else
-             "Anthropic" if (_a["gen_ai.request.model"]? else _a.model?) != null else null,
-  interaction_sequence = int(_a["interaction.sequence"]) if _a["interaction.sequence"]? != null else null,
-  tool_name = _tool_name,
-  api_operation = _mcp_tool? else
-                  _mcp_parts[2]? if _mcp_parts.length() >= 3 else
-                  _tool_name,
-  api_service = _mcp_server? else
-                _mcp_parts[1]? if _mcp_parts.length() >= 3 else
+$event = {
+  signal: "trace",
+  raw_data: $event.raw_data,
+  raw_data_size: $event.raw_data_size,
+  event_name: $event.event_name,
+  span_type: $event._a["span.type"]?,
+  time: $event.time,
+  start_time: $event.start_time,
+  end_time: $event.end_time,
+  duration: int($event._a.duration_ms) if $event._a.duration_ms? != null else int(($event.end_time - $event.start_time).count_milliseconds()) if $event.end_time? != null and $event.start_time? != null else null,
+  session_id: $event._a["session.id"]?,
+  user_id: $event._a["user.id"]? else $event._a["user.account_id"]?,
+  user_uid_alt: $event._a["user.account_uuid"]?,
+  user_email: $event._a["user.email"]?,
+  organization_id: $event._a["organization.id"]?,
+  app_version: $event._a["app.version"]? else $event.resource["service.version"]?,
+  app_entrypoint: $event._a["app.entrypoint"]?,
+  terminal_type: $event._a["terminal.type"]?,
+  model: $event._a["gen_ai.request.model"]? else $event._a.model?,
+  provider: "Anthropic" if ($event._a["gen_ai.system"]? else $event._a.provider?).to_lower() == "anthropic" else
+             "OpenAI" if ($event._a["gen_ai.system"]? else $event._a.provider?).to_lower() == "openai" else
+             $event._a["gen_ai.system"]? else $event._a.provider? else
+             "Anthropic" if ($event._a["gen_ai.request.model"]? else $event._a.model?) != null else null,
+  interaction_sequence: int($event._a["interaction.sequence"]) if $event._a["interaction.sequence"]? != null else null,
+  tool_name: $event._tool_name,
+  api_operation: $event._mcp_tool? else
+                  $event._mcp_parts[2]? if $event._mcp_parts.length() >= 3 else
+                  $event._tool_name,
+  api_service: $event._mcp_server? else
+                $event._mcp_parts[1]? if $event._mcp_parts.length() >= 3 else
                 null,
-  remote_tool = (_tool_name_lower == "mcp_tool" and _mcp_server? != null and _mcp_tool? != null) or
-                _mcp_parts.length() >= 3 or
-                _tool_name_lower in ["websearch", "webfetch"],
-  tool_use_id = _a["gen_ai.tool.call.id"]? else _a.tool_use_id? else _a.call_id?,
-  process_name = "bash" if _tool_name_lower == "bash" else "shell" if _tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
-  command = _command,
-  command_hash = hash_sha256(_command) if _command? != null else null,
+  remote_tool: ($event._tool_name_lower == "mcp_tool" and $event._mcp_server? != null and $event._mcp_tool? != null) or
+                $event._mcp_parts.length() >= 3 or
+                $event._tool_name_lower in ["websearch", "webfetch"],
+  tool_use_id: $event._a["gen_ai.tool.call.id"]? else $event._a.tool_use_id? else $event._a.call_id?,
+  process_name: "bash" if $event._tool_name_lower == "bash" else "shell" if $event._tool_name_lower in ["exec", "exec_command", "shell", "terminal"] else null,
+  command: $event._command,
+  command_hash: hash_sha256($event._command) if $event._command? != null else null,
   // `tool.blocked_on_user` spans report the approval outcome as `decision`
   // plus `source`, the same vocabulary as the `tool_decision` log.
-  decision = _a.decision?,
-  decision_source = _a.source?,
-  error = _a.error?,
-  error_type = _a.error_type?,
-  source_status_code = _a.status_code?,
-  success = _a.success?,
-  request_id = _a["gen_ai.response.id"]? else _a.request_id?,
-  http_method = _a["http.request.method"]? else _a["http.method"]?,
-  http_status = int(_a["http.response.status_code"]) if _a["http.response.status_code"]? != null else null,
-  server_address = _a["server.address"]?,
-  server_port = int(_a["server.port"]) if _a["server.port"]? != null else null,
-  input_tokens = int(_a.input_tokens) if _a.input_tokens? != null else null,
-  output_tokens = int(_a.output_tokens) if _a.output_tokens? != null else null,
-  content = _content if $include_content else null,
-  content_hash = hash_sha256(_content) if _content? != null else null,
-  trace_id,
-  span_id,
-  parent_span_id = parent_span_id?,
-  span_kind,
-  status_code,
-  status_message,
-  flags,
-  scope,
+  decision: $event._a.decision?,
+  decision_source: $event._a.source?,
+  error: $event._a.error?,
+  error_type: $event._a.error_type?,
+  source_status_code: $event._a.status_code?,
+  success: $event._a.success?,
+  request_id: $event._a["gen_ai.response.id"]? else $event._a.request_id?,
+  http_method: $event._a["http.request.method"]? else $event._a["http.method"]?,
+  http_status: int($event._a["http.response.status_code"]) if $event._a["http.response.status_code"]? != null else null,
+  server_address: $event._a["server.address"]?,
+  server_port: int($event._a["server.port"]) if $event._a["server.port"]? != null else null,
+  input_tokens: int($event._a.input_tokens) if $event._a.input_tokens? != null else null,
+  output_tokens: int($event._a.output_tokens) if $event._a.output_tokens? != null else null,
+  content: $event._content if $include_content else null,
+  content_hash: hash_sha256($event._content) if $event._content? != null else null,
+  trace_id: $event.trace_id,
+  span_id: $event.span_id,
+  parent_span_id: $event.parent_span_id?,
+  span_kind: $event.span_kind,
+  status_code: $event.status_code,
+  status_message: $event.status_message,
+  flags: $event.flags,
+  scope: $event.scope,
   // The receiver records how the record arrived; every signal carries it.
-  transport = transport? else receiver?.transport?,
-  resource = {
-    service_name: resource["service.name"]?,
-    service_version: resource["service.version"]?,
-    host_name: resource["host.name"]?,
-    host_arch: resource["host.arch"]?,
-    os_type: resource["os.type"]? else resource.os?,
-    os_version: resource["os.version"]? else resource.os_version?,
+  transport: $event.transport? else $event.receiver?.transport?,
+  resource: {
+    service_name: $event.resource["service.name"]?,
+    service_version: $event.resource["service.version"]?,
+    host_name: $event.resource["host.name"]?,
+    host_arch: $event.resource["host.arch"]?,
+    os_type: $event.resource["os.type"]? else $event.resource.os?,
+    os_version: $event.resource["os.version"]? else $event.resource.os_version?,
   },
-  attributes
+  attributes: $event.attributes,
+}
 
 @name = "anthropic.claude_code.event"
