@@ -1,0 +1,104 @@
+---
+description: Cisco ASA → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
+---
+
+$event = {...$event, asa: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  log_name: "cisco.asa",
+  // The ASA syslog message ID identifies the event type in Cisco's taxonomy,
+  // which OCSF models as metadata.event_code (its example is "Cisco syslog
+  // code"). ASA provides no unique per-event identifier for original_event_uid.
+  event_code: $event.asa.message_id.string(),
+  processed_time: now(),
+  product: {
+    name: "Secure Firewall ASA",
+    vendor_name: "Cisco",
+  },
+  // The event mappers that set firewall fields add the security_control profile.
+  version: "1.8.0",
+}
+
+// The syslog hostname is the ASA that reported the event. OCSF models the
+// reporting system as a logger, not the event's subject device.
+if $event.asa.hostname? != null {
+  $event.ocsf.metadata.loggers = [{
+    device: {
+      hostname: move $event.asa.hostname,
+    },
+    log_format: "syslog",
+  }]
+}
+
+// Resolve the event time from the syslog timestamp (read_syslog provides it as
+// a string). ASA uses RFC 5424 or the textual `Mon DD [YYYY] HH:MM:SS` form,
+// depending on the `logging timestamp` setting. A non-syslog value (e.g. the
+// numeric epoch a log shipper like GELF puts in its own `timestamp` field) is
+// left for the caller to map; default to the processing time.
+$event.ocsf.time = $event.ocsf.metadata.processed_time
+if $event.asa.timestamp? != null {
+  let $iso = r"^\d{4}-\d{2}-\d{2}[T ]"
+  let $dated = r"^\w{3}\s+\d{1,2}\s+\d{4}\s"
+  let $undated = r"^\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}"
+  if $event.asa.timestamp.string().match_regex($iso) {
+    $event.ocsf.time = (move $event.asa.timestamp).time()
+  } else if $event.asa.timestamp.string().match_regex($dated) {
+    $event.ocsf.time = (move $event.asa.timestamp).parse_time("%b %d %Y %H:%M:%S")
+  } else if $event.asa.timestamp.string().match_regex($undated) {
+    // ASA may omit the year. Use the processing year, with a one-year
+    // correction around New Year for delayed December or early January logs.
+    $event.asa.event_month = $event.asa.timestamp.parse_time("%b %e %H:%M:%S").month()
+    $event.asa.event_year = $event.ocsf.metadata.processed_time.year()
+    if $event.asa.event_month == 12 and $event.ocsf.metadata.processed_time.month() == 1 {
+      $event.asa.event_year = $event.asa.event_year - 1
+    } else if $event.asa.event_month == 1 and $event.ocsf.metadata.processed_time.month() == 12 {
+      $event.asa.event_year = $event.asa.event_year + 1
+    }
+    $event.ocsf.time = ($event.asa.event_year.string() + " " + move $event.asa.timestamp).parse_time("%Y %b %e %H:%M:%S")
+    drop $event.asa.event_month, $event.asa.event_year
+  }
+}
+
+if $event.asa.text? != null {
+  $event.ocsf.message = move $event.asa.text
+}
+
+// Map the ASA severity level (0 = emergency … 7 = debug) to the OCSF severity.
+let $severities = {
+  "0": 6,  // Emergency  → Fatal
+  "1": 5,  // Alert      → Critical
+  "2": 5,  // Critical   → Critical
+  "3": 4,  // Error      → High
+  "4": 3,  // Warning    → Medium
+  "5": 2,  // Notice     → Low
+  "6": 1,  // Info       → Informational
+  "7": 1,  // Debug      → Informational
+}
+if $event.asa.severity? != null {
+  $event.ocsf.severity_id = $severities[(move $event.asa.severity).string()]? else 0
+} else {
+  $event.ocsf.severity_id = 0
+}
+
+match $event.asa.message_id {
+  302013 | 302015 => { cisco::asa::ocsf::events::built event=$event }
+  302014 | 302016 | 302021 => { cisco::asa::ocsf::events::teardown event=$event }
+  106023 | 106001 | 106006 | 106007 | 106010 | 106014 | 106017 | 106100 | 106102 | 106103 | 313004 | 313008 | 313009 | 710003 | 710005 => { cisco::asa::ocsf::events::access_control event=$event }
+  419002 => { cisco::asa::ocsf::events::network event=$event }
+  722051 | 113019 | 746013 => { cisco::asa::ocsf::events::authentication event=$event }
+  _ => { cisco::asa::ocsf::base event=$event }
+}
+
+// The message ID is recorded in metadata.event_code, so drop it from unmapped.
+drop $event.asa.message_id?
+
+// read_syslog always emits app_name/process_id (empty for ASA), and the ASA
+// subsystem context is usually absent. Drop such null fields so unmapped holds
+// only values that are actually present.
+$event = {...$event.ocsf, unmapped: $event.asa.drop_null_fields()}
