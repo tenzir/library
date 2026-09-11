@@ -1,0 +1,80 @@
+---
+description: Reassembles multi-segment Cisco ISE messages into a single message body.
+args:
+  named:
+    - name: message
+      description: The field holding the (possibly partial) ISE message body.
+      type: field
+      default: message
+    - name: on
+      description: |
+        The event-time field used to window together the segments of one
+        message, for example the syslog timestamp. BSD syslog timestamps carry
+        no year, so convert them to a full timestamp before this operator (see
+        the syslog example).
+      type: field
+      default: timestamp
+    - name: span
+      description: |
+        The event-time span used to gather a message's segments. Segments of the
+        same logical message must arrive within this span to be reassembled.
+        ISE normally sends a message's segments back-to-back, so the default
+        leaves wide margin while keeping latency low; raise it if segments are
+        delayed in transit, lower it for faster output.
+      type: duration
+      default: 10s
+---
+
+// Cisco ISE splits one logical message into numbered segments. Only segment 0
+// carries the message header; later segments continue the attribute list.
+let $header = r"^(?:(?<category>CISE_\S+)\s+)?(?<message_id>\d+)\s+(?<segment_total>\d+)\s+(?<segment_number>\d+)\s+(?<payload>.*)$"
+
+// `window` keeps only its outputs, so snapshot the first segment's fields.
+context = {...this}
+
+segment = $message.parse_grok($header, raw=true)
+where segment.message_id? != null
+
+segment_category = segment.category
+segment_message_id = segment.message_id
+segment_total = segment.segment_total
+segment_number = int(segment.segment_number)
+segment_window_start = floor($on, $span)
+header_window_start = segment_window_start if segment_number == 0 else null
+payload = segment.payload.trim_end(", ")
+reassembly_id = segment_message_id
+if segment_total == "1" {
+  reassembly_id = segment_message_id + ":" + payload
+}
+
+// Use hopping windows to cover fixed-window boundaries, then keep only one
+// window per message id. Multi-segment messages emit from the window centered
+// on segment 0's fixed bucket, so continuations may fall on either side.
+window size=$span * 3, every=$span, on=$on, tolerance=$span, idle_timeout=$span {
+  sort segment_number
+  deduplicate reassembly_id, segment_number
+  summarize reassembly_id, context=first(context), category=first(segment_category), message_id=first(segment_message_id), segment_total=first(segment_total), first_segment_window_start=min(segment_window_start), header_window_start=first(header_window_start), segment_numbers=collect(segment_number), payloads=collect(payload)
+  orphan_window_start = first_segment_window_start - $span
+  emit_window_start = orphan_window_start
+  if header_window_start != null {
+    emit_window_start = header_window_start
+    if segment_total != "1" {
+      emit_window_start = header_window_start - $span
+    }
+  }
+  where $window.start == emit_window_start
+  drop emit_window_start, first_segment_window_start, header_window_start, orphan_window_start
+}
+
+expected_segment_count = int(segment_total)
+received_segment_count = segment_numbers.distinct().where(n => n >= 0 and n < expected_segment_count).length()
+reassembly_complete = received_segment_count == expected_segment_count
+missing_segments = expected_segment_count - received_segment_count
+reassembled = message_id + " " + segment_total + " 0 " + payloads.join(", ")
+if category != null {
+  reassembled = category + " " + reassembled
+}
+
+this = {...context, message_id: int(message_id), segment_total: expected_segment_count, reassembly_complete: reassembly_complete, missing_segments: missing_segments, reassembled: reassembled}
+drop $message
+message = move reassembled

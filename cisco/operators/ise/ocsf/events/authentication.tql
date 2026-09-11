@@ -1,0 +1,130 @@
+---
+description: Cisco ISE RADIUS/TACACS authentications → OCSF Authentication
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.authentication"
+$event.ocsf.category_uid = 3
+$event.ocsf.class_uid = 3002
+$event.ocsf.activity_id = 1
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+if $event.ise.timestamp? != null {
+  $event.ocsf.time = move $event.ise.timestamp
+}
+drop $event.ise.timestamp?
+$event.ocsf.message = move $event.ise.message_text?
+drop $event.ise.attributes["Event-Timestamp"]?
+
+if $event.ise.message_code >= 5400 and $event.ise.message_code < 5500 {
+  $event.ocsf.status_id = 2
+  $event.ocsf.status = "Failure"
+} else {
+  $event.ocsf.status_id = 1
+  $event.ocsf.status = "Success"
+}
+if $event.ise.attributes.FailureReason? != null {
+  $event.ocsf.status_detail = move $event.ise.attributes.FailureReason
+}
+
+if ($event.ise.attributes.UserName? else $event.ise.attributes["User-Name"]?) != null {
+  $event.ocsf.user.name = move $event.ise.attributes.UserName? else move $event.ise.attributes["User-Name"]?
+}
+drop $event.ise.attributes.UserName?, $event.ise.attributes["User-Name"]?
+// ISE `UserType` is `User` (a person) or `Host` (a device identity, e.g. MAB).
+// `Host` has no OCSF user type, so it maps to Other with the raw value.
+user_type = move $event.ise.attributes.UserType?
+if user_type == "User" {
+  $event.ocsf.user.type_id = 1
+  $event.ocsf.user.type = "User"
+} else if user_type != null {
+  $event.ocsf.user.type_id = 99
+  $event.ocsf.user.type = user_type
+}
+drop user_type
+
+if $event.ise.attributes.AcsSessionID? != null {
+  $event.ocsf.session = {uid: move $event.ise.attributes.AcsSessionID}
+}
+if $event.ise.attributes.SelectedAccessService? != null {
+  $event.ocsf.service.name = move $event.ise.attributes.SelectedAccessService
+}
+
+if $event.ise.attributes.DestinationIPAddress? != null {
+  $event.ocsf.dst_endpoint.ip = ip(move $event.ise.attributes.DestinationIPAddress)
+}
+if $event.ise.attributes.DestinationPort? != null {
+  $event.ocsf.dst_endpoint.port = int(move $event.ise.attributes.DestinationPort)
+}
+
+src_ip = move $event.ise.attributes["Framed-IP-Address"]? else move $event.ise.attributes.IpAddress?
+if src_ip != null {
+  $event.ocsf.src_endpoint.ip = ip(src_ip)
+}
+drop src_ip, $event.ise.attributes["Framed-IP-Address"]?, $event.ise.attributes.IpAddress?
+src_mac = move $event.ise.attributes["Calling-Station-ID"]? else move $event.ise.attributes.EndPointMACAddress?
+if src_mac != null {
+  $event.ocsf.src_endpoint.mac = src_mac
+}
+drop src_mac, $event.ise.attributes["Calling-Station-ID"]?, $event.ise.attributes.EndPointMACAddress?
+
+device_ip = move $event.ise.attributes["Device IP Address"]? else move $event.ise.attributes["NAS-IP-Address"]?
+if device_ip != null {
+  $event.ocsf.device.ip = ip(device_ip)
+}
+drop device_ip, $event.ise.attributes["Device IP Address"]?, $event.ise.attributes["NAS-IP-Address"]?
+if $event.ise.attributes.NetworkDeviceName? != null {
+  $event.ocsf.device.hostname = move $event.ise.attributes.NetworkDeviceName
+}
+
+protocol = move $event.ise.attributes.Protocol?
+if protocol == "Radius" {
+  $event.ocsf.auth_protocol_id = 10
+  $event.ocsf.auth_protocol = "RADIUS"
+} else if protocol != null {
+  $event.ocsf.auth_protocol_id = 99
+  $event.ocsf.auth_protocol = protocol
+}
+drop protocol
+
+$event.ocsf.is_remote = true
+
+// ISE exposes identity groups across user and endpoint fields.
+identity_groups = [move $event.ise.attributes.IdentityGroup?, move $event.ise.attributes.HostIdentityGroup?, move $event.ise.attributes.Name?].where(g => g != null).distinct()
+if identity_groups.length() > 0 {
+  $event.ocsf.user.groups = identity_groups.map(name => {name: name})
+}
+drop identity_groups
+if $event.ise.attributes.CPMSessionID? != null {
+  $event.ocsf.session.uid_alt = move $event.ise.attributes.CPMSessionID
+}
+if $event.ise.attributes["Model Name"]? != null {
+  $event.ocsf.device.model = move $event.ise.attributes["Model Name"]
+}
+
+// Authorization is separate from authentication: a successful authentication can
+// still be denied access.
+authz_profile = move $event.ise.attributes.SelectedAuthorizationProfiles?
+if authz_profile != null {
+  $event.ocsf.metadata.profiles = $event.ocsf.metadata.profiles.concatenate(["security_control"])
+  if authz_profile == "DenyAccess" {
+    $event.ocsf.disposition_id = 2
+    $event.ocsf.disposition = "Blocked"
+    $event.ocsf.authorizations = [{decision: "Denied", policy: {name: authz_profile}}]
+  } else {
+    $event.ocsf.disposition_id = 1
+    $event.ocsf.disposition = "Allowed"
+    $event.ocsf.authorizations = [{decision: "Allowed", policy: {name: authz_profile}}]
+  }
+  if $event.ise.attributes.AuthorizationPolicyMatchedRule? != null {
+    $event.ocsf.policy.name = move $event.ise.attributes.AuthorizationPolicyMatchedRule
+  }
+  if $event.ise.attributes.ISEPolicySetName? != null {
+    $event.ocsf.policy.group = {name: move $event.ise.attributes.ISEPolicySetName}
+  }
+}
+drop authz_profile
