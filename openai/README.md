@@ -56,9 +56,10 @@ individual tool runtimes.
 
 ## Operator structure
 
-`openai::codex::canonicalize` prepares native OTLP records and applies
-source-specific noise and duplicate filters. Its `event` field argument defaults
-to `this`; filtering still applies to the event stream.
+`openai::codex::canonicalize source, event` prepares native OTLP records
+in a separate destination field and applies source-specific noise and duplicate
+filters. Both positional field arguments default to `this` for in-place use;
+filtering still applies to the event stream.
 
 `openai::codex::ocsf::map codex, ocsf` consumes a canonical source
 field and writes the mapped event to a separate destination field. It leaves
