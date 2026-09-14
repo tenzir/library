@@ -3,6 +3,8 @@ title: Claude Code and Codex demo sources
 type: feature
 authors:
   - zedoraps
+prs:
+  - 187
 created: 2026-09-14T14:53:40.379029Z
 ---
 
