@@ -1,0 +1,29 @@
+---
+description: >-
+  Continuously replays an anonymized Codex telemetry capture.
+  Each cycle uses fresh correlation IDs and starts a new timeline.
+args:
+  named:
+    - name: speed
+      type: float
+      default: 1.0
+      description: Multiplier on the default average rate of about one event per second.
+    - name: pace
+      type: bool
+      default: true
+      description: Wait between records according to the replay timeline.
+---
+
+let $period = 1782s / $speed
+let $first = 2026-01-01T00:00:00Z
+let $last = 2026-01-01T01:10:51.508Z
+let $factor = ($last - $first) / $period
+every $period {
+  let $cycle = uuid()
+  from_http "https://datasets.tenzir.tools/codex/otel.json.zst" {
+    decompress_zstd
+    demo::agents::read
+  }
+  demo::agents::rotate_ids seed=$cycle
+  demo::agents::replay start=now(), speed=$factor, pace=$pace
+}

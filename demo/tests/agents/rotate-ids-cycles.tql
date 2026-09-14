@@ -1,0 +1,12 @@
+from {seed: "cycle-one"}, {seed: "cycle-two"}
+each {
+  let $seed = $this.seed
+  from {call_id: "exec-12345678-1234-4234-8234-123456789abc"},
+       {call_id: "exec-12345678-1234-4234-8234-123456789abc"}
+  @name = "otel.log"
+  demo::agents::rotate_ids seed=$seed
+  seed = $seed
+}
+summarize records=count(), ids=distinct(call_id), seed
+summarize records=sum(records), ids=collect(ids), consistent=all(ids.length() == 1)
+select records, consistent, different_cycles=ids[0][0] != ids[1][0], prefix_and_uuid=ids[0][0].match_regex("^exec-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$")
