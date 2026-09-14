@@ -1,0 +1,27 @@
+---
+description: Shifts native agent timestamps by one offset without changing durations.
+args:
+  positional:
+    - name: offset
+      type: field
+  named:
+    - name: event
+      type: field
+      default: this
+---
+
+match @name {
+  "otel.log" => {
+    $event.time = $event.time?.time() + $offset
+    $event.observed_time = $event.observed_time?.time() + $offset
+    $event.attributes["event.timestamp"] = $event.attributes["event.timestamp"]?.time() + $offset
+  }
+  "otel.span" => {
+    $event.start_time = $event.start_time.time() + $offset
+    $event.end_time = $event.end_time.time() + $offset
+    $event.events = $event.events?.map(e => {...e, time: e.time.time() + $offset})
+  }
+  _ => {
+    discard
+  }
+}

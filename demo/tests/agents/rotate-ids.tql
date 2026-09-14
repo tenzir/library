@@ -1,0 +1,30 @@
+from {
+  trace_id: "1234567890abcdef1234567890abcdef",
+  span_id: "1234567890abcdef",
+  parent_span_id: "1234567890abcdef",
+  attributes: {
+    tool_use_id: "toolu_original",
+    call_id: "call_original",
+    request_id: "req_original",
+    "session.id": "12345678-1234-4234-8234-123456789abc",
+    output: "toolu_original call_original req_original",
+    arguments: "{\"target\":\"12345678-1234-4234-8234-123456789abc\"}",
+    "user.id": "stable-user",
+  },
+  links: [{trace_id: "1234567890abcdef1234567890abcdef", span_id: "1234567890abcdef"}],
+}
+@name = "otel.log"
+demo::agents::rotate_ids seed="cycle-one"
+this = {
+  schema:@name,
+  trace_format:trace_id.match_regex("^[0-9a-f]{32}$"),
+  span_format:span_id.match_regex("^[0-9a-f]{16}$"),
+  trace_changed:trace_id != "1234567890abcdef1234567890abcdef",
+  parent_matches:span_id == parent_span_id,
+  links_match:links[0].trace_id == trace_id and links[0].span_id == span_id,
+  prefixes:attributes.tool_use_id.starts_with("toolu_") and attributes.call_id.starts_with("call_") and attributes.request_id.starts_with("req_"),
+  output_matches:attributes.output == attributes.tool_use_id + " " + attributes.call_id + " " + attributes.request_id,
+  session_format:attributes["session.id"].match_regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$"),
+  embedded_matches:attributes.arguments.parse_json().target == attributes["session.id"],
+  user_unchanged:attributes["user.id"] == "stable-user"
+}

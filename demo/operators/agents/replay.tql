@@ -1,0 +1,34 @@
+---
+description: Moves a native agent stream to a new timeline and scales event gaps.
+args:
+  named:
+    - name: start
+      type: time
+      default: now()
+    - name: speed
+      type: float
+      default: 1.0
+      description: Replay speed multiplier for timestamps and pacing.
+    - name: pace
+      type: bool
+      default: false
+      description: Wait between events instead of emitting the archive immediately.
+---
+
+this = {
+  event: this,
+  schema: @name,
+  capture_time: time?.time() else attributes?["event.timestamp"]?.time() else observed_time?.time() else start_time?.time(),
+}
+enumerate sequence
+sort capture_time, sequence
+replay_time = capture_time
+timeshift replay_time, start=$start, speed=$speed
+offset = replay_time - capture_time
+@name = schema
+// Apply the same shift to every timestamp, including embedded span events.
+demo::agents::shift_time offset, event=event
+if $pace {
+  delay replay_time
+}
+this = move event

@@ -1,0 +1,64 @@
+---
+description: Rotates correlation IDs and their embedded references in one finite capture.
+args:
+  named:
+    - name: seed
+      type: string
+---
+
+let $separator = "\u001f"
+let $uuid = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+// Inspect correlation keys in native events and JSON embedded in tool payloads.
+row = {schema: @name, json: this.print_json()}
+id_text = row.json.replace_regex("\\\\+\"", "\"")
+ids = id_text.replace_regex("\"(?:trace_id|span_id|parent_span_id|call_id|tool_use_id|client_request_id|communication_id|request_id|sender_thread_id|receiver_thread_id|agent_id|parent_agent_id|(?:gen_ai\\.)?conversation[._]id|session[._]id|thread[._]id|message[._](?:id|uuid)|prompt[._]id)\"\\s*:\\s*\"([A-Za-z0-9_-]+)\"", "\u001f\\1\u001f")
+ids = ids.split($separator).slice(begin=1, stride=2).where(id => not id.match_regex("^[0-]+$"))
+// One null sentinel retains each input row exactly once, including duplicates.
+id = [null, ...ids]
+unroll id
+summarize rows=collect(row if id == null else null), ids=distinct(id)
+
+// Longest first prevents a span ID from matching a prefix of a longer trace ID.
+ids = ids.sort(cmp=(a, b) => a.length_chars() > b.length_chars())
+ids = ids.map(id => {
+  old: id,
+  prefix: "" if id.match_regex($uuid) else (
+    id.replace_regex("^([A-Za-z][A-Za-z0-9]*[_-]).*$", "\\1")
+      if id.match_regex("^[A-Za-z][A-Za-z0-9]*[_-]") else ""
+  ),
+  digest: id.hash_sha256(seed=$seed),
+})
+ids = ids.map(id => {...id, body: id.old.replace_regex("^[A-Za-z][A-Za-z0-9]*[_-]", "") if id.prefix != "" else id.old})
+ids = ids.map(id => {
+  old: id.old,
+  new: id.prefix + (
+    f"{id.digest.slice(end=8)}-{id.digest.slice(begin=8, end=12)}-4{id.digest.slice(begin=13, end=16)}-8{id.digest.slice(begin=17, end=20)}-{id.digest.slice(begin=20, end=32)}"
+      if id.body.match_regex($uuid) else
+    id.digest.slice(end=16) if id.body.length_chars() == 16 else
+    id.digest.slice(end=32) if id.body.length_chars() == 32 else
+    id.digest
+  ),
+})
+registry = ("{" + ids.map(id => id.old.print_json() + ":" + id.new.print_json()).join(",") + "}").parse_json()
+pattern = "(" + ids.map(id => id.old).join("|") + ")" if ids.length() > 0 else ""
+
+each {
+  let $registry = $this.registry
+  let $pattern = $this.pattern
+  from {rows: $this.rows}
+  unroll rows
+  @name = rows.schema
+  if $pattern != "" {
+    // Mark known IDs only; joining preserves JSON escaping and nested lists.
+    rows.json = rows.json.replace_regex($pattern, "\u001f\\1\u001f")
+    rows.json = rows.json.split($separator).map(token => $registry.get(token, token)).join()
+  }
+  this = rows.json.parse_json()
+}
+if attributes?["prompt"]? != null and attributes?["prompt_length"]? != null {
+  attributes.prompt_length = attributes.prompt.length_chars().string()
+}
+if attributes?["response"]? != null and attributes?["response_length"]? != null {
+  attributes.response_length = attributes.response.length_chars()
+}
