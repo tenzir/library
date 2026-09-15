@@ -1,0 +1,59 @@
+---
+description: Detects invisible Unicode formatting characters in agent prompts, responses, and file edits.
+---
+
+// message_context.prompt_text, message_context.response_text, and file_diff
+// only carry content when the source package's `include_content` parameter
+// is enabled. This operator has nothing to scan otherwise.
+//
+// Matches the whole Unicode category "Format" in one pattern: zero-width
+// spaces, bidirectional overrides, and Unicode tag characters, the three
+// families documented for hiding instructions from human review while an
+// LLM still parses them. `match_regex` requires a constant pattern, so this
+// is not user-configurable.
+where "ai_operation" in metadata.profiles
+where message_context.prompt_text? != null or
+      message_context.response_text? != null or
+      file_diff? != null
+prompt_hit = message_context.prompt_text?.match_regex(r"\p{Cf}")
+response_hit = message_context.response_text?.match_regex(r"\p{Cf}")
+diff_hit = file_diff?.match_regex(r"\p{Cf}")
+where prompt_hit or response_hit or diff_hit
+location = "prompt_text" if prompt_hit else "response_text" if response_hit else "file_diff"
+agent = ai_agent.name
+instance = ai_agent.instance_uid
+event_time = time
+this = {
+  time: now(),
+  metadata: {
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+    uid: uuid(),
+    version: "1.9.0",
+    profiles: ["ai_operation"],
+  },
+  category_uid: 2,
+  class_uid: 2004,
+  activity_id: 1,
+  type_uid: 200401,
+  severity_id: 3,
+  status_id: 1,
+  is_alert: true,
+  start_time: event_time,
+  end_time: event_time,
+  finding_info: {
+    uid: uuid(),
+    title: f"Hidden Unicode formatting characters in {agent} {location}",
+    desc: f"Matched Unicode category Format (\\p{{Cf}}) in {location} for agent instance {instance}",
+    analytic: {
+      name: "Hidden Unicode content",
+      uid: "tenzir::detect::agent::hidden_unicode",
+      type_id: 1,
+      version: "1.0",
+    },
+    attacks: [{
+      tactic: {uid: "TA0005", name: "Defense Evasion"},
+      technique: {uid: "T1027", name: "Obfuscated Files or Information"},
+    }],
+  },
+  evidences: [{ai_agent: ai_agent}],
+}
