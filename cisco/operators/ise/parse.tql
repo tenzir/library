@@ -1,0 +1,86 @@
+---
+description: Parses a Cisco ISE message body into a normalized Cisco ISE event.
+args:
+  named:
+    - name: message
+      description: The field holding the ISE message body to parse.
+      type: field
+      default: message
+    - name: category
+      description: |
+        A field that carries the `CISE_<Category>` tag separately from the
+        message body, for shippers that split it out (for example a field
+        holding an application name). When the message body itself begins with
+        the `CISE_<Category>` tag—as it does in the `content` produced by
+        `read_syslog` for the ISE remote-target format—the tag is read from
+        there and this field is not needed.
+      type: field
+      default: null
+---
+
+// Parse the Cisco ISE message body after the syslog envelope:
+//
+//   [CISE_<Category>] <msg_id> <total_seg> <seg_num> <detail_ts> <tz> <seq_num>
+//   <code> <SEVERITY> <Label>: <text>, key=value, key=value, ...
+//
+// `read_syslog` leaves the `CISE_<Category>` tag in `content`; shippers that
+// split it out should pass the separate field via `category=...`.
+let $segment = r"^(?:CISE_\S+\s+)?%{NONNEGINT:message_id}\s+%{NONNEGINT:segment_total}\s+%{NONNEGINT:segment_number}\s+%{GREEDYDATA:remainder}$"
+let $pattern = r"^(?:(?<message_category>CISE_\S+)\s+)?%{NONNEGINT:message_id}\s+%{NONNEGINT:segment_total}\s+%{NONNEGINT:segment_number}\s+(?<detail_timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+%{ISO8601_TIMEZONE:timezone}\s+%{NONNEGINT:sequence_number}\s+%{NONNEGINT:message_code}\s+%{WORD:severity}\s+%{DATA:message_text}(?:,\s+%{GREEDYDATA:attribute_string})?$"
+
+segment = $message.parse_grok($segment, raw=true)
+
+is_continuation = segment.segment_number? != null and segment.segment_number? != "0"
+assert not is_continuation, message="cisco::ise::parse received an un-reassembled continuation segment (segment_number > 0); reassemble multi-segment messages with cisco::ise::reassemble first"
+drop is_continuation
+where segment.segment_number? == "0"
+
+// Attribute values are kept verbatim (`raw=true`): ISE values are identifiers
+// where type inference would corrupt them, such as MAC addresses and session
+// IDs. Orphan fragments have no header, but keeping their attributes is better
+// than dropping the event.
+if segment.remainder.match_regex(r"^\d{4}-\d{2}-\d{2} ") {
+  header = $message.parse_grok($pattern, raw=true)
+  message_id = int(header.message_id)
+  segment_total = int(header.segment_total)
+  segment_number = int(header.segment_number)
+  sequence_number = int(header.sequence_number)
+  message_code = int(header.message_code)
+  severity = header.severity
+  message_text = header.message_text
+  if header.detail_timestamp? != null and header.timezone? != null {
+    timestamp = time(header.detail_timestamp.replace(" ", "T") + header.timezone)
+  }
+  if header.attribute_string? != null {
+    attributes = header.attribute_string.trim_end(", ").parse_kv(field_split=", ", value_split="=", raw=true)
+  }
+  category_tag = $category else header.message_category?
+  incomplete = not (reassembly_complete? else true)
+  drop header
+} else {
+  message_id = int(segment.message_id)
+  segment_total = int(segment.segment_total)
+  segment_number = int(segment.segment_number)
+  severity = null
+  message_text = segment.remainder.trim_end(", ")
+  // Prevent a stray upstream timestamp from becoming the event time.
+  timestamp = null
+  attributes = segment.remainder.trim_end(", ").parse_kv(field_split=", ", value_split="=", raw=true)
+  category_tag = null
+  incomplete = true
+}
+
+raw = $message
+// `parse_kv` keeps only the last `NetworkDeviceGroups` value.
+network_device_groups = $message.split(", ").where(p => p.starts_with("NetworkDeviceGroups=")).map(p => p.replace("NetworkDeviceGroups=", "")).distinct()
+drop $message, segment
+
+if incomplete {
+  @name = "cisco.ise.incomplete"
+} else if category_tag != null and category_tag.starts_with("CISE_") {
+  @name = "cisco.ise." + category_tag.replace("CISE_", "").to_lower()
+} else {
+  @name = "cisco.ise.event"
+}
+
+drop category?, incomplete, category_tag, reassembly_complete?
