@@ -22,8 +22,8 @@ criteria, or `jev::ask` to submit multiple questions in one request. The
 single-question operators return a complete `answer` record and request `usage`.
 `jev::ask` returns an `answers` record and an `answer_list` of answers with question
 IDs. `jev::ask` sorts the list numerically for digit-only IDs, or alphabetically
-otherwise. The windowed example checks counts and IDs before pairing answers
-with events using `zip`.
+otherwise. The windowed example pairs the sorted answers with events using
+`zip` and unrolls each pair.
 
 Configure the endpoint, model, and managed secret for your service, or pass
 `api_key_secret_name=""` for a server without authentication.

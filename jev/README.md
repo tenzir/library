@@ -23,7 +23,7 @@ Select **tenzir-node-staging** in Explorer and paste one of these files unchange
 | [score-commands-batched.tql](examples/score-commands-batched.tql) | Collects command-risk questions in a window, sends one standard request per window, and maps scores back to commands. |
 
 Replace each example's `from` source with your input stream to use your own
-logs. The original data and model usage remain available in the output.
+logs. The original input fields remain available in the output.
 
 The examples return model estimates. They do not discard events, redact values,
 create complete OCSF mappings, or treat a low probability as proof of no PII.
@@ -170,15 +170,14 @@ omit `on=time` to use arrival time and close sessions after wall-clock inactivit
 Each command becomes a question with a unique key within its window. After
 collecting the questions into a record, `jev::ask` sends one request and the
 operator returns `answer_list` sorted by numeric ID. The pipeline pairs it
-with `events` using `zip`.
-It checks the counts and each pair's ID before emitting events. A mismatch
-emits a warning and drops the entire window's result. Five ordered criteria
-produce an expected index from 0 to 4, which the example scales to a 0–100 risk score.
+with `events` using `zip`, then unrolls the pairs. This assumes one answer per
+submitted question. Five ordered criteria produce an expected index from 0
+to 4, which the example scales to a 0–100 risk score.
 The score is an estimate for analyst review, not an OCSF severity identifier.
 
-`request_usage` describes the entire request and is repeated on each output
-event. All questions share one state; assess model quality with this layout
-before using it for decisions.
+The question template is defined once; each command is added to its
+`instructions` inside the window. All questions share one state; assess model
+quality with this layout before using it for decisions.
 
 Windowing, collection, and matching answers back to events happen in your
 pipeline. `jev::ask` sends one request per input event; it does not create
@@ -225,6 +224,6 @@ uvx tenzir-test jev
 The registered [HTTP fixture](fixtures/jev_api.py) supplies deterministic
 responses, dummy secrets, and assertions on actual requests. Tests cover all
 question types, connection overrides, no-key operation, input preservation,
-full and partial question batches, event order, answer lists, guarded pairing,
+full and partial question batches, event order, answer lists, answer matching,
 and question-record construction. They do not call hosted services or assess model accuracy.
 The examples are also exercised against the real local service.
