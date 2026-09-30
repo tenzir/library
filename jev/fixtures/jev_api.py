@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from typing import Any
 
 from tenzir_test import FixtureHandle, current_options, fixture
@@ -20,10 +21,12 @@ from tenzir_test import FixtureHandle, current_options, fixture
 class JevApiOptions:
     secrets: bool = True
     omit_last_batch_result: bool = False
+    response_delay: float = 0
 
 
 @dataclass(frozen=True)
 class JevApiAssertions:
+    max_concurrent_requests: int | None = None
     batch_sizes: list[int] | None = None
     state_batch_sizes: list[int] | None = None
     state_batches: list[list[Any]] | None = None
@@ -76,9 +79,22 @@ def jev_api() -> FixtureHandle:
     config.write_text(config_text, encoding="utf-8")
     requests = []
     lock = threading.Lock()
+    active_requests = 0
+    max_concurrent_requests = 0
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            nonlocal active_requests, max_concurrent_requests
+            with lock:
+                active_requests += 1
+                max_concurrent_requests = max(max_concurrent_requests, active_requests)
+            try:
+                self.respond()
+            finally:
+                with lock:
+                    active_requests -= 1
+
+        def respond(self):
             if self.path not in ("/v1/systemone", "/v1/systemone/batch"):
                 self.send_error(404)
                 return
@@ -90,6 +106,8 @@ def jev_api() -> FixtureHandle:
                     "content_type": self.headers.get("Content-Type"),
                     "body": body,
                 })
+            if options.response_delay:
+                time.sleep(options.response_delay)
             try:
                 answers = {key: _answer(key, question) for key, question in body["questions"].items()}
                 response_body = {
@@ -128,6 +146,11 @@ def jev_api() -> FixtureHandle:
     def assert_test(*, assertions: JevApiAssertions, **_: Any) -> None:
         with lock:
             observed = list(requests)
+            observed_concurrency = max_concurrent_requests
+        if assertions.max_concurrent_requests is not None:
+            assert observed_concurrency == assertions.max_concurrent_requests, (
+                f"maximum concurrent requests: {observed_concurrency}"
+            )
         sizes = sorted(len(request["body"]["questions"]) for request in observed)
         if assertions.batch_sizes is not None:
             assert sizes == sorted(assertions.batch_sizes), f"request sizes: {sizes}"

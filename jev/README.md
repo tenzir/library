@@ -111,7 +111,10 @@ fields and sets `answers` and `usage`, replacing those fields if present.
 
 Supported types are `noul`, `choice`, and `score`. `noul` returns a probability;
 `choice` selects a supplied option; `score` returns an expected index into an
-ordered list of criteria. Independent requests can complete out of order.
+ordered list of criteria. Requests run sequentially within each operator call
+to avoid a concurrent HTTP subpipeline hang observed with Tenzir 6.19. This
+limits throughput to one active request per operator instance; use native
+batching to assess multiple independent states in that request.
 
 For a complete event, snapshot it before adding questions:
 

@@ -26,6 +26,9 @@ Configure the endpoint, model, and managed secret for your service, or pass
 independent states to compatible batch endpoints, and `jev::collect_record`
 builds question records from collected key/value pairs.
 
+Requests run sequentially within each operator instance. Native batching
+assesses multiple independent states in a single request.
+
 Five examples demonstrate OCSF class suggestions, PII assessment of raw logs
 and complete OCSF events, and investigation priority. Predictions support
 review and require validation on your own data before automated decisions.
