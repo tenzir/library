@@ -123,12 +123,12 @@ For multiple questions in one request, use `jev::ask`.
 
 `jev::ask questions, state=raw` submits a question record and one string state
 using the [System One API](https://docs.typesafe.ai/api). It preserves input
-fields and sets `answers`, `array`, and `usage`, replacing those fields if
-present. `answers` is a record keyed by question ID. `array` is a list of the
-same answers, each with an `id` field. It follows response field order, which
-is not guaranteed to match question order. Sort it in the calling pipeline
-when order matters. Mixed answer types share a list schema, so fields absent
-from an answer can appear as nulls in `array`; the `answers` record retains
+fields and sets `answers`, `answer_list`, and `usage`, replacing those fields if
+present. `answers` is a record keyed by question ID. `answer_list` is a list of the
+same answers, each with an `id` field. `jev::ask` sorts the list numerically
+when all IDs contain only digits; otherwise, it sorts by ID alphabetically.
+Mixed answer types share a list schema, so fields absent
+from an answer can appear as nulls in `answer_list`; the `answers` record retains
 the original answer shapes.
 
 Supported types are `noul`, `choice`, and `score`. `noul` returns a probability;
@@ -169,7 +169,8 @@ omit `on=time` to use arrival time and close sessions after wall-clock inactivit
 
 Each command becomes a question with a unique key within its window. After
 collecting the questions into a record, `jev::ask` sends one request and the
-pipeline sorts `array` by numeric ID and pairs it with `events` using `zip`.
+operator returns `answer_list` sorted by numeric ID. The pipeline pairs it
+with `events` using `zip`.
 It checks the counts and each pair's ID before emitting events. A mismatch
 emits a warning and drops the entire window's result. Five ordered criteria
 produce an expected index from 0 to 4, which the example scales to a 0–100 risk score.

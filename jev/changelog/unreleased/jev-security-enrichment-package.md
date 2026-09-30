@@ -20,9 +20,10 @@ jev::noul "Does this log contain personal data?", state=raw
 Use `jev::choice` to select among named options, `jev::score` to assess ordered
 criteria, or `jev::ask` to submit multiple questions in one request. The
 single-question operators return a complete `answer` record and request `usage`.
-`jev::ask` returns an `answers` record and an `array` of answers with question
-IDs. The windowed example sorts the list by numeric ID and checks counts and
-IDs before pairing answers with events using `zip`.
+`jev::ask` returns an `answers` record and an `answer_list` of answers with question
+IDs. `jev::ask` sorts the list numerically for digit-only IDs, or alphabetically
+otherwise. The windowed example checks counts and IDs before pairing answers
+with events using `zip`.
 
 Configure the endpoint, model, and managed secret for your service, or pass
 `api_key_secret_name=""` for a server without authentication.

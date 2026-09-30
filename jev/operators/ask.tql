@@ -1,9 +1,10 @@
 ---
 description: |
   Sends `questions` (a record of typed Jev questions, keyed by id) to Jev in
-  one request and adds `answers`, `array`, and `usage`, replacing those fields
-  if present. `answers` is keyed by question ID; `array` contains the answers
-  with an `id` field, in response field order. All other fields are kept.
+  one request and adds `answers`, `answer_list`, and `usage`, replacing those fields
+  if present. `answers` is keyed by question ID; `answer_list` contains the answers
+  with an `id` field, sorted numerically for digit-only IDs or alphabetically
+  otherwise. All other fields are kept.
   `url`, `model`, and `api_key_secret_name` default to the package constants.
 args:
   positional:
@@ -48,5 +49,10 @@ each parallel=1 {
     read_json raw=true
   }
   this = {...$this.event, answers: answers, usage: usage}
-  array = answers.keys().map(key => {...answers[key], id: key})
+  answer_list = answers.keys().map(key => {...answers[key], id: key})
+  if answer_list.map(answer => answer.id.is_numeric()).all() {
+    answer_list = answer_list.sort(cmp=(a, b) => int(a.id) < int(b.id))
+  } else {
+    answer_list = answer_list.sort(cmp=(a, b) => a.id < b.id)
+  }
 }
