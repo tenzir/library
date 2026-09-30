@@ -34,7 +34,7 @@ Requests run sequentially within each operator instance. To batch events in
 one request, include each event in a separate question and submit the collected
 question record with `jev::ask`.
 
-Five examples demonstrate OCSF class suggestions, PII assessment of raw logs
-and complete OCSF events, investigation priority, and windowed command-risk
+Four examples demonstrate OCSF class suggestions, PII assessment of raw logs,
+investigation priority, and windowed command-risk
 scoring. Predictions support review and require validation on your own data
 before automated decisions.

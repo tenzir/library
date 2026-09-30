@@ -1,7 +1,7 @@
 # Jev
 
 Ask typed security questions through Jev or a compatible System One API. The
-package includes five runnable examples and supports local inference with Laya.
+package includes four runnable examples and supports local inference with Laya.
 
 ## Run locally in Explorer
 
@@ -18,7 +18,6 @@ Select **tenzir-node-staging** in Explorer and paste one of these files unchange
 | --- | --- |
 | [classify-ocsf.tql](examples/classify-ocsf.tql) | Suggests an OCSF class for authentication, HTTP, and unknown logs. Preserves the raw log and option probabilities. |
 | [detect-pii.tql](examples/detect-pii.tql) | Assesses synthetic raw logs containing an email address, a name and phone number, or metrics. |
-| [detect-pii-ocsf.tql](examples/detect-pii-ocsf.tql) | Sends complete OCSF events, asks about email addresses and names, and separately identifies populated identity fields. |
 | [score-investigation-priority.tql](examples/score-investigation-priority.tql) | Estimates investigation priority against three ordered criteria for analyst review. |
 | [score-commands-batched.tql](examples/score-commands-batched.tql) | Collects command-risk questions in a window, sends one standard request per window, and maps scores back to commands. |
 
@@ -75,7 +74,7 @@ let $api_key_secret_name = "JEV_API_KEY"
 
 Set these values in the installed package's `constants.tql` and restart the
 node, or pass `url`, `model`, and `api_key_secret_name` to individual operator
-calls. All five examples work with these settings.
+calls. All four examples work with these settings.
 
 ## Ask one typed question
 
@@ -149,10 +148,8 @@ questions = {email: {
 jev::ask questions, state=print_json(event)
 ```
 
-The OCSF PII example preserves the nested event and lists populated
-`user.email_addr` and `user.full_name` fields independently of model predictions.
-Extend that inventory for your sources. Whole-event model answers do not
-identify exact fields or character spans for redaction.
+Whole-event model answers do not identify exact fields or character spans
+for redaction.
 
 ## Combine questions in one request
 
@@ -204,8 +201,8 @@ Keep model usage in the output. Laya reports `truncated` and
 these fields. Missing metadata does not establish that the whole event was read.
 
 Laya's results depend on input layout, formatting, and context length. The
-raw-log PII example distinguished its positive and negative samples, but the
-complete-event example also produced a false positive for a person name in a
+raw-log PII example distinguished its positive and negative samples. Separate
+whole-event testing produced a false positive for a person name in a
 service-account event at a 0.5 threshold. In a controlled long-event check,
 placing identity fields beyond the context limit reduced the PII score from
 about 0.80 to 0.14. These examples demonstrate integration, not production
