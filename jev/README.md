@@ -123,7 +123,13 @@ For multiple questions in one request, use `jev::ask`.
 
 `jev::ask questions, state=raw` submits a question record and one string state
 using the [System One API](https://docs.typesafe.ai/api). It preserves input
-fields and sets `answers` and `usage`, replacing those fields if present.
+fields and sets `answers`, `array`, and `usage`, replacing those fields if
+present. `answers` is a record keyed by question ID. `array` is a list of the
+same answers, each with an `id` field. It follows response field order, which
+is not guaranteed to match question order. Sort it in the calling pipeline
+when order matters. Mixed answer types share a list schema, so fields absent
+from an answer can appear as nulls in `array`; the `answers` record retains
+the original answer shapes.
 
 Supported types are `noul`, `choice`, and `score`. `noul` returns a probability;
 `choice` selects a supplied option; `score` returns an expected index into an
@@ -163,8 +169,10 @@ omit `on=time` to use arrival time and close sessions after wall-clock inactivit
 
 Each command becomes a question with a unique key within its window. After
 collecting the questions into a record, `jev::ask` sends one request and the
-pipeline maps answers back to commands by key. Five ordered criteria produce
-an expected index from 0 to 4, which the example scales to a 0–100 risk score.
+pipeline sorts `array` by numeric ID and pairs it with `events` using `zip`.
+It checks the counts and each pair's ID before emitting events. A mismatch
+emits a warning and drops the entire window's result. Five ordered criteria
+produce an expected index from 0 to 4, which the example scales to a 0–100 risk score.
 The score is an estimate for analyst review, not an OCSF severity identifier.
 
 `request_usage` describes the entire request and is repeated on each output
@@ -216,6 +224,6 @@ uvx tenzir-test jev
 The registered [HTTP fixture](fixtures/jev_api.py) supplies deterministic
 responses, dummy secrets, and assertions on actual requests. Tests cover all
 question types, connection overrides, no-key operation, input preservation,
-full and partial question batches, answer matching, and question-record
-construction. They do not call hosted services or assess model accuracy.
+full and partial question batches, event order, answer lists, guarded pairing,
+and question-record construction. They do not call hosted services or assess model accuracy.
 The examples are also exercised against the real local service.

@@ -21,6 +21,7 @@ from tenzir_test import FixtureHandle, current_options, fixture
 class JevApiOptions:
     secrets: bool = True
     response_delay: float = 0
+    reverse_answers: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,8 @@ def jev_api() -> FixtureHandle:
                 time.sleep(options.response_delay)
             try:
                 answers = {key: _answer(key, question) for key, question in body["questions"].items()}
+                if options.reverse_answers:
+                    answers = dict(reversed(answers.items()))
                 response_body = {
                     "answers": answers,
                     "usage": {"input_tokens": 10, "output_tokens": 1},

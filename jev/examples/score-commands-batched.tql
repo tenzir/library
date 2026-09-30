@@ -18,19 +18,25 @@ window gap=2s, size=25, on=time {
   }
   enumerate index
 
-  summarize events=collect(this), questions=collect({key: f"q{index}", value: question})
-  // TODO(Nova): use questions=collect_record(f"q{index}", question) in summarize
+  summarize events=collect(this), questions=collect({key: string(index), value: question})
+  // TODO(Nova): use questions=collect_record(string(index), question) in summarize
   // and remove this workaround.
   jev::collect_record questions
 
   jev::ask questions,
     state="Shell commands run by AI coding agents; each question carries its own command."
 
-  unroll events
+  array = array.sort(cmp=(a, b) => int(a.id) < int(b.id))
+  assert array.length() == events.length(), message="Answer count does not match event count"
+  pairs = zip(events, array)
+  assert pairs.map(pair => pair.right.id == string(pair.left.index)).all(),
+    message="Answer IDs do not match event IDs"
+
+  unroll pairs
   this = {
-    ...events,
-    risk_score: int(round(answers[f"q{events.index}"].score * 25)),
-    risk_confidence: answers[f"q{events.index}"].confidence,
+    ...pairs.left,
+    risk_score: int(round(pairs.right.score * 25)),
+    risk_confidence: pairs.right.confidence,
     request_usage: usage,
   }
   drop question, index
