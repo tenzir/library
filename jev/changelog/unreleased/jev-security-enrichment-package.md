@@ -8,17 +8,24 @@ prs:
 created: 2026-09-30T07:54:13.846764Z
 ---
 
-The Jev package adds typed questions about security logs through Jev and compatible System One APIs, including local Laya. Use `jev::ask` to add answers to an event:
+The Jev package adds typed questions about security logs through Jev and
+compatible System One APIs, including local Laya. Ask a single probability
+question with `jev::noul`:
 
 ```tql
 from {raw: "Login succeeded for alex.morgan@example.com"}
-questions = {pii: {
-  type: "noul",
-  instructions: "Does this log contain personal data?",
-}}
-jev::ask questions, state=raw
+jev::noul "Does this log contain personal data?", state=raw
 ```
 
-Configure the endpoint, model, and managed secret for your service, or pass `api_key=""` for a server without authentication. `jev::ask_batch` submits independent states to compatible batch endpoints, and `jev::collect_record` builds question records from collected key/value pairs.
+Use `jev::choice` to select among named options, `jev::score` to assess ordered
+criteria, or `jev::ask` to submit multiple questions in one request. The
+single-question operators return a complete `answer` record and request `usage`.
 
-Four examples demonstrate OCSF class suggestions and PII assessment of raw logs and complete OCSF events. Predictions support review and require validation on your own data before automated decisions.
+Configure the endpoint, model, and managed secret for your service, or pass
+`api_key=""` for a server without authentication. `jev::ask_batch` submits
+independent states to compatible batch endpoints, and `jev::collect_record`
+builds question records from collected key/value pairs.
+
+Five examples demonstrate OCSF class suggestions, PII assessment of raw logs
+and complete OCSF events, and investigation priority. Predictions support
+review and require validation on your own data before automated decisions.

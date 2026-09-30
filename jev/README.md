@@ -1,7 +1,7 @@
 # Jev
 
 Ask typed security questions through Jev or a compatible System One API. The
-package includes four runnable examples and supports local inference with Laya.
+package includes five runnable examples and supports local inference with Laya.
 
 ## Run locally in Explorer
 
@@ -20,6 +20,7 @@ Select **tenzir-node-staging** in Explorer and paste one of these files unchange
 | [classify-ocsf-batched.tql](examples/classify-ocsf-batched.tql) | Classifies the same logs in one native batch request, preserving each log as an independent state. |
 | [detect-pii.tql](examples/detect-pii.tql) | Assesses synthetic raw logs containing an email address, a name and phone number, or metrics. |
 | [detect-pii-ocsf.tql](examples/detect-pii-ocsf.tql) | Sends complete OCSF events, asks about email addresses and names, and separately identifies populated identity fields. |
+| [score-investigation-priority.tql](examples/score-investigation-priority.tql) | Estimates investigation priority against three ordered criteria for analyst review. |
 
 Replace each example's `from` source with your input stream to use your own
 logs. The original data and model usage remain available in the output.
@@ -61,7 +62,49 @@ jev::ask questions,
 argument or passing `null` uses the package default. The examples use the
 configured defaults so they need no connection edits on staging.
 
-## Ask questions about one event
+## Ask one typed question
+
+Use `jev::noul`, `jev::choice`, or `jev::score` to ask one question without
+constructing a question record:
+
+```tql
+from {raw: "Login succeeded for alex.morgan@example.com"}
+jev::noul "Does this log contain personal data?", state=raw
+```
+
+Each operator preserves input fields and sets `answer` to the complete typed
+answer and `usage` to the request usage, replacing those fields if present.
+Existing `questions` and `answers` fields are preserved. Read `answer.noul`
+for the probability, `answer.choice` and `answer.probabilities` for the selected
+option and its distribution, or `answer.score` and `answer.legend` for the
+expected index and ordered criteria.
+
+`choice` takes a record of named options after the instructions:
+
+```tql
+from {raw: "sshd: Failed password for user alex"}
+jev::choice "Which OCSF class best fits this log?",
+  {"3002": "Authentication", unknown: "Insufficient evidence or another class"},
+  state=raw
+```
+
+`score` takes an ordered list of descriptions. Three criteria produce an
+expected index between 0 and 2, which is not an OCSF severity identifier:
+
+```tql
+from {raw: "An administrator disabled audit logging"}
+jev::score "How urgently should an analyst investigate this activity?",
+  ["Routine review", "Investigate soon", "Investigate immediately"],
+  state=raw
+```
+
+Instructions and criteria can be expressions evaluated for each event. All
+three operators reuse `jev::ask` and accept its `state`, `url`, `model`, and
+`api_key` options with the same defaults. Each call sends one request per event.
+To keep an answer across subsequent calls, save it to another field first.
+For multiple questions in one request, use `jev::ask`.
+
+## Ask multiple questions about one event
 
 `jev::ask questions, state=raw` submits a question record and one string state
 using the [System One API](https://docs.typesafe.ai/api). It preserves input
@@ -162,4 +205,4 @@ responses, dummy secrets, and assertions on actual requests. Tests cover all
 question types, connection overrides, no-key operation, input preservation,
 full and partial batches, result matching, malformed result counts, and
 question-record construction. They do not call hosted services or assess model
-accuracy. The four examples are also exercised against the real local service.
+accuracy. The examples are also exercised against the real local service.
