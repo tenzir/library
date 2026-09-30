@@ -30,10 +30,9 @@ create complete OCSF mappings, or treat a low probability as proof of no PII.
 
 ## Configure another installation
 
-Install the `jev/` directory in the node's package directory. For the local
-container setup, copy [local/constants.tql](local/constants.tql) over the
-installed package's `constants.tql`, then restart the node. It contains only
-an endpoint, a model identifier, and a secret name:
+Install the `jev/` directory in the node's package directory. To use local Laya,
+set the installed package's `constants.tql` to the following values, then restart
+the node:
 
 ```tql
 let $url = "http://tenzir-laya:8000/v1/systemone"
