@@ -22,7 +22,7 @@ criteria, or `jev::ask` to submit multiple questions in one request. The
 single-question operators return a complete `answer` record and request `usage`.
 
 Configure the endpoint, model, and managed secret for your service, or pass
-`api_key=""` for a server without authentication. `jev::ask_batch` submits
+`api_key_secret_name=""` for a server without authentication. `jev::ask_batch` submits
 independent states to compatible batch endpoints, and `jev::collect_record`
 builds question records from collected key/value pairs.
 

@@ -37,13 +37,13 @@ the node:
 ```tql
 let $url = "http://tenzir-laya:8000/v1/systemone"
 let $model = "english"
-let $api_key = "LAYA_API_KEY"
+let $api_key_secret_name = "LAYA_API_KEY"
 ```
 
 The hostname must be reachable from the Tenzir process. On a host where both
 processes run directly, use `http://127.0.0.1:8000/v1/systemone` instead.
-For a server without authentication, use `let $api_key = ""`. An empty string
-skips secret lookup and omits the Authorization header.
+For a server without authentication, use `let $api_key_secret_name = ""`.
+An empty string skips secret lookup and omits the Authorization header.
 
 The source package's [constants.tql](constants.tql) defaults to Jev through
 Vercel. The installed local copy uses the settings shown above. You can override
@@ -53,12 +53,12 @@ the connection per call without editing constants:
 jev::ask questions,
   url="http://127.0.0.1:8000/v1/systemone",
   model="english",
-  api_key="",
+  api_key_secret_name="",
   state=raw
 ```
 
-`api_key` names a managed secret; do not put the key value there. Omitting an
-argument or passing `null` uses the package default. The examples use the
+`api_key_secret_name` names a managed secret; do not put the key value there.
+Omitting an argument or passing `null` uses the package default. The examples use the
 configured defaults so they need no connection edits on staging.
 
 ## Ask one typed question
@@ -99,8 +99,8 @@ jev::score "How urgently should an analyst investigate this activity?",
 
 Instructions and criteria can be expressions evaluated for each event. All
 three operators reuse `jev::ask` and accept its `state`, `url`, `model`, and
-`api_key` options with the same defaults. Each call sends one request per event.
-To keep an answer across subsequent calls, save it to another field first.
+`api_key_secret_name` options with the same defaults. Each call sends one request
+per event. To keep an answer across subsequent calls, save it to another field first.
 For multiple questions in one request, use `jev::ask`.
 
 ## Ask multiple questions about one event

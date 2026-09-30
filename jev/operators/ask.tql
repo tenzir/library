@@ -2,7 +2,7 @@
 description: |
   Sends `questions` (a record of typed Jev questions, keyed by id) to Jev in
   one request and adds `answers` and `usage` to the event. All other fields
-  of the event are kept. `url`, `model`, and `api_key` default to the
+  of the event are kept. `url`, `model`, and `api_key_secret_name` default to the
   package constants in `constants.tql`.
 args:
   positional:
@@ -18,9 +18,9 @@ args:
       type: string
       description: The model slug. Defaults to `jev::$model`.
       default: null
-    - name: api_key
+    - name: api_key_secret_name
       type: string
-      description: Name of the secret that holds the API key. Defaults to `jev::$api_key`. Use an empty string to omit authentication.
+      description: Name of the secret that holds the API key. Defaults to `jev::$api_key_secret_name`. Use an empty string to omit authentication.
       default: null
     - name: state
       type: string
@@ -30,7 +30,7 @@ args:
 
 let $jev_url = $url else jev::$url
 let $jev_model = $model else jev::$model
-let $jev_api_key = $api_key else jev::$api_key
+let $jev_api_key_secret_name = $api_key_secret_name else jev::$api_key_secret_name
 
 this = {event: this, questions: $questions, state: $state}
 each {
@@ -41,7 +41,7 @@ each {
   }
 
   from_http $jev_url,
-    headers=({} if $jev_api_key == "" else {Authorization: f"Bearer {secret($jev_api_key)}"}),
+    headers=({} if $jev_api_key_secret_name == "" else {Authorization: f"Bearer {secret($jev_api_key_secret_name)}"}),
     body=$body {
     read_json raw=true
   }
