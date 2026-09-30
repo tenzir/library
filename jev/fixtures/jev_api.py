@@ -88,11 +88,18 @@ def jev_api() -> FixtureHandle:
             with lock:
                 active_requests += 1
                 max_concurrent_requests = max(max_concurrent_requests, active_requests)
+            response = None
             try:
-                self.respond()
+                response = self.respond()
             finally:
+                # A client can start its next request as soon as this write ends.
+                # Account for completion before another handler increments the count.
                 with lock:
-                    active_requests -= 1
+                    try:
+                        if response is not None:
+                            self.wfile.write(response)
+                    finally:
+                        active_requests -= 1
 
         def respond(self):
             if self.path not in ("/v1/systemone", "/v1/systemone/batch"):
@@ -138,7 +145,7 @@ def jev_api() -> FixtureHandle:
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(response)))
             self.end_headers()
-            self.wfile.write(response)
+            return response
 
         def log_message(self, *args):
             pass
