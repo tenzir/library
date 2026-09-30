@@ -1,0 +1,51 @@
+// Uses the endpoint, model, and secret configured for this package installation.
+
+// Synthetic OCSF Authentication events. Replace this source with your events.
+from {
+  activity_id: 1,
+  category_uid: 3,
+  class_uid: 3002,
+  type_uid: 300201,
+  severity_id: 1,
+  time: 1790683200000,
+  metadata: {version: "1.9.0", product: {name: "Synthetic identity provider", vendor_name: "Example"}},
+  service: {name: "ssh"},
+  status_id: 1,
+  user: {type_id: 1, name: "alex.morgan", full_name: "Alex Morgan", email_addr: "alex.morgan@example.com"},
+  src_endpoint: {ip: "192.0.2.10"},
+  message: "User logon succeeded",
+}, {
+  activity_id: 1,
+  category_uid: 3,
+  class_uid: 3002,
+  type_uid: 300201,
+  severity_id: 1,
+  time: 1790683200000,
+  metadata: {version: "1.9.0", product: {name: "Synthetic identity provider", vendor_name: "Example"}},
+  service: {name: "ssh"},
+  status_id: 1,
+  user: {type_id: 4, name: "svc-backup"},
+  src_endpoint: {ip: "192.0.2.10"},
+  message: "Service account logon succeeded",
+}
+
+// Snapshot the complete input before adding questions or detection results.
+this = {event: this}
+questions = {
+  email: {type: "noul", instructions: "Does this event contain a personal email address?"},
+  person: {type: "noul", instructions: "Does this event contain the full name of a person?"},
+}
+jev::ask questions,
+  state=print_json(event)
+
+// Known OCSF identity fields are direct evidence; do not depend on a model score.
+// This shortlist is not an exhaustive inventory of personal-data fields.
+privacy.populated_identity_fields = [
+  "user.email_addr" if (event.user.email_addr? else "") != "" else null,
+  "user.full_name" if (event.user.full_name? else "") != "" else null,
+].where(path => path != null)
+privacy.email_probability = answers.email.noul
+privacy.person_name_probability = answers.person.noul
+// Laya includes truncation details here. Other servers may report only tokens.
+privacy.model_usage = usage
+drop questions, answers, usage

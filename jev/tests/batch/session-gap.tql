@@ -1,0 +1,40 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [2, 2]
+      question_ids: ["0", "1", "2", "3"]
+      questions:
+        - "0":
+            type: "noul"
+            instructions: "First"
+          "1":
+            type: "noul"
+            instructions: "Second"
+        - "2":
+            type: "noul"
+            instructions: "Third"
+          "3":
+            type: "noul"
+            instructions: "Fourth"
+---
+
+from {time: 2026-09-29T12:00:00, message: "First"},
+     {time: 2026-09-29T12:00:01, message: "Second"},
+     {time: 2026-09-29T12:00:05, message: "Third"},
+     {time: 2026-09-29T12:00:06, message: "Fourth"}
+enumerate id
+window gap=2s, size=25, on=time {
+  summarize events=collect(this), questions=collect({
+    key: string(id),
+    value: {type: "noul", instructions: message},
+  })
+  jev::collect_record questions
+  jev::ask questions, url=env("JEV_API_URL")
+  unroll events
+  this = {...events, answer: answers[string(events.id)].noul}
+}
+select id, message, answer
+sort id
+write_ndjson

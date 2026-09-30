@@ -1,0 +1,22 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [1]
+      states: ["{\n  \"class_uid\": 3002,\n  \"user\": {\n    \"email_addr\": \"alex.morgan@example.com\"\n  }\n}"]
+      questions:
+        - email:
+            type: noul
+            instructions: Does this event contain a personal email address?
+---
+
+from {class_uid: 3002, user: {email_addr: "alex.morgan@example.com"}}
+this = {event: this}
+questions = {email: {
+  type: "noul",
+  instructions: "Does this event contain a personal email address?",
+}}
+jev::ask questions, url=env("JEV_API_URL"), state=print_json(event)
+select event, probability=answers.email.noul
+write_ndjson

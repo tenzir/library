@@ -1,0 +1,20 @@
+---
+description: |
+  Replaces a list of `{key, value}` entries with a record. Keys must be
+  strings and values must be JSON-compatible. Keys are sorted; the last
+  value wins for duplicate keys, including null values. An empty list yields
+  `{}`; a null list yields null.
+  This compatibility helper serializes through JSON. Use the built-in
+  `collect_record` function with `--nova` to preserve native TQL types.
+args:
+  positional:
+    - name: entries
+      type: field
+      description: A list of records with `key` and `value` fields. Replaced in place.
+---
+
+// Escape keys as JSON strings and resolve duplicates before parsing. Raw mode
+// keeps strings such as IP addresses and timestamps from changing their type.
+$entries = ("{" + $entries.map(e => e.key).distinct().sort().map(key => (
+  print_json(key) + ":" + print_json($entries.where(e => e.key == key)[-1].value)
+)).join(",") + "}").parse_json(raw=true)

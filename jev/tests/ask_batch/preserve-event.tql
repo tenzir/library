@@ -1,0 +1,68 @@
+---
+{
+  "fixtures": [
+    "jev_api"
+  ],
+  "assertions": {
+    "fixtures": {
+      "jev_api": {
+        "batch_sizes": [
+          3
+        ],
+        "state_batches": [
+          [
+            {
+              "class_uid": 3002,
+              "user": {
+                "email_addr": "alex@example.com"
+              }
+            }
+          ]
+        ],
+        "questions": [
+          {
+            "pii": {
+              "type": "noul",
+              "instructions": "Personal data?"
+            },
+            "class": {
+              "type": "choice",
+              "instructions": "Class?",
+              "criteria": {
+                "3002": "Authentication",
+                "unknown": "Unknown"
+              }
+            },
+            "urgency": {
+              "type": "score",
+              "instructions": "Urgency?",
+              "criteria": [
+                "Routine",
+                "Immediate"
+              ]
+            }
+          }
+        ],
+        "paths": [
+          "/v1/systemone/batch"
+        ]
+      }
+    }
+  }
+}
+---
+
+from {
+  original: "preserved", event: "reserved name", results: ["replace me"], total_usage: {old: 1},
+  payload: {
+    states: [{class_uid: 3002, user: {email_addr: "alex@example.com"}}],
+    questions: {
+      pii: {type: "noul", instructions: "Personal data?"},
+      class: {type: "choice", instructions: "Class?", criteria: {"3002": "Authentication", unknown: "Unknown"}},
+      urgency: {type: "score", instructions: "Urgency?", criteria: ["Routine", "Immediate"]},
+    },
+  },
+}
+jev::ask_batch payload.states, payload.questions, url=env("JEV_API_URL") + "/batch"
+select original, event, states=payload.states, results, total_usage
+write_ndjson

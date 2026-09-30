@@ -1,0 +1,50 @@
+---
+description: |
+  Sends a list of independent states and a shared question record to a batch
+  endpoint. Preserves input fields and sets `results` and `total_usage`.
+  The endpoint must implement Laya's `/v1/systemone/batch` contract and return
+  one result per state in input order. This is not the standard System One
+  endpoint. Collect states with `window` and `summarize` before calling it.
+args:
+  positional:
+    - name: states
+      type: field
+      description: The nonempty list of states to assess independently.
+    - name: questions
+      type: field
+      description: The shared record of typed questions.
+  named:
+    - name: url
+      type: string
+      description: The batch endpoint URL. Defaults to the configured System One URL plus `/batch`.
+      default: null
+    - name: model
+      type: string
+      description: The model identifier. Defaults to `jev::$model`.
+      default: null
+    - name: api_key
+      type: string
+      description: The managed secret name. Use an empty string to omit authentication.
+      default: null
+---
+
+let $jev_url = $url else (jev::$url + "/batch")
+let $jev_model = $model else jev::$model
+let $jev_api_key = $api_key else jev::$api_key
+
+this = {event: this, states: $states, questions: $questions}
+each {
+  let $body = {
+    model: $jev_model,
+    states: $this.states,
+    questions: $this.questions,
+  }
+  from_http $jev_url,
+    headers=({} if $jev_api_key == "" else {Authorization: f"Bearer {secret($jev_api_key)}"}),
+    body=$body {
+    read_json raw=true
+  }
+  assert results.length() == $this.states.length(),
+    message="The batch endpoint returned a different number of results than states"
+  this = {...$this.event, results: results, total_usage: total_usage}
+}
