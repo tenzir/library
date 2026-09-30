@@ -1,7 +1,7 @@
 # Jev
 
 Ask typed security questions through Jev or a compatible System One API. The
-package includes five runnable examples and supports local inference with Laya.
+package includes four runnable examples and supports local inference with Laya.
 
 ## Run locally in Explorer
 
@@ -17,7 +17,6 @@ Select **tenzir-node-staging** in Explorer and paste one of these files unchange
 | Example | What it does |
 | --- | --- |
 | [classify-ocsf.tql](examples/classify-ocsf.tql) | Suggests an OCSF class for authentication, HTTP, and unknown logs. Preserves the raw log and option probabilities. |
-| [classify-ocsf-batched.tql](examples/classify-ocsf-batched.tql) | Classifies the same logs in one native batch request, preserving each log as an independent state. |
 | [detect-pii.tql](examples/detect-pii.tql) | Assesses synthetic raw logs containing an email address, a name and phone number, or metrics. |
 | [detect-pii-ocsf.tql](examples/detect-pii-ocsf.tql) | Sends complete OCSF events, asks about email addresses and names, and separately identifies populated identity fields. |
 | [score-investigation-priority.tql](examples/score-investigation-priority.tql) | Estimates investigation priority against three ordered criteria for analyst review. |
@@ -75,8 +74,7 @@ let $api_key_secret_name = "JEV_API_KEY"
 
 Set these values in the installed package's `constants.tql` and restart the
 node, or pass `url`, `model`, and `api_key_secret_name` to individual operator
-calls. The single-event examples work with these settings. The native batch
-example requires Laya or another server implementing its batch contract.
+calls. All four examples work with these settings.
 
 ## Ask one typed question
 
@@ -130,9 +128,8 @@ Supported types are `noul`, `choice`, and `score`. `noul` returns a probability;
 `choice` selects a supplied option; `score` returns an expected index into an
 ordered list of criteria. Requests run sequentially within each operator call
 to avoid a concurrent HTTP subpipeline hang observed with Tenzir 6.19. This
-limits throughput to one active request per operator instance. You can combine
-questions in one request, or use native independent-state batching with a
-compatible server.
+limits throughput to one active request per operator instance. Combine questions
+in one request to reduce the number of HTTP requests.
 
 For a complete event, snapshot it before adding questions:
 
@@ -185,42 +182,14 @@ stream, put the collection and request inside a bounded `window` so that the
 pipeline does not wait for the stream to end. All questions share one state;
 assess model quality with this layout before using it for decisions.
 
-## Batch independent states with Laya
-
-`jev::ask_batch states, questions` uses Laya's native `/v1/systemone/batch`
-contract: a list of independent states and a shared question record. Its default
-URL is the configured System One URL plus `/batch`; override `url` if needed.
-This extension requires a compatible batch server. It is not a feature of every
-System One endpoint. The hosted Jev API does not document this contract; use
-`jev::ask` for multiple questions there.
-
-The operator preserves input fields and sets `results` and `total_usage`.
-Results follow input-state order, and each result includes its own answers and
-usage. A response with a different result count emits a warning and drops that
-batch, preventing the example from pairing an incomplete response with logs.
-
-The batched example uses `window size=64`, `summarize events=collect(this)`, and
-`states=events.map(e => e.raw)`. It calls the batch operator once and pairs
-`events` with `results` using `zip`. Laya permits at most 64 states per request.
-The three sample logs therefore produce one HTTP request.
-
-A finite source flushes its final partial batch when it ends. To flush partial
-batches on a live stream at five-second boundaries, wrap the count window:
-
-```tql
-window size=5s {
-  window size=64 {
-    // Collect events, ask_batch, and pair results as in the example.
-  }
-}
-```
-
-Inference adds latency after a window closes. The `batch` operator controls
-internal buffering and does not itself combine API requests.
+Windowing, collection, and matching answers back to events happen in your
+pipeline. `jev::ask` sends one request per input event; it does not create
+windows or buffer events into groups.
 
 ## Build dynamic question records
 
 `jev::collect_record entries` converts a list of `{key, value}` records in place.
+It is a non-Nova workaround for the built-in `collect_record` function.
 Keys must be strings; values must be JSON-compatible. Keys are sorted, the last
 value wins for duplicates, and explicit nulls are preserved. Empty lists become
 `{}`; null lists remain null. Do not submit empty question records to the API.
@@ -245,10 +214,9 @@ placing identity fields beyond the context limit reduced the PII score from
 about 0.80 to 0.14. These examples demonstrate integration, not production
 accuracy. Calibrate decisions on labeled events from your sources.
 
-The batch example keeps each log in `state`. Moving logs into question
-instructions to fit unrelated events into one standard request changed the
-model's behavior in testing. Native independent-state batching matched the
-single-event results on the tested inputs.
+Moving logs from `state` into question instructions changed Laya's behavior
+in testing. Validate batched question results separately from single-event
+results on your chosen model.
 
 ## Test the package
 
@@ -259,6 +227,6 @@ uvx tenzir-test jev
 The registered [HTTP fixture](fixtures/jev_api.py) supplies deterministic
 responses, dummy secrets, and assertions on actual requests. Tests cover all
 question types, connection overrides, no-key operation, input preservation,
-full and partial batches, result matching, malformed result counts, and
-question-record construction. They do not call hosted services or assess model
-accuracy. The examples are also exercised against the real local service.
+full and partial question batches, answer matching, and question-record
+construction. They do not call hosted services or assess model accuracy.
+The examples are also exercised against the real local service.

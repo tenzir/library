@@ -22,13 +22,14 @@ criteria, or `jev::ask` to submit multiple questions in one request. The
 single-question operators return a complete `answer` record and request `usage`.
 
 Configure the endpoint, model, and managed secret for your service, or pass
-`api_key_secret_name=""` for a server without authentication. `jev::ask_batch` submits
-independent states to compatible batch endpoints, and `jev::collect_record`
-builds question records from collected key/value pairs.
+`api_key_secret_name=""` for a server without authentication.
+`jev::collect_record` builds question records from collected key/value pairs
+as a non-Nova workaround for the built-in `collect_record` function.
 
-Requests run sequentially within each operator instance. Native batching
-assesses multiple independent states in a single request.
+Requests run sequentially within each operator instance. To batch events in
+one request, include each event in a separate question and submit the collected
+question record with `jev::ask`.
 
-Five examples demonstrate OCSF class suggestions, PII assessment of raw logs
+Four examples demonstrate OCSF class suggestions, PII assessment of raw logs
 and complete OCSF events, and investigation priority. Predictions support
 review and require validation on your own data before automated decisions.
