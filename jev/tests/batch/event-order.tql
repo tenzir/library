@@ -1,0 +1,31 @@
+---
+fixtures:
+  - jev_api:
+      reverse_answers: true
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [100, 100, 1]
+---
+
+from {time: 2026-09-30T12:00:00, message: "Synthetic command event"}
+repeat 201
+enumerate index
+
+window gap=2s, size=100, on=time {
+  summarize events=collect(this), questions=collect({
+    key: string(index),
+    value: {type: "noul", instructions: message},
+  })
+  jev::collect_record questions
+  jev::ask questions, url=env("JEV_API_URL")
+
+  pairs = zip(events, answer_list)
+  unroll pairs
+  this = {...pairs.left, answer: pairs.right.noul}
+}
+
+enumerate output_index
+summarize events=count(), order_preserved=all(index == output_index),
+  answers_matched=all(answer == index / 1000.0)
+write_ndjson

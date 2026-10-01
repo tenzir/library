@@ -1,0 +1,37 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [2]
+      questions:
+        - ocsf:
+            type: choice
+            instructions: Class?
+            criteria:
+              "3002": Authentication
+              unknown: Unknown
+          severity:
+            type: choice
+            instructions: Severity?
+            criteria:
+              "1": Informational
+              "0": Unknown
+---
+
+// Keep different criteria schemas in separate lists, then merge the records.
+from {events: [{id: "ocsf"}]}
+class_questions = events.map(e => ({
+  key: e.id,
+  value: {type: "choice", instructions: "Class?", criteria: {"3002": "Authentication", unknown: "Unknown"}},
+}))
+severity_questions = [{
+  key: "severity",
+  value: {type: "choice", instructions: "Severity?", criteria: {"1": "Informational", "0": "Unknown"}},
+}]
+jev::collect_record class_questions
+jev::collect_record severity_questions
+questions = {...class_questions, ...severity_questions}
+jev::ask questions, url=env("JEV_API_URL")
+select class_choice=answers.ocsf.choice, severity_choice=answers.severity.choice
+write_ndjson

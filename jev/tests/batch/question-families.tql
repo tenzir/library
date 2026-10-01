@@ -1,0 +1,58 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [2, 2, 2, 1, 1, 1]
+      question_ids: ["0", "0", "0", "1", "1", "1", "2", "2", "2"]
+---
+
+// Saving one family's answers must survive the next ask overwriting answers.
+from {raw: "Login succeeded for alex.morgan@example.com", source: "auth"}
+repeat 3
+enumerate id
+window size=2 {
+  summarize events=collect(this)
+  questions = events.map(e => ({
+    key: string(e.id),
+    value: {
+      type: "choice",
+      instructions: {log: e.raw, question: "Which OCSF class fits?"},
+      criteria: {"3002": "Authentication", unknown: "Unknown"},
+    },
+  }))
+  jev::collect_record questions
+  jev::ask questions, url=env("JEV_API_URL")
+  class_answers = answers
+
+  questions = events.map(e => ({
+    key: string(e.id),
+    value: {
+      type: "choice",
+      instructions: {log: e.raw, question: "What is the severity?"},
+      criteria: {"1": "Informational", "0": "Unknown"},
+    },
+  }))
+  jev::collect_record questions
+  jev::ask questions, url=env("JEV_API_URL")
+  severity_answers = answers
+
+  questions = events.map(e => ({
+    key: string(e.id),
+    value: {
+      type: "noul",
+      instructions: {log: e.raw, question: "Does this log contain personal data?"},
+    },
+  }))
+  jev::collect_record questions
+  jev::ask questions, url=env("JEV_API_URL")
+  unroll events
+  this = {
+    ...events,
+    class_uid: int(class_answers[string(events.id)].choice),
+    severity_id: int(severity_answers[string(events.id)].choice),
+    pii_probability: answers[string(events.id)].noul,
+  }
+}
+sort id
+write_ndjson

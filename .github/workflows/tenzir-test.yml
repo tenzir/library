@@ -68,12 +68,14 @@ jobs:
         shell: bash
         run: |
           packages="${{ steps.touched.outputs.packages }}"
+          # Select package projects so their fixtures and hooks are loaded.
+          # A root-project --match filter only selects files, not their project.
           if [[ "$packages" == "." ]]; then
-            uvx tenzir-test .
-          else
-            args=()
-            for package in $packages; do
-              args+=(--match "$package/*")
+            package_dirs=()
+            for manifest in */package.yaml; do
+              package_dirs+=("${manifest%/package.yaml}")
             done
-            uvx tenzir-test . "${args[@]}"
+          else
+            read -r -a package_dirs <<< "$packages"
           fi
+          uvx tenzir-test "${package_dirs[@]}"

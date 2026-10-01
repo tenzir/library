@@ -1,0 +1,54 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [3]
+      questions:
+        - pii:
+            type: "noul"
+            instructions: "Does this log contain personal data?"
+          ocsf:
+            type: "choice"
+            instructions:
+              message: "Login succeeded for alex.morgan@example.com."
+              question: "Which OCSF class fits this log?"
+            criteria:
+              authentication: "Authentication"
+              http_activity: "HTTP Activity"
+          urgency:
+            type: "score"
+            instructions: "How urgent is this security event?"
+            criteria:
+              - "Routine"
+              - "Soon"
+              - "Immediate"
+---
+
+from {
+  questions: {
+    pii: {
+      type: "noul",
+      instructions: "Does this log contain personal data?",
+    },
+    ocsf: {
+      type: "choice",
+      instructions: {
+        message: "Login succeeded for alex.morgan@example.com.",
+        question: "Which OCSF class fits this log?",
+      },
+      criteria: {
+        authentication: "Authentication",
+        http_activity: "HTTP Activity",
+      },
+    },
+    urgency: {
+      type: "score",
+      instructions: "How urgent is this security event?",
+      criteria: ["Routine", "Soon", "Immediate"],
+    },
+  },
+}
+jev::ask questions, url=env("JEV_API_URL")
+select answers, usage
+write_ndjson

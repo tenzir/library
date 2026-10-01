@@ -1,0 +1,59 @@
+---
+description: |
+  Sends `questions` (a record of typed Jev questions, keyed by id) to Jev in
+  one request and adds `answers`, `answer_list`, and `usage`, replacing those fields
+  if present. `answers` is keyed by question ID; `answer_list` contains the answers
+  with an `id` field, sorted numerically for digit-only IDs or alphabetically
+  otherwise. All other fields are kept.
+  `url`, `model`, and `api_key_secret_name` default to the package constants.
+args:
+  positional:
+    - name: questions
+      type: field
+      description: The record of questions to ask.
+  named:
+    - name: url
+      type: string
+      description: The System One endpoint. Defaults to `jev::$url`.
+      default: null
+    - name: model
+      type: string
+      description: The model slug. Defaults to `jev::$model`.
+      default: null
+    - name: api_key_secret_name
+      type: string
+      description: Name of the secret that holds the API key. Defaults to `jev::$api_key_secret_name`. Use an empty string to omit authentication.
+      default: null
+    - name: state
+      type: string
+      description: Shared context for the questions, evaluated for each input event.
+      default: "Each question carries its own data."
+---
+
+let $jev_url = $url else jev::$url
+let $jev_model = $model else jev::$model
+let $jev_api_key_secret_name = $api_key_secret_name else jev::$api_key_secret_name
+
+this = {event: this, questions: $questions, state: $state}
+// Tenzir 6.19 can hang when HTTP subpipelines finish concurrently.
+each parallel=1 {
+  let $body = {
+    model: $jev_model,
+    state: $this.state,
+    questions: $this.questions,
+  }
+
+  from_http $jev_url,
+    headers=({} if $jev_api_key_secret_name == "" else {Authorization: f"Bearer {secret($jev_api_key_secret_name)}"}),
+    body=$body {
+    read_json raw=true
+  }
+  this = {...$this.event, answers: answers, usage: usage}
+  // TODO(TNZ-1410): use the proposed inverse of collect_record once available.
+  answer_list = answers.keys().map(key => {...answers[key], id: key})
+  if answer_list.map(answer => answer.id.is_numeric()).all() {
+    answer_list = answer_list.sort(cmp=(a, b) => int(a.id) < int(b.id))
+  } else {
+    answer_list = answer_list.sort(cmp=(a, b) => a.id < b.id)
+  }
+}

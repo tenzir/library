@@ -1,0 +1,28 @@
+---
+fixtures: [jev_api]
+assertions:
+  fixtures:
+    jev_api:
+      batch_sizes: [1, 1]
+      states: ["Context: Login succeeded", "Context: DNS query completed"]
+      questions:
+        - check:
+            type: "noul"
+            instructions: "Does this log contain personal data?"
+        - check:
+            type: "noul"
+            instructions: "Does this log contain personal data?"
+---
+
+from {id: 1, state: "keep state", payload: {message: "Login succeeded"}},
+     {id: 2, state: "keep state too", payload: {message: "DNS query completed"}}
+questions = {
+  check: {
+    type: "noul",
+    instructions: "Does this log contain personal data?",
+  },
+}
+jev::ask questions, url=env("JEV_API_URL"), state=f"Context: {payload.message}"
+select id, state, message=payload.message, answers
+sort id
+write_ndjson
