@@ -34,14 +34,12 @@ if $event.dns.has("queries") {
   suricata::ocsf::map_dns_query $event, $ocsf
 }
 
-if $event.dns.has("answers") {
-  $ocsf.answers = (move $event.dns.answers).map(answer => {
-    hostname: answer.rrname?,
-    rdata: answer.rdata.string(),
-    type: answer.rrtype,
-    ttl: answer.ttl,
-  })
-}
+$ocsf.answers = (move $event.dns.answers?).map(answer => {
+  hostname: answer.rrname?,
+  rdata: answer.rdata.string(),
+  type: answer.rrtype,
+  ttl: answer.ttl,
+})
 
 // Older EVE DNS logs expose one question or answer rather than arrays.
 if $ocsf.query?.hostname? == null and $event.dns.type? == "request" {
@@ -92,29 +90,23 @@ if $event.dns.has("rcode") {
   $ocsf.status_id = 0
 }
 
-if $event.dns.authorities? != null {
-  $ocsf.authority = (move $event.dns.authorities).map(record => {
-    hostname: record.rrname?,
-    rdata: record.rdata.string(),
-    type: record.rrtype,
-    ttl: record.ttl?,
-  })
-}
-if $event.dns.additionals? != null {
-  $event._additional_records = (move $event.dns.additionals).map(record => {
-    hostname: record.rrname?,
-    rdata: record.rdata.string(),
-    type: record.rrtype,
-    ttl: record.ttl?,
-  })
-}
+$ocsf.authority = (move $event.dns.authorities?).map(record => {
+  hostname: record.rrname?,
+  rdata: record.rdata.string(),
+  type: record.rrtype,
+  ttl: record.ttl?,
+})
+$event._additional_records = (move $event.dns.additionals?).map(record => {
+  hostname: record.rrname?,
+  rdata: record.rdata.string(),
+  type: record.rrtype,
+  ttl: record.ttl?,
+})
 
-if $event._additional_records? != null {
-  if $event.dns.type? == "request" {
-    $ocsf.query_additional.records = move $event._additional_records
-  } else {
-    $ocsf.response_additional.records = move $event._additional_records
-  }
+if $event.dns.type? == "request" {
+  $ocsf.query_additional.records = move $event._additional_records
+} else {
+  $ocsf.response_additional.records = move $event._additional_records
 }
 
 // EVE exposes both the raw header and selected boolean flags. Preserve the
