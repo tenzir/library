@@ -37,9 +37,11 @@ if $ocsf.process.name? != null {
   }
 }
 
-// param1 = application name (used when the full path is absent)
-// param3 = application timestamp              \
-// param5 = process start time                  | left in unmapped; no OCSF target
-// param6 = hang duration (ms)                  |
-// param7 = hang flags                          |
-// param8 = WER report ID                      /
+if $windows.EventData.param5? != null {
+  // Hexadecimal FILETIME: 100 ns ticks since 1601-01-01.
+  $ocsf.process.created_time = from_epoch(
+    (int(move $windows.EventData.param5, base=16) - 116444736000000000) * 100ns,
+  )
+}
+// param3 is a PE timestamp, not a process start time.
+// param6/param7/param8 are the hang duration, hang flags, and WER report ID.

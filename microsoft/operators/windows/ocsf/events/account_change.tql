@@ -42,7 +42,19 @@ $ocsf.user = {
   domain: move $windows.EventData.TargetDomainName,
 }
 
-// EID 4720 carries many account-attribute fields (DisplayName, HomeDirectory,
+// Do not interpret Windows message-resource tokens as real account values.
+if $windows.EventData.DisplayName? != null and
+   not $windows.EventData.DisplayName.starts_with("%%") and
+   $windows.EventData.DisplayName != "-" {
+  $ocsf.user.display_name = move $windows.EventData.DisplayName
+}
+if $windows.EventData.UserPrincipalName? != null and
+   not $windows.EventData.UserPrincipalName.starts_with("%%") and
+   $windows.EventData.UserPrincipalName != "-" {
+  $ocsf.user.uid_alt = move $windows.EventData.UserPrincipalName
+}
+
+// EID 4720 carries many account-attribute fields (HomeDirectory,
 // UserAccountControl flags, etc.) containing either real values or Windows
-// sentinel strings ("%%1793" = not set, "%%1794" = never).  All stay in
+// sentinel strings ("%%1793" = not set, "%%1794" = never). These stay in
 // unmapped; downstream enrichment can decode %%NNNN message IDs if needed.

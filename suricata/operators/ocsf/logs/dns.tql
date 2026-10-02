@@ -10,7 +10,7 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-if $event.dns.has("answers") {
+if $event.dns.type? == "response" or $event.dns.has("answers") {
   $ocsf.activity_id = 2
 } else if $event.dns.has("queries") {
   $ocsf.activity_id = 1
@@ -20,7 +20,9 @@ if $event.dns.has("answers") {
 
 
 $ocsf.class_uid = 4003
-$ocsf.opcode_id = 0
+$ocsf.opcode_id = move $event.dns.opcode? else 0
+$ocsf.transaction_id = move $event.dns.id?
+$ocsf.metadata.log_version = (move $event.dns.version?).string()
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
@@ -33,11 +35,28 @@ if $event.dns.has("queries") {
 }
 
 if $event.dns.has("answers") {
-  $ocsf.answers = ($event.dns.answers).map(answer => {
-    rdata: answer.rdata,
+  $ocsf.answers = (move $event.dns.answers).map(answer => {
+    hostname: answer.rrname?,
+    rdata: answer.rdata.string(),
     type: answer.rrtype,
     ttl: answer.ttl,
   })
+}
+
+// Older EVE DNS logs expose one question or answer rather than arrays.
+if $ocsf.query?.hostname? == null and $event.dns.type? == "request" {
+  $ocsf.query = {
+    hostname: move $event.dns.rrname?,
+    type: move $event.dns.rrtype?,
+  }
+}
+if $ocsf.answers? == null and $event.dns.rdata? != null {
+  $ocsf.answers = [{
+    hostname: move $event.dns.rrname?,
+    type: move $event.dns.rrtype?,
+    rdata: (move $event.dns.rdata).string(),
+    ttl: move $event.dns.ttl?,
+  }]
 }
 
 if $event.dns.has("rcode") {
@@ -72,6 +91,51 @@ if $event.dns.has("rcode") {
 } else {
   $ocsf.status_id = 0
 }
+
+if $event.dns.authorities? != null {
+  $ocsf.authority = (move $event.dns.authorities).map(record => {
+    hostname: record.rrname?,
+    rdata: record.rdata.string(),
+    type: record.rrtype,
+    ttl: record.ttl?,
+  })
+}
+if $event.dns.additionals? != null {
+  $event._additional_records = (move $event.dns.additionals).map(record => {
+    hostname: record.rrname?,
+    rdata: record.rdata.string(),
+    type: record.rrtype,
+    ttl: record.ttl?,
+  })
+}
+
+if $event._additional_records? != null {
+  if $event.dns.type? == "request" {
+    $ocsf.query_additional.records = move $event._additional_records
+  } else {
+    $ocsf.response_additional.records = move $event._additional_records
+  }
+}
+
+// EVE exposes both the raw header and selected boolean flags. Preserve the
+// raw header for reserved bits; normalize only OCSF's six defined flags.
+$event._dns_flags = int($event.dns.flags?, base=16)
+$ocsf.flag_ids = [
+  1 if ($event.dns.aa? else bit_and($event._dns_flags, 1024) != 0),
+  2 if ($event.dns.tc? else bit_and($event._dns_flags, 512) != 0),
+  3 if ($event.dns.rd? else bit_and($event._dns_flags, 256) != 0),
+  4 if ($event.dns.ra? else bit_and($event._dns_flags, 128) != 0),
+  5 if ($event.dns.ad? else bit_and($event._dns_flags, 32) != 0),
+  6 if ($event.dns.cd? else bit_and($event._dns_flags, 16) != 0),
+].collect()
+drop $event._dns_flags,
+     $event.dns.aa?, $event.dns.tc?, $event.dns.rd?, $event.dns.ra?,
+     $event.dns.ad?, $event.dns.cd?
+
+if $event.dns.type? in ["request", "response"] {
+  drop $event.dns.type
+}
+drop $event.dns.qr?
 
 // --- Finalize ---------------------------------
 

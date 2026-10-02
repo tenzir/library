@@ -1,0 +1,16 @@
+// PKINIT certificate fields have an OCSF home; pre-auth mechanism codes do not.
+from_file f"{env("TENZIR_INPUTS")}/eid-4771.xml" { read_all }
+win = data.parse_winlog()
+win.EventData.CertIssuerName = "CN=Example CA"
+win.EventData.CertSerialNumber = "01AB"
+win.EventData.CertThumbprint = "0123456789abcdef0123456789abcdef01234567"
+variants = [true, false]
+unroll variants
+if not variants {
+  win.EventData.CertIssuerName = ""
+}
+microsoft::windows::ocsf::normalize win
+ocsf_cast
+select auth_protocol_id, service, certificate?, authentication_token,
+  preauth_type=unmapped.EventData.PreAuthType,
+  certificate_residue=unmapped.EventData.CertThumbprint?

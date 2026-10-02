@@ -244,6 +244,30 @@ match $ocsf.metadata.event_code {
   }
 }
 
+// The top-level device describes the client, not the Okta server. Findings
+// carry this endpoint inside their single evidence; Base Event has no endpoint.
+if $ocsf.class_uid in [3001, 3002, 3004, 3006, 6003, 2004] {
+  $ocsf._endpoint = $ocsf.evidences[0].src_endpoint if $ocsf.class_uid == 2004 else $ocsf.src_endpoint
+  if $ocsf._endpoint.uid? == null and $event.device?.id? != null {
+    $ocsf._endpoint.uid = move $event.device.id
+  }
+  if $event.device?.name? != null {
+    $ocsf._endpoint.name = move $event.device.name
+  }
+  if $event.device?.osVersion? != null {
+    $ocsf._endpoint.os.version = move $event.device.osVersion
+  }
+  if $ocsf.class_uid == 2004 {
+    $ocsf.evidences = $ocsf.evidences.map(evidence => {
+      ...evidence,
+      src_endpoint: $ocsf._endpoint,
+    })
+    drop $ocsf._endpoint
+  } else {
+    $ocsf.src_endpoint = move $ocsf._endpoint
+  }
+}
+
 drop $event.severity?
 drop $event.legacyEventType?
 drop $event.debugContext?.debugData?.threatSuspected?
