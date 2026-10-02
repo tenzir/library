@@ -34,6 +34,7 @@ $ocsf.tls = {
 }
 
 $ocsf.tls.certificate = {
+  created_time: move $event.tls.notbefore?,
   expiration_time: move $event.tls.notafter?,
   issuer: move $event.tls.issuerdn?,
   serial_number: move $event.tls.serial?,
@@ -47,6 +48,17 @@ if $event.tls.has("fingerprint") {
   }]
   drop $event.tls.fingerprint
 }
+
+if $event.tls.ja4? != null {
+  $ocsf.ja4_fingerprint_list = [{
+    type_id: 1,
+    value: move $event.tls.ja4,
+  }]
+}
+$ocsf.tls.certificate.sans = (move $event.tls.subjectaltname?).map(name => {
+  name: name,
+  type: "DNSName",
+})
 
 // --- OCSF: primary attributes -----------------
 

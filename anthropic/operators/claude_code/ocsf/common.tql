@@ -10,7 +10,10 @@ args:
       description: The destination OCSF event.
 ---
 
-let $transports = {grpc: "OTLP/gRPC", http: "OTLP/HTTP"}
+let $transports = {
+  grpc: "OTLP/gRPC",
+  http: "OTLP/HTTP",
+}
 let $decisions = {
   accept: 1, approved: 1, approved_for_session: 1, allow: 1, allowed: 1,
   deny: 2, denied: 2, reject: 2, rejected: 2, abort: 2, aborted: 2,
@@ -37,6 +40,14 @@ $ocsf.metadata = {
   version: "1.9.0",
 }
 
+// Instrumentation-scope version is the logger version, not the application
+// or event-schema version.
+$ocsf.metadata.loggers = [{
+  name: move $claude_code.scope.name?,
+  version: move $claude_code.scope.version?,
+  log_provider: "OpenTelemetry",
+}]
+
 $ocsf.time = $claude_code.time? else $claude_code.start_time? else $claude_code.observed_time?
 // Top-level timing describes aggregates; discrete events use time and trace timing.
 if $claude_code.signal? == "metric" {
@@ -59,7 +70,9 @@ $ocsf._mapping.policy_decision = not $ocsf._mapping.human_decision and $ocsf._ma
 $ocsf._mapping.authorizations = [{
   decision: $claude_code.decision?,
   // The source identifies a control type, not a named rule.
-  policy: {type: $claude_code.decision_source} if $ocsf._mapping.policy_decision else null,
+  policy: {
+    type: $claude_code.decision_source,
+  } if $ocsf._mapping.policy_decision else null,
 }] if $claude_code.decision? != null else null
 
 // Denials merit Low severity; a missing-file probe remains Informational.
@@ -86,7 +99,9 @@ $ocsf.status_detail = $claude_code.error? else
                             $claude_code.source_status?
 
 $ocsf._mapping.actor = {
-  application: {name: $claude_code.resource.service_name},
+  application: {
+    name: $claude_code.resource.service_name,
+  },
   session: {
     uid: $claude_code.session_id?,
     terminal: $claude_code.terminal_type?,

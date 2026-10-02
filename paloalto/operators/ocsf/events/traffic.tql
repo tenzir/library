@@ -26,6 +26,7 @@ $ocsf.activity_id = $activities[$event.threat_content_type?]? else 6
 $ocsf.type_uid = 400100 + ($activities[$event.threat_content_type?]? else 6)
 drop $ocsf.activity_name?
 $ocsf.status_id = 1
+$ocsf.status_detail = move $event.session_end_reason?
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.initiator_id = 1
 $ocsf.app_name = move $event.application?
@@ -36,6 +37,9 @@ $ocsf.src_endpoint = {
   interface_name: move $event.inbound_interface?,
   hostname: move $event.source_hostname?,
   mac: move $event.source_mac_address?,
+  owner: {
+    name: move $event.source_user?,
+  },
   proxy_endpoint: {
     ip: move $event.nat_source_ip?,
     port: move $event.nat_source_port?,
@@ -48,11 +52,15 @@ $ocsf.dst_endpoint = {
   interface_name: move $event.outbound_interface?,
   hostname: move $event.destination_hostname?,
   mac: move $event.destination_mac_address?,
+  owner: {
+    name: move $event.destination_user?,
+  },
   proxy_endpoint: {
     ip: move $event.nat_destination_ip?,
     port: move $event.nat_destination_port?,
   },
 }
+paloalto::ocsf::endpoint_locations $event, $ocsf
 $ocsf.connection_info = {
   direction_id: 0,
   protocol_name: move $event.protocol?,

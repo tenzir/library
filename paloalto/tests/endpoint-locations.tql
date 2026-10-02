@@ -1,0 +1,39 @@
+from {
+  type: "TRAFFIC",
+  threat_content_type: "end",
+  generated_time: 2025-01-01,
+  serial_number: "firewall-1",
+  source_address: 192.0.2.1,
+  destination_address: 198.51.100.1,
+  source_country: "United States",
+  destination_country: "de",
+  source_user: "alice",
+  destination_user: "bob",
+  sequence_number: 42,
+  session_end_reason: "aged-out",
+  custom: "keep",
+}
+// Consume equal aliases but preserve conflicting location data.
+locations = [
+  {
+    country: "United States",
+    location: "United States",
+  },
+  {
+    country: "United States",
+    location: "Canada",
+  },
+  {
+    country: null,
+    location: "United States",
+  },
+]
+unroll locations
+source_country = move locations.country
+source_location = move locations.location
+drop locations
+source = this
+paloalto::ocsf::map source, ocsf
+this = ocsf
+ocsf_cast
+select metadata.sequence, status_detail, src_endpoint, dst_endpoint, unmapped

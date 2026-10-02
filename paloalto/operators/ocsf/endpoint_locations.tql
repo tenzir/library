@@ -1,0 +1,31 @@
+---
+description: Maps PAN-OS endpoint locations, distinguishing codes from country names.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event.
+    - name: ocsf
+      type: field
+      description: The OCSF output field.
+---
+
+$ocsf._source_location = $event.source_country? else $event.source_location?
+$ocsf._destination_location = $event.destination_country? else $event.destination_location?
+drop $event.source_country?, $event.destination_country?
+// Structured inputs can carry both aliases. Consume only equal aliases.
+if $event.source_location? == $ocsf._source_location {
+  drop $event.source_location?
+}
+if $event.destination_location? == $ocsf._destination_location {
+  drop $event.destination_location?
+}
+$ocsf.src_endpoint.location = {
+  country: $ocsf._source_location.to_upper() if $ocsf._source_location.length_chars() == 2,
+  desc: $ocsf._source_location if $ocsf._source_location.length_chars() != 2,
+}
+$ocsf.dst_endpoint.location = {
+  country: $ocsf._destination_location.to_upper() if $ocsf._destination_location.length_chars() == 2,
+  desc: $ocsf._destination_location if $ocsf._destination_location.length_chars() != 2,
+}
+drop $ocsf._source_location, $ocsf._destination_location

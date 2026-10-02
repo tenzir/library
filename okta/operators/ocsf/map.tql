@@ -36,7 +36,9 @@ $ocsf.metadata = {
   },
   profiles: ["cloud"],
   version: "1.9.0",
-  loggers: [{event_uid: move $event.uuid?}],
+  loggers: [{
+    event_uid: move $event.uuid?,
+  }],
 }
 
 $ocsf.http_request = {
@@ -110,13 +112,35 @@ if $event.client.geographicalContext? != null {
 // Okta reports "Mac OS X (iPhone)" for iPhones, so check for mobile OS
 // indicators before the generic "Mac" match.
 let $os_type_map = {
-  iOS: {name: "iOS", type_id: 301},
-  iPadOS: {name: "iPadOS", type_id: 302},
-  Android: {name: "Android", type_id: 201},
-  Windows: {name: "Windows", type_id: 100},
-  macOS: {name: "macOS", type_id: 300},
-  Linux: {name: "Linux", type_id: 200},
-  ChromeOS: {name: "ChromeOS", type: "ChromeOS", type_id: 99},
+  iOS: {
+    name: "iOS",
+    type_id: 301,
+  },
+  iPadOS: {
+    name: "iPadOS",
+    type_id: 302,
+  },
+  Android: {
+    name: "Android",
+    type_id: 201,
+  },
+  Windows: {
+    name: "Windows",
+    type_id: 100,
+  },
+  macOS: {
+    name: "macOS",
+    type_id: 300,
+  },
+  Linux: {
+    name: "Linux",
+    type_id: 200,
+  },
+  ChromeOS: {
+    name: "ChromeOS",
+    type: "ChromeOS",
+    type_id: 99,
+  },
 }
 if $event.client.userAgent?.os? != null {
   if $event.client.userAgent.os.search("iPhone") or $event.client.userAgent.os == "iOS" {
@@ -241,6 +265,28 @@ match $ocsf.metadata.event_code {
         okta::ocsf::base $event, $ocsf
       }
     }
+  }
+}
+
+// The top-level device describes the client, not the Okta server. Findings
+// carry this endpoint inside their single evidence; Base Event has no endpoint.
+if $ocsf.class_uid in [3001, 3002, 3004, 3006, 6003, 2004] {
+  $ocsf._endpoint = $ocsf.evidences[0].src_endpoint if $ocsf.class_uid == 2004 else $ocsf.src_endpoint
+  if $event.device? != null {
+    if $ocsf._endpoint.uid? == null {
+      $ocsf._endpoint.uid = move $event.device.id?
+    }
+    $ocsf._endpoint.name = move $event.device.name?
+    $ocsf._endpoint.os.version = move $event.device.osVersion?
+  }
+  if $ocsf.class_uid == 2004 {
+    $ocsf.evidences = $ocsf.evidences.map(evidence => {
+      ...evidence,
+      src_endpoint: $ocsf._endpoint,
+    })
+    drop $ocsf._endpoint
+  } else {
+    $ocsf.src_endpoint = move $ocsf._endpoint
   }
 }
 

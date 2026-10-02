@@ -23,7 +23,9 @@ let $type_ids = {
 
 $ocsf = {
   activity_id: 2,
-  actor: {app_name: "Tenzir"},
+  actor: {
+    app_name: "Tenzir",
+  },
   category_uid: 5,
   class_uid: 5021,
   metadata: {
@@ -35,6 +37,10 @@ $ocsf = {
   },
   osint: {
     category: move $event.threat_type?,
+    external_uid: (move $event.id?).string(),
+    creator: {
+      name: move $event.reporter?,
+    },
     created_time: $event.first_seen?,
     desc: move $event.threat_type_desc?,
     labels: move $event.tags?,
@@ -72,9 +78,10 @@ if $event.malware_printable? != null or $event.malware? != null {
   }]
 }
 
-if $event.reference? != null {
-  $ocsf.osint.references = [move $event.reference]
-}
+$ocsf.osint.references = [
+  move $event.reference?,
+  move $event.malware_malpedia?,
+].collect()
 
 if $ocsf.osint.type_id == 99 {
   $ocsf.osint.type = move $event.ioc_type

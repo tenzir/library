@@ -45,6 +45,23 @@ if $event.ssh.server?.has("hassh") {
   }
 }
 
+// Server and client can advertise different versions; retain the differing
+// client version rather than overwrite the negotiated/server-side value.
+if $event.ssh.client?.proto_version? == $ocsf.protocol_ver {
+  drop $event.ssh.client.proto_version
+}
+if $event.ssh.client?.software_version? != null {
+  $ocsf.src_endpoint.agent_list = [{
+    name: move $event.ssh.client.software_version,
+    type_id: 9,
+  }]
+}
+if $event.ssh.server?.software_version? != null {
+  $ocsf.dst_endpoint.agent_list = [{
+    name: move $event.ssh.server.software_version,
+    type_id: 9,
+  }]
+}
 $ocsf.status_id = 0
 
 // --- Finalize ---------------------------------

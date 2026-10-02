@@ -10,7 +10,10 @@ args:
       description: The destination OCSF event.
 ---
 
-let $transports = {grpc: "OTLP/gRPC", http: "OTLP/HTTP"}
+let $transports = {
+  grpc: "OTLP/gRPC",
+  http: "OTLP/HTTP",
+}
 let $decisions = {
   accept: 1, approved: 1, approved_for_session: 1, allow: 1, allowed: 1,
   deny: 2, denied: 2, reject: 2, rejected: 2, abort: 2, aborted: 2,
@@ -36,6 +39,14 @@ $ocsf.metadata = {
   version: "1.9.0",
 }
 
+// Instrumentation-scope version is the logger version, not the application
+// or event-schema version.
+$ocsf.metadata.loggers = [{
+  name: move $codex.scope.name?,
+  version: move $codex.scope.version?,
+  log_provider: "OpenTelemetry",
+}]
+
 $ocsf.time = $codex.time? else $codex.start_time? else $codex.observed_time?
 if $codex.signal? == "metric" {
   $ocsf.start_time = $codex.start_time?
@@ -54,7 +65,9 @@ $ocsf._mapping.human_decision = $ocsf._mapping.decision_source.starts_with("user
 $ocsf._mapping.policy_decision = not $ocsf._mapping.human_decision and $ocsf._mapping.decision_source not in ["", "unknown"]
 $ocsf._mapping.authorizations = [{
   decision: $codex.decision?,
-  policy: {type: $codex.decision_source} if $ocsf._mapping.policy_decision else null,
+  policy: {
+    type: $codex.decision_source,
+  } if $ocsf._mapping.policy_decision else null,
 }] if $codex.decision? != null else null
 
 $ocsf.severity_id = 3 if $codex.success? == false or ($codex.http_status? != null and $codex.http_status >= 400) or $codex.status_code? == 2 else
@@ -79,7 +92,9 @@ $ocsf.status_detail = $codex.error? else
 
 $ocsf._mapping.actor = {
   // `app_name` is deprecated in OCSF 1.9.0 in favour of `application.name`.
-  application: {name: $codex.resource.service_name},
+  application: {
+    name: $codex.resource.service_name,
+  },
   session: {
     uid: $codex.session_id?,
     terminal: $codex.terminal_type?,

@@ -34,16 +34,19 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // --- OCSF: context attributes -----------------
 
 $ocsf.metadata.log_name = "http.log"
+$ocsf.metadata.profiles = ["host"]
+$ocsf.actor.user.name = move $event.username?
 
 // --- OCSF: primary attributes -----------------
 
 if $event.has("dest_host") {
-  $event.host = $event.dest_host
+  $event.host = move $event.dest_host
 } else {
   $event.host = $event.host
 }
 
 $ocsf.http_request = {
+  body_length: move $event.request_body_len?,
   http_method: $event._method?.to_title(),
   referrer: move $event.referrer,
   url: {
@@ -58,16 +61,24 @@ $ocsf.http_request = {
 drop $event._method?
 if $event.has("client_headers") {
   $ocsf.http_request.http_headers = \
-    $event.client_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+    $event.client_headers.map(x => x.split(": ", max=1)).map(xs => {
+      name: xs[0],
+      value: xs[1],
+    })
   drop $event.client_headers
 }
 if $event.has("server_headers") {
   $ocsf.http_response.http_headers = \
-    $event.server_headers.map(x => x.split(": ", max=1)).map(xs => {name: xs[0], value: xs[1]})
+    $event.server_headers.map(x => x.split(": ", max=1)).map(xs => {
+      name: xs[0],
+      value: xs[1],
+    })
   drop $event.server_headers
 }
 
 $ocsf.http_response = {
+  ...$ocsf.http_response?,
+  body_length: move $event.response_body_len?,
   code: move $event.status_code,
   status: move $event.status_msg,
 }

@@ -1,0 +1,29 @@
+---
+description: Maps the PKINIT certificate on a Windows Kerberos authentication event.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to consume.
+    - name: ocsf
+      type: field
+      description: The destination OCSF Authentication event.
+---
+
+// Empty strings and "-" mean no certificate authentication was used.
+// Both required certificate identifiers must be present. Keep incomplete
+// certificate metadata in unmapped rather than inventing an issuer or serial.
+if ($windows.EventData.CertIssuerName? else "") not in ["", "-"] and
+   ($windows.EventData.CertSerialNumber? else "") not in ["", "-"] {
+  $ocsf.certificate = {
+    issuer: move $windows.EventData.CertIssuerName?,
+    serial_number: (move $windows.EventData.CertSerialNumber?).string(),
+  }
+  if ($windows.EventData.CertThumbprint? else "") not in ["", "-"] {
+    $ocsf.certificate.fingerprints = [{
+      algorithm_id: 2,
+      value: move $windows.EventData.CertThumbprint,
+    }]
+  }
+  drop $windows.EventData.CertThumbprint?
+}

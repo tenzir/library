@@ -39,6 +39,27 @@ $ocsf.win_service = {
 $ocsf.win_service.service_file.name = $ocsf.win_service.service_file.path.split("\\")[-1].split(" ")[0].replace("\"", "")
 $ocsf.win_service.service_start_name = move $windows.EventData.ServiceAccount
 
-// ServiceType (hex, e.g. "0x10") and ServiceStartType (integer, e.g. "2") are
-// left in unmapped — OCSF win_service enums exist but differ in encoding from
-// both the hex and integer Windows representations used here.
+// Windows start types are 0–4, whereas OCSF uses 1–5.
+let $start_types = {
+  "0": 1,
+  "1": 2,
+  "2": 3,
+  "3": 4,
+  "4": 5,
+}
+let $service_types = {
+  "1": 1,
+  "2": 2,
+  "16": 3,
+  "32": 4,
+}
+$ocsf.win_service.service_start_type_id = (
+  $start_types[int($windows.EventData.ServiceStartType?).string()]? else 99
+) if $windows.EventData.ServiceStartType? != null
+$ocsf.win_service.service_start_type = (move $windows.EventData.ServiceStartType?).string() if $ocsf.win_service.service_start_type_id == 99
+$ocsf.win_service.service_type_id = (
+  $service_types[int($windows.EventData.ServiceType?, base=16).string()]? else 99
+) if $windows.EventData.ServiceType? != null
+// Preserve interactive/combined service-type flags losslessly as Other.
+$ocsf.win_service.service_type = (move $windows.EventData.ServiceType?).string() if $ocsf.win_service.service_type_id == 99
+drop $windows.EventData.ServiceStartType?, $windows.EventData.ServiceType?
