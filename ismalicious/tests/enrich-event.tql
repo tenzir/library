@@ -1,0 +1,16 @@
+---
+fixtures: [ismalicious_api]
+assertions:
+  fixtures:
+    ismalicious_api:
+      query: "192.0.2.1"
+---
+
+from {indicator: "192.0.2.1", event_id: "synthetic-example"}
+each parallel=1 {
+  let $event = $this
+  ismalicious::check query=$event.indicator, api_credential="synthetic-test-credential",
+    base_url=env("ISMALICIOUS_TEST_URL")
+  this = {event: $event, ismalicious: this}
+}
+select event, ismalicious.evidence.verdict
