@@ -5,7 +5,7 @@ authors:
   - mavam
 prs:
   - 193
-created: 2026-10-08T09:42:03.521033Z
+created: 2026-10-08T09:46:58.308309Z
 ---
 
 The library now includes a `kunai` package that maps events from [Kunai](https://why.kunai.rocks), the eBPF-based security monitor for Linux, to OCSF 1.9.0.
@@ -17,8 +17,6 @@ from_file "kunai.log" {
   read_ndjson
 }
 kunai::ocsf::normalize
-ocsf_derive
-ocsf_cast
 ```
 
 The package maps every event type that Kunai defines:
@@ -38,11 +36,5 @@ The package maps every event type that Kunai defines:
 | `error`, `event_loss` | Application Error |
 
 Events that one of Kunai's detection rules matched become alerts in the OCSF Security Control profile. The rule severity and the ATT&CK identifiers carry over.
-
-Use `kunai::ocsf::map` when your pipeline holds the event under a field or inspects it before the mapping:
-
-```tql
-kunai::ocsf::map kunai, ocsf
-```
 
 The mapping reads the event layout of Kunai releases up to 0.7.0-rc.1 as well as the layout of the development version, which nests the user credentials and writes the process ancestors as a list.
