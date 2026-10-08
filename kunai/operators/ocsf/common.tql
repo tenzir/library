@@ -22,12 +22,18 @@ args:
 
 $ocsf.metadata.event_code = move $kunai.info.event.name
 $ocsf.metadata.uid = move $kunai.info.event.uuid
+// The source and the numeric ID repeat what the product and the event name say.
+drop $kunai.info.event.source, $kunai.info.event.id
 $ocsf.time = move $kunai.info.utc_time
 $ocsf.device = {
   hostname: move $kunai.info.host.name,
   uid: move $kunai.info.host.uuid,
 }
-if $kunai.info.host.container != null {
+// The process that runs in the container consumes the rest of the host
+// section. Events without a process keep the container under `unmapped`.
+if $kunai.info.host.container == null {
+  drop $kunai.info.host
+} else {
   $ocsf.metadata.profiles = ["host", "container"]
 }
 
