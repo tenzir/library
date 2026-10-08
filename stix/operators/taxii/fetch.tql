@@ -1,0 +1,32 @@
+---
+description: |
+  Fetches the objects of a TAXII 2.1 collection and emits one event per STIX
+  object. The operator follows the `next` token until the server reports no
+  more pages.
+args:
+  positional:
+    - name: url
+      type: string
+      description: The objects endpoint of the collection, such as `https://taxii.example.com/api-root/collections/<id>/objects/`.
+  named:
+    - name: headers
+      default: {}
+      description: Additional request headers, such as `Authorization`.
+    - name: added_after
+      type: time
+      default: null
+      description: Only fetches objects that the server added after this time.
+---
+
+let $filter = f"added_after={$added_after}" if $added_after != null else ""
+let $taxii_headers = {
+  Accept: "application/taxii+json;version=2.1",
+  ...$headers,
+}
+from_http f"{$url}?{$filter}",
+  headers=$taxii_headers,
+  paginate=(page => f"{$url}?{$filter}&next={page.next.encode_url()}" if page.more) {
+  read_json
+}
+unroll objects
+this = objects

@@ -1,0 +1,119 @@
+---
+description: |
+  Maps a STIX 2.1 Indicator to OCSF 1.9 OSINT Inventory Info.
+
+  ```tql
+  stix::ocsf::map stix, ocsf
+  ```
+
+  A pattern with a single comparison, such as
+  `[ipv4-addr:value = '192.0.2.1']`, yields the indicator value and type. A
+  compound pattern only populates `detection_pattern`. A revoked indicator gets
+  the status `Removed`, which `tenzir::osint::update_context` erases from its
+  lookup table.
+
+  The operator consumes the source object: what it maps becomes OCSF, and what
+  it cannot map remains under `unmapped`.
+args:
+  positional:
+    - name: stix
+      type: field
+      description: The STIX 2.1 Indicator to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// Captures a single comparison, such as [ipv4-addr:value = '192.0.2.1'], and
+// yields nulls for every other pattern.
+let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'\]|.*"
+let $type_ids = {
+  "ipv4-addr": 1,
+  "ipv6-addr": 1,
+  "domain-name": 2,
+  file: 4,
+  url: 5,
+  "x509-certificate": 7,
+  "email-addr": 9,
+  "windows-registry-key": 12,
+}
+let $pattern_type_ids = {
+  stix: 1,
+  pcre: 2,
+  sigma: 3,
+  snort: 4,
+  suricata: 5,
+  yara: 6,
+}
+// The predefined TLP 1.0 and TLP 2.0 marking definitions.
+let $tlps = {
+  "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9": "WHITE",
+  "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da": "GREEN",
+  "marking-definition--f88d31f6-486f-44da-b317-01333bde0b82": "AMBER",
+  "marking-definition--5e57c739-391a-4eb3-b6be-7d15ca92d5ed": "RED",
+  "marking-definition--94868c89-83c2-464b-929b-a1a8aa3c8487": "CLEAR",
+  "marking-definition--bab4a63c-aed9-4cf5-a766-dfca5abac2bb": "GREEN",
+  "marking-definition--55d920b0-5e8b-4f79-9ee9-91f868d9b421": "AMBER",
+  "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003": "AMBER STRICT",
+  "marking-definition--e828b379-4e03-4974-9ac4-e53a884c97c1": "RED",
+}
+
+$stix.observable = $stix.pattern.parse_grok($comparison, raw=true)
+$ocsf = {
+  activity_id: 2,
+  actor: {
+    app_name: "Tenzir",
+  },
+  category_uid: 5,
+  class_uid: 5021,
+  metadata: {
+    product: {
+      name: "STIX",
+    },
+    version: "1.9.0",
+  },
+  osint: {
+    category: (move $stix.indicator_types?).join(", "),
+    created_time: time(move $stix.created),
+    creator: {
+      uid: move $stix.created_by_ref?,
+    },
+    desc: move $stix.description?,
+    detection_pattern: move $stix.pattern,
+    detection_pattern_type: $stix.pattern_type,
+    detection_pattern_type_id: $pattern_type_ids[move $stix.pattern_type]? else 99,
+    expiration_time: time(move $stix.valid_until?),
+    external_uid: move $stix.id,
+    labels: move $stix.labels?,
+    modified_time: time($stix.modified),
+    references: $stix.external_references?.map(ref => ref.url?).collect(),
+    // OpenCTI-based feeds score indicators from 0 to 100.
+    risk_score: move $stix.x_opencti_score?,
+    tlp: $stix.object_marking_refs?.map(ref => $tlps[ref]?).first(),
+    type_id: $type_ids[move $stix.observable.object]? else 0,
+    value: move $stix.observable.value,
+  },
+  severity_id: 1,
+  time: time(move $stix.modified),
+  type_uid: 502102,
+  ...({status_id: 99, status: "Removed"} if (move $stix.revoked?) == true),
+}
+
+// STIX 2.1 confidence scale: 1–29 is Low, 30–69 Medium, and 70–100 High.
+match $stix.confidence? {
+  0..30 => {
+    $ocsf.osint.confidence_id = 1
+  }
+  29..70 => {
+    $ocsf.osint.confidence_id = 2
+  }
+  69..101 => {
+    $ocsf.osint.confidence_id = 3
+  }
+  _ => {}
+}
+drop $stix.confidence?, $stix.observable
+
+$ocsf.osint = [$ocsf.osint]
+$ocsf.unmapped = move $stix
+@name = "ocsf.osint_inventory_info"
