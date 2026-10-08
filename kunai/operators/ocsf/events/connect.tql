@@ -1,0 +1,25 @@
+---
+description: Kunai `connect` → OCSF Network Activity (4001, Open or Fail).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+// The monitored host initiates every connection that Kunai reports.
+$ocsf.initiator_id = 1
+$ocsf.activity_id = 1 if $kunai.data.connected else 4
+$ocsf.status_id = 1 if (move $kunai.data.connected) else 2
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+kunai::ocsf::connection $kunai, $ocsf.connection_info, remote=$kunai.data.dst, initiated=true
+// The source is the monitored host, which is inside the monitored network.
+$ocsf.src_endpoint = {...move $kunai.data.src, network_scope_id: 1}
+kunai::ocsf::endpoint $kunai.data.dst, $ocsf.dst_endpoint

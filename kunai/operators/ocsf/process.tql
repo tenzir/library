@@ -1,0 +1,38 @@
+---
+description: |
+  Builds the OCSF Process that performs an event.
+
+  The operator combines what Kunai reports in the `info` section about the task
+  that triggered the event with the executable, command line, and ancestors that
+  most event types carry in their `data` section. It also adds the parent task
+  and the container the host reports.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to read.
+    - name: process
+      type: field
+      description: The field that receives the OCSF process.
+---
+
+kunai::ocsf::task $kunai.info.task, $process
+kunai::ocsf::task $kunai.info.parent_task, $process.parent_process
+$process.cmd_line = move $kunai.data.command_line?
+kunai::ocsf::file $kunai.data.exe?, $process.file, type_id=8
+// Kunai lists the ancestors from the oldest process down to the direct parent,
+// while OCSF expects the opposite order. The markers `?` and `(truncated)` stand
+// for ancestors that Kunai could not resolve.
+$process.ancestry = (move $kunai.data.ancestors? else []).where(path => path not in ["?", "(truncated)"]).map(path => {
+  path: path,
+  name: file_name(path),
+}).slice(stride=-1)
+// The `container` profile governs this attribute, so it must only exist when
+// the profile is enabled.
+if $kunai.info.host?.container? != null {
+  $process.container = {
+    name: $kunai.info.host.container.name,
+    runtime: $kunai.info.host.container.type,
+  }
+  drop $kunai.info.host
+}

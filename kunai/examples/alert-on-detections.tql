@@ -1,0 +1,68 @@
+---
+name: Route events that Kunai's rules matched
+description: |
+  Kunai writes a `detection` section for every event that one of its detection
+  rules matched. The normalizer turns a match into an alert in the OCSF Security
+  Control profile, with a severity that follows the rule severity and the
+  ATT&CK techniques of the rules. A downstream pipeline selects these events
+  without knowing which rule fired.
+---
+
+from {
+  data: {
+    ancestors: ["/usr/lib/systemd/systemd", "/usr/bin/bash"],
+    parent_command_line: "-bash",
+    parent_exe: "/usr/bin/bash",
+    command_line: "systemctl stop auditd",
+    exe: {
+      path: "/usr/bin/systemctl",
+      magic: "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV)",
+      md5: "70f1dddf93d7b23876e4a404db2eda73",
+      sha1: "91b69c7e35fcd2dd2ee3f9a54df5767ec2f7d688",
+      sha256: "3880dc2cb6ebd64fe65c49d687f23d9040b8a247470b7ac51551fe60c8f6b900",
+      sha512: "3200824a2d514fc22c750677939ebccb09a380af8cc9d6b8bb756a2b7b5a158a13be203bddffa2a1b2c807ebd340b0dc20dc193d8ebc29c87cefde2dad34145c",
+      size: 285040,
+      error: null,
+    },
+  },
+  detection: {
+    rules: ["stop.auditd"],
+    tags: ["os:linux"],
+    attack: ["T1489"],
+    severity: 8,
+  },
+  info: {
+    host: {uuid: "c030b40d-0eab-417b-b33a-22d952357984", name: "hal", container: null},
+    event: {
+      source: "kunai",
+      id: 1,
+      name: "execve",
+      uuid: "741d47d2-8e05-55c8-a84a-28d9f149b5ed",
+      batch: 2097,
+    },
+    task: {
+      name: "systemctl",
+      pid: 41910,
+      tgid: 41910,
+      guuid: "dddd0000-7777-0000-8888-eeee00000000",
+      creds: {effective: {uid: 0, user: "root", gid: 0, group: "root"}},
+      namespaces: {mnt: 4026531841},
+      flags: "0x400000",
+      zombie: false,
+    },
+    parent_task: {
+      name: "bash",
+      pid: 41200,
+      tgid: 41200,
+      guuid: "5b0c2d57-a010-0000-9b2e-6c4f6e040000",
+      creds: {effective: {uid: 0, user: "root", gid: 0, group: "root"}},
+      namespaces: {mnt: 4026531841},
+      flags: "0x400000",
+      zombie: false,
+    },
+    utc_time: 2026-03-09T09:55:12.481920213Z,
+  },
+}
+kunai::ocsf::normalize
+where is_alert? == true
+publish "alerts"

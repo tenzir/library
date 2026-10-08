@@ -1,0 +1,28 @@
+---
+description: Kunai `init_module` → OCSF Kernel Extension Activity (1002, Load).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.kernel_extension_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1002
+$ocsf.activity_id = 1
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+// Kunai sees the module through a system call and cannot name its file, hash
+// it, or read its size, so the module name stands in for the file name. The
+// syscall and the module parameters have no OCSF attribute and remain under
+// `unmapped`.
+$ocsf.driver.file = {
+  name: move $kunai.data.module_name,
+  type_id: 99,
+  type: "Kernel Module",
+}
+$ocsf.status_id = 1 if (move $kunai.data.loaded) else 2

@@ -1,0 +1,164 @@
+---
+description: |
+  Kunai events → OCSF.
+
+  Reads a structured Kunai event, as the `kunai` agent writes it as JSON, and
+  builds the corresponding OCSF event in the second field:
+
+  ```tql
+  kunai::ocsf::map kunai, ocsf
+  ```
+
+  The mapping picks the event class from the event name:
+
+  | Kunai event                                                                  | OCSF class                         |
+  | ---------------------------------------------------------------------------- | ---------------------------------- |
+  | `execve`, `execve_script`, `clone`, `exit`, `exit_group`, `kill`, `ptrace`,  | Process Activity (1007)            |
+  | `prctl`, `commit_creds`, `creds_tampered`                                    |                                    |
+  | `read`, `read_config`, `write`, `write_config`, `write_close`, `file_create`, | File System Activity (1001)        |
+  | `file_unlink`, `file_rename`                                                 |                                    |
+  | `connect`, `send_data`                                                       | Network Activity (4001)            |
+  | `dns_query`                                                                  | DNS Activity (4003)                |
+  | `init_module`, `bpf_prog_load`, `bpf_socket_filter`                          | Kernel Extension Activity (1002)   |
+  | `mmap_exec`                                                                  | Module Activity (1005)             |
+  | `mprotect_exec`                                                              | Memory Activity (1004)             |
+  | `io_uring_sqe`                                                               | Kernel Activity (1003)             |
+  | `file_scan` with a positive match                                            | Detection Finding (2004)           |
+  | `start`                                                                      | Application Lifecycle (6002)       |
+  | `error`, `event_loss`                                                        | Application Error (6008)           |
+
+  A `null` event, a record without Kunai's `info` section, an event that Kunai
+  does not define, and a `file_scan` without a match become an OCSF Base Event.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event. The operator does not
+  preserve the original log record.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The structured Kunai event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// Every event carries the product identity, whatever its class.
+$ocsf = {
+  metadata: {
+    version: "1.9.0",
+    product: {
+      name: "Kunai",
+      vendor_name: "Kunai Project",
+    },
+    profiles: ["host"],
+  },
+  severity_id: 1,
+}
+
+if $kunai.info? != null {
+  // Kunai writes `?` and empty strings for what it could not resolve, such as
+  // the executable of a process that started before Kunai did.
+  replace $kunai, what="?", with=null
+  replace $kunai, what="", with=null
+  kunai::ocsf::common $kunai, $ocsf
+}
+
+match $ocsf.metadata.event_code? {
+  "execve" | "execve_script" => {
+    kunai::ocsf::events::execve $kunai, $ocsf
+  }
+  "clone" => {
+    kunai::ocsf::events::clone $kunai, $ocsf
+  }
+  "exit" | "exit_group" => {
+    kunai::ocsf::events::exit $kunai, $ocsf
+  }
+  "kill" => {
+    kunai::ocsf::events::kill $kunai, $ocsf
+  }
+  "ptrace" => {
+    kunai::ocsf::events::ptrace $kunai, $ocsf
+  }
+  "prctl" => {
+    kunai::ocsf::events::prctl $kunai, $ocsf
+  }
+  "commit_creds" => {
+    kunai::ocsf::events::commit_creds $kunai, $ocsf
+  }
+  "creds_tampered" => {
+    kunai::ocsf::events::creds_tampered $kunai, $ocsf
+  }
+  "read" | "read_config" | "write" | "write_config" | "write_close" | "file_create" | "file_unlink" => {
+    kunai::ocsf::events::file_activity $kunai, $ocsf
+  }
+  "file_rename" => {
+    kunai::ocsf::events::file_rename $kunai, $ocsf
+  }
+  "connect" => {
+    kunai::ocsf::events::connect $kunai, $ocsf
+  }
+  "send_data" => {
+    kunai::ocsf::events::send_data $kunai, $ocsf
+  }
+  "dns_query" => {
+    kunai::ocsf::events::dns_query $kunai, $ocsf
+  }
+  "init_module" => {
+    kunai::ocsf::events::init_module $kunai, $ocsf
+  }
+  "bpf_prog_load" => {
+    kunai::ocsf::events::bpf_prog_load $kunai, $ocsf
+  }
+  "bpf_socket_filter" => {
+    kunai::ocsf::events::bpf_socket_filter $kunai, $ocsf
+  }
+  "mmap_exec" => {
+    kunai::ocsf::events::mmap_exec $kunai, $ocsf
+  }
+  "mprotect_exec" => {
+    kunai::ocsf::events::mprotect_exec $kunai, $ocsf
+  }
+  "io_uring_sqe" => {
+    kunai::ocsf::events::io_uring_sqe $kunai, $ocsf
+  }
+  "start" => {
+    kunai::ocsf::events::start $kunai, $ocsf
+  }
+  "error" => {
+    kunai::ocsf::events::error $kunai, $ocsf
+  }
+  "event_loss" => {
+    kunai::ocsf::events::event_loss $kunai, $ocsf
+  }
+  "file_scan" if $kunai.data.positives > 0 => {
+    kunai::ocsf::events::file_scan $kunai, $ocsf
+  }
+  _ => {
+    // Nothing in the event tells which OCSF class fits, so all that is left
+    // to say is that an event happened. Records that are not Kunai events end
+    // up here, and so do events that a later Kunai version defines.
+    @name = "ocsf.base_event"
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
+  }
+}
+
+// Some events map every field of their data section.
+if $kunai.data?.is_empty() {
+  drop $kunai.data
+}
+
+// --- Finalize ---------------------------------
+
+// The acting user runs the acting process.
+if $ocsf.actor? != null {
+  $ocsf.actor.user = $ocsf.actor.user? else $ocsf.actor.process.user?
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+if $ocsf.action_id? != null {
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
+}
+// What the mapping did not consume has no OCSF attribute.
+$ocsf = {...$ocsf, unmapped: move $kunai}

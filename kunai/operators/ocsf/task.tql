@@ -1,0 +1,32 @@
+---
+description: |
+  Builds an OCSF Process from a Kunai task section.
+
+  Kunai reports Linux tasks. The thread group ID `tgid` is the process ID that
+  other tools show, so it becomes `pid`, while the task's own `pid` is the
+  thread ID and becomes `ptid`. The thread group UUID `guuid` is stable for the
+  whole process and becomes the producer-assigned process `uid`.
+
+  The operator consumes the fields that it maps. The mount namespace, the task
+  flags, and the zombie marker have no OCSF attribute and remain in the source
+  section.
+args:
+  positional:
+    - name: task
+      type: field
+      description: The Kunai task section to consume.
+    - name: process
+      type: field
+      description: The field that receives the OCSF process.
+---
+
+$process = {
+  name: move $task.name,
+  pid: move $task.tgid,
+  ptid: move $task.pid,
+  uid: move $task.guuid,
+}
+kunai::ocsf::user $task.creds.effective, $process.user
+if $task.creds.is_empty() {
+  drop $task.creds
+}

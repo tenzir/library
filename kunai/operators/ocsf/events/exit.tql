@@ -1,0 +1,31 @@
+---
+description: Kunai `exit` and `exit_group` → OCSF Process Activity (1007, Terminate).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+
+// `exit` fires once for every task. Only the exit of the thread group leader or
+// of the whole group ends the process.
+if $ocsf.metadata.event_code == "exit_group" or $kunai.info.task.pid == $kunai.info.task.tgid {
+  $ocsf.activity_id = 2
+} else {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = "Exit Thread"
+}
+
+// A task exits on its own initiative, so the actor and the target coincide. The
+// ancestry and the parent describe the target only.
+kunai::ocsf::process $kunai, $ocsf.process
+$ocsf.actor.process = $ocsf.process
+drop $ocsf.actor.process.ancestry, $ocsf.actor.process.parent_process
+$ocsf.exit_code = move $kunai.data.error_code

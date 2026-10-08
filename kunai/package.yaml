@@ -1,0 +1,94 @@
+id: kunai
+name: Kunai
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+
+description: |
+  [Kunai](https://why.kunai.rocks) is an eBPF-based security monitor for Linux,
+  comparable to Sysmon on Windows. It records process, file, network, and kernel
+  activity and writes one JSON object per event. This package maps those events
+  to OCSF 1.9.0.
+
+  Operators:
+
+  - `kunai::ocsf::normalize` normalizes a Kunai event to OCSF.
+  - `kunai::ocsf::map` maps a structured Kunai event to OCSF. It takes the field
+    that it reads and the field that it writes, in that order.
+
+  Tenzir reads Kunai's JSON natively, so the package needs no parser. Call
+  `kunai::ocsf::normalize` without arguments on a stream of Kunai events:
+
+  ```tql
+  from_file "kunai.log" {
+    read_ndjson
+  }
+  kunai::ocsf::normalize
+  ```
+
+  Use `kunai::ocsf::map` when your pipeline already holds the event under a
+  field, or when it inspects, filters, or enriches the Kunai event first. The
+  operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map remains under `unmapped`.
+
+  ## Event mapping
+
+  | Kunai event                                                                              | OCSF class                       |
+  | ---------------------------------------------------------------------------------------- | -------------------------------- |
+  | `execve`, `execve_script`                                                                | Process Activity, Launch         |
+  | `clone`                                                                                  | Process Activity, Launch (Fork)  |
+  | `exit`, `exit_group`                                                                     | Process Activity, Terminate      |
+  | `kill`                                                                                   | Process Activity, Terminate      |
+  | `ptrace`                                                                                 | Process Activity, Open           |
+  | `commit_creds`                                                                           | Process Activity, Set User ID    |
+  | `prctl`, `creds_tampered`                                                                | Process Activity, Other          |
+  | `read`, `read_config`, `write`, `write_config`, `write_close`, `file_create`, `file_unlink`, `file_rename` | File System Activity |
+  | `connect`, `send_data`                                                                   | Network Activity                 |
+  | `dns_query`                                                                              | DNS Activity, Response           |
+  | `init_module`, `bpf_prog_load`, `bpf_socket_filter`                                      | Kernel Extension Activity, Load  |
+  | `mmap_exec`                                                                              | Module Activity, Load            |
+  | `mprotect_exec`                                                                          | Memory Activity, Modify Page     |
+  | `io_uring_sqe`                                                                           | Kernel Activity, Invoke          |
+  | `file_scan` with a YARA match                                                            | Detection Finding                |
+  | `start`                                                                                  | Application Lifecycle, Start     |
+  | `error`, `event_loss`                                                                    | Application Error                |
+
+  Kunai events that the table does not list, records that are not Kunai events,
+  and a `file_scan` without a match become OCSF Base Events.
+
+  ## Semantics worth knowing
+
+  - Kunai reports Linux tasks. The thread group ID is the OCSF `pid`, the task ID
+    is `ptid`, and the thread group UUID is the process `uid`. A `clone` of a
+    thread and the `exit` of a thread other than the group leader do not start or
+    end a process, so they map to activity `Other` instead of Launch or
+    Terminate.
+  - An `execve` replaces the image of the task that calls it, so that task is
+    the actor. Kunai reports the task only with its new image, so the actor
+    carries just the process and thread IDs and the process `uid`.
+  - The Kunai `execve_script` event reports the script as the process file. The
+    interpreter that runs it remains under `unmapped.data.interpreter`.
+  - A `kill` maps to Terminate when the signal asks the target to end, such as
+    `SIGTERM` or `SIGKILL`, and to activity `Other` for every other signal.
+  - Kunai writes `?` or an empty string for what it cannot resolve, for example
+    the executable of a process that started before Kunai did. The mapping
+    treats these values as `null`.
+  - Kunai's own detection engine adds a `detection` section to every event that
+    one of its rules matched. The mapping turns it into an alert in the OCSF
+    Security Control profile and takes the severity, which ranges from 0 to 10,
+    and the ATT&CK identifiers from it.
+  - Kunai marks the container that a process runs in. The mapping adds it to the
+    process and enables the OCSF Container profile.
+
+  ## Kunai versions
+
+  The mapping targets the event layout of Kunai after 0.7.0-rc.1, which nests
+  the user credentials under `creds.effective`, writes the process ancestors as
+  a list, and adds the `commit_creds` and `creds_tampered` events. Earlier
+  releases are not supported.
+
+  The test fixtures follow the event layouts in the Kunai source code and the
+  Kunai documentation. The file hashes in them are synthetic.
+categories:
+- sources
+- mappings

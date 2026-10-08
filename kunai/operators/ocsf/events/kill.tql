@@ -1,0 +1,28 @@
+---
+description: Kunai `kill` → OCSF Process Activity (1007, Terminate for termination signals).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+
+// Kunai reports signals sent to a foreign process. Only the signals that ask the
+// target to end are a request to terminate it.
+if $kunai.data.signal in ["SIGKILL", "SIGTERM", "SIGINT", "SIGQUIT", "SIGHUP", "SIGABRT"] {
+  $ocsf.activity_id = 2
+} else {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = "Send Signal"
+}
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+kunai::ocsf::target $kunai.data.target, $ocsf.process
+// The signal itself has no OCSF attribute and remains under `unmapped`.

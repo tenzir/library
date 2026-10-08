@@ -1,0 +1,40 @@
+---
+description: |
+  Builds an OCSF File from a Kunai file record.
+
+  Kunai describes a file either by its path alone or by its path together with
+  the hashes and the type that it computed. The output is `null` when the record
+  has no path.
+args:
+  positional:
+    - name: kunai_file
+      type: field
+      description: The Kunai file record to consume.
+    - name: file
+      type: field
+      description: The field that receives the OCSF file.
+  named:
+    - name: type_id
+      type: int
+      default: 1
+      description: The OCSF file type, `8` for executables and `1` for other files.
+---
+
+if $kunai_file.path? != null {
+  $file = {
+    name: file_name($kunai_file.path),
+    path: move $kunai_file.path,
+    type_id: $type_id,
+    // The output of libmagic, for example `ELF 64-bit LSB pie executable`.
+    desc: move $kunai_file.magic?,
+    // Kunai reports a size of zero when it could not read the file.
+    size: $kunai_file.size? if $kunai_file.error? == null,
+  }
+  kunai::ocsf::hashes $kunai_file, $file.hashes
+}
+// Only the reason why Kunai could not read the file has no OCSF attribute.
+if $kunai_file.error? == null {
+  drop $kunai_file
+} else {
+  drop $kunai_file.size?
+}

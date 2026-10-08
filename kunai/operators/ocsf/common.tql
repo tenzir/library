@@ -1,0 +1,71 @@
+---
+description: |
+  Builds the OCSF attributes that every Kunai event shares.
+
+  This covers the event time and identifier, the host that Kunai runs on, and the
+  verdict of Kunai's own detection engine. The caller sets the product identity.
+
+  Kunai emits `detection` only when a rule matched. A match makes the event an
+  alert in the Security Control profile: Kunai observed the activity and
+  detected it. The rule severity of 0 to 10 maps to OCSF severity, and ATT&CK
+  identifiers map to `attacks`. The rule names, tags, and actions have no OCSF
+  attribute and stay in the source event.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+$ocsf.metadata.event_code = move $kunai.info.event.name
+$ocsf.metadata.uid = move $kunai.info.event.uuid
+// The source and the numeric ID repeat what the product and the event name say.
+drop $kunai.info.event.source, $kunai.info.event.id
+$ocsf.time = move $kunai.info.utc_time
+$ocsf.device = {
+  hostname: move $kunai.info.host.name,
+  uid: move $kunai.info.host.uuid,
+}
+// The process that runs in the container consumes the rest of the host
+// section. Events without a process keep the container under `unmapped`.
+if $kunai.info.host.container == null {
+  drop $kunai.info.host
+} else {
+  $ocsf.metadata.profiles = ["host", "container"]
+}
+
+if $kunai.detection? != null {
+  $ocsf.is_alert = true
+  // Kunai observed the activity and detected it without intervening.
+  $ocsf.action_id = 3
+  $ocsf.disposition_id = 15
+  // Rule severities range from 0 to 10.
+  match $kunai.detection.severity {
+    9 | 10 => {
+      $ocsf.severity_id = 5
+    }
+    7 | 8 => {
+      $ocsf.severity_id = 4
+    }
+    4 | 5 | 6 => {
+      $ocsf.severity_id = 3
+    }
+    1 | 2 | 3 => {
+      $ocsf.severity_id = 2
+    }
+    _ => {
+      $ocsf.severity_id = 1
+    }
+  }
+  drop $kunai.detection.severity
+  // Rules reference techniques (`T1059`), sub-techniques (`T1059.004`), and
+  // tactics (`TA0002`).
+  $ocsf.attacks = (move $kunai.detection.attack?).map(id => id.to_upper()).map(id => {
+    tactic: {uid: id} if id.starts_with("TA"),
+    technique: {uid: id.split(".")[0]} if not id.starts_with("TA"),
+    sub_technique: {uid: id} if id.split(".").length() > 1,
+  })
+}

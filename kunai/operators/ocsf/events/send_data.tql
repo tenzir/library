@@ -1,0 +1,28 @@
+---
+description: Kunai `send_data` → OCSF Network Activity (4001, Traffic).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 6
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+kunai::ocsf::connection $kunai, $ocsf.connection_info, remote=$kunai.data.dst
+// The source is the monitored host, which is inside the monitored network.
+$ocsf.src_endpoint = {...move $kunai.data.src, network_scope_id: 1}
+kunai::ocsf::endpoint $kunai.data.dst, $ocsf.dst_endpoint
+// The monitored host sent the data from the source to the destination. The
+// entropy estimate has no OCSF attribute and remains under `unmapped`.
+$ocsf.traffic = {
+  bytes: $kunai.data.data_size,
+  bytes_out: move $kunai.data.data_size,
+}
