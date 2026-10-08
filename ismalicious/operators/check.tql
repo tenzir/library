@@ -1,33 +1,20 @@
 ---
-description: Looks up an IP address, domain, URL or MD5/SHA-1/SHA-256 hash and preserves the API report.
+description: Looks up the reputation of an IP address, domain, URL, or file hash.
 args:
   named:
     - name: query
       type: string
-      description: Indicator to look up; the API detects its type.
+      description: The indicator to look up. The API detects its type.
     - name: api_credential
       type: secret
-      description: Base64 of the IsMalicious apiKey:apiSecret pair for X-API-KEY.
+      description: Base64 of the IsMalicious `apiKey:apiSecret` pair.
     - name: base_url
       type: string
       default: "https://api.ismalicious.com"
-      description: API base URL, configured by the operator administrator.
-    - name: timeout
-      type: duration
-      default: 30s
-      description: Overall HTTP request timeout.
+      description: The API base URL.
 ---
 
-let $url = f"{$base_url}/check?query={$query.encode_url()}&enrichment=standard"
-from {}
-assert $query.trim() != "", message="IsMalicious requires a non-empty indicator"
-each {
-  from_http $url,
-  headers={"X-API-KEY": $api_credential, "Accept": "application/json"},
-  timeout=$timeout,
-  max_retry_count=0 {
-    read_json raw=true
-    assert $response.code == 200, message="IsMalicious returned an unexpected HTTP status"
-    assert malicious != null, message="IsMalicious returned an invalid report"
-  }
+from_http f"{$base_url}/check?query={$query.encode_url()}&enrichment=standard",
+  headers={"X-API-KEY": $api_credential} {
+  read_json
 }

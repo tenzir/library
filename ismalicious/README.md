@@ -1,42 +1,43 @@
 # IsMalicious
 
-`ismalicious::check` makes one API reputation lookup for an IPv4/IPv6 address,
-domain, URL, MD5, SHA-1 or SHA-256. It preserves the JSON response, including
-risk score, confidence, evidence verdict/reasons, contradictory signals,
-provenance, `lookupStatus`, `knownGood` and delisting flags where present.
+[IsMalicious](https://ismalicious.com) provides reputation data for IP
+addresses, domains, URLs, and MD5, SHA-1, or SHA-256 hashes.
 
-Create an [account and API key/secret pair](https://ismalicious.com/app/account).
-Set the managed secret `ISMALICIOUS_API_CREDENTIAL` to **Base64 of
-`apiKey:apiSecret`**, which is the value expected in `X-API-KEY`. The API key
-component alone is insufficient. Do not commit credentials into pipelines.
+## Configure credentials
+
+Create an [API key and secret](https://ismalicious.com/app/account), then store
+the Base64 encoding of `apiKey:apiSecret` in the managed secret
+`ISMALICIOUS_API_CREDENTIAL`. The API expects this value in the `X-API-KEY`
+header.
+
+## Look up an indicator
+
+`ismalicious::check` performs one lookup with standard enrichment and returns
+the API response as a single event:
 
 ```tql
 ismalicious::check query="192.0.2.1",
   api_credential=secret("ISMALICIOUS_API_CREDENTIAL")
 ```
 
-This example uses a documentation IP; replace it with an indicator from your
-investigation. See `examples/enrich-events.tql` to retain the original event.
-Standard enrichment is requested. Available fields vary by indicator and
-account; the operator does not claim timeline data from full enrichment.
+To enrich existing events, call the operator inside `each`:
 
-Interpret `evidence.verdict` and its reasons/contradictions. `malicious: false`
-does not prove safety, and a zero risk score on an unknown hash stays unknown.
-Confidence is distinct from risk score. Context-only source rows are not a
-count of detections. The package does not apply tags or block devices.
+```tql
+each {
+  ismalicious::check query=$this.indicator,
+    api_credential=secret("ISMALICIOUS_API_CREDENTIAL")
+  this = {...$this, ismalicious: this}
+}
+```
 
-Empty or whitespace-only indicators are dropped with a diagnostic before any
-request. Requests use TLS verification and a 30-second timeout by default. The operator
-makes no automatic retries: authentication, quota/rate-limit, server and
-transport errors are diagnosed by `from_http`, rather than emitted as clean
-reports. Redirect responses are not followed; unexpected 3xx responses are
-dropped with a diagnostic. Check the diagnostic and retry later as appropriate. An administrator
-can configure `base_url` for a trusted proxy; it must not come from an IOC.
-Each call consumes a lookup under your account quota. This package does not
-consume or redistribute paid TAXII feeds.
+Each lookup counts against your account quota, so deduplicate indicators
+before enriching high-volume streams.
 
-API reference: <https://ismalicious.com/api-docs>.
+## Interpret results
 
-Tested with Tenzir v6.19.1. Tests use a local HTTP fixture and explicitly
-synthetic response data. Run
-`uvx --with tenzir tenzir-test ismalicious` from the library root.
+Read `evidence.verdict` together with `evidence.reasons` and
+`evidence.contradictorySignals`. `malicious: false` does not prove that an
+indicator is safe; unknown hashes and context-only sources yield an `unknown`
+verdict. `confidence` is independent of `riskScore`.
+
+See the [API reference](https://ismalicious.com/api-docs) for all fields.
