@@ -37,4 +37,4 @@ The package maps every event type that Kunai defines:
 
 Events that one of Kunai's detection rules matched become alerts in the OCSF Security Control profile. The rule severity and the ATT&CK identifiers carry over.
 
-The mapping reads the event layout of Kunai releases up to 0.7.0-rc.1 as well as the layout of the development version, which nests the user credentials and writes the process ancestors as a list.
+The mapping targets the event layout of Kunai after 0.7.0-rc.1, which nests the user credentials and writes the process ancestors as a list.
