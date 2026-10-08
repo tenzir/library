@@ -57,9 +57,8 @@ $ocsf.severity_id = 1
 
 if $kunai.info? == null {
   // Nothing parsed the payload, or it is not a Kunai event, so all we can say is
-  // that an event happened. The record itself remains under `unmapped`.
+  // that an event happened.
   kunai::ocsf::events::base_event $kunai, $ocsf
-  $ocsf.unmapped = move $kunai
 } else {
   // Kunai writes `?` and empty strings for what it could not resolve, such as
   // the executable of a process that started before Kunai did.
@@ -143,10 +142,11 @@ if $kunai.info? == null {
 
   // The source and the numeric ID repeat what the product and the event name
   // say.
-  drop $kunai.info.event.source, $kunai.info.event.id, $kunai.info.host.container
-  // Mapping empties many of the nested source records. Prune them so that only
-  // the fields without an OCSF attribute remain.
-  $ocsf.unmapped = unflatten(drop_null_fields(flatten(move $kunai)))
+  drop $kunai.info.event.source, $kunai.info.event.id, $kunai.info.host
+  // Some events map every field of their data section.
+  if $kunai.data.is_empty() {
+    drop $kunai.data
+  }
 }
 
 // --- Finalize ---------------------------------
@@ -159,4 +159,5 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 if $ocsf.action_id? != null {
   $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
 }
-$ocsf = drop_null_fields($ocsf)
+// What the mapping did not consume has no OCSF attribute.
+$ocsf = {...$ocsf, unmapped: move $kunai}
