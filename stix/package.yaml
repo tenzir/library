@@ -1,0 +1,56 @@
+id: stix
+name: STIX
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+description: |
+  [STIX 2.1](https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html) is the
+  OASIS standard for exchanging threat intelligence, and
+  [TAXII 2.1](https://docs.oasis-open.org/cti/taxii/v2.1/taxii-v2.1.html) is
+  the protocol that serves it. This package fetches STIX objects from TAXII
+  collections and maps STIX Indicators to OCSF 1.9 OSINT Inventory Info.
+
+  Operators:
+
+  - `stix::taxii::fetch` emits the objects of a TAXII 2.1 collection and
+    follows its pagination.
+  - `stix::ocsf::normalize` normalizes a STIX Indicator to OCSF.
+  - `stix::ocsf::map` maps a STIX Indicator under one field to OCSF under
+    another.
+
+  Load a collection into the OSINT lookup table of the `tenzir` package:
+
+  ```tql
+  stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
+    headers={Authorization: f"Basic {secret("TAXII_CREDENTIAL")}"}
+  where type == "indicator"
+  stix::ocsf::normalize
+  tenzir::osint::update_context
+  ```
+
+  ## Mapping
+
+  | STIX Indicator                     | OCSF `osint`                                     |
+  | ---------------------------------- | ------------------------------------------------ |
+  | `pattern`, `pattern_type`          | `detection_pattern`, `detection_pattern_type_id` |
+  | single-comparison pattern          | `value`, `type_id`                               |
+  | `id`                               | `external_uid`                                   |
+  | `description`                      | `desc`                                           |
+  | `indicator_types`                  | `category`                                       |
+  | `labels`                           | `labels`                                         |
+  | `created_by_ref`                   | `creator.uid`                                    |
+  | `created`, `modified`, `valid_until` | `created_time`, `modified_time`, `expiration_time` |
+  | `confidence`                       | `confidence_id`                                  |
+  | `x_opencti_score`                  | `risk_score`                                     |
+  | `external_references[].url`        | `references`                                     |
+  | TLP in `object_marking_refs`       | `tlp`                                            |
+
+  A revoked indicator sets the event's `status_id` to 99 with the status
+  `Removed`, so that `tenzir::osint::update_context` erases it.
+
+  Only a pattern with a single comparison, such as
+  `[ipv4-addr:value = '192.0.2.1']`, names one indicator value. Compound
+  patterns keep `value` empty and retain the full pattern.
+categories:
+- sources
+- mappings

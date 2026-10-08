@@ -1,0 +1,15 @@
+---
+name: Update OSINT context from a TAXII collection
+description: |
+  Fetches a TAXII 2.1 collection daily and updates the shared `ocsf-osint`
+  lookup table from the Tenzir utilities package. Revoked indicators leave the
+  table.
+---
+
+every 1d {
+  stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
+    headers={Authorization: f"Basic {secret("TAXII_CREDENTIAL")}"}
+  where type == "indicator"
+  stix::ocsf::normalize
+  tenzir::osint::update_context max_age=30d
+}

@@ -1,0 +1,105 @@
+---
+description: |
+  Maps a STIX 2.1 Indicator to OCSF 1.9 OSINT Inventory Info.
+
+  ```tql
+  stix::ocsf::map stix, ocsf
+  ```
+
+  A pattern with a single comparison, such as
+  `[ipv4-addr:value = '192.0.2.1']`, yields the indicator value and type. A
+  compound pattern only populates `detection_pattern`. A revoked indicator sets
+  `status_id` to 99 with the status `Removed`, which
+  `tenzir::osint::update_context` erases from its lookup table.
+
+  The operator consumes the source object: what it maps becomes OCSF, and what
+  it cannot map remains under `unmapped`.
+args:
+  positional:
+    - name: stix
+      type: field
+      description: The STIX 2.1 Indicator to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// Matches a single comparison, such as [ipv4-addr:value = '192.0.2.1'].
+let $comparison = r"^\[(?<path>[^ ]+) = '(?<value>[^']*)'\]$"
+let $type_ids = {
+  "ipv4-addr:value": 1,
+  "ipv6-addr:value": 1,
+  "domain-name:value": 2,
+  "url:value": 5,
+  "file:hashes.MD5": 4,
+  "file:hashes.'SHA-1'": 4,
+  "file:hashes.'SHA-256'": 4,
+  "file:hashes.'SHA-512'": 4,
+  "x509-certificate:hashes.'SHA-1'": 7,
+  "x509-certificate:hashes.'SHA-256'": 7,
+  "email-addr:value": 9,
+  "file:name": 11,
+  "windows-registry-key:key": 12,
+}
+// STIX pattern types share their names with the OCSF detection pattern types.
+let $pattern_type_ids = {stix: 1, pcre: 2, sigma: 3, snort: 4, suricata: 5, yara: 6}
+// The predefined TLP 1.0 and TLP 2.0 marking definitions.
+let $tlps = {
+  "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9": "WHITE",
+  "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da": "GREEN",
+  "marking-definition--f88d31f6-486f-44da-b317-01333bde0b82": "AMBER",
+  "marking-definition--5e57c739-391a-4eb3-b6be-7d15ca92d5ed": "RED",
+  "marking-definition--94868c89-83c2-464b-929b-a1a8aa3c8487": "CLEAR",
+  "marking-definition--bab4a63c-aed9-4cf5-a766-dfca5abac2bb": "GREEN",
+  "marking-definition--55d920b0-5e8b-4f79-9ee9-91f868d9b421": "AMBER",
+  "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003": "AMBER STRICT",
+  "marking-definition--e828b379-4e03-4974-9ac4-e53a884c97c1": "RED",
+}
+
+// --- OSINT object ------------------------------
+
+$ocsf = {osint: {}}
+$stix.observable = $stix.pattern.parse_grok($comparison, raw=true) if $stix.pattern.match_regex($comparison)
+$ocsf.osint.value = $stix.observable.value?
+$ocsf.osint.type_id = $type_ids[$stix.observable.path?]? else 0
+drop $stix.observable
+$ocsf.osint.detection_pattern = move $stix.pattern
+$ocsf.osint.detection_pattern_type_id = $pattern_type_ids[move $stix.pattern_type]? else 99
+$ocsf.osint.external_uid = move $stix.id
+$ocsf.osint.desc = move $stix.description?
+$ocsf.osint.category = (move $stix.indicator_types?).join(", ")
+$ocsf.osint.labels = move $stix.labels?
+$ocsf.osint.creator = {uid: move $stix.created_by_ref?}
+$ocsf.osint.created_time = time(move $stix.created)
+$ocsf.osint.modified_time = time(move $stix.modified)
+$ocsf.osint.expiration_time = time(move $stix.valid_until?)
+// STIX 2.1 confidence scale: 1–29 is Low, 30–69 Medium, and 70–100 High.
+$ocsf.osint.confidence_id = (
+  3 if $stix.confidence? >= 70
+  else 2 if $stix.confidence? >= 30
+  else 1 if $stix.confidence? >= 1
+  else 0
+)
+drop $stix.confidence?
+// OpenCTI-based feeds score indicators from 0 to 100.
+$ocsf.osint.risk_score = move $stix.x_opencti_score?
+$ocsf.osint.references = $stix.external_references?.map(ref => ref.url?).collect()
+$ocsf.osint.tlp = $stix.object_marking_refs?.map(ref => $tlps[ref]?).first()
+
+// --- OSINT Inventory Info ----------------------
+
+$ocsf.activity_id = 2
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5021
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.severity_id = 1
+$ocsf.status_id = 99 if $stix.revoked? == true
+$ocsf.status = "Removed" if $stix.revoked? == true
+$ocsf.time = $ocsf.osint.modified_time
+$ocsf.metadata = {
+  product: {name: "STIX"},
+  version: "1.9.0",
+}
+$ocsf.osint = [$ocsf.osint]
+$ocsf.unmapped = move $stix
+@name = "ocsf.osint_inventory_info"
