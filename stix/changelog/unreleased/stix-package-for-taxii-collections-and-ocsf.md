@@ -3,6 +3,8 @@ title: STIX package for TAXII collections and OCSF
 type: feature
 authors:
   - mavam
+prs:
+  - 195
 created: 2026-10-08T18:09:09.708691Z
 ---
 
