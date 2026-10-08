@@ -8,9 +8,9 @@ description: |
 
   A pattern with a single comparison, such as
   `[ipv4-addr:value = '192.0.2.1']`, yields the indicator value and type. A
-  compound pattern only populates `detection_pattern`. A revoked indicator sets
-  `status_id` to 99 with the status `Removed`, which
-  `tenzir::osint::update_context` erases from its lookup table.
+  compound pattern only populates `detection_pattern`. A revoked indicator gets
+  the status `Removed`, which `tenzir::osint::update_context` erases from its
+  lookup table.
 
   The operator consumes the source object: what it maps becomes OCSF, and what
   it cannot map remains under `unmapped`.
@@ -24,25 +24,27 @@ args:
       description: The OCSF event to build.
 ---
 
-// Matches a single comparison, such as [ipv4-addr:value = '192.0.2.1'].
-let $comparison = r"^\[(?<path>[^ ]+) = '(?<value>[^']*)'\]$"
+// Captures a single comparison, such as [ipv4-addr:value = '192.0.2.1'], and
+// yields nulls for every other pattern.
+let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'\]|.*"
 let $type_ids = {
-  "ipv4-addr:value": 1,
-  "ipv6-addr:value": 1,
-  "domain-name:value": 2,
-  "url:value": 5,
-  "file:hashes.MD5": 4,
-  "file:hashes.'SHA-1'": 4,
-  "file:hashes.'SHA-256'": 4,
-  "file:hashes.'SHA-512'": 4,
-  "x509-certificate:hashes.'SHA-1'": 7,
-  "x509-certificate:hashes.'SHA-256'": 7,
-  "email-addr:value": 9,
-  "file:name": 11,
-  "windows-registry-key:key": 12,
+  "ipv4-addr": 1,
+  "ipv6-addr": 1,
+  "domain-name": 2,
+  file: 4,
+  url: 5,
+  "x509-certificate": 7,
+  "email-addr": 9,
+  "windows-registry-key": 12,
 }
-// STIX pattern types share their names with the OCSF detection pattern types.
-let $pattern_type_ids = {stix: 1, pcre: 2, sigma: 3, snort: 4, suricata: 5, yara: 6}
+let $pattern_type_ids = {
+  stix: 1,
+  pcre: 2,
+  sigma: 3,
+  snort: 4,
+  suricata: 5,
+  yara: 6,
+}
 // The predefined TLP 1.0 and TLP 2.0 marking definitions.
 let $tlps = {
   "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9": "WHITE",
@@ -56,50 +58,62 @@ let $tlps = {
   "marking-definition--e828b379-4e03-4974-9ac4-e53a884c97c1": "RED",
 }
 
-// --- OSINT object ------------------------------
-
-$ocsf = {osint: {}}
-$stix.observable = $stix.pattern.parse_grok($comparison, raw=true) if $stix.pattern.match_regex($comparison)
-$ocsf.osint.value = $stix.observable.value?
-$ocsf.osint.type_id = $type_ids[$stix.observable.path?]? else 0
-drop $stix.observable
-$ocsf.osint.detection_pattern = move $stix.pattern
-$ocsf.osint.detection_pattern_type_id = $pattern_type_ids[move $stix.pattern_type]? else 99
-$ocsf.osint.external_uid = move $stix.id
-$ocsf.osint.desc = move $stix.description?
-$ocsf.osint.category = (move $stix.indicator_types?).join(", ")
-$ocsf.osint.labels = move $stix.labels?
-$ocsf.osint.creator = {uid: move $stix.created_by_ref?}
-$ocsf.osint.created_time = time(move $stix.created)
-$ocsf.osint.modified_time = time(move $stix.modified)
-$ocsf.osint.expiration_time = time(move $stix.valid_until?)
-// STIX 2.1 confidence scale: 1–29 is Low, 30–69 Medium, and 70–100 High.
-$ocsf.osint.confidence_id = (
-  3 if $stix.confidence? >= 70
-  else 2 if $stix.confidence? >= 30
-  else 1 if $stix.confidence? >= 1
-  else 0
-)
-drop $stix.confidence?
-// OpenCTI-based feeds score indicators from 0 to 100.
-$ocsf.osint.risk_score = move $stix.x_opencti_score?
-$ocsf.osint.references = $stix.external_references?.map(ref => ref.url?).collect()
-$ocsf.osint.tlp = $stix.object_marking_refs?.map(ref => $tlps[ref]?).first()
-
-// --- OSINT Inventory Info ----------------------
-
-$ocsf.activity_id = 2
-$ocsf.category_uid = 5
-$ocsf.class_uid = 5021
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-$ocsf.severity_id = 1
-$ocsf.status_id = 99 if $stix.revoked? == true
-$ocsf.status = "Removed" if $stix.revoked? == true
-$ocsf.time = $ocsf.osint.modified_time
-$ocsf.metadata = {
-  product: {name: "STIX"},
-  version: "1.9.0",
+$stix.observable = $stix.pattern.parse_grok($comparison, raw=true)
+$ocsf = {
+  activity_id: 2,
+  actor: {
+    app_name: "Tenzir",
+  },
+  category_uid: 5,
+  class_uid: 5021,
+  metadata: {
+    product: {
+      name: "STIX",
+    },
+    version: "1.9.0",
+  },
+  osint: {
+    category: (move $stix.indicator_types?).join(", "),
+    created_time: time(move $stix.created),
+    creator: {
+      uid: move $stix.created_by_ref?,
+    },
+    desc: move $stix.description?,
+    detection_pattern: move $stix.pattern,
+    detection_pattern_type: $stix.pattern_type,
+    detection_pattern_type_id: $pattern_type_ids[move $stix.pattern_type]? else 99,
+    expiration_time: time(move $stix.valid_until?),
+    external_uid: move $stix.id,
+    labels: move $stix.labels?,
+    modified_time: time($stix.modified),
+    references: $stix.external_references?.map(ref => ref.url?).collect(),
+    // OpenCTI-based feeds score indicators from 0 to 100.
+    risk_score: move $stix.x_opencti_score?,
+    tlp: $stix.object_marking_refs?.map(ref => $tlps[ref]?).first(),
+    type_id: $type_ids[move $stix.observable.object]? else 0,
+    value: move $stix.observable.value,
+  },
+  severity_id: 1,
+  time: time(move $stix.modified),
+  type_uid: 502102,
+  ...({status_id: 99, status: "Removed"} if (move $stix.revoked?) == true),
 }
+
+// STIX 2.1 confidence scale: 1–29 is Low, 30–69 Medium, and 70–100 High.
+match $stix.confidence? {
+  0..30 => {
+    $ocsf.osint.confidence_id = 1
+  }
+  29..70 => {
+    $ocsf.osint.confidence_id = 2
+  }
+  69..101 => {
+    $ocsf.osint.confidence_id = 3
+  }
+  _ => {}
+}
+drop $stix.confidence?, $stix.observable
+
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
 @name = "ocsf.osint_inventory_info"
