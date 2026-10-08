@@ -20,14 +20,14 @@ args:
       description: The OCSF event to build.
 ---
 
-$ocsf.metadata.event_code = $kunai.info.event.name?
-$ocsf.metadata.uid = $kunai.info.event.uuid?
-$ocsf.time = move $kunai.info.utc_time?
+$ocsf.metadata.event_code = move $kunai.info.event.name
+$ocsf.metadata.uid = move $kunai.info.event.uuid
+$ocsf.time = move $kunai.info.utc_time
 $ocsf.device = {
-  hostname: move $kunai.info.host.name?,
-  uid: move $kunai.info.host.uuid?,
+  hostname: move $kunai.info.host.name,
+  uid: move $kunai.info.host.uuid,
 }
-if $kunai.info.host.container? != null {
+if $kunai.info.host.container != null {
   $ocsf.metadata.profiles = ["host", "container"]
 }
 
@@ -37,19 +37,29 @@ if $kunai.detection? != null {
   $ocsf.action_id = 3
   $ocsf.disposition_id = 15
   // Rule severities range from 0 to 10.
-  $ocsf.severity_id = 5 if $kunai.detection.severity? >= 9 else
-                      4 if $kunai.detection.severity? >= 7 else
-                      3 if $kunai.detection.severity? >= 4 else
-                      2 if $kunai.detection.severity? >= 1 else 1
-  drop $kunai.detection.severity?
+  match $kunai.detection.severity {
+    9 | 10 => {
+      $ocsf.severity_id = 5
+    }
+    7 | 8 => {
+      $ocsf.severity_id = 4
+    }
+    4 | 5 | 6 => {
+      $ocsf.severity_id = 3
+    }
+    1 | 2 | 3 => {
+      $ocsf.severity_id = 2
+    }
+    _ => {
+      $ocsf.severity_id = 1
+    }
+  }
+  drop $kunai.detection.severity
   // Rules reference techniques (`T1059`), sub-techniques (`T1059.004`), and
   // tactics (`TA0002`).
-  if $kunai.detection.attack?.length() > 0 {
-    $ocsf.attacks = $kunai.detection.attack.map(id => id.to_upper()).map(id =>
-      {tactic: {uid: id}} if id.starts_with("TA") else
-      {technique: {uid: id.split(".")[0]}, sub_technique: {uid: id}} if id.split(".").length() > 1 else
-      {technique: {uid: id}}
-    )
-  }
-  drop $kunai.detection.attack?
+  $ocsf.attacks = (move $kunai.detection.attack?).map(id => id.to_upper()).map(id => {
+    tactic: {uid: id} if id.starts_with("TA") else null,
+    technique: {uid: id.split(".")[0]} if not id.starts_with("TA") else null,
+    sub_technique: {uid: id} if id.split(".").length() > 1 else null,
+  })
 }

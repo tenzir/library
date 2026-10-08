@@ -60,8 +60,12 @@ if $kunai.info? == null {
   // that an event happened.
   kunai::ocsf::events::base_event $kunai, $ocsf
 } else {
+  // Kunai writes `?` and empty strings for what it could not resolve, such as
+  // the executable of a process that started before Kunai did.
+  replace $kunai, what="?", with=null
+  replace $kunai, what="", with=null
   kunai::ocsf::common $kunai, $ocsf
-  match $kunai.info.event.name? {
+  match $ocsf.metadata.event_code {
     "execve" | "execve_script" => {
       kunai::ocsf::events::execve $kunai, $ocsf
     }
@@ -128,7 +132,7 @@ if $kunai.info? == null {
     "event_loss" => {
       kunai::ocsf::events::event_loss $kunai, $ocsf
     }
-    "file_scan" if ($kunai.data.positives? else 0) > 0 => {
+    "file_scan" if $kunai.data.positives > 0 => {
       kunai::ocsf::events::file_scan $kunai, $ocsf
     }
     _ => {
@@ -136,23 +140,19 @@ if $kunai.info? == null {
     }
   }
 
-  // The event name and UUID became `metadata.event_code` and `metadata.uid`. The
-  // source and the numeric ID repeat what the product and the event name say.
-  drop $kunai.info.event.name?, $kunai.info.event.uuid?, $kunai.info.event.source?, $kunai.info.event.id?
-  drop $kunai.info.host.container?
+  // The source and the numeric ID repeat what the product and the event name
+  // say.
+  drop $kunai.info.event.source, $kunai.info.event.id, $kunai.info.host.container
   // Mapping empties many of the nested source records. Prune them so that only
   // the fields without an OCSF attribute remain.
   $ocsf.unmapped = unflatten(drop_null_fields(flatten(move $kunai)))
-  if $ocsf.unmapped.keys().length() == 0 {
-    drop $ocsf.unmapped
-  }
 }
 
 // --- Finalize ---------------------------------
 
 // The acting user runs the acting process.
-if $ocsf.actor?.process?.user? != null and $ocsf.actor.user? == null {
-  $ocsf.actor.user = $ocsf.actor.process.user
+if $ocsf.actor? != null {
+  $ocsf.actor.user = $ocsf.actor.user? else $ocsf.actor.process.user
 }
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 if $ocsf.action_id? != null {

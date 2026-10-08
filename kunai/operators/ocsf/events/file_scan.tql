@@ -21,22 +21,20 @@ $ocsf.is_alert = true
 
 kunai::ocsf::process $kunai, $ocsf.actor.process
 $ocsf.finding_info = {
-  uid: $kunai.info.event.uuid,
+  uid: $ocsf.metadata.uid,
   title: "File matches YARA signatures",
   desc: f"Kunai scanned {$kunai.data.path} and matched the YARA signatures {$kunai.data.signatures.join(", ")}.",
   analytic: {
     name: "Kunai file scan",
     type_id: 1,
   },
-  related_analytics: $kunai.data.signatures?.map(name => {name: name, type_id: 1}),
+  related_analytics: (move $kunai.data.signatures).map(name => {name: name, type_id: 1}),
   // The scan runs because of another Kunai event, which this field references.
-  related_events: [{uid: $kunai.data.source_event?}] if $kunai.data.source_event? != null else null,
+  related_events: [{uid: move $kunai.data.source_event}],
 }
 // The scanned file serves as the evidence of the match. What the file mapping
 // does not consume, such as a hashing error, stays in the source event.
-$ocsf._scan = {path: move $kunai.data.path, ...move $kunai.data.meta}
-kunai::ocsf::file $ocsf._scan, $ocsf._file
-$ocsf.evidences = [{file: $ocsf._file}]
-$kunai.data.meta = move $ocsf._scan
-drop $ocsf._file
-drop $kunai.data.positives, $kunai.data.signatures?, $kunai.data.source_event?
+$kunai.data.meta.path = move $kunai.data.path
+kunai::ocsf::file $kunai.data.meta, $ocsf._file
+$ocsf.evidences = [{file: move $ocsf._file}]
+drop $kunai.data.positives

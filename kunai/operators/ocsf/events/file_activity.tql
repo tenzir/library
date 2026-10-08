@@ -16,25 +16,29 @@ $ocsf.class_uid = 1001
 
 // The `_config` variants fire for files below `/etc`, and `write_close` fires
 // when a written file closes. `metadata.event_code` tells them apart.
-let $activity_ids = {
-  file_create: 1,
-  read: 2,
-  read_config: 2,
-  write: 3,
-  write_config: 3,
-  write_close: 3,
-  file_unlink: 4,
+match $ocsf.metadata.event_code {
+  "file_create" => {
+    $ocsf.activity_id = 1
+  }
+  "read" | "read_config" => {
+    $ocsf.activity_id = 2
+  }
+  "write" | "write_config" | "write_close" => {
+    $ocsf.activity_id = 3
+  }
+  "file_unlink" => {
+    $ocsf.activity_id = 4
+    // Only an unlink reports whether it succeeded.
+    $ocsf.status_id = 1 if (move $kunai.data.success) else 2
+  }
+  _ => {
+    $ocsf.activity_id = 99
+  }
 }
-$ocsf.activity_id = $activity_ids[$kunai.info.event.name]
 
 kunai::ocsf::process $kunai, $ocsf.actor.process
 $ocsf.file = {
-  path: $kunai.data.path,
   name: file_name($kunai.data.path),
+  path: move $kunai.data.path,
   type_id: 1,
-}
-drop $kunai.data.path
-if $kunai.data.success? != null {
-  $ocsf.status_id = 1 if $kunai.data.success else 2
-  drop $kunai.data.success
 }
