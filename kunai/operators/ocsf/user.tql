@@ -1,0 +1,34 @@
+---
+description: |
+  Builds an OCSF User from a Kunai identity.
+
+  A Kunai identity pairs a numeric user ID and group ID with the names that
+  Kunai resolved from the passwd and group databases. Kunai writes `?` for a
+  name it could not resolve. The operator leaves unresolved names out and marks
+  the user with ID 0 as an administrator.
+args:
+  positional:
+    - name: identity
+      type: field
+      description: The Kunai identity to consume.
+    - name: user
+      type: field
+      description: The field that receives the OCSF user.
+---
+
+if $identity.uid? == null {
+  $user = null
+} else {
+  $user = {
+    uid: $identity.uid.string(),
+    name: $identity.user if $identity.user? != "?" else null,
+    type_id: 2 if $identity.uid == 0 else null,
+  }
+  if $identity.gid? != null {
+    $user.groups = [drop_null_fields({
+      uid: $identity.gid.string(),
+      name: $identity.group if $identity.group? != "?" else null,
+    })]
+  }
+  drop $identity.uid, $identity.user?, $identity.gid?, $identity.group?
+}

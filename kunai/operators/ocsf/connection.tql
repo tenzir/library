@@ -1,0 +1,59 @@
+---
+description: |
+  Builds the OCSF Network Connection Information of a Kunai network event.
+
+  Kunai names the transport protocol of the socket and computes the Community ID
+  of the flow. The IP version follows from the address family of the socket.
+
+  The direction is only known for connections that the monitored host
+  initiated. Traffic to a loopback address is local, and a connection that the
+  host initiated towards a public address is outbound. The operator leaves every
+  other direction unknown.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai network event to read.
+    - name: connection_info
+      type: field
+      description: The field that receives the OCSF connection information.
+  named:
+    - name: remote
+      type: field
+      description: The field holding the remote Kunai address of the event.
+    - name: initiated
+      type: bool
+      default: false
+      description: Whether the monitored host initiated the connection.
+---
+
+let $protocol_nums = {
+  ICMP: 1,
+  IGMP: 2,
+  TCP: 6,
+  UDP: 17,
+  DCCP: 33,
+  GRE: 47,
+  ESP: 50,
+  AH: 51,
+  ICMPV6: 58,
+  SCTP: 132,
+  UDPLITE: 136,
+}
+let $ip_versions = {
+  AF_INET: 4,
+  AF_INET6: 6,
+}
+$connection_info = {
+  community_uid: $kunai.data.community_id?,
+  protocol_name: $kunai.data.socket.proto?.to_lower(),
+  protocol_num: $protocol_nums[$kunai.data.socket.proto?]?,
+  protocol_ver_id: $ip_versions[$kunai.data.socket.domain?]?,
+  direction_id: 0,
+}
+if $remote.ip? != null and is_loopback($remote.ip) {
+  $connection_info.direction_id = 4
+} else if $initiated and $remote.public? == true {
+  $connection_info.direction_id = 2
+}
+drop $kunai.data.community_id?, $kunai.data.socket.proto?, $kunai.data.socket.domain?

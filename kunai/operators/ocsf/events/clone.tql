@@ -1,0 +1,33 @@
+---
+description: Kunai `clone` → OCSF Process Activity (1007, Launch with the Fork launch type).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+
+// The task section describes the new task, whose command line and executable
+// match those of its creator.
+kunai::ocsf::process $kunai, $ocsf.process
+
+// Kunai reports every cloned task, but only a task outside of the cloning
+// thread group is a new process.
+let $clone_thread = 65536
+if bit_and(int($kunai.data.flags? else "0", base=16), $clone_thread) == 0 {
+  $ocsf.activity_id = 1
+  $ocsf.launch_type_id = 2
+  $ocsf.actor.process = $ocsf.process.parent_process
+} else {
+  // OCSF has no activity for a new thread.
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = "Create Thread"
+  $ocsf.actor.process = $ocsf.process
+}

@@ -1,0 +1,36 @@
+---
+description: Kunai `creds_tampered` → OCSF Process Activity (1007, Other).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+// OCSF has no activity for credentials that changed without a request.
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Credentials Tampered"
+
+// The task runs with credentials that nothing granted. The actor is the task as
+// it was meant to run, and the target is the task as it runs now.
+kunai::ocsf::process $kunai, $ocsf.process
+$ocsf.actor.process = $ocsf.process
+drop $ocsf.actor.process.ancestry?, $ocsf.actor.process.parent_process?
+kunai::ocsf::user $kunai.data.expected.effective, $ocsf.actor.user
+kunai::ocsf::user $kunai.data.actual.effective, $ocsf.process.user
+
+// Kunai itself raises this event when the credentials of a task diverge from
+// the baseline that it tracked, which indicates a privilege escalation outside
+// of the regular system calls.
+$ocsf.is_alert = true
+$ocsf.action_id = 3
+$ocsf.disposition_id = 15
+$ocsf.severity_id = 4 if $ocsf.severity_id < 4 else $ocsf.severity_id
+// The remaining user IDs and the capability sets have no OCSF attribute and
+// remain under `unmapped`.

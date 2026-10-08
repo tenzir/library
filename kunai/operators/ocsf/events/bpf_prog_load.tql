@@ -1,0 +1,34 @@
+---
+description: Kunai `bpf_prog_load` → OCSF Kernel Extension Activity (1002, Load).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.kernel_extension_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1002
+// An eBPF program extends the kernel the way a driver does.
+$ocsf.activity_id = 1
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+// Kunai names the program by its kernel symbol when the loader gave it no name.
+$ocsf.driver.file = {
+  name: $kunai.data.name if $kunai.data.name? not in [null, ""] else $kunai.data.ksym?,
+  type_id: 99,
+  type: "eBPF Program",
+  size: $kunai.data.bpf_prog?.size,
+}
+kunai::ocsf::hashes $kunai.data.bpf_prog, $ocsf.driver.file.hashes
+drop $kunai.data.name?, $kunai.data.ksym?, $kunai.data.bpf_prog.size?
+if $kunai.data.loaded? != null {
+  $ocsf.status_id = 1 if $kunai.data.loaded else 2
+  drop $kunai.data.loaded
+}
+// The program type, tag, and attachment point have no OCSF attribute and remain
+// under `unmapped`.

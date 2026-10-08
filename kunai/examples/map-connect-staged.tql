@@ -1,0 +1,64 @@
+---
+name: Map a Kunai network event to OCSF in stages
+description: |
+  Maps one Kunai `connect` event to OCSF Network Activity with the mapper
+  instead of the normalizer. The staged form lets a pipeline inspect, filter, or
+  enrich the Kunai event before the mapping consumes it. Here, the pipeline
+  keeps only connections to public addresses.
+---
+
+from {
+  data: {
+    ancestors: ["/usr/lib/systemd/systemd", "/usr/bin/bash"],
+    command_line: "curl https://why.kunai.rocks",
+    exe: {path: "/usr/bin/curl"},
+    socket: {domain: "AF_INET", type: "SOCK_STREAM", proto: "TCP"},
+    src: {ip: 192.168.1.152, port: 36749},
+    dst: {
+      hostname: "kunai-project.github.io",
+      ip: 185.199.111.153,
+      port: 443,
+      public: true,
+      is_v6: false,
+    },
+    community_id: "1:Zy0KM8lSsDjFs4mzmfFHjtBZfPI=",
+    connected: true,
+  },
+  info: {
+    host: {uuid: "c030b40d-0eab-417b-b33a-22d952357984", name: "hal", container: null},
+    event: {
+      source: "kunai",
+      id: 60,
+      name: "connect",
+      uuid: "6c1ab8dc-3e55-cdc9-12ea-b14d15366dba",
+      batch: 877,
+    },
+    task: {
+      name: "curl",
+      pid: 2204144,
+      tgid: 2204144,
+      guuid: "70b13b9d-9121-0000-1f8f-2ab0a3c11a00",
+      creds: {effective: {uid: 1000, user: "alice", gid: 1000, group: "alice"}},
+      namespaces: {mnt: 4026531841},
+      flags: "0x400000",
+      zombie: false,
+    },
+    parent_task: {
+      name: "bash",
+      pid: 2203990,
+      tgid: 2203990,
+      guuid: "5e7a0c11-8e21-0000-1f8f-2ab0a3c11a00",
+      creds: {effective: {uid: 1000, user: "alice", gid: 1000, group: "alice"}},
+      namespaces: {mnt: 4026531841},
+      flags: "0x400000",
+      zombie: false,
+    },
+    utc_time: 2026-03-09T09:53:40.472813816Z,
+  },
+}
+this = {kunai: this, ocsf: {}}
+where kunai.data.dst.public
+kunai::ocsf::map kunai, ocsf
+this = ocsf
+ocsf_derive
+ocsf_cast

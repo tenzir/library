@@ -1,0 +1,40 @@
+---
+description: Kunai `read`, `read_config`, `write`, `write_config`, `write_close`, `file_create`, and `file_unlink` → OCSF File System Activity (1001).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.file_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+
+// The `_config` variants fire for files below `/etc`, and `write_close` fires
+// when a written file closes. `metadata.event_code` tells them apart.
+let $activity_ids = {
+  file_create: 1,
+  read: 2,
+  read_config: 2,
+  write: 3,
+  write_config: 3,
+  write_close: 3,
+  file_unlink: 4,
+}
+$ocsf.activity_id = $activity_ids[$kunai.info.event.name]
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+$ocsf.file = {
+  path: $kunai.data.path,
+  name: file_name($kunai.data.path),
+  type_id: 1,
+}
+drop $kunai.data.path
+if $kunai.data.success? != null {
+  $ocsf.status_id = 1 if $kunai.data.success else 2
+  drop $kunai.data.success
+}

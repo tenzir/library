@@ -1,0 +1,26 @@
+---
+description: |
+  Builds the OCSF Process that the `target` of a Kunai `kill` or `ptrace` event
+  describes.
+
+  Kunai reports the targeted process the way it reports any task, plus the
+  command line and the path of the executable that Kunai tracked for it. Both
+  are `?` when the target started before Kunai did.
+args:
+  positional:
+    - name: target
+      type: field
+      description: The Kunai target to consume.
+    - name: process
+      type: field
+      description: The field that receives the OCSF process.
+---
+
+kunai::ocsf::task $target.task, $process
+if $target.command_line? != null {
+  $process.cmd_line = "" if $target.command_line == "?" else $target.command_line
+  drop $target.command_line
+}
+if $target.exe? != null {
+  kunai::ocsf::file $target.exe, $process.file, type_id=8
+}

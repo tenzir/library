@@ -1,0 +1,38 @@
+---
+description: Kunai `commit_creds` → OCSF Process Activity (1007, Set User ID).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+
+// Kunai reports every credential change of a task, including those that only
+// touch groups or capabilities. Only a change of a user ID is a Set User ID.
+if $kunai.data.old.real.uid? != $kunai.data.new.real.uid? or
+   $kunai.data.old.effective.uid? != $kunai.data.new.effective.uid? or
+   $kunai.data.old.saved.uid? != $kunai.data.new.saved.uid? or
+   $kunai.data.old.fs.uid? != $kunai.data.new.fs.uid? {
+  $ocsf.activity_id = 5
+} else {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = "Commit Credentials"
+}
+
+// A task changes its own credentials, so the actor and the target coincide. The
+// task still carries the old credentials when Kunai observes the change, and the
+// target runs as the new user afterwards.
+kunai::ocsf::process $kunai, $ocsf.process
+$ocsf.actor.process = $ocsf.process
+drop $ocsf.actor.process.ancestry?, $ocsf.actor.process.parent_process?
+kunai::ocsf::user $kunai.data.old.effective, $ocsf.actor.user
+kunai::ocsf::user $kunai.data.new.effective, $ocsf.process.user
+// The remaining user IDs and the capability sets have no OCSF attribute and
+// remain under `unmapped`.

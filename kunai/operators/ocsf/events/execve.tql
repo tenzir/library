@@ -1,0 +1,35 @@
+---
+description: Kunai `execve` and `execve_script` → OCSF Process Activity (1007, Launch).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+$ocsf.activity_id = 1
+// The task keeps its identity and replaces its image.
+$ocsf.launch_type_id = 3
+
+// The task section describes the new image, and the parent performed the launch.
+kunai::ocsf::process $kunai, $ocsf.process
+if $kunai.data.parent_exe? not in [null, "?"] {
+  $ocsf.process.parent_process.file = {
+    path: $kunai.data.parent_exe,
+    name: file_name($kunai.data.parent_exe),
+    type_id: 8,
+  }
+}
+if $kunai.data.parent_command_line? != null {
+  $ocsf.process.parent_process.cmd_line = "" if $kunai.data.parent_command_line == "?" else $kunai.data.parent_command_line
+}
+drop $kunai.data.parent_exe?, $kunai.data.parent_command_line?
+$ocsf.actor.process = $ocsf.process.parent_process
+// For `execve_script`, `process.file` is the script and the interpreter that
+// runs it remains under `unmapped`.

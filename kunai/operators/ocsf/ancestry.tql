@@ -1,0 +1,28 @@
+---
+description: |
+  Builds an OCSF process ancestry from the Kunai `ancestors` of an event.
+
+  Kunai lists the executable paths of the ancestors from the oldest process down
+  to the direct parent. OCSF expects the opposite order, so the operator reverses
+  the list. Kunai releases up to 0.7.0-rc.1 emit the list as a single string with
+  `|` as separator, and the operator reads that form too. The markers `?` and
+  `(truncated)` stand for ancestors that Kunai could not resolve and do not
+  describe a process, so the operator skips them.
+args:
+  positional:
+    - name: ancestors
+      type: field
+      description: The Kunai ancestors to consume.
+    - name: ancestry
+      type: field
+      description: The field that receives the OCSF ancestry.
+---
+
+if $ancestors == null {
+  $ancestry = null
+} else {
+  $ancestry = $ancestors.split("|") if type_of($ancestors).kind == "string" else $ancestors
+  $ancestry = $ancestry.where(path => path not in ["", "?", "(truncated)"]).slice(stride=-1)
+  $ancestry = $ancestry.map(path => {path: path, name: file_name(path)})
+  drop $ancestors
+}

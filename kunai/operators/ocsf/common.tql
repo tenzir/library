@@ -1,0 +1,55 @@
+---
+description: |
+  Builds the OCSF attributes that every Kunai event shares.
+
+  This covers the event time and identifier, the host that Kunai runs on, and the
+  verdict of Kunai's own detection engine. The caller sets the product identity.
+
+  Kunai emits `detection` only when a rule matched. A match makes the event an
+  alert in the Security Control profile: Kunai observed the activity and
+  detected it. The rule severity of 0 to 10 maps to OCSF severity, and ATT&CK
+  identifiers map to `attacks`. The rule names, tags, and actions have no OCSF
+  attribute and stay in the source event.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+$ocsf.metadata.event_code = $kunai.info.event.name?
+$ocsf.metadata.uid = $kunai.info.event.uuid?
+$ocsf.time = move $kunai.info.utc_time?
+$ocsf.device = {
+  hostname: move $kunai.info.host.name?,
+  uid: move $kunai.info.host.uuid?,
+}
+if $kunai.info.host.container? != null {
+  $ocsf.metadata.profiles = ["host", "container"]
+}
+
+if $kunai.detection? != null {
+  $ocsf.is_alert = true
+  // Kunai observed the activity and detected it without intervening.
+  $ocsf.action_id = 3
+  $ocsf.disposition_id = 15
+  // Rule severities range from 0 to 10.
+  $ocsf.severity_id = 5 if $kunai.detection.severity? >= 9 else
+                      4 if $kunai.detection.severity? >= 7 else
+                      3 if $kunai.detection.severity? >= 4 else
+                      2 if $kunai.detection.severity? >= 1 else 1
+  drop $kunai.detection.severity?
+  // Rules reference techniques (`T1059`), sub-techniques (`T1059.004`), and
+  // tactics (`TA0002`).
+  if $kunai.detection.attack?.length() > 0 {
+    $ocsf.attacks = $kunai.detection.attack.map(id => id.to_upper()).map(id =>
+      {tactic: {uid: id}} if id.starts_with("TA") else
+      {technique: {uid: id.split(".")[0]}, sub_technique: {uid: id}} if id.split(".").length() > 1 else
+      {technique: {uid: id}}
+    )
+  }
+  drop $kunai.detection.attack?
+}

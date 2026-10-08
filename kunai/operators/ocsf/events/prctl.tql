@@ -1,0 +1,30 @@
+---
+description: Kunai `prctl` → OCSF Process Activity (1007, Other).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+// OCSF has no activity for a process changing its own attributes.
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Prctl"
+
+// A process changes its own attributes, so the actor and the target coincide. The
+// ancestry and the parent describe the target only.
+kunai::ocsf::process $kunai, $ocsf.process
+$ocsf.actor.process = $ocsf.process
+drop $ocsf.actor.process.ancestry?, $ocsf.actor.process.parent_process?
+if $kunai.data.success? != null {
+  $ocsf.status_id = 1 if $kunai.data.success else 2
+  drop $kunai.data.success
+}
+// The option and its arguments have no OCSF attribute and remain under
+// `unmapped`.

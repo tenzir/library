@@ -1,0 +1,40 @@
+---
+description: |
+  Builds the OCSF Process that performs an event.
+
+  The operator combines what Kunai reports in the `info` section about the task
+  that triggered the event with the executable, command line, and ancestors that
+  most event types carry in their `data` section. It also adds the parent task
+  and the container the host reports.
+
+  Kunai writes `?` where it lost track of a process, for example one that started
+  before Kunai did. For the command line, the operator turns this marker into the
+  empty string that OCSF reserves for an unavailable command line.
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to read.
+    - name: process
+      type: field
+      description: The field that receives the OCSF process.
+---
+
+kunai::ocsf::task $kunai.info.task, $process
+if $kunai.info.parent_task? != null {
+  kunai::ocsf::task $kunai.info.parent_task, $process.parent_process
+}
+if $kunai.data.command_line? != null {
+  $process.cmd_line = "" if $kunai.data.command_line == "?" else $kunai.data.command_line
+  drop $kunai.data.command_line
+}
+if $kunai.data.exe? != null {
+  kunai::ocsf::file $kunai.data.exe, $process.file, type_id=8
+}
+kunai::ocsf::ancestry $kunai.data.ancestors?, $process.ancestry
+if $kunai.info.host.container? != null {
+  $process.container = {
+    name: $kunai.info.host.container.name?,
+    runtime: $kunai.info.host.container.type?,
+  }
+}

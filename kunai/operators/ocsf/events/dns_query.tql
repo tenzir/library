@@ -1,0 +1,28 @@
+---
+description: Kunai `dns_query` → OCSF DNS Activity (4003, Response).
+args:
+  positional:
+    - name: kunai
+      type: field
+      description: The Kunai event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.dns_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4003
+// Kunai emits the event when the host receives the DNS response.
+$ocsf.activity_id = 2
+
+kunai::ocsf::process $kunai, $ocsf.actor.process
+kunai::ocsf::connection $kunai, $ocsf.connection_info, remote=$kunai.data.dns_server, initiated=true
+kunai::ocsf::endpoint $kunai.data.src, $ocsf.src_endpoint
+kunai::ocsf::endpoint $kunai.data.dns_server, $ocsf.dst_endpoint
+$ocsf.query = {
+  hostname: $kunai.data.query,
+  type: $kunai.data.query_type? if $kunai.data.query_type? != "?" else null,
+}
+$ocsf.answers = $kunai.data.response?.map(rdata => {rdata: rdata.string()})
+drop $kunai.data.query, $kunai.data.query_type?, $kunai.data.response?
