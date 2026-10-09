@@ -27,8 +27,6 @@ otherwise. The windowed example pairs the sorted answers with events using
 
 Configure the endpoint, model, and managed secret for your service, or pass
 `api_key_secret_name=""` for a server without authentication.
-`jev::collect_record` builds question records from collected key/value pairs
-as a non-Nova workaround for the built-in `collect_record` function.
 
 Requests run sequentially within each operator instance. To batch events in
 one request, include each event in a separate question and submit the collected
