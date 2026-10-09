@@ -3,6 +3,11 @@ description: |
   Fetches the objects of a TAXII 2.1 collection and emits one event per STIX
   object. The operator follows the `next` token until the server reports no
   more pages.
+
+  ```tql
+  stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
+    params={added_after: "2026-10-01T00:00:00Z", "match[type]": "indicator"}
+  ```
 args:
   positional:
     - name: url
@@ -12,21 +17,30 @@ args:
     - name: headers
       default: {}
       description: Additional request headers, such as `Authorization`.
-    - name: added_after
-      type: time
-      default: null
-      description: Only fetches objects that the server added after this time.
+    - name: params
+      default: {}
+      description: |
+        Query parameters for every page, such as `added_after`, `limit`, or
+        `match[type]`. Values must be strings or numbers.
+    - name: paginate_delay
+      type: duration
+      default: 0s
+      description: The time to wait between pages, for servers with rate limits.
 ---
 
-let $filter = f"added_after={$added_after}" if $added_after != null else ""
+let $query = $params.print_kv(field_separator="&")
 let $taxii_headers = {
   Accept: "application/taxii+json;version=2.1",
   ...$headers,
 }
-from_http f"{$url}?{$filter}",
+from_http f"{$url}?{$query}",
   headers=$taxii_headers,
-  paginate=(page => f"{$url}?{$filter}&next={page.next.encode_url()}" if page.more) {
-  read_json
+  paginate_delay=$paginate_delay,
+  paginate=(page => f"{$url}?{$query}&next={page.next.encode_url()}" if page.more) {
+  // Parse the complete page: `read_json` rejects multi-byte characters that
+  // span two network chunks.
+  read_all
+  this = data.parse_json()
 }
-unroll objects
+unroll objects?
 this = objects
