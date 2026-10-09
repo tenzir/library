@@ -11,9 +11,15 @@ args:
     - name: api_credential
       type: secret
       description: Base64 of the isMalicious `apiKey:apiSecret` pair.
+    - name: added_after
+      type: time
+      default: null
+      description: |
+        Only fetches indicators added to the collection after this time,
+        together with the revocations since then.
     - name: params
       default: {}
-      description: Additional query parameters, such as `min_score` or `added_after`.
+      description: Additional query parameters, such as `min_score`.
     - name: base_url
       type: string
       default: "https://api.ismalicious.com"
@@ -24,6 +30,7 @@ args:
 let $taxii_params = {
   limit: 1001,
   "match[type]": "indicator",
+  ...({added_after: f"{$added_after}"} if $added_after != null),
   ...$params,
 }
 stix::taxii::fetch f"{$base_url}/taxii/api-root/collections/{$collection}/objects",

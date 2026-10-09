@@ -29,10 +29,25 @@ tenzir::osint::update_context
 ```
 
 The collections hold millions of indicators. The operator pages at the plan's
-rate limit, so a complete walk takes hours. `min_score` keeps indicators with
-an OpenCTI risk score of at least the given value, but the server still scans
-the whole collection. See `examples/update-osint-context.tql` for a daily
-refresh of both collections.
+rate limit. `min_score` keeps indicators with an OpenCTI risk score of at least
+the given value, but the server still scans the whole collection, so a walk of
+both collections takes over an hour.
+
+## Keep the table current
+
+Combine two schedules, as the examples show:
+
+- `examples/update-osint-context.tql` walks both collections daily, after the
+  provider's nightly reload, and updates every indicator in the table.
+- `examples/poll-osint-updates.tql` polls between walks with `added_after`,
+  which adds new indicators and delivers revocations. Each poll looks back a
+  day, so a few failed polls lose nothing.
+
+Only walks with `added_after` deliver revocations, and isMalicious keeps them
+for 30 days. A revoked indicator leaves the table, and an indicator past its
+`valid_until` stops matching and leaves on the next update. Indicators that the
+feed no longer serves age out after `max_age`. The table updates page by page,
+so an interrupted walk leaves the pages it already applied.
 
 The operator requires the `stix` package.
 

@@ -15,6 +15,7 @@ INPUTS = Path(__file__).parents[1] / "tests" / "inputs"
 class RequestAssertions:
     query: str = "192.0.2.1"
     collection: str | None = None
+    added_after: str | None = None
     credential: str = "synthetic-test-credential"
 
 
@@ -49,7 +50,10 @@ def ismalicious_api() -> FixtureHandle:
         path, params, credential = requests[0]
         if assertions.collection:
             assert path == f"/taxii/api-root/collections/{assertions.collection}/objects", path
-            assert params == {"limit": ["1001"], "match[type]": ["indicator"]}, params
+            expected = {"limit": ["1001"], "match[type]": ["indicator"]}
+            if assertions.added_after:
+                expected["added_after"] = [assertions.added_after]
+            assert params == expected, params
         else:
             assert path == "/check", path
             assert params == {"query": [assertions.query], "enrichment": ["standard"]}, params

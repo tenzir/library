@@ -1,0 +1,22 @@
+---
+name: Poll isMalicious feeds for additions and revocations
+description: |
+  Polls the isMalicious domain and IP collections between the daily walks.
+  Only polls with `added_after` deliver revocations, which remove indicators
+  from the shared `ocsf-osint` lookup table.
+---
+
+// Polls three times a day, between the daily walks at 07:00. Each poll looks
+// back a full day, so a few failed polls lose nothing: updates replace
+// entries instead of duplicating them.
+cron "0 0 1,13,19 * * *" {
+  from {collection: "malicious-domains"}, {collection: "malicious-ips"}
+  each parallel=1 {
+    ismalicious::feed $this.collection,
+      api_credential=secret("ISMALICIOUS_API_CREDENTIAL"),
+      added_after=now() - 1d,
+      params={min_score: 60}
+  }
+  ismalicious::ocsf::normalize
+  tenzir::osint::update_context max_age=30d
+}

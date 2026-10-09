@@ -1,11 +1,15 @@
 ---
-name: Update OSINT context from isMalicious feeds
+name: Reconcile OSINT context with isMalicious feeds
 description: |
-  Loads isMalicious domain and IP indicators daily into the shared
-  `ocsf-osint` lookup table from the Tenzir utilities package.
+  Walks the isMalicious domain and IP collections daily and updates the shared
+  `ocsf-osint` lookup table from the Tenzir utilities package. Run it together
+  with the polling example, which picks up additions and revocations between
+  walks.
 ---
 
-every 1d {
+// Runs at 07:00 in the node's local time zone, after the nightly provider
+// reload that starts at 02:00 UTC.
+cron "0 0 7 * * *" {
   from {collection: "malicious-domains"}, {collection: "malicious-ips"}
   // Walk one collection at a time to stay within the API rate limit.
   each parallel=1 {

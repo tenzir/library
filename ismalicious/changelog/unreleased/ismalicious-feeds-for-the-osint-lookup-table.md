@@ -17,3 +17,5 @@ ismalicious::feed "malicious-ips",
 ismalicious::ocsf::normalize
 tenzir::osint::update_context
 ```
+
+Pass `added_after` to poll for new indicators and revocations between daily walks. Revoked indicators leave the lookup table.
