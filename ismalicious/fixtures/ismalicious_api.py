@@ -1,4 +1,4 @@
-"""Synthetic IsMalicious API that records requests for assertions."""
+"""Synthetic isMalicious API that records requests for assertions."""
 
 import threading
 from dataclasses import dataclass
@@ -14,6 +14,8 @@ INPUTS = Path(__file__).parents[1] / "tests" / "inputs"
 @dataclass(frozen=True)
 class RequestAssertions:
     query: str = "192.0.2.1"
+    collection: str | None = None
+    added_after: str | None = None
     credential: str = "synthetic-test-credential"
 
 
@@ -27,7 +29,12 @@ def ismalicious_api() -> FixtureHandle:
             params = parse_qs(url.query)
             requests.append((url.path, params, self.headers.get("X-API-KEY")))
             query = params.get("query", [""])[0]
-            name = "context-only" if query.startswith("https://") else "malicious-evidence"
+            if url.path.startswith("/taxii/"):
+                name = "taxii-page"
+            elif query.startswith("https://"):
+                name = "context-only"
+            else:
+                name = "malicious-evidence"
             body = (INPUTS / f"{name}.json").read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -41,8 +48,15 @@ def ismalicious_api() -> FixtureHandle:
     def assert_test(*, assertions: RequestAssertions, **kwargs):
         assert len(requests) == 1, requests
         path, params, credential = requests[0]
-        assert path == "/check", path
-        assert params == {"query": [assertions.query], "enrichment": ["standard"]}, params
+        if assertions.collection:
+            assert path == f"/taxii/api-root/collections/{assertions.collection}/objects", path
+            expected = {"limit": ["1001"], "match[type]": ["indicator"]}
+            if assertions.added_after:
+                expected["added_after"] = [assertions.added_after]
+            assert params == expected, params
+        else:
+            assert path == "/check", path
+            assert params == {"query": [assertions.query], "enrichment": ["standard"]}, params
         assert credential == assertions.credential, credential
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 from tenzir_test import FixtureHandle, fixture
 
 OBJECTS = "/api-root/collections/indicators/objects/"
-TOKEN = "page/2+="
+TOKENS = ["page/2+=", "page/3+="]
 INDICATORS = [
     json.loads(line)
     for line in (Path(__file__).parents[1] / "tests" / "inputs" / "indicators.ndjson")
@@ -26,9 +27,11 @@ IDENTITY = {
     "name": "Synthetic TAXII provider",
     "identity_class": "organization",
 }
+# TAXII 2.1 omits `objects` from an empty page, which filtered requests yield.
 PAGES = {
-    None: {"more": True, "next": TOKEN, "objects": [IDENTITY, *INDICATORS[:3]]},
-    TOKEN: {"more": False, "objects": INDICATORS[3:]},
+    None: {"more": True, "next": TOKENS[0], "objects": [IDENTITY, *INDICATORS[:3]]},
+    TOKENS[0]: {"more": True, "next": TOKENS[1]},
+    TOKENS[1]: {"more": False, "objects": INDICATORS[3:]},
 }
 
 
@@ -49,20 +52,25 @@ def taxii_server() -> FixtureHandle:
             requests.append((url.path, params, dict(self.headers)))
             page = PAGES.get(params.get("next", [None])[0])
             status = 200 if url.path == OBJECTS and page else 404
-            body = json.dumps(page).encode()
+            body = json.dumps(page, ensure_ascii=False).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/taxii+json;version=2.1")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            # Split the body inside a multi-byte character, as network chunks do.
+            split = body.find("…".encode()) + 1 or len(body)
+            self.wfile.write(body[:split])
+            self.wfile.flush()
+            time.sleep(0.1)
+            self.wfile.write(body[split:])
 
         def log_message(self, *args):
             pass
 
     def assert_test(*, assertions: RequestAssertions, **kwargs):
-        assert len(requests) == 2, requests
+        assert len(requests) == len(PAGES), requests
         filters = {"added_after": [assertions.added_after]} if assertions.added_after else {}
-        for (path, params, headers), token in zip(requests, [None, TOKEN]):
+        for (path, params, headers), token in zip(requests, PAGES):
             assert path == OBJECTS, path
             assert params == (filters | {"next": [token]} if token else filters), params
             assert headers["Accept"] == "application/taxii+json;version=2.1", headers

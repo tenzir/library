@@ -74,6 +74,8 @@ $ocsf = {
   },
   osint: {
     category: (move $stix.indicator_types?).join(", "),
+    // Derived below from the STIX confidence scale.
+    confidence_id: null,
     created_time: time(move $stix.created),
     creator: {
       uid: move $stix.created_by_ref?,
@@ -86,7 +88,7 @@ $ocsf = {
     external_uid: move $stix.id,
     labels: move $stix.labels?,
     modified_time: time($stix.modified),
-    references: $stix.external_references?.map(ref => ref.url?).collect(),
+    references: $stix.external_references?.map(ref => ref.url? else ref.source_name?).collect(),
     // OpenCTI-based feeds score indicators from 0 to 100.
     risk_score: move $stix.x_opencti_score?,
     tlp: $stix.object_marking_refs?.map(ref => $tlps[ref]?).first(),
@@ -94,9 +96,10 @@ $ocsf = {
     value: move $stix.observable.value,
   },
   severity_id: 1,
+  status: "Removed" if $stix.revoked? == true,
+  status_id: 99 if (move $stix.revoked?) == true,
   time: time(move $stix.modified),
   type_uid: 502102,
-  ...({status_id: 99, status: "Removed"} if (move $stix.revoked?) == true),
 }
 
 // STIX 2.1 confidence scale: 1–29 is Low, 30–69 Medium, and 70–100 High.
