@@ -1,0 +1,32 @@
+---
+description: |
+  Fetches the STIX 2.1 Indicators of an IsMalicious TAXII collection, such as
+  `malicious-domains` or `malicious-ips`.
+args:
+  positional:
+    - name: collection
+      type: string
+      description: The collection ID.
+  named:
+    - name: api_credential
+      type: secret
+      description: Base64 of the IsMalicious `apiKey:apiSecret` pair.
+    - name: params
+      default: {}
+      description: Additional query parameters, such as `min_score` or `added_after`.
+    - name: base_url
+      type: string
+      default: "https://api.ismalicious.com"
+      description: The API base URL.
+---
+
+// Pro plans serve at most 1001 objects per page and 60 requests per minute.
+let $taxii_params = {
+  limit: 1001,
+  "match[type]": "indicator",
+  ...$params,
+}
+stix::taxii::fetch f"{$base_url}/taxii/api-root/collections/{$collection}/objects",
+  headers={"X-API-KEY": $api_credential},
+  params=$taxii_params,
+  paginate_delay=1s
