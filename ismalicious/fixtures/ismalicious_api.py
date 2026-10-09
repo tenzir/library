@@ -1,4 +1,4 @@
-"""Synthetic IsMalicious API that records requests for assertions."""
+"""Synthetic isMalicious API that records requests for assertions."""
 
 import threading
 from dataclasses import dataclass

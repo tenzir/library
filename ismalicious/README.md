@@ -1,6 +1,6 @@
-# IsMalicious
+# isMalicious
 
-[IsMalicious](https://ismalicious.com) provides reputation data for IP
+[isMalicious](https://ismalicious.com) provides reputation data for IP
 addresses, domains, URLs, and MD5, SHA-1, or SHA-256 hashes. Load its feeds
 into a lookup table to enrich events in the stream, and look up individual
 indicators during investigations.

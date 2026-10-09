@@ -1,11 +1,11 @@
 ---
-title: Add IsMalicious indicator reputation lookups
+title: Add isMalicious indicator reputation lookups
 type: feature
 ---
 
 The new `ismalicious` package looks up the reputation of IP addresses, domains,
 URLs, and file hashes. Use `ismalicious::check` to fetch risk scores, evidence,
-and provenance from the IsMalicious API:
+and provenance from the isMalicious API:
 
 ```tql
 ismalicious::check query="192.0.2.1",

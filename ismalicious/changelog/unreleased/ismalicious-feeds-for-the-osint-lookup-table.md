@@ -1,5 +1,5 @@
 ---
-title: IsMalicious feeds for the OSINT lookup table
+title: isMalicious feeds for the OSINT lookup table
 type: feature
 authors:
   - mavam
@@ -8,7 +8,7 @@ prs:
 created: 2026-10-09T12:57:51.475826Z
 ---
 
-The `ismalicious` package now loads the IsMalicious STIX/TAXII feeds. `ismalicious::feed` fetches the indicators of a collection, such as `malicious-domains` or `malicious-ips`, and `ismalicious::ocsf::normalize` maps them to OCSF OSINT Inventory Info for the OSINT lookup table:
+The `ismalicious` package now loads the isMalicious STIX/TAXII feeds. `ismalicious::feed` fetches the indicators of a collection, such as `malicious-domains` or `malicious-ips`, and `ismalicious::ocsf::normalize` maps them to OCSF OSINT Inventory Info for the OSINT lookup table:
 
 ```tql
 ismalicious::feed "malicious-ips",
