@@ -3,6 +3,8 @@ title: TAXII query parameters and robust page parsing
 type: change
 authors:
   - mavam
+prs:
+  - 196
 created: 2026-10-09T12:57:52.26169Z
 ---
 

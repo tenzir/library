@@ -3,6 +3,8 @@ title: IsMalicious feeds for the OSINT lookup table
 type: feature
 authors:
   - mavam
+prs:
+  - 196
 created: 2026-10-09T12:57:51.475826Z
 ---
 
