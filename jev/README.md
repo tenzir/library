@@ -126,9 +126,7 @@ fields and sets `answers`, `answer_list`, and `usage`, replacing those fields if
 present. `answers` is a record keyed by question ID. `answer_list` is a list of the
 same answers, each with an `id` field. `jev::ask` sorts the list numerically
 when all IDs contain only digits; otherwise, it sorts by ID alphabetically.
-Mixed answer types share a list schema, so fields absent
-from an answer can appear as nulls in `answer_list`; the `answers` record retains
-the original answer shapes.
+Each answer in `answer_list` keeps the fields of its own type.
 
 Supported types are `noul`, `choice`, and `score`. `noul` returns a probability;
 `choice` selects a supplied option; `score` returns an expected index into an
@@ -154,8 +152,7 @@ for redaction.
 ## Combine questions in one request
 
 Use [score-commands-batched.tql](examples/score-commands-batched.tql) for a
-complete pipeline with `window`, `summarize`, `jev::collect_record`, and
-`jev::ask`. It works with the configured System One endpoint, including hosted
+complete pipeline with `window`, `summarize`, `collect_record`, and `jev::ask`. It works with the configured System One endpoint, including hosted
 Jev and local Laya.
 
 The example uses `window gap=2s, size=25, on=time`. It groups commands until
@@ -182,17 +179,14 @@ windows or buffer events into groups.
 
 ## Build dynamic question records
 
-`jev::collect_record entries` converts a list of `{key, value}` records in place.
-It is a non-Nova workaround for the built-in `collect_record` function.
-Keys must be strings; values must be JSON-compatible. Keys are sorted, the last
-value wins for duplicates, and explicit nulls are preserved. Empty lists become
-`{}`; null lists remain null. Do not submit empty question records to the API.
+Use the built-in `collect_record` function to build a question record from
+`{key, value}` entries. As an aggregation in `summarize`, it collects one
+question per event, for example `collect_record(string(index), question)`.
+Keys must be unique within a request; the last value wins for duplicates. Do
+not submit empty question records to the API.
 
-Keep different question schemas in separate lists, collect each into a record,
-then merge the records. TQL gives records in a list a shared schema and adds
-nulls for missing fields. Mixing unrelated choice criteria in one list can
-therefore add unintended null options before either package operator runs.
-The tests verify the exact HTTP body for safely merged question families.
+Questions with different criteria can share one list. Each question keeps
+exactly its own criteria, and the tests verify the exact HTTP body.
 
 ## Detection limits
 
