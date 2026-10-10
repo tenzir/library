@@ -1,0 +1,19 @@
+// Identical logical findings deduplicate; another window or entity stays distinct.
+// Keep the exact legacy hash checks in finding-window and the e2e suite as well.
+let $base = {
+  feature: "process.name",
+  entity: "ws-42",
+  value: "mimikatz.exe",
+  baseline_count: 10,
+  familiarity: 0.0,
+  drift: 0.5,
+  score: 0.75,
+  window: {start: 2024-01-03T09:00:00Z, end: 2024-01-03T09:05:00Z},
+}
+from {behavior: $base},
+     {behavior: $base},
+     {behavior: {...$base, window: {start: 2024-01-03T09:05:00Z, end: 2024-01-03T09:10:00Z}}},
+     {behavior: {...$base, entity: "srv-01"}}
+tenzir::detect::behavior::categorical::finding
+summarize events=count(), present_ids=count(finding_info.uid), distinct_ids=count_distinct(finding_info.uid)
+this = this.sort()
