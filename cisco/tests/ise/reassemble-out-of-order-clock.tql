@@ -1,0 +1,18 @@
+// A redelivered header with a later syslog timestamp must not prevent the
+// original header and continuation from reassembling. The duplicate incomplete
+// output is accepted as a redelivery tradeoff.
+from {
+  message: "CISE_Failed_Attempts 0001133667 2 0 2026-06-18 13:44:55.100 +02:00 0020933896 5400 NOTICE Failed-Attempt: Authentication failed, UserName=alice,",
+  timestamp: 2026-06-18T11:44:57.000Z,
+},
+{
+  message: "CISE_Failed_Attempts 0001133667 2 0 2026-06-18 13:44:55.100 +02:00 0020933896 5400 NOTICE Failed-Attempt: Authentication failed, UserName=alice,",
+  timestamp: 2026-06-18T11:44:55.100Z,
+},
+{
+  message: "CISE_Failed_Attempts 0001133667 2 1 AcsSessionID=ise-psn1/123456789/99,",
+  timestamp: 2026-06-18T11:44:55.900Z,
+}
+cisco::ise::reassemble message=message, on=timestamp, span=1s
+select message_id, segment_total, reassembly_complete, missing_segments, message
+sort missing_segments
