@@ -37,8 +37,9 @@ both collections takes over an hour.
 
 Combine two schedules, as the examples show:
 
-- `examples/update-osint-context.tql` walks both collections daily, after the
-  provider's nightly reload, and updates every indicator in the table.
+- `examples/update-osint-context.tql` walks both collections daily at 07:00 in
+  the node's local time zone and updates every indicator. The provider reload
+  starts at 02:00 UTC; check the schedule against when it actually completes.
 - `examples/poll-osint-updates.tql` polls between walks with `added_after`,
   which adds new indicators and delivers revocations. Each poll looks back a
   day, so a few failed polls lose nothing.
