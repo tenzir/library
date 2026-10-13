@@ -51,13 +51,12 @@ each {
     // Envelopes may carry custom properties, including one named `next_url`.
     next_url = null
     let $date_added_last = $response.headers.map_keys(x => x.to_lower())["x-taxii-date-added-last"]?
-    if more? == true and next? not in [null, ""] {
-      next_url = f"{$url}?{$this.query}&next={next.encode_url()}"
-    } else if more? == true and $date_added_last != null and objects?.length() > 0 {
+    if more? and next? not in [null, ""] {
+      next_url = f"?{$this.query}&next={next.encode_url()}"
+    } else if more? and $date_added_last != null and objects?.length() > 0 {
       // Without a `next` token, TAXII 2.1 pages by date added.
       let $next_params = {...$this.params, added_after: $date_added_last}
-      next_query = $next_params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
-      next_url = f"{$url}?{next_query}"
+      next_url = "?" + $next_params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
     }
   }
   unroll objects?
