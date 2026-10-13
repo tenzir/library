@@ -1,8 +1,11 @@
 ---
 description: |
   Fetches the objects of a TAXII 2.1 collection and emits one event per STIX
-  object. The operator follows the `next` token until the server reports no
-  more pages.
+  object.
+
+  The operator follows the `next` token until the server reports no more pages.
+  Servers without `next` tokens page by date added: the operator then requests
+  the objects added after the `X-TAXII-Date-Added-Last` response header.
 
   ```tql
   stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
@@ -36,11 +39,22 @@ let $taxii_headers = {
 from_http f"{$url}?{$query}",
   headers=$taxii_headers,
   paginate_delay=$paginate_delay,
-  paginate=(page => f"{$url}?{$query}&next={page.next.encode_url()}" if page.more) {
+  paginate=(page => page.next_url?) {
   // Parse the complete page: `read_json` rejects multi-byte characters that
   // span two network chunks.
   read_all
   this = data.parse_json()
+  let $response_headers = $response.headers.map_keys(name => name.to_lower())
+  let $date_added_last = $response_headers["x-taxii-date-added-last"]?
+  if more? == true {
+    if next? != null {
+      next_url = f"{$url}?{$query}&next={next.encode_url()}"
+    } else if $date_added_last != null and objects?.length() > 0 {
+      // Without a `next` token, TAXII 2.1 pages by date added.
+      next_params = {...$params, added_after: $date_added_last.encode_url()}
+      next_url = f"{$url}?{next_params.print_kv(field_separator="&")}"
+    }
+  }
 }
 unroll objects?
 this = objects
