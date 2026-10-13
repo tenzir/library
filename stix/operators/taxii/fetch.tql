@@ -1,8 +1,11 @@
 ---
 description: |
   Fetches the objects of a TAXII 2.1 collection and emits one event per STIX
-  object. The operator follows the `next` token until the server reports no
-  more pages.
+  object.
+
+  The operator follows the `next` token until the server reports no more pages.
+  Servers without `next` tokens page by date added: the operator then requests
+  the objects added after the `X-TAXII-Date-Added-Last` response header.
 
   ```tql
   stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
@@ -28,19 +31,31 @@ args:
       description: The time to wait between pages, for servers with rate limits.
 ---
 
-let $query = $params.print_kv(field_separator="&")
 let $taxii_headers = {
   Accept: "application/taxii+json;version=2.1",
   ...$headers,
 }
-from_http f"{$url}?{$query}",
-  headers=$taxii_headers,
-  paginate_delay=$paginate_delay,
-  paginate=(page => f"{$url}?{$query}&next={page.next.encode_url()}" if page.more) {
-  // Parse the complete page: `read_json` rejects multi-byte characters that
-  // span two network chunks.
-  read_all
-  this = data.parse_json()
+// Encode the parameters at runtime, where `entries` is available, because
+// TAXII filters such as `match[type]` take comma-separated values.
+from {params: $params}
+query = params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
+each {
+  from_http f"{$url}?{$this.query}",
+    headers=$taxii_headers,
+    paginate_delay=$paginate_delay,
+    paginate=(page => page.next_url) {
+    read_json
+    // Envelopes may carry custom properties, including one named `next_url`.
+    next_url = null
+    let $date_added_last = $response.headers.map_keys(x => x.to_lower())["x-taxii-date-added-last"]?
+    if more? and next? not in [null, ""] {
+      next_url = f"?{$this.query}&next={next.encode_url()}"
+    } else if more? and $date_added_last != null and objects?.length() > 0 {
+      // Without a `next` token, TAXII 2.1 pages by date added.
+      let $next_params = {...$this.params, added_after: $date_added_last}
+      next_url = "?" + $next_params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
+    }
+  }
+  unroll objects?
+  this = objects
 }
-unroll objects?
-this = objects
