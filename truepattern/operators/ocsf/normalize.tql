@@ -1,0 +1,31 @@
+---
+description: |
+  Normalizes a TruePattern rule, a STIX 2.1 Indicator, to OCSF 1.9 OSINT
+  Inventory Info.
+
+  The rule text lands in `osint.detection_pattern` and its language in
+  `osint.detection_pattern_type`. On top of the generic STIX mapping, the
+  operator adds the upstream rule location as `osint.src_url` and the rule as
+  an analytic in `osint.related_analytics`, with the rule name and, for Sigma
+  rules, the Sigma rule ID as `uid`. The license remains in
+  `unmapped.external_references` under the source name `rule-vendor-license`.
+---
+
+stix::ocsf::normalize
+metadata.product = {
+  name: "TruePattern",
+  vendor_name: "TruePattern",
+}
+osint = osint.map(x => {
+  ...x,
+  related_analytics: [{
+    name: unmapped.name?,
+    type: "Rule",
+    type_id: 1,
+    // Sigma detection findings carry this ID in `finding_info.analytic.uid`.
+    uid: x.detection_pattern.parse_yaml().id? if x.detection_pattern_type == "sigma",
+  }],
+  src_url: unmapped.external_references?.where(ref => ref.source_name? == "rule-source").first().url?,
+  vendor_name: "TruePattern",
+})
+drop unmapped.name?

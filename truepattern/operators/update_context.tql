@@ -1,0 +1,40 @@
+---
+description: |
+  Updates the TruePattern rule catalog from normalized Sigma rules.
+
+  The catalog is a lookup table keyed by Sigma rule ID, the ID that detection
+  findings of the `sigma` operator carry in `finding_info.analytic.uid`. Each
+  entry holds the OCSF `osint` object of the rule, without the rule text, and
+  its license. Rules without a Sigma rule ID get no entry.
+
+  The operator expects the normalized output of
+  `truepattern::sigma::update_rules`, which holds one rule per Sigma rule ID
+  and matches the rule file. With other input, the last rule per Sigma rule ID
+  wins.
+args:
+  named:
+    - name: context_name
+      type: string
+      default: truepattern-sigma-rules
+      description: Lookup-table context to update.
+    - name: max_age
+      type: duration
+      default: 30d
+      description: |
+        How long an entry lives after its last update, so that rules that
+        leave the feed also leave the catalog.
+---
+
+where @name == "ocsf.osint_inventory_info"
+unroll osint
+where osint.related_analytics[0].uid? != null
+// Findings carry the applied rule in `policy.data` already.
+drop osint.detection_pattern
+_license = unmapped.external_references?.where(ref => ref.source_name? == "rule-vendor-license").first()
+context_update $context_name,
+  key=osint.related_analytics[0].uid,
+  value={
+    osint: osint,
+    license: {name: _license.external_id?, url: _license.url?},
+  },
+  write_timeout=$max_age

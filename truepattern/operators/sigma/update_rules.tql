@@ -1,0 +1,58 @@
+---
+description: |
+  Writes the latest version of every TruePattern Sigma rule into one
+  multi-document YAML file for the `sigma` operator.
+
+  Run the operator on a complete walk of the feed: it replaces the file with
+  the rules of its input, so a partial input, such as from an `added_after`
+  poll, would remove all other rules. The operator writes nothing if its input
+  contains no Sigma rule.
+
+  Every rule must be a single YAML document. The operator removes a leading
+  preamble of blank lines, comments, and one document marker, as well as a
+  final document end marker. It skips rules with several YAML documents, such
+  as correlation rules, and warns about each one. It also skips rules whose YAML does
+  not parse, because the `sigma` operator ignores the complete file if one
+  document fails to parse. If several rules
+  share a Sigma rule ID, it keeps the most recently modified one, because the
+  `sigma` operator ignores all rules with a duplicate ID.
+
+  The operator forwards the STIX Indicators of the rules that it wrote, so that
+  you can continue with `truepattern::ocsf::normalize` and
+  `truepattern::update_context`.
+args:
+  named:
+    - name: path
+      type: string
+      description: The rule file to write, such as `/var/lib/tenzir/truepattern/sigma.yaml`.
+---
+
+where type == "indicator" and pattern_type == "sigma"
+truepattern::latest
+// Normalizes the rule to a single document without a leading preamble of
+// blank lines, comments, and one document marker, and without a final
+// document end marker.
+_text = pattern.replace("\r\n", "\n")
+_text = _text.replace_regex(r"^([ \t]*(#[^\n]*)?\n)*(---[ \t]*(#[^\n]*)?(\n|$))?", "")
+// A final document end marker, followed only by blank lines, ends the rule.
+_text = _text.replace_regex(r"\n\.\.\.[ \t]*(#[^\n]*)?(\n[ \t]*)*$", "\n")
+// Any remaining document marker at the start of a line separates documents.
+assert not _text.match_regex(r"(?m)^(---|\.\.\.)([ \t#]|$)"),
+  message=f"skipping Sigma rule {id}: not a single YAML document"
+_rule = _text.parse_yaml()
+where _rule != null
+// The latest version comes first, so `deduplicate` keeps it.
+deduplicate _rule.id? else id
+drop _rule
+// A stable order keeps the documents in place across updates.
+sort id
+fork {
+  summarize rules=collect(_text)
+  where rules.length() > 0
+  this = {text: rules.join("\n---\n")}
+  // The operator writes the file in one go after the walk completes.
+  to_file $path {
+    write_lines
+  }
+}
+drop _text

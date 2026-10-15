@@ -1,0 +1,50 @@
+---
+description: |
+  Fetches the detection rules of the TruePattern TAXII collection as STIX 2.1
+  Indicators.
+
+  Every rule version is a separate Indicator: an update keeps the `id` and
+  carries a later `modified` time. Use `truepattern::latest` to keep the
+  current version of each rule.
+
+  The operator fails on any warning during the walk, such as a malformed page,
+  instead of emitting a partial collection.
+args:
+  named:
+    - name: credential
+      type: secret
+      description: Base64 of the TruePattern `username:password` pair.
+    - name: added_after
+      type: time
+      default: null
+      description: Only fetches rule versions added to the collection after this time.
+    - name: params
+      default: {}
+      description: |
+        Additional query parameters. Pass `{"match[type]": "report"}` to fetch
+        other object types instead of Indicators.
+    - name: collection
+      type: string
+      default: "91a9eb95-e096-4774-80fb-6db78007a346"
+      description: The collection ID.
+    - name: base_url
+      type: string
+      default: "https://truepattern.io"
+      description: The API base URL.
+---
+
+// Pages of 2,000 objects take about 14 MB, so a walk of all rule versions
+// needs a handful of requests. Much larger pages risk a reset connection.
+let $taxii_params = {
+  limit: 2000,
+  "match[type]": "indicator",
+  ...({added_after: f"{$added_after}"} if $added_after != null),
+  ...$params,
+}
+// Fail the walk on any warning, such as a malformed page, so that consumers
+// never mistake a partial walk for the complete collection.
+strict {
+  stix::taxii::fetch f"{$base_url}/taxii/collections/{$collection}/objects/",
+    headers={Authorization: f"Basic {$credential}"},
+    params=$taxii_params
+}
