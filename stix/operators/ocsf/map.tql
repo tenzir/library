@@ -12,6 +12,9 @@ description: |
   the status `Removed`, which `tenzir::osint::update_context` erases from its
   lookup table.
 
+  External references with the source name `mitre-attack` become ATT&CK
+  tactics, techniques, and sub-techniques in `osint.attacks`.
+
   The operator consumes the source object: what it maps becomes OCSF, and what
   it cannot map remains under `unmapped`.
 args:
@@ -27,6 +30,9 @@ args:
 // Captures a single comparison, such as [ipv4-addr:value = '192.0.2.1'], and
 // yields nulls for every other pattern.
 let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'\]|.*"
+// ATT&CK IDs of tactics (TA0001), techniques (T1059), and sub-techniques
+// (T1059.001). Other ATT&CK objects, such as groups, only stay in `references`.
+let $attack_id = r"^T(A\d{4}|\d{4}(\.\d{3})?)$"
 let $type_ids = {
   "ipv4-addr": 1,
   "ipv6-addr": 1,
@@ -73,6 +79,16 @@ $ocsf = {
     version: "1.9.0",
   },
   osint: {
+    attacks: $stix.external_references?
+      .where(ref => ref.source_name? == "mitre-attack" and ref.external_id?.match_regex($attack_id) == true)
+      .map(ref => {
+        sub_technique: {uid: ref.external_id, src_url: ref.url?} if ref.external_id.match_regex(r"\."),
+        tactic: {uid: ref.external_id, src_url: ref.url?} if ref.external_id.starts_with("TA"),
+        technique: {
+          uid: ref.external_id.split(".")[0],
+          src_url: ref.url? if not ref.external_id.match_regex(r"\."),
+        } if not ref.external_id.starts_with("TA"),
+      }),
     category: (move $stix.indicator_types?).join(", "),
     // Derived below from the STIX confidence scale.
     confidence_id: null,
