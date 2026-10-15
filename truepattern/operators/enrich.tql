@@ -1,0 +1,31 @@
+---
+description: |
+  Enriches Sigma detection findings with TruePattern rule metadata.
+
+  The operator looks up `finding_info.analytic.uid` in the catalog that
+  `truepattern::update_context` maintains. On a match, it appends the rule's
+  OCSF `osint` object to `osint`, which carries the TruePattern ID in
+  `external_uid`, the rule name in `related_analytics`, the change analysis in
+  `desc`, the upstream rule in `src_url`, and the ATT&CK techniques in
+  `attacks`. It adds the rule license as `unmapped.truepattern.license`, with
+  the license `name` and `url`. A rule without a license entry carries a null
+  license, which does not grant any permission.
+args:
+  named:
+    - name: context_name
+      type: string
+      default: truepattern-sigma-rules
+      description: Lookup-table context to query.
+---
+
+if class_uid == 2004 and finding_info?.analytic?.uid? != null {
+  context_enrich $context_name,
+    key=finding_info.analytic.uid,
+    into=_truepattern
+}
+if _truepattern? != null {
+  osint = (osint? else []).append(_truepattern.osint)
+  metadata.profiles = metadata?.profiles?.add("osint")
+  unmapped.truepattern.license = _truepattern.license
+}
+drop _truepattern?
