@@ -13,7 +13,8 @@ description: |
   lookup table.
 
   External references with the source name `mitre-attack` become ATT&CK
-  tactics, techniques, and sub-techniques in `osint.attacks`.
+  tactics, techniques, and sub-techniques in `osint.attacks`. Phases of the
+  Lockheed Martin Cyber Kill Chain become `osint.kill_chain`.
 
   The operator consumes the source object: what it maps becomes OCSF, and what
   it cannot map remains under `unmapped`.
@@ -33,6 +34,16 @@ let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'
 // ATT&CK IDs of tactics (TA0001), techniques (T1059), and sub-techniques
 // (T1059.001). Other ATT&CK objects, such as groups, only stay in `references`.
 let $attack_id = r"^T(A\d{4}|\d{4}(\.\d{3})?)$"
+// The phases of the Lockheed Martin Cyber Kill Chain, which OCSF enumerates.
+let $kill_chain_phases = {
+  reconnaissance: {id: 1, name: "Reconnaissance"},
+  weaponization: {id: 2, name: "Weaponization"},
+  delivery: {id: 3, name: "Delivery"},
+  exploitation: {id: 4, name: "Exploitation"},
+  installation: {id: 5, name: "Installation"},
+  "command-and-control": {id: 6, name: "Command & Control"},
+  "actions-on-objectives": {id: 7, name: "Actions on Objectives"},
+}
 let $type_ids = {
   "ipv4-addr": 1,
   "ipv6-addr": 1,
@@ -102,6 +113,12 @@ $ocsf = {
     detection_pattern_type_id: $pattern_type_ids[move $stix.pattern_type]? else 99,
     expiration_time: time(move $stix.valid_until?),
     external_uid: move $stix.id,
+    kill_chain: $stix.kill_chain_phases?
+      .where(x => x.kill_chain_name? == "lockheed-martin-cyber-kill-chain")
+      .map(x => {
+        phase: $kill_chain_phases[x.phase_name]?.name? else x.phase_name,
+        phase_id: $kill_chain_phases[x.phase_name]?.id? else 99,
+      }),
     labels: move $stix.labels?,
     modified_time: time($stix.modified),
     references: $stix.external_references?.map(ref => ref.url? else ref.source_name?).collect(),
@@ -132,6 +149,14 @@ match $stix.confidence? {
   _ => {}
 }
 drop $stix.confidence?, $stix.observable
+// Phases of other kill chains have no OCSF equivalent and remain under
+// `unmapped`.
+if $stix.kill_chain_phases? != null {
+  $stix.kill_chain_phases = $stix.kill_chain_phases.where(x => x.kill_chain_name? != "lockheed-martin-cyber-kill-chain")
+  if $stix.kill_chain_phases.length() == 0 {
+    drop $stix.kill_chain_phases
+  }
+}
 
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
