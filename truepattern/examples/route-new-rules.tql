@@ -1,0 +1,26 @@
+---
+name: Route new TruePattern rules by format
+description: |
+  Polls the TruePattern feed for new rule versions and publishes them per rule
+  format, so that other pipelines can deploy them to the matching system.
+---
+
+// Polls hourly and looks back two hours, so a failed poll loses nothing. The
+// windows overlap, so consumers can receive a rule version twice: key on the
+// STIX `id` and `modified` time.
+cron "0 0 * * * *" {
+  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"),
+    added_after=now() - 2h
+  truepattern::latest
+  where pattern_type != "sigma"
+  truepattern::ocsf::normalize
+  if osint[0].detection_pattern_type == "splunk" {
+    publish "truepattern-splunk"
+  } else if osint[0].detection_pattern_type in ["kql", "sentinel"] {
+    publish "truepattern-kql"
+  } else if osint[0].detection_pattern_type == "yara" {
+    publish "truepattern-yara"
+  } else {
+    publish "truepattern-other"
+  }
+}
