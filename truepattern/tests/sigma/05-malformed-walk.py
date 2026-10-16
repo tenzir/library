@@ -19,4 +19,10 @@ truepattern::sigma::update_rules path=f"{env("TRUEPATTERN_TEST_DIR")}/sigma.yaml
 """
 )
 print("failed:", result.returncode != 0)
-print("reason:", 'failed to parse a JSON value' if b'failed to parse a JSON value' in result.stderr else result.stderr.decode())
+# Both engines reject the malformed page; only the parser wording differs.
+json_errors = (
+    b"failed to parse a JSON value",
+    b"json parser: failed to parse a value in the JSON document",
+)
+json_error = any(message in result.stderr for message in json_errors)
+print("reason:", "failed to parse a JSON value" if json_error else result.stderr.decode())
