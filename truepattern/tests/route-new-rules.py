@@ -17,6 +17,8 @@ formats = ["sigma", "splunk", "kql", "sentinel", "yara", "sublime-security", "fu
 records = [
     {
         "id": f"indicator--{index}",
+        # Real STIX Indicators retain their required name under unmapped.
+        "name": f"Synthetic {format} rule",
         "created": "2026-10-01T00:00:00Z",
         "modified": "2026-10-01T00:00:00Z",
         "pattern_type": format,
