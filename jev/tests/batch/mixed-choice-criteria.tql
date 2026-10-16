@@ -19,19 +19,18 @@ assertions:
               "0": Unknown
 ---
 
-// Keep different criteria schemas in separate lists, then merge the records.
+// Questions with different criteria share one list without gaining null options.
 from {events: [{id: "ocsf"}]}
-class_questions = events.map(e => ({
-  key: e.id,
-  value: {type: "choice", instructions: "Class?", criteria: {"3002": "Authentication", unknown: "Unknown"}},
-}))
-severity_questions = [{
-  key: "severity",
-  value: {type: "choice", instructions: "Severity?", criteria: {"1": "Informational", "0": "Unknown"}},
-}]
-jev::collect_record class_questions
-jev::collect_record severity_questions
-questions = {...class_questions, ...severity_questions}
+questions = collect_record([
+  ...events.map(e => ({
+    key: e.id,
+    value: {type: "choice", instructions: "Class?", criteria: {"3002": "Authentication", unknown: "Unknown"}},
+  })),
+  {
+    key: "severity",
+    value: {type: "choice", instructions: "Severity?", criteria: {"1": "Informational", "0": "Unknown"}},
+  },
+])
 jev::ask questions, url=env("JEV_API_URL")
 select class_choice=answers.ocsf.choice, severity_choice=answers.severity.choice
 write_ndjson
