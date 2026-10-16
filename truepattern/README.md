@@ -46,9 +46,10 @@ The `sigma` operator only accepts constant rules or a path, so rules can't flow
 from the feed into the operator as events. Instead, the walk writes a file,
 and the `sigma` operator reloads it within seconds of every change.
 
-The package requires the `stix` package and Tenzir 6.20 or later (currently
-available as a prerelease). The STIX TAXII fetcher uses `entries`, which is not
-available in Tenzir 6.19. The package tests pass on Tenzir 6.20.0-rc.3.
+The package requires the `stix` package. Use Tenzir 6.20.0-rc.3, on which the
+package tests pass. Compatibility with Tenzir 6.19.1 remains unresolved:
+malformed Sigma YAML can trigger an engine assertion. No minimum engine
+version is enforced by the package manifest.
 
 ## Configure credentials
 
