@@ -1,8 +1,8 @@
 ---
 name: Update TruePattern Sigma rules
 description: |
-  Walks the TruePattern feed daily, replaces the Sigma rule file that the
-  detection pipeline reads, and updates the rule catalog that enriches its
+  Walks the TruePattern feed daily, replaces the Sigma rule files that the
+  detection pipelines read, and updates the rule catalog that enriches their
   findings.
 ---
 
@@ -11,6 +11,13 @@ description: |
 // Sigma rule updates.
 cron "0 0 6 * * *" {
   truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL")
+  // The rules for native Windows event logs, a subset of the complete file.
+  fork {
+    truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma-windows.yaml",
+      product="windows"
+    discard
+  }
+  // The complete rule file, whose rules also feed the catalog.
   truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma.yaml"
   truepattern::ocsf::normalize
   truepattern::update_context
