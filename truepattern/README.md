@@ -87,17 +87,27 @@ a detection rule has no single observable value.
 
 ## Run the Sigma rules
 
-`examples/update-sigma-rules.tql` walks the feed daily and keeps both the rule
-file and the catalog current:
+`examples/update-sigma-rules.tql` walks the feed daily and keeps the rule
+files and the catalog current:
 
 ```tql
 cron "0 0 6 * * *" {
   truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL")
+  fork {
+    truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma-windows.yaml",
+      product="windows"
+    discard
+  }
   truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma.yaml"
   truepattern::ocsf::normalize
   truepattern::update_context
 }
 ```
+
+The walk writes two files: all rules, and with `product="windows"` only the
+rules whose Sigma `logsource.product` is `windows`. The Windows file is a
+subset of the complete file, so the catalog only needs the rules of the
+complete file.
 
 `truepattern::sigma::update_rules` writes the latest version of every Sigma
 rule into one multi-document YAML file, one document per rule. It removes a
@@ -126,6 +136,34 @@ The `sigma` operator skips rules that use fields without an OCSF equivalent
 and warns once per rule. See [Check Sigma rule compatibility with
 OCSF](https://tenzir.com/docs/guides/detect/check-sigma-rule-compatibility-with-ocsf)
 for the supported log sources.
+
+### Choose between OCSF and native Windows events
+
+You can run the rules in two ways:
+
+- On OCSF events, as `examples/detect-with-sigma-rules.tql` shows. This works
+  across sources, but covers only the rules whose fields Tenzir's Sigma-to-OCSF
+  translation supports today.
+- On native Windows event logs, as `examples/detect-in-windows-event-logs.tql`
+  shows. Most TruePattern Sigma rules are Windows rules, and they name the
+  fields of the native events, so practically all of them run after one
+  reshaping step. This only works for Windows rules.
+
+For native events, lift `System` and `EventData` of the parsed event to the
+top level, and add `Provider_Name`, which Windows rules use for the event
+provider:
+
+```tql
+this = data.parse_winlog()
+this = {...System, Provider_Name: System.Provider.Name?, ...EventData}
+sigma path="/var/lib/tenzir/truepattern/sigma-windows.yaml"
+truepattern::enrich
+```
+
+Only give native events the Windows file. Without OCSF, the `sigma` operator
+does not check a rule's `logsource`, and an absent field never matches, so a
+rule for another product with a negated condition fires on every Windows
+event.
 
 ### Keep the rule file complete
 

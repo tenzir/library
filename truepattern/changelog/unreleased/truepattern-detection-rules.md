@@ -26,3 +26,5 @@ truepattern::enrich
 ```
 
 Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`, so that you can route them to the systems that run them.
+
+Pass `product="windows"` to `truepattern::sigma::update_rules` to write a file with only the Windows rules, which run directly on native Windows event logs after `parse_winlog`.

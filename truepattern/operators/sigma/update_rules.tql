@@ -20,11 +20,22 @@ description: |
   The operator forwards the STIX Indicators of the rules that it wrote, so that
   you can continue with `truepattern::ocsf::normalize` and
   `truepattern::update_context`.
+
+  With `product`, the file only holds the rules for that Sigma
+  `logsource.product`, such as `windows`. The operator selects them after it
+  resolves duplicate Sigma rule IDs, so the file is a subset of the complete
+  file from the same walk.
 args:
   named:
     - name: path
       type: string
       description: The rule file to write, such as `/var/lib/tenzir/truepattern/sigma.yaml`.
+    - name: product
+      type: string
+      default: null
+      description: |
+        Only writes the rules with this Sigma `logsource.product`, such as
+        `windows`. Defaults to all rules.
 ---
 
 where type == "indicator" and pattern_type == "sigma"
@@ -43,6 +54,7 @@ _rule = _text.parse_yaml()
 where _rule != null
 // The latest version comes first, so `deduplicate` keeps it.
 deduplicate _rule.id? else id
+where $product == null or _rule.logsource?.product? == $product
 drop _rule
 // A stable order keeps the documents in place across updates.
 sort id

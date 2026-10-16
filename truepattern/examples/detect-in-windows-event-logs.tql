@@ -1,0 +1,21 @@
+---
+name: Detect in Windows event logs with TruePattern Sigma rules
+description: |
+  Matches native Windows event logs against the TruePattern Sigma rules for
+  Windows and enriches the resulting detection findings with rule metadata.
+---
+
+// Replace this source with your Windows events, such as from `accept_wef` or
+// `evtx_dump`. The update pipeline writes the Windows rule file.
+from_file "/var/log/windows/events.xml" {
+  read_delimited "</Event>\n", include_separator=true
+}
+this = data.parse_winlog()
+// Sigma rules for Windows name the fields of `System` and `EventData` directly,
+// and the provider as `Provider_Name`.
+this = {...System, Provider_Name: System.Provider.Name?, ...EventData}
+// Without OCSF, the `sigma` operator does not check `logsource`, so only give
+// it rules for Windows.
+sigma path="/var/lib/tenzir/truepattern/sigma-windows.yaml"
+truepattern::enrich
+publish "truepattern-findings"
