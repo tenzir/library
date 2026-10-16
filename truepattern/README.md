@@ -208,6 +208,7 @@ cron "0 0 * * * *" {
   truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"),
     added_after=now() - 2h
   truepattern::latest
+  where pattern_type != "sigma"
   truepattern::ocsf::normalize
   if osint[0].detection_pattern_type == "splunk" {
     publish "truepattern-splunk"
