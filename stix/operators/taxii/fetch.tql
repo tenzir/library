@@ -35,10 +35,10 @@ let $taxii_headers = {
   Accept: "application/taxii+json;version=2.1",
   ...$headers,
 }
-// Encode the parameters at runtime, where `entries` is available, because
-// TAXII filters such as `match[type]` take comma-separated values.
+// Encode each key and value separately: TAXII filters such as `match[type]`
+// take comma-separated values. Use `keys` for compatibility with Tenzir 6.19.
 from {params: $params}
-query = params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
+query = params.keys().map(key => f"{key.encode_url()}={string(params[key]).encode_url()}").join("&")
 each {
   from_http f"{$url}?{$this.query}",
     headers=$taxii_headers,
@@ -53,7 +53,7 @@ each {
     } else if more? and $date_added_last != null and objects?.length() > 0 {
       // Without a `next` token, TAXII 2.1 pages by date added.
       let $next_params = {...$this.params, added_after: $date_added_last}
-      next_url = "?" + $next_params.entries().map(x => f"{x.key.encode_url()}={string(x.value).encode_url()}").join("&")
+      next_url = "?" + $next_params.keys().map(key => f"{key.encode_url()}={string($next_params[key]).encode_url()}").join("&")
     }
   }
   unroll objects?
