@@ -36,13 +36,13 @@ let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'
 let $attack_id = r"^T(A\d{4}|\d{4}(\.\d{3})?)$"
 // The phases of the Lockheed Martin Cyber Kill Chain, which OCSF enumerates.
 let $kill_chain_phases = {
-  reconnaissance: {id: 1, name: "Reconnaissance"},
-  weaponization: {id: 2, name: "Weaponization"},
-  delivery: {id: 3, name: "Delivery"},
-  exploitation: {id: 4, name: "Exploitation"},
-  installation: {id: 5, name: "Installation"},
-  "command-and-control": {id: 6, name: "Command & Control"},
-  "actions-on-objectives": {id: 7, name: "Actions on Objectives"},
+  reconnaissance: {phase: "Reconnaissance", phase_id: 1},
+  weaponization: {phase: "Weaponization", phase_id: 2},
+  delivery: {phase: "Delivery", phase_id: 3},
+  exploitation: {phase: "Exploitation", phase_id: 4},
+  installation: {phase: "Installation", phase_id: 5},
+  "command-and-control": {phase: "Command & Control", phase_id: 6},
+  "actions-on-objectives": {phase: "Actions on Objectives", phase_id: 7},
 }
 let $type_ids = {
   "ipv4-addr": 1,
@@ -91,13 +91,13 @@ $ocsf = {
   },
   osint: {
     attacks: $stix.external_references?
-      .where(ref => ref.source_name? == "mitre-attack" and ref.external_id?.match_regex($attack_id) == true)
+      .where(ref => ref.source_name == "mitre-attack" and ref.external_id?.match_regex($attack_id))
       .map(ref => {
-        sub_technique: {uid: ref.external_id, src_url: ref.url?} if ref.external_id.match_regex(r"\."),
+        sub_technique: {uid: ref.external_id, src_url: ref.url?} if "." in ref.external_id,
         tactic: {uid: ref.external_id, src_url: ref.url?} if ref.external_id.starts_with("TA"),
         technique: {
           uid: ref.external_id.split(".")[0],
-          src_url: ref.url? if not ref.external_id.match_regex(r"\."),
+          src_url: ref.url? if "." not in ref.external_id,
         } if not ref.external_id.starts_with("TA"),
       }),
     category: (move $stix.indicator_types?).join(", "),
@@ -114,10 +114,10 @@ $ocsf = {
     expiration_time: time(move $stix.valid_until?),
     external_uid: move $stix.id,
     kill_chain: $stix.kill_chain_phases?
-      .where(x => x.kill_chain_name? == "lockheed-martin-cyber-kill-chain")
-      .map(x => {
-        phase: $kill_chain_phases[x.phase_name]?.name? else x.phase_name,
-        phase_id: $kill_chain_phases[x.phase_name]?.id? else 99,
+      .where(phase => phase.kill_chain_name == "lockheed-martin-cyber-kill-chain")
+      .map(phase => $kill_chain_phases[phase.phase_name]? else {
+        phase: phase.phase_name,
+        phase_id: 99,
       }),
     labels: move $stix.labels?,
     modified_time: time($stix.modified),
@@ -151,12 +151,9 @@ match $stix.confidence? {
 drop $stix.confidence?, $stix.observable
 // Phases of other kill chains have no OCSF equivalent and remain under
 // `unmapped`.
-if $stix.kill_chain_phases? != null {
-  $stix.kill_chain_phases = $stix.kill_chain_phases.where(x => x.kill_chain_name? != "lockheed-martin-cyber-kill-chain")
-  if $stix.kill_chain_phases.length() == 0 {
-    drop $stix.kill_chain_phases
-  }
-}
+$stix.kill_chain_phases = $stix.kill_chain_phases?.where(
+  phase => phase.kill_chain_name != "lockheed-martin-cyber-kill-chain",
+)
 
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
