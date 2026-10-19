@@ -213,14 +213,19 @@ cron "0 0 * * * *" {
   truepattern::latest
   where pattern_type != "sigma"
   truepattern::ocsf::normalize
-  if osint[0].detection_pattern_type == "splunk" {
-    publish "truepattern-splunk"
-  } else if osint[0].detection_pattern_type in ["kql", "sentinel"] {
-    publish "truepattern-kql"
-  } else if osint[0].detection_pattern_type == "yara" {
-    publish "truepattern-yara"
-  } else {
-    publish "truepattern-other"
+  match osint[0].detection_pattern_type {
+    "splunk" => {
+      publish "truepattern-splunk"
+    }
+    "kql" | "sentinel" => {
+      publish "truepattern-kql"
+    }
+    "yara" => {
+      publish "truepattern-yara"
+    }
+    _ => {
+      publish "truepattern-other"
+    }
   }
 }
 ```
