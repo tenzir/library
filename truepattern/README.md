@@ -110,7 +110,9 @@ cron "0 0 6 * * *" {
 The walk writes two files: all rules, and with `product="windows"` only the
 rules whose Sigma `logsource.product` is `windows`. The Windows file is a
 subset of the complete file, so the catalog only needs the rules of the
-complete file.
+complete file. A walk without any rule for a file leaves that file unchanged:
+if the last Windows rule leaves the feed or changes its product, the Windows
+file keeps the obsolete rules, which still fire.
 
 `truepattern::sigma::update_rules` writes the latest version of every Sigma
 rule into one multi-document YAML file, one document per rule. It removes a
@@ -179,9 +181,10 @@ than daily, such as every few hours; it only takes a handful of requests.
 A walk fails on the first HTTP error or malformed page and leaves the rule file
 and the catalog untouched; the next scheduled walk tries again. After a
 complete walk, `truepattern::sigma::update_rules` rewrites the file in place,
-and `truepattern::update_context` updates the catalog alongside. Neither step
-is transactional: the `sigma` operator can read a partially written file, and
-the file and the catalog can briefly disagree.
+unless the walk has no rule for the file, and `truepattern::update_context`
+updates the catalog alongside. Neither step is transactional: the `sigma`
+operator can read a partially written file, and the file and the catalog can
+briefly disagree.
 
 ## Enrich findings
 
