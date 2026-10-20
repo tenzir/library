@@ -6,6 +6,8 @@ description: |
   The operator follows the `next` token until the server reports no more pages.
   Servers without `next` tokens page by date added: the operator then requests
   the objects added after the `X-TAXII-Date-Added-Last` response header.
+  A page that advertises more results without a usable continuation fails
+  the walk instead of silently returning an incomplete collection.
 
   ```tql
   stix::taxii::fetch "https://taxii.example.com/api-root/collections/indicators/objects/",
@@ -50,10 +52,14 @@ each {
     let $date_added_last = $response.headers.map_keys(x => x.to_lower())["x-taxii-date-added-last"]?
     if more? and next? not in [null, ""] {
       next_url = f"?{$this.query}&next={next.encode_url()}"
-    } else if more? and $date_added_last != null and objects?.length() > 0 {
+    } else if more? and $date_added_last not in [null, ""] and objects?.length() > 0 {
       // Without a `next` token, TAXII 2.1 pages by date added.
       let $next_params = {...$this.params, added_after: $date_added_last}
       next_url = "?" + $next_params.keys().map(key => f"{key.encode_url()}={string($next_params[key]).encode_url()}").join("&")
+    }
+    strict {
+      assert more? != true or next_url != null,
+        message="TAXII page advertises more results without a usable continuation"
     }
   }
   unroll objects?
