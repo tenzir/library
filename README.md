@@ -42,3 +42,7 @@ package up use cases. Then:
   appears in the public Tenzir Library.
 - Keep iterating—tests and good docs make it easier for others to adopt your
   work.
+
+## ⚖️ License
+
+The Tenzir Library is licensed under the [Apache License 2.0](LICENSE).
