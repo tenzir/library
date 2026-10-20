@@ -17,6 +17,12 @@ OBJECTS = f"/taxii/collections/{COLLECTION}/objects/"
 # Collections whose second page is malformed or fails, as broken walks deliver.
 MALFORMED = "/taxii/collections/malformed/objects/"
 FAILING = "/taxii/collections/failing/objects/"
+RECOVERING = "/taxii/collections/recovering/objects/"
+EMPTY = "/taxii/collections/empty/objects/"
+FAILING_EMPTY = "/taxii/collections/failing-empty/objects/"
+UNAUTHORIZED = "/taxii/collections/unauthorized/objects/"
+INCOMPLETE = "/taxii/collections/incomplete/objects/"
+INCOMPLETE_LATER = "/taxii/collections/incomplete-later/objects/"
 CREDENTIAL = base64.b64encode(b"synthetic-user:synthetic-password").decode()
 PAGE_SIZE = 3
 # The objects in the order the collection added them, with `modified` as the
@@ -31,26 +37,47 @@ class RequestAssertions:
     match_type: str = "indicator"
     added_after: str | None = None
     pages: int = 3
+    collection: str = COLLECTION
+    retries: int = 0
 
 
 @fixture(name="truepattern_taxii", assertions=RequestAssertions)
 def truepattern_taxii() -> FixtureHandle:
     requests = []
+    retry_attempts = 0
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            nonlocal retry_attempts
             url = urlsplit(self.path)
             params = parse_qs(url.query)
             requests.append((url.path, params, dict(self.headers)))
             if self.headers.get("Authorization") != f"Basic {CREDENTIAL}":
                 return self.reply(401, {"title": "Unauthorized"})
+            if url.path == UNAUTHORIZED:
+                return self.reply(401, {"title": "Unauthorized"})
+            if url.path == EMPTY:
+                return self.reply(200, {"more": False})
+            if url.path == INCOMPLETE:
+                return self.reply(200, {"more": True})
+            if url.path == INCOMPLETE_LATER:
+                if "next" not in params:
+                    return self.reply(200, {"more": True, "next": "1", "objects": COLLECTION_OBJECTS[1:2]})
+                return self.reply(200, {"more": True, "next": ""})
+            if url.path == FAILING_EMPTY:
+                if "next" not in params:
+                    return self.reply(200, {"more": True, "next": "1"})
+                return self.reply(200, b'{"more": false, "objects": [broken]}')
+            if url.path == RECOVERING and "next" in params and retry_attempts < 2:
+                retry_attempts += 1
+                return self.reply(503, {"title": "Service unavailable"})
             if url.path in (MALFORMED, FAILING):
                 if "next" not in params:
                     return self.reply(200, {"more": True, "next": "1", "objects": COLLECTION_OBJECTS[1:2]})
                 if url.path == MALFORMED:
                     return self.reply(200, b'{"more": false, "objects": [broken]}')
                 return self.reply(500, {"title": "Internal server error"})
-            if url.path != OBJECTS:
+            if url.path not in (OBJECTS, RECOVERING):
                 return self.reply(404, {"title": "Not found"})
             types = params.get("match[type]", [""])[0].split(",")
             added_after = params.get("added_after", [""])[0]
@@ -73,6 +100,8 @@ def truepattern_taxii() -> FixtureHandle:
             self.send_response(status)
             self.send_header("Content-Type", "application/taxii+json;version=2.1")
             self.send_header("Content-Length", str(len(data)))
+            if status in (500, 503):
+                self.send_header("Retry-After", "0")
             self.end_headers()
             self.wfile.write(data)
 
@@ -87,13 +116,15 @@ def truepattern_taxii() -> FixtureHandle:
             if not assertions:
                 return
             assertions = RequestAssertions(**assertions)
-        assert len(recorded) == assertions.pages, recorded
+        assert len(recorded) == assertions.pages + assertions.retries, recorded
         expected = {"limit": ["2000"], "match[type]": [assertions.match_type]}
         if assertions.added_after:
             expected["added_after"] = [assertions.added_after]
         for index, (path, params, headers) in enumerate(recorded):
-            assert path == OBJECTS, path
-            token = {"next": [str(index * PAGE_SIZE)]} if index else {}
+            assert path == f"/taxii/collections/{assertions.collection}/objects/", path
+            # The recovering collection retries the second page twice.
+            page_index = max(1, index - assertions.retries) if index else 0
+            token = {"next": [str(page_index * PAGE_SIZE)]} if page_index else {}
             assert params == expected | token, params
             assert headers["Authorization"] == f"Basic {CREDENTIAL}", headers
 
