@@ -21,32 +21,42 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.app_protocol_name = "tls"
 $ocsf.tls = {
-  ja3_hash: {
-    algorithm_id: 1,
-    value: move $event.tls.ja3?.hash?,
-  },
-  ja3s_hash: {
-    algorithm_id: 1,
-    value: move $event.tls.ja3s?.hash?,
-  },
   sni: move $event.tls.sni?,
   version: move $event.tls.version? else "Unknown",
 }
-
-$ocsf.tls.certificate = {
-  created_time: move $event.tls.notbefore?,
-  expiration_time: move $event.tls.notafter?,
-  issuer: move $event.tls.issuerdn?,
-  serial_number: move $event.tls.serial?,
-  subject: move $event.tls.subject?,
+if $event.tls.ja3?.hash? != null {
+  $ocsf.tls.ja3_hash = {
+    algorithm_id: 1,
+    value: move $event.tls.ja3.hash,
+  }
+}
+if $event.tls.ja3s?.hash? != null {
+  $ocsf.tls.ja3s_hash = {
+    algorithm_id: 1,
+    value: move $event.tls.ja3s.hash,
+  }
 }
 
-if $event.tls.has("fingerprint") {
-  $ocsf.tls.certificate.fingerprints = [{
-    algorithm_id: 2,
-    value: $event.tls.fingerprint.replace(":", ""),
-  }]
-  drop $event.tls.fingerprint
+// Resumed sessions carry no certificate. OCSF requires issuer and serial
+// number, so leave partial certificate data in `unmapped`.
+if $event.tls.issuerdn? != null and $event.tls.serial? != null {
+  $ocsf.tls.certificate = {
+    created_time: move $event.tls.notbefore?,
+    expiration_time: move $event.tls.notafter?,
+    issuer: move $event.tls.issuerdn,
+    serial_number: move $event.tls.serial,
+    subject: move $event.tls.subject?,
+  }
+  if $event.tls.fingerprint? != null {
+    $ocsf.tls.certificate.fingerprints = [{
+      algorithm_id: 2,
+      value: (move $event.tls.fingerprint).replace(":", ""),
+    }]
+  }
+  $ocsf.tls.certificate.sans = (move $event.tls.subjectaltname?).map(name => {
+    name: name,
+    type: "DNSName",
+  })
 }
 
 if $event.tls.ja4? != null {
@@ -55,11 +65,6 @@ if $event.tls.ja4? != null {
     value: move $event.tls.ja4,
   }]
 }
-$ocsf.tls.certificate.sans = (move $event.tls.subjectaltname?).map(name => {
-  name: name,
-  type: "DNSName",
-})
-
 // --- OCSF: primary attributes -----------------
 
 $ocsf.status_id = 0
