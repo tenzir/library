@@ -3,6 +3,8 @@ title: Required OCSF attributes in OpenSSH events
 type: bugfix
 authors:
   - zedoraps
+prs:
+  - 205
 created: 2026-10-20T14:30:38.281761Z
 ---
 
