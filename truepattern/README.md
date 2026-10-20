@@ -15,7 +15,7 @@ routes the rules in other formats to the systems that run them.
 
 Two pipelines work together. A scheduled pipeline walks the feed and writes
 all current Sigma rules into one file, and it records their metadata in a rule
-catalog. A long-running pipeline matches your events against that file and
+catalog. A detection pipeline matches your events against that file and
 enriches every finding from the catalog:
 
 ```text
@@ -128,14 +128,29 @@ rules:
   because the `sigma` operator ignores every rule with a duplicate ID. Forks of
   the same upstream rule can share an ID.
 
-`examples/detect-with-sigma-rules.tql` runs the rules on your OCSF events:
+`examples/detect-with-sigma-rules.tql` reads an OCSF NDJSON export and writes
+enriched findings to NDJSON files:
 
 ```tql
-subscribe "ocsf"
+from_file "/var/log/ocsf/events.ndjson" {
+  read_ndjson
+}
 sigma path="/var/lib/tenzir/truepattern/sigma.yaml"
 truepattern::enrich
-publish "truepattern-findings"
+to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
+  write_ndjson
+}
 ```
+
+Run the rule update first to populate the rule files and catalog. Adapt the
+example paths to files accessible to the executing node, with readable inputs
+and writable output directories. These file-based detection examples process
+an export once. To process new OCSF exports continuously, use
+`from_file "/var/log/ocsf/*.ndjson", watch=10s` with the same `read_ndjson`
+subpipeline. This watches for new files; it does not tail an appended file.
+Keep `sigma` and `truepattern::enrich` between your source and destination.
+The `{uuid}` filenames keep separate runs and rotated files from overwriting
+one another.
 
 The `sigma` operator skips rules that use fields without an OCSF equivalent
 and warns once per rule. See [Check Sigma rule compatibility with
@@ -150,7 +165,8 @@ You can run the rules in two ways:
   across sources, but covers only the rules whose fields Tenzir's Sigma-to-OCSF
   translation supports today.
 - On native Windows event logs, as `examples/detect-in-windows-event-logs.tql`
-  shows. Most TruePattern Sigma rules are Windows rules, and they name the
+  shows, reading XML from a file and writing findings to NDJSON. Most
+  TruePattern Sigma rules are Windows rules, and they name the
   fields of the native events, so practically all of them run after one
   reshaping step. This only works for Windows rules.
 
@@ -159,10 +175,16 @@ top level, and add `Provider_Name`, which Windows rules use for the event
 provider:
 
 ```tql
+from_file "/var/log/windows/events.xml" {
+  read_delimited "</Event>\n", include_separator=true
+}
 this = data.parse_winlog()
 this = {...System, Provider_Name: System.Provider.Name?, ...EventData}
 sigma path="/var/lib/tenzir/truepattern/sigma-windows.yaml"
 truepattern::enrich
+to_file "/var/lib/tenzir/truepattern/findings/windows-{uuid}.ndjson" {
+  write_ndjson
+}
 ```
 
 Only give native events the Windows file. Without OCSF, the `sigma` operator
@@ -207,27 +229,37 @@ unenriched.
 
 Tenzir does not execute Splunk, KQL, YARA, Sublime Security, and the other
 formats. `examples/route-new-rules.tql` polls for new rule versions every hour
-and publishes them per format, so that other pipelines can deploy them:
+and archives them as OCSF NDJSON files by format. The files retain the rule
+text, metadata, and license references; they do not install rules in Splunk,
+Sentinel, or other engines. Replace each file sink with your deployment
+integration as needed:
 
 ```tql
 cron "0 0 * * * *" {
-  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"),
-    added_after=now() - 2h
+  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"), added_after=now() - 2h
   truepattern::latest
   where pattern_type != "sigma"
   truepattern::ocsf::normalize
   match osint[0].detection_pattern_type {
     "splunk" => {
-      publish "truepattern-splunk"
+      to_file "/var/lib/tenzir/truepattern/rules/splunk/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     "kql" | "sentinel" => {
-      publish "truepattern-kql"
+      to_file "/var/lib/tenzir/truepattern/rules/kql/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     "yara" => {
-      publish "truepattern-yara"
+      to_file "/var/lib/tenzir/truepattern/rules/yara/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     _ => {
-      publish "truepattern-other"
+      to_file "/var/lib/tenzir/truepattern/rules/other/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
   }
 }

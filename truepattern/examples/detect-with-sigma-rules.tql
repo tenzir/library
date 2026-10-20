@@ -1,13 +1,18 @@
 ---
 name: Detect with TruePattern Sigma rules
 description: |
-  Matches OCSF events against the TruePattern Sigma rules and enriches the
-  resulting detection findings with rule metadata.
+  Reads OCSF events from NDJSON, matches them against the TruePattern Sigma
+  rules, and writes enriched detection findings to NDJSON files.
 ---
 
-// Replace this source with your OCSF events. The `sigma` operator reloads the
-// rule file within 5 seconds after the update pipeline replaces it.
-subscribe "ocsf"
+// Point this source at your OCSF export, or replace it with a streaming source.
+// The `sigma` operator reloads the rule file within 5 seconds of an update.
+from_file "/var/log/ocsf/events.ndjson" {
+  read_ndjson
+}
 sigma path="/var/lib/tenzir/truepattern/sigma.yaml"
 truepattern::enrich
-publish "truepattern-findings"
+// Replace this sink with your SIEM or another destination as needed.
+to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
+  write_ndjson
+}
