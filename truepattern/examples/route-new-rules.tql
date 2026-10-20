@@ -1,31 +1,38 @@
 ---
 name: Route new TruePattern rules by format
 description: |
-  Polls the TruePattern feed for new rule versions and publishes them per rule
-  format, so that other pipelines can deploy them to the matching system.
+  Polls the TruePattern feed for new rule versions and archives them as OCSF
+  NDJSON files by rule format, preserving rule text, metadata, and attribution.
 ---
 
 // Polls hourly and looks back two hours, so a failed poll loses nothing. The
 // windows overlap, so consumers can receive a rule version twice: key on the
 // STIX `id` and `modified` time.
 cron "0 0 * * * *" {
-  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"),
-    added_after=now() - 2h
+  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL"), added_after=now() - 2h
   truepattern::latest
   where pattern_type != "sigma"
   truepattern::ocsf::normalize
   match osint[0].detection_pattern_type {
     "splunk" => {
-      publish "truepattern-splunk"
+      to_file "/var/lib/tenzir/truepattern/rules/splunk/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     "kql" | "sentinel" => {
-      publish "truepattern-kql"
+      to_file "/var/lib/tenzir/truepattern/rules/kql/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     "yara" => {
-      publish "truepattern-yara"
+      to_file "/var/lib/tenzir/truepattern/rules/yara/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
     _ => {
-      publish "truepattern-other"
+      to_file "/var/lib/tenzir/truepattern/rules/other/{uuid}.ndjson" {
+        write_ndjson
+      }
     }
   }
 }

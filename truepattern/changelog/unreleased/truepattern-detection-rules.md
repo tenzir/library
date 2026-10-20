@@ -19,12 +19,21 @@ cron "0 0 6 * * *" {
 }
 ```
 
+After the rule update populates the rule file and catalog, read an OCSF NDJSON export and write enriched findings to files:
+
 ```tql
-subscribe "ocsf"
+from_file "/var/log/ocsf/events.ndjson" {
+  read_ndjson
+}
 sigma path="/var/lib/tenzir/truepattern/sigma.yaml"
 truepattern::enrich
+to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
+  write_ndjson
+}
 ```
 
-Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`, so that you can route them to the systems that run them.
+Adapt the paths to your node. This detection pipeline processes the export once; the `{uuid}` filenames preserve findings across runs.
+
+Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`. The routing example archives them as NDJSON files by format, preserving rule text and attribution without installing rules in the target engines.
 
 Pass `product="windows"` to `truepattern::sigma::update_rules` to write a file with only the Windows rules, which run directly on native Windows event logs after `parse_winlog`.
