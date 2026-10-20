@@ -46,9 +46,11 @@ The `sigma` operator only accepts constant rules or a path, so rules can't flow
 from the feed into the operator as events. Instead, the walk writes a file,
 and the `sigma` operator reloads it within seconds of every change.
 
-The package requires the `stix` package. Use Tenzir 6.20.0-rc.3, on which the
-package tests pass. Compatibility with Tenzir 6.19.1 remains unresolved:
-malformed Sigma YAML can trigger an engine assertion. No minimum engine
+The package requires the `stix` package and a Tenzir build that includes the
+empty Sigma source and HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772).
+The published Tenzir 6.20.0-rc.3 predates these fixes: it retains obsolete rules
+when a source becomes empty and fails transient HTTP retries under `strict`.
+Tenzir 6.19.1 can also assert on malformed Sigma YAML. No minimum engine
 version is enforced by the package manifest.
 
 ## Configure credentials
@@ -110,9 +112,10 @@ cron "0 0 6 * * *" {
 The walk writes two files: all rules, and with `product="windows"` only the
 rules whose Sigma `logsource.product` is `windows`. The Windows file is a
 subset of the complete file, so the catalog only needs the rules of the
-complete file. A walk without any rule for a file leaves that file unchanged:
-if the last Windows rule leaves the feed or changes its product, the Windows
-file keeps the obsolete rules, which still fire.
+complete file. A successful complete walk without any qualifying rule writes
+an empty YAML stream to the corresponding file. If the last Windows rule
+leaves the feed or changes its product, `sigma` clears the obsolete Windows
+rules on reload, so they no longer fire.
 
 `truepattern::sigma::update_rules` writes the latest version of every Sigma
 rule into one multi-document YAML file, one document per rule. It removes a
@@ -200,13 +203,20 @@ The walk replaces the file with the rules of its input, so only run
 other rules. To pick up Sigma rule changes sooner, run the walk more often
 than daily, such as every few hours; it only takes a handful of requests.
 
-A walk fails on the first HTTP error or malformed page and leaves the rule file
-and the catalog untouched; the next scheduled walk tries again. After a
-complete walk, `truepattern::sigma::update_rules` rewrites the file in place,
-unless the walk has no rule for the file, and `truepattern::update_context`
-updates the catalog alongside. Neither step is transactional: the `sigma`
-operator can read a partially written file, and the file and the catalog can
-briefly disagree.
+The HTTP client retries transient failures, including HTTP `429` and `5xx`
+responses, within the same walk. A non-retryable HTTP error, exhausted retries,
+a malformed page, or missing pagination continuation fails the walk and leaves
+the rule file and the catalog untouched; the next scheduled walk tries again.
+An incomplete walk must not be treated as an empty collection.
+
+After a successful complete walk, `truepattern::sigma::update_rules` rewrites
+the file in place, even when no rules qualify, and `truepattern::update_context`
+updates the catalog alongside. Neither step is transactional: `to_file` does
+not publish files atomically, so `sigma` can observe an empty or partially
+written file during replacement, and the file and the catalog can briefly
+disagree. Atomic same-filesystem renames in `from_file` do not change this
+writer's behavior. A malformed or unreadable Sigma source retains its
+last-known-good rules; a readable empty source intentionally clears them.
 
 ## Enrich findings
 

@@ -6,17 +6,17 @@ description: |
   Run the operator on a complete walk of the feed: it replaces the file with
   the rules of its input, so a partial input, such as from an `added_after`
   poll, would remove all other rules. If no rule qualifies for the file, the
-  operator writes nothing and the existing file stays unchanged, including
-  rules that no longer qualify.
+  operator writes an empty YAML stream so that `sigma` clears obsolete rules.
+  A failed walk leaves the existing file unchanged.
 
   Every rule must be a single YAML document. The operator removes a leading
   preamble of blank lines, comments, and one document marker, as well as a
   final document end marker. It skips rules with several YAML documents, such
   as correlation rules, and warns about each one. It also skips rules whose
-  YAML does not parse, because the `sigma` operator ignores the complete file
-  if one document fails to parse. If several rules share a Sigma rule ID, it
-  keeps the most recently modified one, because the `sigma` operator ignores
-  all rules with a duplicate ID.
+  YAML does not parse, so invalid documents never reach the published rule
+  file. If several rules share a Sigma rule ID, it keeps the most recently
+  modified one, because the `sigma` operator ignores all rules with a
+  duplicate ID.
 
   The operator forwards the STIX Indicators of the rules that it wrote, so that
   you can continue with `truepattern::ocsf::normalize` and
@@ -25,8 +25,7 @@ description: |
   With `product`, the file only holds the rules for that Sigma
   `logsource.product`, such as `windows`. The operator selects them after it
   resolves duplicate Sigma rule IDs, so the file is a subset of the complete
-  file from the same walk, unless the walk has no rule for the product and
-  the file keeps its previous rules.
+  file from the same walk, including when no rule qualifies for the product.
 args:
   named:
     - name: path
@@ -64,9 +63,9 @@ drop _rule
 sort id
 fork {
   summarize rules=collect(_text)
-  where rules.length() > 0
+  // An empty list becomes a blank line: a valid YAML stream with no rules.
   select text=rules.join("\n---\n")
-  // The operator writes the file in one go after the walk completes.
+  // Write only after the walk completes. This is not an atomic replacement.
   to_file $path {
     write_lines
   }
