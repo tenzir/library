@@ -37,7 +37,7 @@ cases = [
     ("ocsf", "detect-with-sigma-rules.tql", "/var/log/ocsf/events.ndjson",
      json.dumps(ocsf) + "\n", "sigma.yaml"),
     ("windows", "detect-in-windows-event-logs.tql", "/var/log/windows/events.xml",
-     xml, "sigma-windows.yaml"),
+     xml, "sigma-windows-security.yaml"),
 ]
 with TemporaryDirectory(prefix="truepattern-detection-files-") as directory:
     root = Path(directory)
@@ -54,8 +54,14 @@ with TemporaryDirectory(prefix="truepattern-detection-files-") as directory:
             assert pipeline in changelog.read_text(), "Unreleased changelog example drifted"
         source = root / Path(input_path).name
         # Include a nonmatching event to check that only findings reach the sink.
-        source.write_text(content + content.replace("whoami /all", "hostname"))
-        (root / rule_file).write_text(rule)
+        events = content + content.replace("whoami /all", "hostname")
+        if name == "windows":
+            # Matching fields from unrelated channels/providers must not fire.
+            events += content.replace("<Channel>Security</Channel>", "<Channel>System</Channel>")
+            events += content.replace("Microsoft-Windows-Security-Auditing", "Other-Provider")
+        source.write_text(events)
+        selected_rule = rule.replace("category: process_creation", "service: security") if name == "windows" else rule
+        (root / rule_file).write_text(selected_rule)
         pipeline = pipeline.replace(input_path, str(source))
         pipeline = pipeline.replace("/var/lib/tenzir/truepattern/", f"{root}/")
         assert pipeline.count("truepattern::enrich\n") == 1
