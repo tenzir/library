@@ -7,9 +7,6 @@ import json
 import os
 from pathlib import Path
 
-# Work around the Python runner's missing package loading (TNZ-1733).
-package = Path(os.environ["TENZIR_TEST_ROOT"])
-os.environ["TENZIR_PACKAGE_DIRS"] = f"{package},{package.parent / 'stix'}"
 executor = Executor.from_env(os.environ)
 root = Path(os.environ["TRUEPATTERN_TEST_DIR"])
 target = root / "empty-walk.yaml"

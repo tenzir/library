@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-package = Path(os.environ["TENZIR_TEST_ROOT"])
+package = Path(os.environ["TENZIR_PACKAGE_ROOT"])
 readme = (package / "README.md").read_text()
 changelog = package / "changelog/unreleased/truepattern-detection-rules.md"
 rule_id = "00000000-0000-4000-8000-000000000001"

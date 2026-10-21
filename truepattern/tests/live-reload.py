@@ -11,9 +11,6 @@ import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-package = Path(os.environ["TENZIR_TEST_ROOT"])
-# Work around the Python runner's missing package loading (TNZ-1733).
-os.environ["TENZIR_PACKAGE_DIRS"] = f"{package},{package.parent / 'stix'}"
 executor = Executor.from_env(os.environ)
 rule_id = "00000000-0000-4000-8000-000000000001"
 control_id = "00000000-0000-4000-8000-000000000002"
