@@ -5,7 +5,7 @@ authors:
   - mavam
 prs:
   - 202
-created: 2026-10-20T19:00:12.81538Z
+created: 2026-10-21T07:58:55.051715Z
 ---
 
 The new `truepattern` package brings the curated detection rules of [TruePattern](https://truepattern.io) to Tenzir. `truepattern::feed` fetches the rules from the TruePattern TAXII collection, and `truepattern::sigma::update_rules` keeps one file with the latest version of every Sigma rule for the `sigma` operator. `truepattern::update_context` and `truepattern::enrich` add the rule metadata, such as the upstream source, ATT&CK techniques, and license, to the resulting detection findings:
@@ -36,6 +36,8 @@ Adapt the paths to your node. This detection pipeline processes the export once;
 
 Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`. The routing example archives them as NDJSON files by format, preserving rule text and attribution without installing rules in the target engines.
 
-Pass `product="windows"` to `truepattern::sigma::update_rules` to write a file with only the Windows rules, which run directly on native Windows event logs after `parse_winlog`.
+For native Windows events, use `truepattern::sigma::update_rules logsource={product: "windows", service: "security"}` to select exactly the Security-service rules without additional logsource constraints. The native detection example selects Security-channel auditing events before matching this rule file. Product-only filtering does not enforce service or category compatibility.
+
+Rules without a vendor-license reference retain a null license in both the catalog and enriched findings.
 
 A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. Use a Tenzir build containing the empty Sigma source and strict HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772); the published 6.20.0-rc.3 does not contain them. File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.

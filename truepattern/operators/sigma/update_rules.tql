@@ -26,6 +26,11 @@ description: |
   `logsource.product`, such as `windows`. The operator selects them after it
   resolves duplicate Sigma rule IDs, so the file is a subset of the complete
   file from the same walk, including when no rule qualifies for the product.
+
+  With `logsource`, only rules whose complete logsource record equals the
+  supplied record qualify. This excludes rules with additional constraints,
+  including category, service, or definition. Use it to scope native events;
+  `product` alone does not establish logsource compatibility.
 args:
   named:
     - name: path
@@ -37,6 +42,12 @@ args:
       description: |
         Only writes the rules with this Sigma `logsource.product`, such as
         `windows`. Defaults to all rules.
+    - name: logsource
+      default: null
+      description: |
+        Only writes rules with this exact Sigma logsource record. For example,
+        `{product: "windows", service: "security"}` excludes category-scoped
+        rules and rules for other services. Defaults to all logsources.
 ---
 
 where type == "indicator"
@@ -58,6 +69,7 @@ where _rule != null
 // The latest version comes first, so `deduplicate` keeps it.
 deduplicate _rule.id? else id
 where $product == null or _rule.logsource?.product? == $product
+where $logsource == null or _rule.logsource? == $logsource
 drop _rule
 // A stable order keeps the documents in place across updates.
 sort id

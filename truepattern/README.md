@@ -99,8 +99,8 @@ files and the catalog current:
 cron "0 0 6 * * *" {
   truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL")
   fork {
-    truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma-windows.yaml",
-      product="windows"
+    truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma-windows-security.yaml",
+      logsource={product: "windows", service: "security"}
     discard
   }
   truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma.yaml"
@@ -109,13 +109,16 @@ cron "0 0 6 * * *" {
 }
 ```
 
-The walk writes two files: all rules, and with `product="windows"` only the
-rules whose Sigma `logsource.product` is `windows`. The Windows file is a
-subset of the complete file, so the catalog only needs the rules of the
-complete file. A successful complete walk without any qualifying rule writes
-an empty YAML stream to the corresponding file. If the last Windows rule
-leaves the feed or changes its product, `sigma` clears the obsolete Windows
-rules on reload, so they no longer fire.
+The walk writes two files: all rules, and only rules whose complete Sigma
+`logsource` is `{product: "windows", service: "security"}`. The latter excludes
+rules with a category or any other logsource constraint. It is a subset of the
+complete file, so the catalog only needs the rules of the complete file. A
+successful complete walk without any qualifying rule writes an empty YAML
+stream to the corresponding file, and `sigma` clears obsolete rules on reload.
+
+The optional `product="windows"` filter selects all Windows rules, but does
+not make them safe for native matching across Windows services or categories.
+Use the exact `logsource` filter with a correspondingly scoped event source.
 
 `truepattern::sigma::update_rules` writes the latest version of every Sigma
 rule into one multi-document YAML file, one document per rule. It removes a
@@ -168,32 +171,36 @@ You can run the rules in two ways:
   across sources, but covers only the rules whose fields Tenzir's Sigma-to-OCSF
   translation supports today.
 - On native Windows event logs, as `examples/detect-in-windows-event-logs.tql`
-  shows, reading XML from a file and writing findings to NDJSON. Most
-  TruePattern Sigma rules are Windows rules, and they name the
-  fields of the native events, so practically all of them run after one
-  reshaping step. This only works for Windows rules.
+  shows, selecting Security-channel auditing events from XML and writing
+  findings to NDJSON. This example only runs rules scoped exactly to the
+  Windows Security service, without category or other logsource constraints.
+  It deliberately does not run the complete set of Windows rules.
 
-For native events, lift `System` and `EventData` of the parsed event to the
-top level, and add `Provider_Name`, which Windows rules use for the event
-provider:
+For native events, first select the matching channel and provider. Then lift
+`System` and `EventData` to the top level and add `Provider_Name`, which Windows
+rules use for the event provider:
 
 ```tql
 from_file "/var/log/windows/events.xml" {
   read_delimited "</Event>\n", include_separator=true
 }
 this = data.parse_winlog()
+where System.Channel? == "Security"
+where System.Provider.Name? == "Microsoft-Windows-Security-Auditing"
 this = {...System, Provider_Name: System.Provider.Name?, ...EventData}
-sigma path="/var/lib/tenzir/truepattern/sigma-windows.yaml"
+sigma path="/var/lib/tenzir/truepattern/sigma-windows-security.yaml"
 truepattern::enrich
 to_file "/var/lib/tenzir/truepattern/findings/windows-{uuid}.ndjson" {
   write_ndjson
 }
 ```
 
-Only give native events the Windows file. Without OCSF, the `sigma` operator
-does not check a rule's `logsource`, and an absent field never matches, so a
-rule for another product with a negated condition fires on every Windows
-event.
+Without OCSF, `sigma` does not check a rule's `logsource`. Product-only
+filtering is insufficient: event IDs can collide across services, and negated
+conditions can match unrelated events with absent fields. Keep the exact rule
+logsource and event filters aligned. To support other services or categories,
+create separate rule files and event pipelines that enforce their complete
+logsource constraints; don't feed mixed Windows events to a product-only file.
 
 ### Keep the rule file complete
 
