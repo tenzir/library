@@ -3,6 +3,8 @@ title: FortiGate mapping for optional log fields
 type: bugfix
 authors:
   - zedoraps
+prs:
+  - 206
 created: 2026-10-21T12:29:05.324049Z
 ---
 
