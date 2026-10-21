@@ -1,0 +1,74 @@
+// RFC 5424 sources can supply eventtime without separate date/time fields.
+let $system = {type: "event", subtype: "system", level: "notice", logid: "0100020002"}
+let $traffic = {
+  ...$system,
+  type: "traffic",
+  subtype: "explicit-web-proxy",
+  eventtime: 1787992358996329390,
+  action: "accept",
+  srcip: 192.0.2.10,
+  srcport: 50000,
+  srcintf: "lan",
+  dstip: 198.51.100.20,
+  dstport: 80,
+  dstintf: "wan",
+  service: "HTTP",
+  proto: 6,
+  sessionid: 42,
+  sentbyte: 100,
+  rcvdbyte: 200,
+  rcvdpkt: 0,
+  policyid: 1,
+  policytype: "proxy-policy",
+}
+
+from {
+  test_case: "nanosecond timestamp only",
+  event: {...$system, eventtime: 1787992358996329390},
+}, {
+  test_case: "second timestamp only",
+  event: {...$system, eventtime: 1787992358},
+}, {
+  test_case: "eventtime takes precedence",
+  event: {...$system, eventtime: 1787992358996329390, date: 2026-08-28, time: "01:02:03"},
+}, {
+  test_case: "date and time fallback",
+  event: {...$system, date: 2026-08-29, time: "08:32:38"},
+}, {
+  test_case: "partial date retained",
+  event: {...$system, eventtime: 1787992358, date: 2026-08-29},
+}, {
+  test_case: "partial time retained",
+  event: {...$system, eventtime: 1787992358, time: "08:32:38"},
+}, {
+  test_case: "proxy packet count absent",
+  event: $traffic,
+}, {
+  test_case: "zero packet count preserved",
+  event: {...$traffic, sentpkt: 0},
+}, {
+  // Login throttling alerts omit the user and endpoint fields.
+  test_case: "authentication identity absent",
+  event: {
+    ...$system,
+    eventtime: 1787992358,
+    action: "login",
+    status: "failed",
+    reason: "exceed_limit",
+    msg: "Admin login disabled",
+  },
+}
+fortinet::fortigate::ocsf::map event, ocsf
+this = {
+  test_case: test_case,
+  class_uid: ocsf.class_uid,
+  time: ocsf.time,
+  original_time: ocsf.metadata.original_time?,
+  packets_in: ocsf.traffic?.packets_in?,
+  packets_out: ocsf.traffic?.packets_out?,
+  user: ocsf.user?.name?,
+  src_ip: ocsf.src_endpoint?.ip?,
+  dst_ip: ocsf.dst_endpoint?.ip?,
+  message: ocsf.message?,
+  unmapped: ocsf.unmapped,
+}

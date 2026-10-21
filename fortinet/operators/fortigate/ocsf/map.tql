@@ -25,7 +25,6 @@ $event.ocsf.metadata = {
   log_format: "kv",
   log_level: move $event.fortinet.level,
   log_name: move $event.fortinet.subtype,
-  original_time: f"{(move $event.fortinet.date).format_time("%Y-%m-%d")} {move $event.fortinet.time}",
   original_event_uid: (move $event.fortinet.logid).string(),
   processed_time: now(),
   product: {
@@ -37,6 +36,11 @@ $event.ocsf.metadata = {
   version: "1.9.0",
 }
 
+// RFC 5424 sources can carry eventtime without separate date/time fields.
+if $event.fortinet.date? != null and $event.fortinet.time? != null {
+  $event.ocsf.metadata.original_time = f"{(move $event.fortinet.date).format_time("%Y-%m-%d")} {move $event.fortinet.time}"
+}
+
 $event.ocsf.message = move $event.fortinet.msg?
 
 if $event.fortinet.eventtime? != null {
@@ -45,7 +49,7 @@ if $event.fortinet.eventtime? != null {
   // Values below 1e13 are seconds; above are nanoseconds.
   $event.ocsf.time = $event.ocsf.time.seconds() if $event.ocsf.time < 10T else $event.ocsf.time.nanoseconds()
   $event.ocsf.time = $event.ocsf.time.from_epoch()
-} else {
+} else if $event.ocsf.metadata.original_time? != null {
   $event.ocsf.time = $event.ocsf.metadata.original_time.parse_time("%Y-%m-%d %H:%M:%S")
 }
 
