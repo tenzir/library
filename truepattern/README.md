@@ -281,6 +281,23 @@ but makes consecutive windows overlap. A poll can therefore deliver a rule
 version that an earlier poll already delivered, so key downstream consumers on
 the STIX `id` and `modified` time.
 
+## Test the package
+
+Use `tenzir-test` 2.3.1 or later and a Tenzir build containing the engine fixes
+listed earlier. From the library root, select both the CLI and node binaries
+from that build:
+
+```sh
+TENZIR_BINARY=/path/to/build/bin/tenzir \
+TENZIR_NODE_BINARY=/path/to/build/bin/tenzir-node \
+uvx --refresh 'tenzir-test>=2.3.1' truepattern stix
+```
+
+The runner loads each test's enclosing package automatically, including for
+Python tests. Keep the `package-dirs` declaration in `tests/test.yaml`: it loads
+the separate `stix` dependency. You don't need to set `TENZIR_PACKAGE_DIRS`
+manually.
+
 ## Respect rule licenses
 
 TruePattern redistributes rules from third-party repositories under their

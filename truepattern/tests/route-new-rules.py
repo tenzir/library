@@ -6,8 +6,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-package = Path(os.environ["TENZIR_TEST_ROOT"])
-os.environ["TENZIR_PACKAGE_DIRS"] = f"{package},{package.parent / 'stix'}"
+package = Path(os.environ["TENZIR_PACKAGE_ROOT"])
 example = (package / "examples" / "route-new-rules.tql").read_text()
 pipeline = example[example.index('cron "'):].strip()
 assert pipeline in (package / "README.md").read_text(), "README example drifted"

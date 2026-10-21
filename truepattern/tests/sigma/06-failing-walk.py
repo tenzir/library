@@ -5,12 +5,7 @@
 
 import os
 import re
-from pathlib import Path
 
-# The Python runner does not load packages, so load this one and the STIX
-# package that its feed builds on.
-package = Path(os.environ["TENZIR_TEST_ROOT"])
-os.environ["TENZIR_PACKAGE_DIRS"] = f"{package},{package.parent / 'stix'}"
 result = Executor.from_env(os.environ).run(
     """
 truepattern::feed credential=env("TRUEPATTERN_TEST_CREDENTIAL"),

@@ -5,9 +5,6 @@ import os
 import tempfile
 from pathlib import Path
 
-package = Path(os.environ["TENZIR_TEST_ROOT"])
-os.environ["TENZIR_PACKAGE_DIRS"] = f"{package},{package.parent / 'stix'}"
-
 
 def rule(index, version, format, title, product="windows"):
     return {

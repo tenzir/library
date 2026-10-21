@@ -5,10 +5,7 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
-# Work around the Python runner's missing package loading (TNZ-1733).
-os.environ["TENZIR_PACKAGE_DIRS"] = str(Path(os.environ["TENZIR_TEST_ROOT"]))
 executor = Executor.from_env(os.environ)
 cases = {
     "missing-next": ({"more": True}, None),
