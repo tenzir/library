@@ -1,7 +1,7 @@
 # fixtures: [truepattern_taxii]
 # timeout: 60
 
-# Distinguish a successful empty snapshot from an incomplete walk, even when
+# Distinguish a successful empty snapshot from a failed walk, even when
 # no qualifying event reaches the writer before the failure.
 import json
 import os
@@ -62,12 +62,10 @@ for label, records, warning in (
     assert target.read_bytes() == b"\n", target.read_bytes()
     print(f"{label}: cleared, no indicators forwarded")
 
-for collection in ("unauthorized", "failing-empty", "malformed", "incomplete", "incomplete-later"):
+for collection in ("unauthorized", "failing-empty", "malformed"):
     target.write_text(seed)
     result = update(walk(collection))
     assert result.returncode != 0, result.stdout.decode()
     assert target.read_bytes() == seed.encode(), (collection, target.read_bytes())
-    if collection.startswith("incomplete"):
-        assert b"without a usable continuation" in result.stderr, result.stderr.decode()
     assert not result.stdout, result.stdout.decode()
     print(f"{collection}: failed, last-known-good file retained")

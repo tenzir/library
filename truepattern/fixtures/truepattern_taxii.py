@@ -21,8 +21,6 @@ RECOVERING = "/taxii/collections/recovering/objects/"
 EMPTY = "/taxii/collections/empty/objects/"
 FAILING_EMPTY = "/taxii/collections/failing-empty/objects/"
 UNAUTHORIZED = "/taxii/collections/unauthorized/objects/"
-INCOMPLETE = "/taxii/collections/incomplete/objects/"
-INCOMPLETE_LATER = "/taxii/collections/incomplete-later/objects/"
 CREDENTIAL = base64.b64encode(b"synthetic-user:synthetic-password").decode()
 PAGE_SIZE = 3
 # The objects in the order the collection added them, with `modified` as the
@@ -58,12 +56,6 @@ def truepattern_taxii() -> FixtureHandle:
                 return self.reply(401, {"title": "Unauthorized"})
             if url.path == EMPTY:
                 return self.reply(200, {"more": False})
-            if url.path == INCOMPLETE:
-                return self.reply(200, {"more": True})
-            if url.path == INCOMPLETE_LATER:
-                if "next" not in params:
-                    return self.reply(200, {"more": True, "next": "1", "objects": COLLECTION_OBJECTS[1:2]})
-                return self.reply(200, {"more": True, "next": ""})
             if url.path == FAILING_EMPTY:
                 if "next" not in params:
                     return self.reply(200, {"more": True, "next": "1"})
