@@ -1,0 +1,65 @@
+---
+description: "Cisco ASA access-control decisions — denies and access-list permit/deny logs (106001, 106006/7, 106010, 106014, 106023, 106100, 313004/8, 710003/5) → OCSF Network Activity (4001)"
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+@name = "ocsf.network_activity"
+
+$event.ocsf.category_uid = 4
+$event.ocsf.class_uid = 4001
+$event.ocsf.activity_id = 6  // Traffic
+$event.ocsf.type_uid = $event.ocsf.class_uid * 100 + $event.ocsf.activity_id
+
+cisco::asa::ocsf::network_endpoints event=$event
+
+// The access-group name that produced the decision is the matched firewall rule.
+if $event.asa.acl_id? != null {
+  $event.ocsf.firewall_rule = {
+    name: move $event.asa.acl_id,
+  }
+}
+
+if $event.asa.user? != null {
+  $event.ocsf.actor.user.name = move $event.asa.user
+}
+
+if $event.asa.reason? != null {
+  $event.ocsf.status_detail = move $event.asa.reason
+}
+
+// Connection direction relative to the firewall, when the message states it.
+if $event.asa.direction? != null {
+  let $directions = {
+    inbound: 1,
+    outbound: 2,
+  }
+  if $directions[$event.asa.direction]? != null {
+    $event.ocsf.connection_info.direction_id = $directions[$event.asa.direction]
+  }
+}
+drop $event.asa.direction?
+
+// `hit_count` (106100) is the number of times the rule matched in the interval.
+if $event.asa.hit_count? != null {
+  $event.ocsf.count = move $event.asa.hit_count
+}
+
+// Access-list decisions populate the security_control profile.
+$event.ocsf.metadata.profiles = ["security_control"]
+if $event.ocsf.actor? != null {
+  $event.ocsf.metadata.profiles = $event.ocsf.metadata.profiles.add("host")
+}
+
+// 106100 logs both permits and denies via `action`; everything else is a deny.
+if $event.asa.action? == "permitted" {
+  $event.ocsf.disposition_id = 1  // Allowed
+  $event.ocsf.action_id = 1       // Allowed
+} else {
+  $event.ocsf.disposition_id = 2  // Blocked
+  $event.ocsf.action_id = 2       // Denied
+}
+drop $event.asa.action?
