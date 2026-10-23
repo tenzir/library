@@ -1,0 +1,45 @@
+---
+title: TruePattern detection rules
+type: feature
+authors:
+  - mavam
+prs:
+  - 202
+created: 2026-10-23T17:30:28.118776Z
+---
+
+The new `truepattern` package brings the curated detection rules of [TruePattern](https://truepattern.io) to Tenzir. `truepattern::feed` fetches the rules from the TruePattern TAXII collection, and `truepattern::sigma::update_rules` keeps one file with the latest version of every Sigma rule for the `sigma` operator. `truepattern::update_context` and `truepattern::enrich` add the rule metadata, such as the upstream source, ATT&CK techniques, and license, to the resulting detection findings:
+
+```tql
+cron "0 0 6 * * *" {
+  truepattern::feed credential=secret("TRUEPATTERN_CREDENTIAL")
+  truepattern::sigma::update_rules path="/var/lib/tenzir/truepattern/sigma.yaml"
+  truepattern::ocsf::normalize
+  truepattern::update_context
+}
+```
+
+After the rule update populates the rule file and catalog, read an OCSF NDJSON export and write enriched findings to files:
+
+```tql
+from_file "/var/log/ocsf/events.ndjson" {
+  read_ndjson
+}
+sigma path="/var/lib/tenzir/truepattern/sigma.yaml"
+truepattern::enrich
+to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
+  write_ndjson
+}
+```
+
+Adapt the paths to your node. This detection pipeline processes the export once; the `{uuid}` filenames preserve findings across runs.
+
+Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`. The routing example archives them as NDJSON files by format, preserving rule text and attribution without installing rules in the target engines.
+
+For native Windows events, use `truepattern::sigma::update_rules logsource={product: "windows", service: "security"}` to select exactly the Security-service rules without additional logsource constraints. The native detection example selects Security-channel auditing events before matching this rule file. Product-only filtering does not enforce service or category compatibility.
+
+Rule files preserve supplied attribution and notices, including YAML comments. Enriched findings retain the original rule text and external references in `unmapped.truepattern.rule_text` and `unmapped.truepattern.external_references`.
+
+License metadata is provided where available. Its absence does not prevent execution, cataloging, or onward routing. Rules without a populated vendor-license reference retain a null license summary; the full supplied references remain intact. Evaluate and honor the applicable terms: API access does not override third-party licenses.
+
+A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. The package is validated with published Tenzir 6.20.0-rc.4, which includes the empty Sigma source and strict HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772); 6.20.0-rc.3 predates them. File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.

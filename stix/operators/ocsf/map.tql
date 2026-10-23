@@ -12,6 +12,10 @@ description: |
   the status `Removed`, which `tenzir::osint::update_context` erases from its
   lookup table.
 
+  External references with the source name `mitre-attack` become ATT&CK
+  tactics, techniques, and sub-techniques in `osint.attacks`. Phases of the
+  Lockheed Martin Cyber Kill Chain become `osint.kill_chain`.
+
   The operator consumes the source object: what it maps becomes OCSF, and what
   it cannot map remains under `unmapped`.
 args:
@@ -27,6 +31,19 @@ args:
 // Captures a single comparison, such as [ipv4-addr:value = '192.0.2.1'], and
 // yields nulls for every other pattern.
 let $comparison = r"\[(?<object>[a-z0-9-]+):(?<property>\S+) = '(?<value>[^']*)'\]|.*"
+// ATT&CK IDs of tactics (TA0001), techniques (T1059), and sub-techniques
+// (T1059.001). Other ATT&CK objects, such as groups, only stay in `references`.
+let $attack_id = r"^T(A\d{4}|\d{4}(\.\d{3})?)$"
+// The phases of the Lockheed Martin Cyber Kill Chain, which OCSF enumerates.
+let $kill_chain_phases = {
+  reconnaissance: {phase: "Reconnaissance", phase_id: 1},
+  weaponization: {phase: "Weaponization", phase_id: 2},
+  delivery: {phase: "Delivery", phase_id: 3},
+  exploitation: {phase: "Exploitation", phase_id: 4},
+  installation: {phase: "Installation", phase_id: 5},
+  "command-and-control": {phase: "Command & Control", phase_id: 6},
+  "actions-on-objectives": {phase: "Actions on Objectives", phase_id: 7},
+}
 let $type_ids = {
   "ipv4-addr": 1,
   "ipv6-addr": 1,
@@ -73,6 +90,16 @@ $ocsf = {
     version: "1.9.0",
   },
   osint: {
+    attacks: $stix.external_references?
+      .where(ref => ref.source_name == "mitre-attack" and ref.external_id?.match_regex($attack_id))
+      .map(ref => {
+        sub_technique: {uid: ref.external_id, src_url: ref.url?} if "." in ref.external_id,
+        tactic: {uid: ref.external_id, src_url: ref.url?} if ref.external_id.starts_with("TA"),
+        technique: {
+          uid: ref.external_id.split(".")[0],
+          src_url: ref.url? if "." not in ref.external_id,
+        } if not ref.external_id.starts_with("TA"),
+      }),
     category: (move $stix.indicator_types?).join(", "),
     // Derived below from the STIX confidence scale.
     confidence_id: null,
@@ -86,6 +113,12 @@ $ocsf = {
     detection_pattern_type_id: $pattern_type_ids[move $stix.pattern_type]? else 99,
     expiration_time: time(move $stix.valid_until?),
     external_uid: move $stix.id,
+    kill_chain: $stix.kill_chain_phases?
+      .where(phase => phase.kill_chain_name == "lockheed-martin-cyber-kill-chain")
+      .map(phase => $kill_chain_phases[phase.phase_name]? else {
+        phase: phase.phase_name,
+        phase_id: 99,
+      }),
     labels: move $stix.labels?,
     modified_time: time($stix.modified),
     references: $stix.external_references?.map(ref => ref.url? else ref.source_name?).collect(),
@@ -116,6 +149,11 @@ match $stix.confidence? {
   _ => {}
 }
 drop $stix.confidence?, $stix.observable
+// Phases of other kill chains have no OCSF equivalent and remain under
+// `unmapped`.
+$stix.kill_chain_phases = $stix.kill_chain_phases?.where(
+  phase => phase.kill_chain_name != "lockheed-martin-cyber-kill-chain",
+)
 
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
