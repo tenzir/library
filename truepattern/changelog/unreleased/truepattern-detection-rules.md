@@ -5,7 +5,7 @@ authors:
   - mavam
 prs:
   - 202
-created: 2026-10-21T07:58:55.051715Z
+created: 2026-10-23T17:30:28.118776Z
 ---
 
 The new `truepattern` package brings the curated detection rules of [TruePattern](https://truepattern.io) to Tenzir. `truepattern::feed` fetches the rules from the TruePattern TAXII collection, and `truepattern::sigma::update_rules` keeps one file with the latest version of every Sigma rule for the `sigma` operator. `truepattern::update_context` and `truepattern::enrich` add the rule metadata, such as the upstream source, ATT&CK techniques, and license, to the resulting detection findings:
@@ -38,6 +38,8 @@ Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventor
 
 For native Windows events, use `truepattern::sigma::update_rules logsource={product: "windows", service: "security"}` to select exactly the Security-service rules without additional logsource constraints. The native detection example selects Security-channel auditing events before matching this rule file. Product-only filtering does not enforce service or category compatibility.
 
-Rules without a vendor-license reference retain a null license in both the catalog and enriched findings.
+Rule files preserve supplied attribution and notices, including YAML comments. Enriched findings retain the original rule text and external references in `unmapped.truepattern.rule_text` and `unmapped.truepattern.external_references`.
 
-A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. Use a Tenzir build containing the empty Sigma source and strict HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772); the published 6.20.0-rc.3 does not contain them. File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.
+License metadata is provided where available. Its absence does not prevent execution, cataloging, or onward routing. Rules without a populated vendor-license reference retain a null license summary; the full supplied references remain intact. Evaluate and honor the applicable terms: API access does not override third-party licenses.
+
+A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. The package is validated with published Tenzir 6.20.0-rc.4, which includes the empty Sigma source and strict HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772); 6.20.0-rc.3 predates them. File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.

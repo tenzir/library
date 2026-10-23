@@ -4,8 +4,9 @@ description: |
 
   The catalog is a lookup table keyed by Sigma rule ID, the ID that detection
   findings of the `sigma` operator carry in `finding_info.analytic.uid`. Each
-  entry holds the OCSF `osint` object of the rule, without the rule text, and
-  its license. Rules without a Sigma rule ID get no entry.
+  entry holds the OCSF `osint` object of the rule, its license, and the full
+  supplied rule text and external references, including attribution and
+  notices. Rules without a Sigma rule ID get no entry.
 
   The operator expects the normalized output of
   `truepattern::sigma::update_rules`, which holds one rule per Sigma rule ID
@@ -28,13 +29,23 @@ args:
 where @name == "ocsf.osint_inventory_info"
 unroll osint
 where osint.related_analytics[0].uid != null
-// Findings carry the applied rule in `policy.data` already.
-drop osint.detection_pattern
-_license = unmapped.external_references?.where(ref => ref.source_name == "rule-vendor-license").first()
+// Sigma's parsed `policy.data` omits YAML comments. Keep the original text
+// separately so findings retain notices that appear only in comments.
+_rule_text = move osint.detection_pattern
+// Choose a populated reference for the summary only; never filter the rule.
+_license = unmapped.external_references?.where(ref =>
+  ref.source_name == "rule-vendor-license"
+  and (
+    (ref.external_id?.trim() else "") != ""
+    or (ref.url?.trim() else "") != ""
+  )
+).first()
 context_update $context_name,
   key=osint.related_analytics[0].uid,
   value={
     osint: osint,
-    license: {name: _license.external_id?, url: _license.url?} if _license != null else null,
+    rule_text: _rule_text,
+    external_references: unmapped.external_references?,
+    license: {name: _license.external_id?, url: _license.url?} if _license != null,
   },
   write_timeout=$max_age

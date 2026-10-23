@@ -2,7 +2,7 @@
 
 [TruePattern](https://truepattern.io) curates detection rules from public and
 commercial rule repositories, with change analysis, ATT&CK techniques, and
-license information for every rule. It publishes the rules as a STIX 2.1
+license information where available. It publishes the rules as a STIX 2.1
 collection over TAXII. Each rule is a STIX Indicator that carries the native
 rule text in `pattern` and its language, such as `sigma`, `splunk`, `kql`,
 `yara`, or `sublime-security`, in `pattern_type`.
@@ -14,7 +14,7 @@ routes the rules in other formats to the systems that run them.
 ## Architecture
 
 Two pipelines work together. A scheduled pipeline walks the feed and writes
-all current Sigma rules into one file, and it records their metadata in a rule
+current Sigma rules into one file. It also records their metadata in a rule
 catalog. A detection pipeline matches your events against that file and
 enriches every finding from the catalog:
 
@@ -46,12 +46,19 @@ The `sigma` operator only accepts constant rules or a path, so rules can't flow
 from the feed into the operator as events. Instead, the walk writes a file,
 and the `sigma` operator reloads it within seconds of every change.
 
-The package requires the `stix` package and a Tenzir build that includes the
-empty Sigma source and HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772).
-The published Tenzir 6.20.0-rc.3 predates these fixes: it retains obsolete rules
-when a source becomes empty and fails transient HTTP retries under `strict`.
-Tenzir 6.19.1 can also assert on malformed Sigma YAML. No minimum engine
-version is enforced by the package manifest.
+The package requires the `stix` package. The package tests pass with the
+published Tenzir 6.20.0-rc.4, which includes the empty Sigma source and HTTP
+retry fixes (tenzir/mono#771 and tenzir/mono#772). Tenzir 6.20.0-rc.3 predates
+these fixes: it retains obsolete rules when a source becomes empty and fails
+transient HTTP retries under `strict`. Tenzir 6.19.1 can also assert on malformed
+Sigma YAML. No minimum engine version is enforced by the package manifest.
+
+The package does not filter execution or onward routing by license metadata.
+Rules fetched through the authenticated API remain eligible when that metadata
+is absent, null, empty, or whitespace-only. Existing format, validity, version,
+and logsource selection still apply. See
+[Respect rule licenses](#respect-rule-licenses) for attribution and applicable
+terms.
 
 ## Configure credentials
 
@@ -109,7 +116,7 @@ cron "0 0 6 * * *" {
 }
 ```
 
-The walk writes two files: all rules, and only rules whose complete Sigma
+The walk writes two files: all rules, and the subset whose complete Sigma
 `logsource` is `{product: "windows", service: "security"}`. The latter excludes
 rules with a category or any other logsource constraint. It is a subset of the
 complete file, so the catalog only needs the rules of the complete file. A
@@ -120,10 +127,12 @@ The optional `product="windows"` filter selects all Windows rules, but does
 not make them safe for native matching across Windows services or categories.
 Use the exact `logsource` filter with a correspondingly scoped event source.
 
-`truepattern::sigma::update_rules` writes the latest version of every Sigma
-rule into one multi-document YAML file, one document per rule. It removes a
-leading preamble of blank lines, comments, and a document marker from each
-rule, as well as a final document end marker, and it skips three kinds of
+`truepattern::sigma::update_rules` writes the latest Sigma rules into one
+multi-document YAML file, one document per rule. It removes a leading document
+marker and a final document end marker, but keeps comments and notices,
+including comments attached to those markers. When supplied, it adds the STIX
+external references as a JSON-encoded YAML comment on the rule, preserving
+source and license references and their descriptions. It skips these kinds of
 rules:
 
 - Rules with invalid YAML, because one invalid document makes the `sigma`
@@ -238,6 +247,10 @@ by that ID. `truepattern::enrich` looks up the ID and adds:
   `src_url`, and the ATT&CK techniques in `attacks`.
 - The rule license to `unmapped.truepattern.license`, with the license `name`
   and `url`.
+- The full supplied rule text and external references to
+  `unmapped.truepattern.rule_text` and `unmapped.truepattern.external_references`.
+  These retain attribution and notices, including YAML comments that the
+  parsed rule in `policy.data` does not retain. This also increases finding size.
 
 Sigma rules without an ID get no catalog entry, so their findings stay
 unenriched.
@@ -249,7 +262,9 @@ formats. `examples/route-new-rules.tql` polls for new rule versions every hour
 and archives them as OCSF NDJSON files by format. The files retain the rule
 text, metadata, and license references; they do not install rules in Splunk,
 Sentinel, or other engines. Replace each file sink with your deployment
-integration as needed:
+integration as needed, after evaluating the applicable terms. Every output
+branch, including the fallback for other formats, routes rules regardless of
+whether license metadata is present:
 
 ```tql
 cron "0 0 * * * *" {
@@ -290,15 +305,17 @@ the STIX `id` and `modified` time.
 
 ## Test the package
 
-Use `tenzir-test` 2.3.1 or later and a Tenzir build containing the engine fixes
-listed earlier. From the library root, select both the CLI and node binaries
-from that build:
+Use `tenzir-test` 2.3.1 or later. From the library root, select both the CLI
+and node from the validated published Tenzir 6.20.0-rc.4 distribution:
 
 ```sh
-TENZIR_BINARY=/path/to/build/bin/tenzir \
-TENZIR_NODE_BINARY=/path/to/build/bin/tenzir-node \
+TENZIR_BINARY='uvx --from tenzir==6.20.0rc4 tenzir' \
+TENZIR_NODE_BINARY='uvx --from tenzir==6.20.0rc4 tenzir-node' \
 uvx --refresh 'tenzir-test>=2.3.1' truepattern stix
 ```
+
+To test a different build containing the engine fixes listed earlier, set
+both variables to its CLI and node binaries.
 
 The runner loads each test's enclosing package automatically, including for
 Python tests. Keep the `package-dirs` declaration in `tests/test.yaml`: it loads
@@ -307,10 +324,32 @@ manually.
 
 ## Respect rule licenses
 
-TruePattern redistributes rules from third-party repositories under their
-original licenses, such as the Detection Rule License (DRL) 1.1, Apache 2.0,
-MIT, or GPL. Each rule names its license in an external reference with the
-source name `rule-vendor-license`, with the license name in `external_id` and
-its text in `url`, and links its upstream source with the source name
-`rule-source`. Keep this attribution when you store, forward, or modify rules.
-A rule without a license reference does not grant any permission.
+Upstream rules retain their original licenses, such as the Detection Rule
+License (DRL) 1.1, Apache 2.0, MIT, or GPL. A TruePattern subscription does not
+expand those permissions. According to TruePattern's clarification, active
+subscribers may ingest and use content in workflows, including MDR/MSSP
+services within their subscription scope; customers connect their own
+subscriptions. Resale or bundling requires a separate written agreement.
+These subscription terms do not replace the upstream licenses.
+
+Where available, a `rule-vendor-license` external reference identifies the
+license in `external_id` and links its text in `url`; a `rule-source` reference
+links the upstream rule. This metadata is informational: its presence or
+absence does not determine which rules the package executes or routes.
+
+**A populated license field does not grant permission.** The package does not
+validate license texts, resolve conflicting references, or decide whether
+execution, modification, redistribution, or deployment is permitted for your
+use case. Evaluate and honor the actual upstream terms and your subscription
+scope when using these pipelines. API access does not override third-party
+terms.
+
+Keep source attribution and required notices when storing, transforming, or
+forwarding rules and findings. The supported transforms preserve the supplied
+rule text and external references; they do not fetch linked license files or
+other repository notices. Obtain and carry any additional notices or license
+texts that the actual terms require, including in custom deployment adapters.
+
+The incremental routing example does not retract previously exported or
+deployed rules. Existing catalog entries expire under `max_age`; the catalog
+is enrichment metadata, not an execution or permission allowlist.

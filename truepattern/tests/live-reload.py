@@ -1,6 +1,6 @@
 # timeout: 60
 
-# Keep one Sigma process alive across a successful empty product snapshot.
+# Keep one Sigma process alive across product filtering and metadata changes.
 # A separate control rule proves that post-clear input is still being evaluated.
 import json
 import os
@@ -52,12 +52,12 @@ to_stdout {{ write_ndjson }}
         reader = threading.Thread(target=read_output, daemon=True)
         reader.start()
 
-        def probe(phase):
+        def probe(phase, command="whoami"):
             # Matching inputs precede a control batch; its final finding is a
             # barrier proving that all preceding input has been processed.
             events = [
-                {"CommandLine": command, "phase": phase, "sequence": sequence}
-                for command in ("whoami", "control") for sequence in range(100)
+                {"CommandLine": value, "phase": phase, "sequence": sequence}
+                for value in (command, "control") for sequence in range(100)
             ]
             process.stdin.write("".join(json.dumps(event) + "\n" for event in events))
             process.stdin.flush()
@@ -103,6 +103,28 @@ truepattern::sigma::update_rules path="{target}", product="windows"
                 if probe("restored") == 100:
                     break
                 assert time.monotonic() < deadline, "restored source did not reload"
+            # A new rule version without license metadata must still reload.
+            # Change its condition so a match proves the new version is active.
+            source.write_text(json.dumps({
+                "type": "indicator", "id": "indicator--1",
+                "modified": "2026-10-03T00:00:00Z", "pattern_type": "sigma",
+                "pattern": rule.replace("CommandLine: whoami", "CommandLine: whoami-after-update"),
+                "external_references": None,
+            }) + "\n")
+            result = executor.run(f'''
+from_file "{source}" {{ read_ndjson }}
+truepattern::sigma::update_rules path="{target}", product="windows"
+''')
+            assert result.returncode == 0, result.stderr.decode()
+            assert not result.stderr, result.stderr.decode()
+            assert result.stdout, "rule without license metadata was not forwarded"
+            assert "CommandLine: whoami-after-update" in target.read_text()
+            deadline = time.monotonic() + 10
+            while True:
+                time.sleep(0.2)
+                if probe("license-removed", "whoami-after-update") == 100:
+                    break
+                assert time.monotonic() < deadline, "rule without license metadata did not reload"
             process.stdin.close()
             assert process.wait(timeout=10) == 0
             reader.join(timeout=5)
@@ -116,3 +138,4 @@ truepattern::sigma::update_rules path="{target}", product="windows"
     print("one Sigma process: loaded rules match")
     print("empty Windows snapshot: obsolete rules stop matching; control still matches")
     print("restored source: rules match again without restarting Sigma")
+    print("license metadata absent: updated rule reloads and executes; control still matches")
