@@ -1,0 +1,150 @@
+---
+description: Add optional profile context appropriate to each event's workload.
+---
+
+let $agent_uids = ["agent-reporting", "agent-repository", "agent-inventory"]
+let $agent_names = ["Reporting assistant", "Repository assistant", "Inventory assistant"]
+let $model_names = ["acme-analyst-14b", "acme-coder-7b", "acme-assistant-8b"]
+let $run_uid = uuid()
+
+metadata.profiles = metadata.profiles? else []
+if class_uid == 2005 {
+  metadata.profiles = metadata.profiles.append("incident")
+}
+
+// Hosts are known for endpoint observations and SSH login records. Sysmon
+// network and DNS events always name the workstation and initiating process.
+if class_uid in [1001, 1007, 3002, 4001, 4002, 4003] and (random() < 0.35 or (class_uid in [4001, 4003] and actor? != null)) {
+  metadata.profiles = metadata.profiles.append("host")
+  device = {
+    uid: _ctx.host.uid,
+    hostname: _ctx.host.hostname,
+    ip: ip(_ctx.host.ip),
+    type_id: 99,
+    type: "Workstation",
+  }
+  if actor? == null {
+    actor = {user: _ctx.user}
+  }
+  if class_uid == 3002 {
+    // Authentication is observed on the destination server, not the client.
+    device = {
+      uid: f"server-{dst_endpoint.hostname}",
+      hostname: dst_endpoint.hostname,
+      ip: dst_endpoint.ip,
+      type_id: 1,
+    }
+  }
+}
+
+// CloudTrail calls, traffic to the cloud API service, and cloud API findings.
+if ((class_uid == 5023)
+    or (class_uid == 6003 and random() < 0.70)
+    or (class_uid == 4001 and _ctx.service.hostname.starts_with("api.") and random() < 0.35)
+    or (class_uid == 2004 and _ctx.variant >= 95 and random() < 0.60)) {
+  metadata.profiles = metadata.profiles.append("cloud")
+  _ctx.cloud_index = int(random() * 3)
+  cloud = {
+    provider: "AWS",
+    account: {uid: "123456789012", name: "acme-production", type_id: 10},
+    cloud_partition: "aws",
+    region: ["eu-central-1", "eu-west-1", "us-east-1"][_ctx.cloud_index],
+    zone: ["eu-central-1a", "eu-west-1b", "us-east-1a"][_ctx.cloud_index],
+  }
+}
+
+// Security products and access controls report an outcome, without inventing
+// blocking for a passive network observation or for an ordinary process exit.
+if ((class_uid in [1001, 1007, 4001, 6003] and random() < 0.25)
+    or (class_uid == 3002 and activity_id == 1 and random() < 0.25)
+    or (class_uid == 2004 and random() < 0.70)) {
+  metadata.profiles = metadata.profiles.append("security_control")
+  action_id = 3
+  disposition_id = 17
+  is_alert = false
+  policy = {
+    uid: "policy-endpoint-baseline",
+    name: "Endpoint baseline",
+    type: "Endpoint Policy",
+    is_applied: true,
+    version: "2026-10",
+  }
+  match class_uid {
+    1001 => {
+      action_id = 1
+      disposition_id = 1
+    }
+    2004 => {
+      disposition_id = 19
+      is_alert = true
+      policy.uid = "policy-detection-rules"
+      policy.name = "Behavioral detections"
+      policy.type = "Detection Policy"
+    }
+    3002 => {
+      action_id = 1 if status_id == 1 else 2
+      disposition_id = 1 if status_id == 1 else 26
+      policy.uid = "policy-ssh-access"
+      policy.name = "Bastion SSH access"
+      policy.type = "Access Policy"
+      if auth_protocol_id == 4 {
+        policy.uid = "policy-oidc-access"
+        policy.name = "Identity provider access"
+      }
+    }
+    4001 => {
+      policy.uid = "policy-network-monitoring"
+      policy.name = "Internal network monitoring"
+      policy.type = "Monitoring Policy"
+    }
+    6003 => {
+      action_id = 1 if status_id == 1 else 2
+      disposition_id = 1 if status_id == 1 else 26
+      policy.uid = "policy-team-documents"
+      policy.name = "Team documents access"
+      policy.type = "Identity Policy"
+    }
+    _ => { pass }
+  }
+}
+
+// These are tool operations performed by an internal assistant, not arbitrary
+// events with an unrelated model attached. Model identity belongs to the agent.
+if ((class_uid == 6003 and random() < 0.20)
+    or (class_uid == 4002 and random() < 0.05)
+    or (class_uid == 1007 and activity_id == 1 and random() < 0.10)
+    or (class_uid == 1001 and activity_id == 2 and random() < 0.10)) {
+  metadata.profiles = metadata.profiles.append("ai_operation")
+  _ctx.agent_index = int(random() * 3)
+  ai_agent = {
+    uid: $agent_uids[_ctx.agent_index],
+    name: $agent_names[_ctx.agent_index],
+    instance_uid: f"{$run_uid}-{$agent_uids[_ctx.agent_index]}-{_ctx.user.uid}",
+    type_id: 1,
+    version: "1.4.0",
+    ai_model: {
+      uid: $model_names[_ctx.agent_index],
+      name: $model_names[_ctx.agent_index],
+      ai_provider: "Internal",
+      version: "2026-10",
+    },
+  }
+  if class_uid in [4002, 6003] {
+    message_context = {
+      uid: metadata.uid,
+      name: "assistant-tool-call",
+      ai_role_id: 3,
+      application: {uid: "app-acme-assistant", name: "Acme Assistant", version: "1.4.0"},
+      service: {name: "workspace-tools"},
+    }
+    if random() < 0.50 {
+      message_context.prompt_tokens = 120 + int(random() * 600)
+      message_context.completion_tokens = 40 + int(random() * 300)
+      message_context.total_tokens = message_context.prompt_tokens + message_context.completion_tokens
+    }
+  }
+}
+
+if metadata.profiles == [] {
+  drop metadata.profiles
+}

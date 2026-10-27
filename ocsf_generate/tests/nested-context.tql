@@ -1,0 +1,65 @@
+ocsf_generate::generate count=32768, raw="none"
+if process?.created_time? != null {
+  assert process.created_time <= time
+  assert process.session.created_time <= process.created_time
+  assert process.session.expiration_time > time
+  if class_uid == 1007 and activity_id == 1 {
+    assert process.created_time == time
+    assert process.ancestry[0].uid == process.parent_process.uid
+    assert process.ancestry[0].cmd_line == actor.process.cmd_line
+    assert process.ancestry[0].created_time <= process.created_time
+  } else if class_uid == 1007 and activity_id == 2 {
+    assert process.terminated_time == time and actor.process.uid == process.uid
+  }
+}
+if file?.modified_time? != null {
+  assert file.created_time <= file.modified_time and file.modified_time <= time
+  assert file.owner.uid != null and file.mime_type != null
+}
+if device?.hw_info? != null {
+  assert device.mac == device.network_interfaces[0].mac
+  assert type_kind(device.subnet) == "subnet" and device.ip in device.subnet
+  assert device.hw_info.ram_size == 32768 and device.hw_info.serial_number != null
+}
+if tls?.ja3_hash? != null {
+  assert tls.ja3_hash.algorithm_id == 1 and tls.ja3_hash.value.length_chars() == 32
+  assert tls.certificate.sans[0].name == tls.sni
+}
+if http_request?.x_forwarded_for? != null {
+  assert http_request.x_forwarded_for[0] == src_endpoint.ip
+}
+if api?.response? != null {
+  assert api.response.code == (403 if status_id == 2 else 201 if activity_id == 1 else 204 if activity_id == 4 else 200)
+}
+if trace?.span?.status_code? != null {
+  assert trace.span.status_code == string(api.response.code)
+  assert trace.span.parent_uid != trace.span.uid
+}
+if process?.container?.runtime? != null {
+  assert process.container.runtime == "containerd" and process.container.orchestrator == "Kubernetes"
+  assert process.container.image.labels != []
+}
+if class_uid == 2002 and vulnerabilities[0].cve.cvss? != null {
+  assert vulnerabilities[0].cve.cvss[0].version == "3.1"
+  assert vulnerabilities[0].cve.cvss[0].base_score == 9.8
+  assert vulnerabilities[0].affected_packages[0].fixed_in_version == "1.0.1"
+  if status_id == 4 {
+    assert vulnerabilities[0].affected_packages[0].version == "1.0.1"
+  }
+}
+if class_uid == 1012 {
+  _items = clipboard.contents
+  unroll _items
+  if _items.binary_data? != null {
+    assert type_kind(_items.binary_data) == "blob"
+    assert _items.binary_data.encode_base64() == _items.string_data.encode_base64()
+  }
+  drop _items
+}
+if unmapped.collector? != null {
+  assert type_kind(unmapped.collector.sequence) == "uint"
+  assert type_kind(unmapped.collector.latency) == "duration"
+  assert unmapped.collector.note == null
+}
+ocsf_cast
+summarize events=count()

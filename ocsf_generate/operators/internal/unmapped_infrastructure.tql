@@ -1,0 +1,207 @@
+---
+description: Add unmapped fields for network, virtualization, storage, and power appliances.
+---
+
+// Appliances report from fixed management addresses in 10.30.0.0/24.
+match _ctx.base.source {
+  0 => {
+    metadata.product = {name: "HAProxy", vendor_name: "HAProxy Technologies", version: "2.8.5"}
+    metadata.log_name = "haproxy.log"
+    metadata.log_provider = "rsyslog"
+    device = {hostname: "lb-01.acme.example", ip: 10.30.0.11, type_id: 15}
+    _ctx.base.code = [200, 302, 404, 503][_ctx.scenario]
+    unmapped = {
+      client_ip: _ctx.host.ip,
+      client_port: 49152 + int(random() * 16384),
+      frontend: "fe_https",
+      backend: ["be_portal", "be_portal", "be_api", "be_api"][_ctx.scenario],
+      server: f"web-{1 + int(random() * 8)}",
+      timers: {tq: int(random() * 5), tw: 0, tc: 1 + int(random() * 3), tr: int(random() * 300)},
+      status_code: _ctx.base.code,
+      bytes_read: 300 + int(random() * 90000),
+      termination_state: "----" if _ctx.scenario < 3 else "sC--",
+      conn: {act: int(random() * 900), fe: int(random() * 800), be: int(random() * 400), srv: int(random() * 60)},
+      retries: 0 if _ctx.scenario < 3 else 3,
+      http_request: f"GET /portal/{_ctx.base.n} HTTP/1.1",
+    }
+    unmapped.timers.tt = unmapped.timers.tq + unmapped.timers.tc + unmapped.timers.tr + int(random() * 50)
+    message = f"{_ctx.host.ip}:{unmapped.client_port} fe_https {unmapped.backend}/{unmapped.server} {_ctx.base.code} {unmapped.bytes_read} \"{unmapped.http_request}\""
+    status_code = string(_ctx.base.code)
+  }
+  1 => {
+    metadata.product = {name: "IOS XE", vendor_name: "Cisco", version: "17.9.4a"}
+    metadata.log_name = "syslog"
+    metadata.log_provider = "rsyslog"
+    device = {hostname: f"rtr-{1 + int(_ctx.variant / 50)}.acme.example", ip: ip(f"10.30.0.{1 + int(_ctx.variant / 50)}"), type_id: 12}
+    _ctx.base.interface = f"GigabitEthernet0/0/{int(random() * 4)}"
+    unmapped = {
+      facility: ["LINEPROTO", "SYS", "SEC_LOGIN", "OSPF"][_ctx.scenario],
+      mnemonic: ["UPDOWN", "CONFIG_I", "LOGIN_SUCCESS", "ADJCHG"][_ctx.scenario],
+      severity: [5, 5, 5, 3][_ctx.scenario],
+      seq: 100000 + _ctx.base.n,
+      interface: _ctx.base.interface,
+    }
+    message = [f"%LINEPROTO-5-UPDOWN: Line protocol on Interface {_ctx.base.interface}, changed state to up",
+      f"%SYS-5-CONFIG_I: Configured from console by {_ctx.user.name} on vty0 ({_ctx.host.ip})",
+      f"%SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: {_ctx.user.name}] [Source: {_ctx.host.ip}] [localport: 22]",
+      f"%OSPF-3-ADJCHG: Process 10, Nbr 10.30.0.2 on {_ctx.base.interface} from FULL to DOWN, Neighbor Down: Dead timer expired"][_ctx.scenario]
+    severity_id = 99
+    severity = ["notice", "notice", "notice", "error"][_ctx.scenario]
+    if _ctx.scenario in [1, 2] {
+      _ctx.base.user = _ctx.user.name
+      unmapped.user = _ctx.user.name
+      unmapped.source_ip = _ctx.host.ip
+    }
+  }
+  2 => {
+    metadata.product = {name: "ESXi", vendor_name: "VMware", version: "8.0.3"}
+    metadata.log_name = "hostd.log"
+    metadata.log_provider = "hostd"
+    device = {hostname: f"esx-{1 + int(random() * 12)}.acme.example", type_id: 1}
+    unmapped = {
+      opID: f"{hash_md5(metadata.uid).slice(end=8)}-{int(random() * 9000) + 1000}",
+      sub: ["Vimsvc.TaskManager", "Hostsvc.VmkVprobSource", "Vmsvc.vm:/vmfs/volumes", "Hostsvc.DatastoreSystem"][_ctx.scenario],
+      vm: {name: f"vm-{_ctx.service.hostname.split(".")[0]}", moref: f"vm-{1000 + int(random() * 900)}"},
+      datastore: f"ds-ssd-{1 + int(random() * 4)}",
+      user: "vpxuser",
+    }
+    message = ["Task Created : haTask-ha-root-pool-vim.ResourcePool.updateConfig",
+      "Event: Host is now online",
+      f"State Transition (VM_STATE_ON -> VM_STATE_CREATE_SNAPSHOT) for {unmapped.vm.name}",
+      f"Datastore {unmapped.datastore} usage exceeded 90 percent"][_ctx.scenario]
+    severity_id = 3 if _ctx.scenario == 3 else severity_id
+  }
+  3 => {
+    metadata.product = {name: "BIG-IP LTM", vendor_name: "F5", version: "17.1.1"}
+    metadata.log_name = "ltm"
+    metadata.log_provider = "tmm"
+    device = {hostname: "bigip-a.acme.example", ip: 10.30.0.21, type_id: 15}
+    unmapped = {
+      virtual_server: "/Common/vs_portal_443",
+      pool: "/Common/pool_portal",
+      pool_member: f"{_ctx.service.ip}:{_ctx.service.port}",
+      client_ip: ip(_ctx.host.ip),
+      client_port: 49152 + int(random() * 16384),
+      vs_ip: 10.30.0.80,
+      http_host: _ctx.service.hostname,
+      irule: ["/Common/redirect_https", "/Common/header_insert", "/Common/maintenance", "/Common/redirect_https"][_ctx.scenario],
+      persistence: {method: "cookie", hit: random() < 0.7},
+    }
+    message = [f"Rule {unmapped.irule} <HTTP_REQUEST>: redirecting {unmapped.http_host}",
+      f"Rule {unmapped.irule} <HTTP_REQUEST>: inserted X-Forwarded-For {_ctx.host.ip}",
+      "Pool /Common/pool_portal member status down, monitor http_head_f5",
+      f"Pool /Common/pool_portal member {unmapped.pool_member} monitor status up"][_ctx.scenario]
+    severity_id = [1, 1, 4, 2][_ctx.scenario]
+  }
+  4 => {
+    metadata.product = {name: "Redis", vendor_name: "Redis", version: "7.2.5"}
+    metadata.log_name = "redis-server.log"
+    metadata.log_provider = "redis"
+    device = _ctx.base.server
+    unmapped = {
+      pid: 1000 + int(random() * 30000),
+      role: ["M", "M", "S", "M"][_ctx.scenario],
+      db: int(random() * 4),
+      keys: int(random() * 2000000),
+      used_memory_human: f"{int(random() * 6000) / 100}G",
+    }
+    message = [f"{int(random() * 1000)} changes in 300 seconds. Saving...",
+      "Background saving terminated with success",
+      "MASTER <-> REPLICA sync: Finished with success",
+      "Can't save in background: fork: Cannot allocate memory"][_ctx.scenario]
+    if _ctx.scenario < 2 {
+      unmapped.rdb = {changes: int(random() * 1000), seconds: 300, bgsave_ms: int(random() * 2000)}
+    }
+    severity_id = 4 if _ctx.scenario == 3 else severity_id
+  }
+  5 => {
+    metadata.product = {name: "AOS-CX", vendor_name: "HPE Aruba Networking", version: "10.13"}
+    metadata.log_name = "event-log"
+    metadata.log_provider = "syslog"
+    device = {hostname: f"sw-{1 + int(_ctx.variant / 10)}.{_ctx.user.domain}", type_id: 10}
+    unmapped = {
+      module: ["LLDP", "POE", "MAC-LEARN", "PORT-SEC"][_ctx.scenario],
+      event_id: [1001, 2007, 4402, 9013][_ctx.scenario],
+      vlan: 100 + int(random() * 20),
+      port: f"1/1/{1 + int(random() * 48)}",
+      mac: f"00:1a:2b:{int(random() * 90) + 10}:{int(random() * 90) + 10}:{int(random() * 90) + 10}",
+    }
+    if _ctx.scenario == 1 {
+      unmapped.poe = {class: int(random() * 5), power_mw: 4000 + int(random() * 26000)}
+    }
+    // Firmware 10.11 reports VLANs as quoted strings.
+    if random() < 0.20 {
+      unmapped.vlan = string(unmapped.vlan)
+    }
+    message = f"{unmapped.module}|{unmapped.event_id}|LOG_INFO|AMM|1/1|port {unmapped.port} event on VLAN {unmapped.vlan}"
+  }
+  6 => {
+    metadata.product = {name: "ONTAP", vendor_name: "NetApp", version: "9.14.1"}
+    metadata.log_name = "ems"
+    metadata.log_provider = "mgwd"
+    device = {hostname: "nas-01.acme.example", ip: 10.30.0.31, type_id: 1}
+    unmapped = {
+      node: f"nas-01-0{1 + int(random() * 2)}",
+      ems_name: ["wafl.vol.autoSize.done", "callhome.weekly", "monitor.volume.nearlyFull", "disk.failmsg"][_ctx.scenario],
+      severity: ["notice", "informational", "alert", "error"][_ctx.scenario],
+      seq_num: _ctx.base.n,
+      parameters: {volume: f"vol_team_{1 + int(random() * 100)}", vserver: "svm_files", used_pct: 60 + int(random() * 40)},
+    }
+    message = f"{unmapped.ems_name}: volume {unmapped.parameters.volume}@vserver:{unmapped.parameters.vserver} at {unmapped.parameters.used_pct}%"
+    severity_id = [1, 1, 3, 4][_ctx.scenario]
+  }
+  7 => {
+    metadata.product = {name: "Backup & Replication", vendor_name: "Veeam", version: "12.2"}
+    metadata.log_name = "Veeam Backup"
+    metadata.log_provider = "Veeam MP"
+    device = _ctx.base.server
+    metadata.event_code = ["190", "190", "150", "190"][_ctx.scenario]
+    unmapped = {
+      job_name: f"Backup {_ctx.service.hostname.split(".")[0]}",
+      session_id: uuid(),
+      result: ["Success", "Success", "Warning", "Failed"][_ctx.scenario],
+      processed_gb: int(random() * 50000) / 100,
+      transferred_gb: int(random() * 5000) / 100,
+      objects: {total: 1 + int(random() * 40), failed: 1 if _ctx.scenario == 3 else 0},
+      repository: ["repo-zrh-1", "repo-fra-1"][int(random() * 2)],
+    }
+    message = f"Backup job '{unmapped.job_name}' finished with {unmapped.result}"
+    status_id = 2 if _ctx.scenario == 3 else 99 if _ctx.scenario == 2 else 1
+    if status_id == 99 {
+      status = unmapped.result
+    }
+  }
+  8 => {
+    metadata.product = {name: "Nomad", vendor_name: "HashiCorp", version: "1.8.4"}
+    metadata.log_name = "nomad.log"
+    metadata.log_provider = "hclog"
+    device = _ctx.base.server
+    unmapped = {
+      "@level": ["info", "info", "warn", "error"][_ctx.scenario],
+      "@module": ["client.alloc_runner", "client.driver_mgr.docker", "worker", "client.alloc_runner.task_runner"][_ctx.scenario],
+      alloc_id: uuid(),
+      job_id: ["reporting", "etl", "web", "web"][_ctx.scenario],
+      task: "main",
+      task_group: "group-1",
+      node_id: hash_md5(_ctx.service.hostname).slice(end=8),
+    }
+    message = ["task started", "image pulled", "evaluation failed placement", "task exited with non-zero code"][_ctx.scenario]
+    metadata.log_level = unmapped["@level"]
+  }
+  9 => {
+    metadata.product = {name: "Network Management Card", vendor_name: "Schneider Electric", version: "7.1.2"}
+    metadata.log_name = "ups-events"
+    metadata.log_provider = "snmptrapd"
+    device = {hostname: "ups-dc1.acme.example", ip: 10.30.0.41, type_id: 7}
+    unmapped = {
+      ups_model: "Smart-UPS SRT 6000",
+      battery: {charge_pct: 100 - int(random() * 30), runtime_min: 20 + int(random() * 60), temp_c: 22 + int(random() * 80) / 10},
+      input_voltage: 228 + int(random() * 60) / 10,
+      output_load_pct: 20 + int(random() * 50),
+      on_battery: _ctx.scenario == 3,
+    }
+    message = ["UPS: Passed a self-test.", "UPS: Battery charger restored.", "UPS: Output load above threshold.", "UPS: On battery power in response to an input power problem."][_ctx.scenario]
+    severity_id = [1, 1, 3, 4][_ctx.scenario]
+  }
+  _ => { discard }
+}

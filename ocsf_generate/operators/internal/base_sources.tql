@@ -1,0 +1,67 @@
+---
+description: Add a base event's source profile, unmapped fields, and optional context.
+---
+
+// Larger batches leave enough rows for each of the 50 profile branches.
+batch 32768, timeout=100ms
+// The smaller of two draws favors early profiles and leaves a long tail. Profile p
+// is source p / 5 in group p % 5, so each group has frequent and rare sources.
+_ctx.base = {a: random(), b: random()}
+_ctx.base = {
+  profile: int(50 * (_ctx.base.a if _ctx.base.a < _ctx.base.b else _ctx.base.b)),
+  n: int(random() * 100000),
+  extra: random(),
+  workstation: {uid: _ctx.host.uid, hostname: _ctx.host.hostname, ip: ip(_ctx.host.ip), type_id: 99, type: "Workstation"},
+  server: {hostname: _ctx.service.hostname, ip: ip(_ctx.service.ip), type_id: 1},
+}
+_ctx.base.source = int(_ctx.base.profile / 5)
+_ctx.base.group = _ctx.base.profile - _ctx.base.source * 5
+// TQL has no modulo operator.
+_ctx.base.mod3 = _ctx.base.profile - int(_ctx.base.profile / 3) * 3
+metadata.logged_time = (time + random() * 3s).floor(1ms)
+match _ctx.base.group {
+  0 => { ocsf_generate::internal::unmapped_applications }
+  1 => { ocsf_generate::internal::unmapped_infrastructure }
+  2 => { ocsf_generate::internal::unmapped_saas }
+  3 => { ocsf_generate::internal::unmapped_appliances }
+  4 => { ocsf_generate::internal::unmapped_operations }
+  _ => { discard }
+}
+// Each profile has its own schema; regroup them across seed batches.
+batch 8192, timeout=100ms
+type_uid = activity_id
+
+// Mappings differ per profile but stay stable within one: two thirds keep the
+// reporting device, and 40% keep the original timestamp in the source's clock format.
+_ctx.base.host = device.hostname? else device.name
+if _ctx.base.mod3 == 2 {
+  drop device
+} else {
+  metadata.profiles = ["host"]
+}
+if _ctx.base.source in [0, 3, 5, 8] {
+  metadata.original_time = (time.format_time("%b %d %H:%M:%S").slice(end=15) if _ctx.base.mod3 == 0
+    else string(int(time.since_epoch().count_milliseconds())) if _ctx.base.mod3 == 1
+    else string(time))
+}
+
+// Collectors and developers add ad-hoc keys that no profile declares. Numbered
+// custom fields also change type between events.
+if _ctx.base.extra < 0.10 {
+  unmapped.debug = {trace_id: hash_md5(metadata.uid), span_id: metadata.uid.slice(end=16), sampled: _ctx.base.n < 10000}
+} else if _ctx.base.extra < 0.16 {
+  _ctx.base.key = f"custom_field_{1 + int(random() * 40)}"
+  unmapped[_ctx.base.key] = f"value-{_ctx.base.n}"
+  if random() < 0.40 {
+    unmapped[_ctx.base.key] = _ctx.base.n
+  }
+} else if _ctx.base.extra < 0.19 {
+  unmapped._ingest = {
+    pipeline: f"{metadata.product.name.to_lower().replace(" ", "-")}-v{1 + int(_ctx.base.n / 25000)}",
+    warnings: [["field truncated"], ["unparsed suffix", "field truncated"]][int(random() * 2)],
+    received_bytes: 200 + int(random() * 2000),
+  }
+} else if _ctx.base.extra < 0.21 {
+  unmapped[f"tag_{1 + int(random() * 12)}"] = ["blue", "green", "canary", "legacy"][int(random() * 4)]
+  unmapped.env = ["prod", "production", "PROD", "stage"][int(random() * 4)]
+}

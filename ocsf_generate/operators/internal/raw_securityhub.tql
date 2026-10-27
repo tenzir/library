@@ -1,0 +1,81 @@
+---
+description: Render AWS Security Hub findings as EventBridge events with an ASFF finding.
+---
+
+// Security Hub forwards each imported finding in the AWS Security Finding Format.
+_h = {
+  ts: time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=23) + "Z",
+  first: (time - 3d).format_time("%Y-%m-%dT%H:%M:%S").slice(end=23) + "Z",
+  region: "eu-central-1",
+  label: ["INFORMATIONAL", "INFORMATIONAL", "LOW", "MEDIUM", "HIGH", "CRITICAL"][severity_id],
+  resolved: status_id == 4 or activity_id == 3,
+  generator: "aws-foundational-security-best-practices/v/1.0.0" if class_uid == 2003 else "arn:aws:inspector2:eu-central-1:123456789012:finding",
+}
+_h.arn = f"arn:aws:securityhub:{_h.region}:123456789012:subscription/{_h.generator}/finding/{finding_info.uid}"
+_h.finding = {
+  SchemaVersion: "2018-10-08",
+  Id: _h.arn,
+  ProductArn: f"arn:aws:securityhub:{_h.region}::product/aws/" + ("securityhub" if class_uid == 2003 else "inspector"),
+  ProductName: "Security Hub" if class_uid == 2003 else "Inspector",
+  CompanyName: "AWS",
+  Region: _h.region,
+  GeneratorId: _h.generator,
+  AwsAccountId: "123456789012",
+  Types: ["Software and Configuration Checks/Industry and Regulatory Standards"] if class_uid == 2003 else ["Software and Configuration Checks/Vulnerabilities/CVE"],
+  FirstObservedAt: _h.first,
+  LastObservedAt: _h.ts,
+  CreatedAt: _h.first,
+  UpdatedAt: _h.ts,
+  Severity: {Label: _h.label, Normalized: [0, 0, 1, 40, 70, 90][severity_id], Original: _h.label},
+  Title: finding_info.title,
+  Description: message,
+  Remediation: {
+    Recommendation: {
+      Text: "For information on how to correct this issue, consult the AWS Security Hub controls documentation." if class_uid == 2003 else "Update the affected package to the fixed version reported by the scanner.",
+      Url: "https://docs.aws.amazon.com/console/securityhub/standards-fsbp-controls" if class_uid == 2003 else "https://docs.aws.amazon.com/inspector/latest/user/findings-understanding.html",
+    },
+  },
+  ProductFields: {
+    "aws/securityhub/FindingId": _h.arn,
+    "aws/securityhub/ProductName": "Security Hub" if class_uid == 2003 else "Inspector",
+    "aws/securityhub/CompanyName": "AWS",
+    "aws/securityhub/annotation": message,
+  },
+  Resources: [{
+    Type: "Other",
+    Id: resources[0].uid,
+    Partition: "aws",
+    Region: _h.region,
+    Details: {Other: {Hostname: resources[0].name, Platform: "Workstation"}},
+  }],
+  WorkflowState: "RESOLVED" if _h.resolved else "NEW",
+  Workflow: {Status: "RESOLVED" if _h.resolved else "NEW"},
+  RecordState: "ARCHIVED" if _h.resolved else "ACTIVE",
+  FindingProviderFields: {Severity: {Label: _h.label, Original: _h.label}, Types: ["Software and Configuration Checks"]},
+  ProcessedAt: _h.ts,
+}
+if class_uid == 2003 {
+  _h.finding.Compliance = {
+    Status: ["PASSED", "WARNING", "FAILED"][compliance.status_id - 1],
+    SecurityControlId: compliance.control.replace(" ", "."),
+    AssociatedStandards: [{StandardsId: f"standards/{compliance.standards[0].to_lower().replace(" ", "-")}/v/1.0.0"}],
+  }
+} else {
+  _h.finding.Vulnerabilities = [{
+    Id: vulnerabilities[0].cve.uid,
+    FixAvailable: "YES" if vulnerabilities[0].is_fix_available else "NO",
+    Vendor: {Name: "UBUNTU_CVE", Url: "https://ubuntu.com/security/notices", VendorSeverity: _h.label},
+  }]
+}
+raw_data = print_ndjson({
+  version: "0",
+  id: metadata.uid,
+  "detail-type": "Security Hub Findings - Imported",
+  source: "aws.securityhub",
+  account: "123456789012",
+  time: _h.ts.slice(end=19) + "Z",
+  region: _h.region,
+  resources: [_h.arn],
+  detail: {findings: [_h.finding]},
+})
+drop _h

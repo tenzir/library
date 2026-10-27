@@ -1,0 +1,25 @@
+ocsf_generate::generate count=16384, class_uid=0, raw="json"
+assert class_uid == 0 and category_uid == 0
+assert activity_id in [0, 99]
+assert type_uid == activity_id
+assert severity_id in [0, 1, 2, 3, 4, 5, 99]
+assert metadata.product.name != null and metadata.log_name != null
+assert message != null
+_source = raw_data.parse_json(raw=true)
+assert _source.product == metadata.product.name
+assert print_ndjson(_source.extra) == print_ndjson(unmapped)
+if device? != null {
+  assert "host" in metadata.profiles
+  assert _source.host == (device.hostname? else device.name)
+}
+if activity_id == 99 {
+  assert activity_name != null
+}
+drop _source
+ocsf_cast
+ocsf_derive
+summarize events=count(), classes=count_distinct(class_uid),
+  products=count_distinct(metadata.product.name)
+// The rarest source profiles need not appear in a finite sample.
+assert products >= 40 and products <= 50
+drop products

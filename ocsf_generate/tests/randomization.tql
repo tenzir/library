@@ -1,0 +1,63 @@
+let $uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+let $falcon_pattern = r"^[0-9]{12}$"
+ocsf_generate::generate count=16384, raw="json"
+_source = raw_data.parse_json(raw=true)
+if class_uid in [1001, 4006, 4008, 6006, 7002] {
+  assert file.path.ends_with(file.name)
+  if class_uid == 1001 {
+    assert _source.file_name == file.name
+    assert _source.file_path == file.path
+    assert _source.process_id == actor.process.uid
+  } else {
+    assert _source.context.target_file_path == file.path
+  }
+  if file.hashes? != null {
+    assert file.hashes[0].value == hash_sha256(f"synthetic-fixture-{file.name}")
+  }
+}
+if class_uid == 4002 {
+  _expected_url = f"{http_request.url.scheme}://{http_request.url.hostname}{http_request.url.path}"
+  if http_request.url.query_string? != null {
+    _expected_url = f"{_expected_url}?{http_request.url.query_string}"
+  }
+  assert http_request.url.url_string == _expected_url
+  assert _source.url == _expected_url
+}
+// Falcon telemetry names processes by sensor-assigned decimal IDs; response
+// actions and other sources use UUIDs.
+if process? != null {
+  if metadata.product.name == "Falcon" and class_uid != 7003 {
+    assert process.uid.match_regex($falcon_pattern)
+  } else {
+    assert process.uid.match_regex(f"^{$uuid_pattern}$")
+  }
+  assert process.uid != metadata.uid
+}
+if actor?.process? != null {
+  if metadata.product.name == "Falcon" {
+    assert actor.process.uid.match_regex($falcon_pattern)
+  } else {
+    assert actor.process.uid.match_regex(f"^{$uuid_pattern}$")
+  }
+}
+if class_uid == 1007 {
+  if activity_id == 2 {
+    assert actor.process.uid == process.uid
+  } else {
+    assert process.parent_process.uid == actor.process.uid
+    assert process.uid != actor.process.uid
+  }
+}
+_file_event = 1 if class_uid in [1001, 4006, 4008, 6006, 7002]
+_random_file = 1 if _file_event != null and (file?.name?.match_regex($uuid_pattern) else false)
+_uri_event = 1 if class_uid == 4002
+_random_uri = 1 if class_uid == 4002 and (http_request?.url?.url_string?.match_regex($uuid_pattern) else false)
+_process_uid = process?.uid?
+summarize events=count(), files=count(_file_event), random_files=count(_random_file),
+  uris=count(_uri_event), random_uris=count(_random_uri),
+  processes=count(_process_uid), process_ids=count_distinct(_process_uid)
+assert events == 16384
+assert random_files > files * 0.15 and random_files < files * 0.35
+assert random_uris > uris * 0.20 and random_uris < uris * 0.40
+assert processes == process_ids
+this = {randomized_values: "passed"}

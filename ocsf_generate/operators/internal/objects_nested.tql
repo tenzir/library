@@ -1,0 +1,40 @@
+---
+description: Add context to profiles and resources after their final construction.
+---
+
+if resources? != null {
+  resources = resources.map(r => {...r, owner: _ctx.user, criticality_id: 3})
+}
+if process?.container? != null {
+  process.container.runtime = "containerd"
+  process.container.orchestrator = "Kubernetes"
+  process.container.pod_uuid = uuid()
+  process.container.image.labels = ["app=acme-worker", "version=2.4.0"]
+}
+if class_uid == 6003 {
+  api.response = {code: 403 if status_id == 2 else 201 if activity_id == 1 else 204 if activity_id == 4 else 200}
+  api.service.version = "1.0-fixture"
+  if status_id == 2 {
+    api.response.error = "AccessDenied"
+    api.response.error_message = "The synthetic access policy denied this request."
+  }
+}
+if trace? != null {
+  trace.span.parent_uid = f"request-{trace.uid}"
+  trace.span.status_code = string(api.response.code)
+  trace.span.service.version = api.service.version
+}
+if class_uid == 2002 {
+  // These are explicit benchmark assessments, rather than vendor advisory data.
+  vulnerabilities = vulnerabilities.map(v => {...v,
+    cve: {...v.cve, cvss: [{version: "3.1", base_score: 9.8,
+      vector_string: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      vendor_name: "Acme synthetic assessment"}]},
+    affected_packages: [{name: ["acme-tls-fixture", "acme-ssh-fixture", "acme-http-fixture", "acme-tls-fixture"][_ctx.scenario],
+      version: "1.0.1" if _ctx.scenario == 3 else "1.0.0", fixed_in_version: "1.0.1"}],
+    remediation: {desc: "Update the synthetic package fixture to version 1.0.1."},
+  })
+}
+// Native collector types belong to the free-form source context. OCSF's
+// duration fields themselves remain integer milliseconds.
+unmapped.collector = {sequence: uint(_ctx.event_index), latency: 5ms, note: null}

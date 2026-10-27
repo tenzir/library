@@ -1,0 +1,83 @@
+// Check relationships in optional protocol, endpoint, and analyst context.
+ocsf_generate::generate count=32768
+if http_status? != null {
+  assert class_uid == 4002 and http_status == http_response.code
+}
+if flag_ids? != null {
+  assert class_uid == 4003 and metadata.product.name != "Sysmon"
+  assert 3 in flag_ids
+  assert (4 in flag_ids) == (activity_id != 1)
+}
+if network_observation_point? != null {
+  assert initiator_id == 1 and is_src_dst_assignment_known
+  if metadata.product.name == "Sysmon" {
+    assert network_observation_point.ip == src_endpoint.ip and observation_point_id == 1
+  }
+}
+if email_auth? != null {
+  assert direction_id == 1 and email_auth.spf == "pass" and email_auth.dkim == "none"
+}
+if class_uid == 4009 and from? != null {
+  assert from == email.from and to == email.to
+  assert message_trace_uid == email.message_uid
+}
+if file_result? != null {
+  assert status_id == 1 and activity_id in [1, 3]
+  assert file_result.path == file.path and file_result.name == file.name
+}
+if requested_permissions? != null {
+  assert class_uid == 1007 and activity_id == 3
+  assert actual_permissions == requested_permissions
+  if metadata.log_format == "falcon-json" {
+    _source = raw_data.parse_json()
+    assert int(_source.DesiredAccess) == requested_permissions
+    drop _source
+  } else if metadata.log_format == "windows-xml" {
+    _data = raw_data.parse_xml()[0].EventData.Data
+    if metadata.product.name == "Sysmon" {
+      assert actual_permissions == 5136
+      assert _data.where(d => d["@Name"] == "GrantedAccess")[0]["#text"] == "0x1410"
+    } else {
+      assert requested_permissions == 4096
+      assert _data.where(d => d["@Name"] == "AccessMask")[0]["#text"] == "0x1000"
+    }
+    drop _data
+  }
+}
+if prev_reg_key? != null {
+  assert prev_reg_key.path == reg_key.path
+  assert prev_reg_key.modified_time < reg_key.modified_time
+}
+if prev_reg_value? != null {
+  assert activity_id == 3 and prev_reg_value.data == 1 and reg_value.data == 0
+}
+if prev_win_service? != null {
+  assert activity_id == 2 and prev_win_service.name == win_service.name
+  assert win_service.cmd_line == prev_win_service.cmd_line + " --verify"
+}
+if last_run_time? != null {
+  assert class_uid == 205019 and last_run_time < time and run_count >= 1
+}
+if package? != null {
+  assert package.name == product.name and package.version == product.version
+}
+if assessments? != null {
+  assert class_uid == 5002 and assessments[0].name != null
+}
+if num_trusted_items? != null {
+  assert class_uid == 6007 and activity_id == 2
+  assert num_trusted_items + num_skipped_items + num_detections == num_files
+}
+if metadata.log_format == "zeek-tsv" {
+  _z = raw_data.split("\t")
+  if class_uid == 4008 and port? != null {
+    assert int(_z[17]) == port and _z[13] == command_responses[0]
+  } else if class_uid == 4013 and dispersion? != null {
+    assert int(round(float(_z[12]) * 1000)) == dispersion
+  } else if class_uid == 4005 and remote_display? != null {
+    assert int(_z[14]) == remote_display.physical_width and int(_z[15]) == remote_display.physical_height
+    assert _z[9].split(",") == capabilities and _z[10] == keyboard_info.keyboard_layout
+  }
+  drop _z
+}
+summarize events=count()

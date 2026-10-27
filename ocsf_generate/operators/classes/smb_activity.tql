@@ -1,0 +1,19 @@
+// OCSF 1.9.0: smb_activity; independently sampled source scenarios.
+@name = "ocsf.smb_activity"
+class_uid = 4006
+category_uid = 4
+ocsf_generate::internal::network_base
+metadata.log_name = "smb_files.log"
+dst_endpoint = {ip: 10.20.0.15, hostname: "files.acme.example", port: 445}
+activity_id = [2, 3, 5, 2][_ctx.scenario]
+command = ["SMB2_CREATE", "SMB2_CREATE", "SMB2_WRITE", "SMB2_CREATE"][_ctx.scenario]
+dialect = "3.1.1"
+share = r"\\files.acme.example\team-documents"
+file = {name: "report.csv", path: "team-documents/report.csv", type_id: 1}
+ocsf_generate::internal::randomize_file
+message = f"SMB {command} on {share}/{file.name}"
+_ctx.source.smb_command = command
+_ctx.source.share = share
+_ctx.source.target_file_path = file.path
+// Zeek connection IDs: "C" followed by 17 base62 characters.
+connection_info.uid = f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}"

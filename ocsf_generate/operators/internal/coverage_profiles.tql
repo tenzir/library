@@ -1,0 +1,70 @@
+---
+description: Add populated examples of the remaining OCSF profiles and OS extensions.
+---
+
+// Match user namespaces to the recurring workstation OS. Declaring an
+// extension also enables its process patch in the OCSF cast schema.
+if class_uid == 1007 and not _ctx.windows {
+  device.os = ({name: "macOS", type_id: 300, version: "15.0"} if _ctx.macos
+    else {name: "Ubuntu", type_id: 200, version: "24.04"})
+  metadata.profiles = metadata.profiles? else []
+  metadata.profiles = metadata.profiles.append("macos/macos_users" if _ctx.macos else "linux/linux_users")
+  metadata.extensions = ([{name: "macos", uid: "3", version: "1.9.0"}] if _ctx.macos
+    else [{name: "linux", uid: "1", version: "1.9.0"}])
+  process.euid = 1000 + _ctx.user_index
+  process.egid = 1000
+  if not _ctx.macos {
+    process.auid = process.euid
+    process.group = {uid: "1000", name: "employees"}
+    if _ctx.detail > 0.50 {
+      metadata.profiles = metadata.profiles.append("container")
+      process.namespace_pid = process.pid
+      process.container = {
+        uid: f"container-{_ctx.host.uid}", name: "acme-worker",
+        image: {uid: hash_sha256("acme/worker:2.4.0"), name: "acme/worker", tag: "2.4.0"},
+      }
+    }
+  }
+}
+
+if class_uid == 1001 and _ctx.detail > 0.65 {
+  metadata.profiles = (metadata.profiles? else []).append("data_classification")
+  file.data_classifications = [{category_id: 4, confidentiality_id: 2, status_id: 1}]
+}
+
+if class_uid == 4001 and _ctx.detail > 0.65 {
+  metadata.profiles = (metadata.profiles? else []).append("datetime")
+  time_dt = time
+}
+
+if class_uid == 4002 and _ctx.detail > 0.60 {
+  metadata.profiles = (metadata.profiles? else []).append("load_balancer")
+  load_balancer = {uid: "lb-acme-web", name: "Acme web balancer", ip: 10.30.0.11,
+    dst_endpoint: dst_endpoint, code: http_response.code}
+}
+if class_uid == 4002 and _ctx.detail < 0.20 {
+  metadata.profiles = (metadata.profiles? else []).append("network_proxy")
+  proxy_endpoint = {uid: "proxy-acme-web", hostname: "proxy.acme.example", ip: 10.30.0.12, port: 8080}
+  proxy_connection_info = connection_info
+  proxy_http_request = http_request
+  proxy_http_response = http_response
+}
+
+if class_uid == 2004 and _ctx.scenario == 2 {
+  metadata.profiles = (metadata.profiles? else []).append("osint")
+  osint = [{type_id: 1, value: _ctx.service.ip, confidence_id: 3, tlp: "CLEAR", vendor_name: "Acme"}]
+}
+
+if class_uid == 1008 and _ctx.detail > 0.75 {
+  metadata.profiles = (metadata.profiles? else []).append("record_integrity")
+}
+
+if class_uid == 6003 and _ctx.detail > 0.60 {
+  metadata.profiles = (metadata.profiles? else []).append("trace")
+  trace = {
+    uid: metadata.uid, start_time: time - 20ms, end_time: time, duration: 20,
+    service: {name: api.service.name},
+    span: {uid: f"span-{metadata.uid}", start_time: time - 20ms, end_time: time,
+      duration: 20, operation: api.operation, service: {name: api.service.name}},
+  }
+}
