@@ -2,10 +2,10 @@
 title: Agent credential exposure detection
 type: feature
 authors:
-  - codex
-prs:
-  - 0
+  - zedoraps
 created: 2026-09-14T19:30:00.000000Z
+prs:
+  - 208
 ---
 
 The `tenzir` package now flags credential or secret material appearing in an

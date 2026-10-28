@@ -1,0 +1,122 @@
+---
+description: Completes OCSF enums and retains unidentifiable optional objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if (
+  $ocsf.src_endpoint?.location? != null
+  and $ocsf.src_endpoint?.location?.city? == null
+  and $ocsf.src_endpoint?.location?.country? == null
+  and $ocsf.src_endpoint?.location?.postal_code? == null
+  and $ocsf.src_endpoint?.location?.region? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_location = move $ocsf.src_endpoint.location
+}
+if (
+  $ocsf.dst_endpoint?.location? != null
+  and $ocsf.dst_endpoint?.location?.city? == null
+  and $ocsf.dst_endpoint?.location?.country? == null
+  and $ocsf.dst_endpoint?.location?.postal_code? == null
+  and $ocsf.dst_endpoint?.location?.region? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint_location = move $ocsf.dst_endpoint.location
+}
+if (
+  $ocsf.src_endpoint?.owner? != null
+  and $ocsf.src_endpoint?.owner?.account? == null
+  and $ocsf.src_endpoint?.owner?.name? == null
+  and $ocsf.src_endpoint?.owner?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_owner = move $ocsf.src_endpoint.owner
+}
+if (
+  $ocsf.dst_endpoint?.owner? != null
+  and $ocsf.dst_endpoint?.owner?.account? == null
+  and $ocsf.dst_endpoint?.owner?.name? == null
+  and $ocsf.dst_endpoint?.owner?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint_owner = move $ocsf.dst_endpoint.owner
+}
+if (
+  $ocsf.src_endpoint?.proxy_endpoint? != null
+  and $ocsf.src_endpoint?.proxy_endpoint?.ip? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.hostname? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.svc_name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.instance_uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.interface_uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.interface_name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_proxy_endpoint = move $ocsf.src_endpoint.proxy_endpoint
+}
+if (
+  $ocsf.dst_endpoint?.proxy_endpoint? != null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.ip? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.hostname? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.svc_name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.instance_uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.interface_uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.interface_name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint_proxy_endpoint = move $ocsf.dst_endpoint.proxy_endpoint
+}
+if (
+  $ocsf.firewall_rule? != null
+  and $ocsf.firewall_rule?.name? == null
+  and $ocsf.firewall_rule?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.firewall_rule = move $ocsf.firewall_rule
+}
+if (
+  $ocsf.policy? != null
+  and $ocsf.policy.name? == null
+  and $ocsf.policy.type? == null
+  and $ocsf.policy.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.policy = move $ocsf.policy
+}
+if $ocsf.evidences? != null {
+  if (
+    $ocsf.evidences.where(e => (e.actor?.user? != null
+    and e.actor?.user?.account? == null
+    and e.actor?.user?.name? == null
+    and e.actor?.user?.uid? == null)).length() > 0
+  ) {
+    $ocsf.unmapped.ocsf_residue.evidences = $ocsf.evidences.where(e => (e.actor?.user? != null
+      and e.actor?.user?.account? == null
+      and e.actor?.user?.name? == null
+      and e.actor?.user?.uid? == null))
+  }
+  $ocsf.evidences = $ocsf.evidences.map(e => {
+    ...e,
+    actor: {
+      ...e.actor?,
+      user: e.actor?.user? if not (e.actor?.user? != null
+        and e.actor?.user?.account? == null
+        and e.actor?.user?.name? == null
+        and e.actor?.user?.uid? == null) else null
+    } if e.actor? != null else null
+  })
+  $ocsf.evidences = $ocsf.evidences.map(e => {
+    ...e,
+    actor: e.actor? if (
+      e.actor?.process? != null
+      or e.actor?.user? != null
+      or e.actor?.iam_role? != null
+      or e.actor?.invoked_by? != null
+      or e.actor?.session? != null
+      or e.actor?.application? != null
+      or e.actor?.app_name? != null
+      or e.actor?.app_uid? != null
+    ) else null,
+  })
+}

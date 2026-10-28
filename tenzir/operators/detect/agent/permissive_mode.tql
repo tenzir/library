@@ -2,6 +2,7 @@
 description: Detects an agent session assigned a full-autonomy permission or sandbox mode.
 ---
 
+tenzir::detect::agent::observation
 where class_uid == 3003 and
       ("approval:bypassPermissions" in privileges or
        "sandbox:danger-full-access" in privileges)
@@ -24,7 +25,7 @@ this = {
   finding_info: {
     uid: uuid(),
     title: f"Agent session assigned a disallowed permission mode",
-    desc: f"Session for agent {ai_agent.name} was assigned {privileges}, which policy does not allow.",
+    desc: f"Session for agent {ai_agent?.name? else "unknown agent"} was assigned {privileges}, which policy does not allow.",
     analytic: {
       name: "Agent permissive mode",
       uid: "tenzir::detect::agent::permissive_mode",
@@ -37,7 +38,8 @@ this = {
     }],
   },
   evidences: [{
-    user: user,
-    ai_agent: ai_agent,
+    data: {user: user?, ai_agent: ai_agent?, privileges: privileges, session: session?},
+    user: user? if user?.account? != null or user?.name? != null or user?.uid? != null else null,
+    ai_agent: ai_agent? if ai_agent?.name? != null or ai_agent?.uid? != null else null,
   }],
 }

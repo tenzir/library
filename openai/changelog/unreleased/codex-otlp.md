@@ -6,6 +6,8 @@ authors:
 components:
   - openai
 created: 2026-07-29T00:00:00Z
+prs:
+  - 208
 ---
 
 The OpenAI package normalizes security-relevant Codex OTLP telemetry to OCSF
@@ -16,8 +18,8 @@ JSON-RPC operations, HTTP activity, authorization, and skill activation.
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
 openai::codex::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
 ```
 
 Shell decisions and confirmed completions use Process Activity Launch and

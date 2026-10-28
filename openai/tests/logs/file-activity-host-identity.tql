@@ -1,0 +1,44 @@
+// Host identity determines whether a complete File Activity can be emitted.
+from {
+  time: 2026-09-10T12:00:00Z,
+  observed_time: 2026-09-10T12:00:00Z,
+  trace_id: null,
+  span_id: null,
+  severity_number: 0,
+  severity_text: null,
+  flags: 1,
+  resource: {attributes: {"service.name": "codex_cli_rs"}},
+  scope: {name: "codex_otel.log_only"},
+  receiver: {transport: "grpc"},
+  body: null,
+  attributes: {
+    "event.name": "codex.tool_result",
+    tool_name: "Delete",
+    call_id: "synthetic-delete-success",
+    arguments: "{\"file_path\":\"/tmp/example.txt\"}",
+    success: "true",
+  },
+}
+host_names = [null, "test-host"]
+unroll host_names
+resource.attributes = {...resource.attributes, "host.name": move host_names}
+@name = "otel.log"
+openai::codex::ocsf::normalize
+strict {
+  this = ocsf_cast(ocsf_derive(this))
+  if device? == null {
+    assert class_uid == 0
+    assert unmapped.incomplete_activity.class_uid == 1001
+    assert unmapped.incomplete_activity.file.is_deleted == true
+  } else {
+    assert class_uid == 1001
+    assert device.hostname == "test-host"
+    assert file.is_deleted == true
+  }
+}
+this = {
+  class_uid: class_uid,
+  hostname: device?.hostname?,
+  deleted: file?.is_deleted? else unmapped.incomplete_activity?.file.is_deleted?,
+}
+sort class_uid

@@ -1,0 +1,69 @@
+---
+description: Completes required enums and preserves incomplete source objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if $ocsf.device? != null {
+  $ocsf.device.type_id = $ocsf.device?.type_id? else 0
+}
+if $ocsf.file? != null {
+  $ocsf.file.type_id = $ocsf.file?.type_id? else 0
+}
+if $ocsf.process?.file? != null {
+  $ocsf.process.file.type_id = $ocsf.process?.file?.type_id? else 0
+}
+if $ocsf.actor?.process?.file? != null {
+  $ocsf.actor.process.file.type_id = $ocsf.actor?.process?.file?.type_id? else 0
+}
+if $ocsf.module?.file? != null {
+  $ocsf.module.file.type_id = $ocsf.module?.file?.type_id? else 0
+}
+if $ocsf.module? != null {
+  $ocsf.module.load_type_id = $ocsf.module?.load_type_id? else 0
+}
+if $ocsf.connection_info? != null {
+  $ocsf.connection_info.direction_id = $ocsf.connection_info?.direction_id? else 0
+}
+if (
+  $ocsf.src_endpoint? != null
+  and $ocsf.src_endpoint?.ip? == null
+  and $ocsf.src_endpoint?.uid? == null
+  and $ocsf.src_endpoint?.name? == null
+  and $ocsf.src_endpoint?.hostname? == null
+  and $ocsf.src_endpoint?.svc_name? == null
+  and $ocsf.src_endpoint?.instance_uid? == null
+  and $ocsf.src_endpoint?.interface_uid? == null
+  and $ocsf.src_endpoint?.interface_name? == null
+  and $ocsf.src_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint = move $ocsf.src_endpoint
+}
+if (
+  $ocsf.dst_endpoint? != null
+  and $ocsf.dst_endpoint?.ip? == null
+  and $ocsf.dst_endpoint?.uid? == null
+  and $ocsf.dst_endpoint?.name? == null
+  and $ocsf.dst_endpoint?.hostname? == null
+  and $ocsf.dst_endpoint?.svc_name? == null
+  and $ocsf.dst_endpoint?.instance_uid? == null
+  and $ocsf.dst_endpoint?.interface_uid? == null
+  and $ocsf.dst_endpoint?.interface_name? == null
+  and $ocsf.dst_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint = move $ocsf.dst_endpoint
+}
+if $ocsf.class_uid == 5021 and $ocsf.osint?.map(i => i.value? == null).any() {
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0, class_uid: 0, activity_id: 0, type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    message: $ocsf.message?,
+    unmapped: {...$ocsf.unmapped?, incomplete_activity: drop_null_fields({...$ocsf, unmapped: null})},
+  }
+  @name = "ocsf.base_event"
+}

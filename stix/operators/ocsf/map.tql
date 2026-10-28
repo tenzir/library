@@ -8,7 +8,9 @@ description: |
 
   A pattern with a single comparison, such as
   `[ipv4-addr:value = '192.0.2.1']`, yields the indicator value and type. A
-  compound pattern only populates `detection_pattern`. A revoked indicator gets
+  compound pattern has no single required indicator value, so it becomes a
+  Base Event with the candidate preserved in `unmapped.incomplete_activity`.
+  A revoked indicator gets
   the status `Removed`, which `tenzir::osint::update_context` erases from its
   lookup table.
 
@@ -79,7 +81,7 @@ $ocsf = {
     created_time: time(move $stix.created),
     creator: {
       uid: move $stix.created_by_ref?,
-    },
+    } if $stix.created_by_ref? != null else null,
     desc: move $stix.description?,
     detection_pattern: move $stix.pattern,
     detection_pattern_type: $stix.pattern_type,
@@ -120,3 +122,23 @@ drop $stix.confidence?, $stix.observable
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
 @name = "ocsf.osint_inventory_info"
+
+// A compound pattern has no single indicator value required by OSINT.
+if $ocsf.osint[0].value == null {
+  // Keep source facts when the selected class cannot be identified.
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0,
+    class_uid: 0,
+    activity_id: 0,
+    type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    message: $ocsf.message?,
+    unmapped: {
+      ...$ocsf.unmapped?,
+      incomplete_activity: drop_null_fields({...$ocsf, unmapped: null}),
+    },
+  }
+  @name = "ocsf.base_event"
+}

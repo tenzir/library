@@ -24,11 +24,11 @@ $ocsf.tls = {
   ja3_hash: {
     algorithm_id: 1,
     value: move $event.tls.ja3?.hash?,
-  },
+  } if $event.tls.ja3?.hash? != null else null,
   ja3s_hash: {
     algorithm_id: 1,
     value: move $event.tls.ja3s?.hash?,
-  },
+  } if $event.tls.ja3s?.hash? != null else null,
   sni: move $event.tls.sni?,
   version: move $event.tls.version? else "Unknown",
 }
@@ -41,7 +41,7 @@ $ocsf.tls.certificate = {
   subject: move $event.tls.subject?,
 }
 
-if $event.tls.has("fingerprint") {
+if $event.tls.fingerprint? != null {
   $ocsf.tls.certificate.fingerprints = [{
     algorithm_id: 2,
     value: $event.tls.fingerprint.replace(":", ""),
@@ -59,6 +59,10 @@ $ocsf.tls.certificate.sans = (move $event.tls.subjectaltname?).map(name => {
   name: name,
   type: "DNSName",
 })
+
+if $ocsf.tls.certificate.issuer? == null or $ocsf.tls.certificate.serial_number? == null {
+  $event.tls.incomplete_certificate = move $ocsf.tls.certificate
+}
 
 // --- OCSF: primary attributes -----------------
 

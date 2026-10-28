@@ -1,0 +1,154 @@
+---
+description: Completes required enums and preserves incomplete source objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if $ocsf.device? != null {
+  $ocsf.device.type_id = $ocsf.device?.type_id? else 0
+}
+if $ocsf.device?.os? != null {
+  $ocsf.device.os.type_id = $ocsf.device?.os?.type_id? else 0
+}
+if $ocsf.file? != null {
+  $ocsf.file.type_id = $ocsf.file?.type_id? else 0
+}
+if $ocsf.process?.file? != null {
+  $ocsf.process.file.type_id = $ocsf.process?.file?.type_id? else 0
+}
+if $ocsf.process?.parent_process?.file? != null {
+  $ocsf.process.parent_process.file.type_id = $ocsf.process?.parent_process?.file?.type_id? else 0
+}
+if $ocsf.actor?.process?.file? != null {
+  $ocsf.actor.process.file.type_id = $ocsf.actor?.process?.file?.type_id? else 0
+}
+if $ocsf.connection_info? != null {
+  $ocsf.connection_info.direction_id = $ocsf.connection_info?.direction_id? else 0
+}
+if $ocsf.database? != null {
+  $ocsf.database.type_id = $ocsf.database?.type_id? else 0
+}
+if (
+  $ocsf.src_endpoint? != null
+  and $ocsf.src_endpoint?.ip? == null
+  and $ocsf.src_endpoint?.uid? == null
+  and $ocsf.src_endpoint?.name? == null
+  and $ocsf.src_endpoint?.hostname? == null
+  and $ocsf.src_endpoint?.svc_name? == null
+  and $ocsf.src_endpoint?.instance_uid? == null
+  and $ocsf.src_endpoint?.interface_uid? == null
+  and $ocsf.src_endpoint?.interface_name? == null
+  and $ocsf.src_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint = move $ocsf.src_endpoint
+}
+if (
+  $ocsf.dst_endpoint? != null
+  and $ocsf.dst_endpoint?.ip? == null
+  and $ocsf.dst_endpoint?.uid? == null
+  and $ocsf.dst_endpoint?.name? == null
+  and $ocsf.dst_endpoint?.hostname? == null
+  and $ocsf.dst_endpoint?.svc_name? == null
+  and $ocsf.dst_endpoint?.instance_uid? == null
+  and $ocsf.dst_endpoint?.interface_uid? == null
+  and $ocsf.dst_endpoint?.interface_name? == null
+  and $ocsf.dst_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint = move $ocsf.dst_endpoint
+}
+if (
+  $ocsf.src_endpoint?.proxy_endpoint? != null
+  and $ocsf.src_endpoint?.proxy_endpoint?.ip? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.hostname? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.svc_name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.instance_uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.interface_uid? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.interface_name? == null
+  and $ocsf.src_endpoint?.proxy_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_proxy_endpoint = move $ocsf.src_endpoint.proxy_endpoint
+}
+if (
+  $ocsf.dst_endpoint?.proxy_endpoint? != null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.ip? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.hostname? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.svc_name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.instance_uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.interface_uid? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.interface_name? == null
+  and $ocsf.dst_endpoint?.proxy_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint_proxy_endpoint = move $ocsf.dst_endpoint.proxy_endpoint
+}
+if (
+  $ocsf.actor?.user? != null
+  and $ocsf.actor?.user?.account? == null
+  and $ocsf.actor?.user?.name? == null
+  and $ocsf.actor?.user?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.actor_user = move $ocsf.actor.user
+}
+if (
+  $ocsf.actor?.process? != null
+  and $ocsf.actor?.process?.pid? == null
+  and $ocsf.actor?.process?.uid? == null
+  and $ocsf.actor?.process?.cpid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.actor_process = move $ocsf.actor.process
+}
+if (
+  $ocsf.device? != null
+  and $ocsf.device?.ip? == null
+  and $ocsf.device?.uid? == null
+  and $ocsf.device?.name? == null
+  and $ocsf.device?.hostname? == null
+  and $ocsf.device?.instance_uid? == null
+  and $ocsf.device?.interface_uid? == null
+  and $ocsf.device?.interface_name? == null
+) {
+  $ocsf.unmapped.ocsf_residue.device = move $ocsf.device
+}
+if $ocsf.email?.files? != null {
+  $ocsf.email.files = $ocsf.email.files.map(f => {...f, type_id: f.type_id? else 0})
+}
+if $ocsf.actor? != null and drop_null_fields($ocsf.actor).is_empty() {
+  drop $ocsf.actor
+}
+if $ocsf.file? != null and $ocsf.file.name? == null and $ocsf.file.path? != null {
+  $ocsf.file.name = $ocsf.file.path.replace("\\", "/").split("/")[-1]
+}
+if $ocsf.file? != null and $ocsf.file.name? == null {
+  $ocsf.unmapped.ocsf_residue.file = move $ocsf.file
+}
+if (
+  $ocsf.category_uid == 1
+  and ($ocsf.actor? == null
+  or $ocsf.device? == null
+  or ($ocsf.class_uid == 1001 and $ocsf.file? == null))
+) {
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0, class_uid: 0, activity_id: 0, type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    message: $ocsf.message?,
+    unmapped: {...$ocsf.unmapped?, incomplete_activity: drop_null_fields({...$ocsf, unmapped: null})},
+  }
+  @name = "ocsf.base_event"
+}
+if $ocsf.class_uid == 2001 {
+  $ocsf.state_id = $ocsf.state_id? else 0
+}
+if $ocsf.class_uid == 4009 {
+  $ocsf.direction_id = $ocsf.direction_id? else 0
+}
+if $ocsf.actor?.process?.parent_process?.file? != null {
+  $ocsf.actor.process.parent_process.file.type_id = $ocsf.actor.process.parent_process.file.type_id? else 0
+}

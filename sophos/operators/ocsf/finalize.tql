@@ -1,0 +1,32 @@
+---
+description: Completes required enums and preserves incomplete source objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if $ocsf.file? != null {
+  $ocsf.file.type_id = $ocsf.file?.type_id? else 0
+}
+if $ocsf.evidences? != null {
+  $ocsf.evidences = $ocsf.evidences.map(e => {
+    ...e,
+    file: {...e.file, type_id: e.file.type_id? else 0} if e.file? != null else null,
+    process: {
+      ...e.process,
+      file: {
+        ...e.process.file,
+        type_id: e.process.file.type_id? else 0
+      } if e.process?.file? != null else null
+    } if e.process?.pid? != null or e.process?.uid? != null or e.process?.cpid? != null else null,
+    data: {
+      ...e.data?,
+      process: e.process?
+    } if e.process? != null
+      and e.process.pid? == null
+      and e.process.uid? == null
+      and e.process.cpid? == null else e.data?,
+  })
+}

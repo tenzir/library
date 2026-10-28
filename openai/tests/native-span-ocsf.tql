@@ -3,7 +3,15 @@ from_file f"{env("TENZIR_INPUTS")}/../native-span.input" {
 }
 @name = "otel.span"
 openai::codex::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
 select metadata.version, metadata.event_code, metadata.profiles, class_name,
-       activity_name, ai_agent, api.operation, trace, status
+       activity_name, details.ai_agent?, details.api?.operation?, trace, status

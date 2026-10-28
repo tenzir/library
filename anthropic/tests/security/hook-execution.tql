@@ -4,8 +4,16 @@ from_file env("TENZIR_INPUT") {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize include_content=true
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
 where metadata.event_code == "hook_execution_complete"
-select time, metadata.event_code, class_name, activity_name, process.name,
-       process.cmd_line, status, duration?, unmapped.hook_event
+select time, metadata.event_code, class_name, activity_name, details.process?.name?,
+       details.process?.cmd_line?, status, duration?, unmapped.hook_event

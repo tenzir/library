@@ -6,6 +6,8 @@ authors:
 components:
   - anthropic
 created: 2026-07-29T00:00:00Z
+prs:
+  - 208
 ---
 
 The Anthropic package normalizes Claude Code OTLP telemetry to OCSF 1.9.0,
@@ -16,8 +18,8 @@ authorization, authentication, and application lifecycle events.
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
 ```
 
 Shell decisions and foreground results use Process Activity Launch and

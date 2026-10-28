@@ -7,8 +7,16 @@ from_file f"{env("TENZIR_INPUTS")}/../native-logs-sample.input" {
 where attributes.tool_name? == "Bash"
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
-select time, class_name, activity_name, status, action?, disposition?,
-       process.uid, process.pid?, process.name, process.cmd_line,
-       process.created_time?, process.terminated_time?
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
+select time, class_name, activity_name, status, details.action?, details.disposition?,
+       details.process?.uid?, details.process?.pid?, details.process?.name?, details.process?.cmd_line?,
+       details.process?.created_time?, details.process?.terminated_time?

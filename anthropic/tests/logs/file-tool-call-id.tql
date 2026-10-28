@@ -26,7 +26,15 @@ from {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
-select class_name, activity_name, action, disposition, file.path,
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
+select class_name, activity_name, details.action?, details.disposition?, details.file?.path?,
        tool_use_id=unmapped.tool_use_id

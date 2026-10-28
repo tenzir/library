@@ -1,0 +1,90 @@
+---
+description: Completes required enums and preserves incomplete source objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if (
+  $ocsf.src_endpoint?.owner? != null
+  and $ocsf.src_endpoint?.owner?.account? == null
+  and $ocsf.src_endpoint?.owner?.name? == null
+  and $ocsf.src_endpoint?.owner?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_owner = move $ocsf.src_endpoint.owner
+}
+if (
+  $ocsf.src_endpoint?.location? != null
+  and $ocsf.src_endpoint?.location?.city? == null
+  and $ocsf.src_endpoint?.location?.country? == null
+  and $ocsf.src_endpoint?.location?.postal_code? == null
+  and $ocsf.src_endpoint?.location?.region? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint_location = move $ocsf.src_endpoint.location
+}
+$ocsf.metadata.loggers = $ocsf.metadata.loggers.map(l => {...l, name: l.name? else "Okta"})
+if (
+  $ocsf.http_request?.url? != null
+  and $ocsf.http_request.url.url_string? == null
+  and $ocsf.http_request.url.path? == null
+) {
+  $ocsf.unmapped.ocsf_residue.url = move $ocsf.http_request.url
+}
+if $ocsf.api? != null and $ocsf.api.operation? == null {
+  $ocsf.api.operation = $ocsf.metadata.event_code
+}
+if $ocsf.class_uid == 3002 and $ocsf.service? == null and $ocsf.dst_endpoint? == null {
+  $ocsf.service = {name: "Okta"}
+}
+if $ocsf.evidences? != null {
+  $ocsf.unmapped.ocsf_residue.evidences = $ocsf.evidences.where(e => e.src_endpoint?.owner? != null
+    and e.src_endpoint.owner.account? == null
+    and e.src_endpoint.owner.name? == null
+    and e.src_endpoint.owner.uid? == null)
+  $ocsf.evidences = $ocsf.evidences.map(e => {
+    ...e,
+    src_endpoint: {
+      ...e.src_endpoint,
+      owner: e.src_endpoint.owner? if e.src_endpoint.owner?.account? != null
+        or e.src_endpoint.owner?.name? != null
+        or e.src_endpoint.owner?.uid? != null else null
+    } if e.src_endpoint? != null else null
+  })
+}
+if (
+  $ocsf.user? != null
+  and $ocsf.user?.account? == null
+  and $ocsf.user?.name? == null
+  and $ocsf.user?.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.user = move $ocsf.user
+}
+if (
+  $ocsf.entity?.policy? != null
+  and $ocsf.entity.policy.name? == null
+  and $ocsf.entity.policy.type? == null
+  and $ocsf.entity.policy.uid? == null
+) {
+  $ocsf.entity.policy.name = $ocsf.entity.name?
+  $ocsf.entity.policy.uid = $ocsf.entity.uid?
+}
+if $ocsf.class_uid in [3001, 3002] and $ocsf.user? == null {
+  // Keep source facts when the selected class cannot be identified.
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0,
+    class_uid: 0,
+    activity_id: 0,
+    type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    message: $ocsf.message?,
+    unmapped: {
+      ...$ocsf.unmapped?,
+      incomplete_activity: drop_null_fields({...$ocsf, unmapped: null}),
+    },
+  }
+  @name = "ocsf.base_event"
+}

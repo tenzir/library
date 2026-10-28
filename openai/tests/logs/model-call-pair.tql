@@ -9,10 +9,18 @@ from_file f"{env("TENZIR_INPUTS")}/../logs/model-call-pair.input" {
 }
 @name = "otel.log"
 openai::codex::ocsf::normalize include_content=true
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
 select time, metadata.event_code, class_name, activity_name, message, status,
-       request_uid=api.request.uid?, ai_role=message_context.ai_role,
+       request_uid=details.api?.request?.uid?, ai_role=message_context.ai_role,
        prompt_tokens=message_context.prompt_tokens?,
        completion_tokens=message_context.completion_tokens?,
        total_tokens=message_context.total_tokens?,

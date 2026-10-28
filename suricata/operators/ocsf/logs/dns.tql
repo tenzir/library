@@ -34,12 +34,15 @@ if $event.dns.has("queries") {
   suricata::ocsf::map_dns_query $event, $ocsf
 }
 
+$event.dns.incomplete_answers = $event.dns.answers?.where(r => r.rdata? == null and r.soa? == null)
 $ocsf.answers = (move $event.dns.answers?).map(answer => {
   hostname: answer.rrname?,
-  rdata: answer.rdata.string(),
+  rdata: answer.rdata?.string() else (
+    f"{answer.soa.mname} {answer.soa.rname} {answer.soa.serial} {answer.soa.refresh} {answer.soa.retry} {answer.soa.expire} {answer.soa.minimum}" if answer.soa? != null else null
+  ),
   type: answer.rrtype,
   ttl: answer.ttl,
-})
+}).where(r => r.rdata != null)
 
 // Older EVE DNS logs expose one question or answer rather than arrays.
 if $ocsf.query?.hostname? == null and $event.dns.type? == "request" {
@@ -90,23 +93,31 @@ if $event.dns.has("rcode") {
   $ocsf.status_id = 0
 }
 
+$event.dns.incomplete_authorities = $event.dns.authorities?.where(r => r.rdata? == null and r.soa? == null)
 $ocsf.authority = (move $event.dns.authorities?).map(record => {
   hostname: record.rrname?,
-  rdata: record.rdata.string(),
+  rdata: record.rdata?.string() else (
+    f"{record.soa.mname} {record.soa.rname} {record.soa.serial} {record.soa.refresh} {record.soa.retry} {record.soa.expire} {record.soa.minimum}" if record.soa? != null else null
+  ),
   type: record.rrtype,
   ttl: record.ttl?,
-})
+}).where(r => r.rdata != null)
+$event.dns.incomplete_additionals = $event.dns.additionals?.where(r => r.rdata? == null and r.soa? == null)
 $event._additional_records = (move $event.dns.additionals?).map(record => {
   hostname: record.rrname?,
-  rdata: record.rdata.string(),
+  rdata: record.rdata?.string() else (
+    f"{record.soa.mname} {record.soa.rname} {record.soa.serial} {record.soa.refresh} {record.soa.retry} {record.soa.expire} {record.soa.minimum}" if record.soa? != null else null
+  ),
   type: record.rrtype,
   ttl: record.ttl?,
-})
+}).where(r => r.rdata != null)
 
-if $event.dns.type? == "request" {
-  $ocsf.query_additional.records = move $event._additional_records
-} else {
-  $ocsf.response_additional.records = move $event._additional_records
+if $event._additional_records != null {
+  if $event.dns.type? == "request" {
+    $ocsf.query_additional.records = move $event._additional_records
+  } else {
+    $ocsf.response_additional.records = move $event._additional_records
+  }
 }
 
 // EVE exposes both the raw header and selected boolean flags. Preserve the

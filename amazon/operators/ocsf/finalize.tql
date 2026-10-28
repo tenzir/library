@@ -1,0 +1,58 @@
+---
+description: Completes OCSF enums and retains unidentifiable optional objects.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+if $ocsf.connection_info? != null {
+  $ocsf.connection_info.direction_id = $ocsf.connection_info?.direction_id? else 0
+}
+if (
+  $ocsf.src_endpoint? != null
+  and $ocsf.src_endpoint?.ip? == null
+  and $ocsf.src_endpoint?.uid? == null
+  and $ocsf.src_endpoint?.name? == null
+  and $ocsf.src_endpoint?.hostname? == null
+  and $ocsf.src_endpoint?.svc_name? == null
+  and $ocsf.src_endpoint?.instance_uid? == null
+  and $ocsf.src_endpoint?.interface_uid? == null
+  and $ocsf.src_endpoint?.interface_name? == null
+  and $ocsf.src_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.src_endpoint = move $ocsf.src_endpoint
+}
+if (
+  $ocsf.dst_endpoint? != null
+  and $ocsf.dst_endpoint?.ip? == null
+  and $ocsf.dst_endpoint?.uid? == null
+  and $ocsf.dst_endpoint?.name? == null
+  and $ocsf.dst_endpoint?.hostname? == null
+  and $ocsf.dst_endpoint?.svc_name? == null
+  and $ocsf.dst_endpoint?.instance_uid? == null
+  and $ocsf.dst_endpoint?.interface_uid? == null
+  and $ocsf.dst_endpoint?.interface_name? == null
+  and $ocsf.dst_endpoint?.domain? == null
+) {
+  $ocsf.unmapped.ocsf_residue.dst_endpoint = move $ocsf.dst_endpoint
+}
+if $ocsf.category_uid == 4 and $ocsf.src_endpoint? == null and $ocsf.dst_endpoint? == null {
+  // Keep source facts when the selected class cannot be identified.
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0,
+    class_uid: 0,
+    activity_id: 0,
+    type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    message: $ocsf.message?,
+    unmapped: {
+      ...$ocsf.unmapped?,
+      incomplete_activity: drop_null_fields({...$ocsf, unmapped: null}),
+    },
+  }
+  @name = "ocsf.base_event"
+}

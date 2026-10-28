@@ -1,0 +1,63 @@
+---
+description: Preserves incomplete optional objects and anonymous observations.
+args:
+  positional:
+    - name: ocsf
+      type: field
+      description: The OCSF record to finalize.
+---
+
+
+if $ocsf.file? != null and $ocsf.file.name? == null {
+  $ocsf.unmapped.ocsf_residue.file = move $ocsf.file
+}
+if (
+  $ocsf.user? != null
+  and $ocsf.user.account? == null
+  and $ocsf.user.name? == null
+  and $ocsf.user.uid? == null
+) {
+  $ocsf.unmapped.ocsf_residue.user = move $ocsf.user
+}
+if $ocsf.device? != null {
+  $ocsf.device.type_id = $ocsf.device.type_id? else 0
+  if $ocsf.device.os? != null {
+    $ocsf.device.os.type_id = $ocsf.device.os.type_id? else 0
+  }
+  if (
+    $ocsf.device.ip? == null
+    and $ocsf.device.uid? == null
+    and $ocsf.device.hostname? == null
+    and $ocsf.device.name? == null
+  ) {
+    $ocsf.unmapped.ocsf_residue.device = move $ocsf.device
+  }
+}
+// A packet capture need not identify the user-space actor or principal.
+if (
+  ($ocsf.class_uid == 0)
+  or ($ocsf.class_uid == 4010
+  and $ocsf.actor? == null)
+  or ($ocsf.class_uid == 3002
+  and $ocsf.user? == null)
+  or ($ocsf.class_uid == 4009
+  and $ocsf.email?.from? == null
+  and $ocsf.email?.to? == null)
+) {
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0, class_uid: 0, activity_id: 0, type_uid: 0,
+    severity_id: $ocsf.severity_id,
+    unmapped: {
+      ...$ocsf.unmapped?,
+      incomplete_activity: drop_null_fields({
+        ...$ocsf,
+        unmapped: null,
+        raw_data: null,
+        raw_data_size: null
+      })
+    },
+  }
+  @name = "ocsf.base_event"
+}

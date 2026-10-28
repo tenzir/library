@@ -28,6 +28,11 @@ if $ocsf._mapping.decision_status_id != null {
   $ocsf.metadata.profiles = [...($ocsf.metadata.profiles? else []), "security_control"]
 }
 
+// A request object needs an ID. Keep unidentifiable request data as residue.
+if $ocsf.api?.request? != null and $ocsf.api.request.uid? == null {
+  $claude_code.api_request = move $ocsf.api.request
+}
+
 // Preserve agent details in unmapped where the AI Operation profile is unavailable.
 $claude_code.tool_name = $claude_code.tool_name? if $ocsf.class_uid == 0 or $claude_code.tool_name? in ["Glob", "Grep"] else null
 $claude_code.model = $claude_code.model? if $ocsf.class_uid == 0 else null
@@ -106,3 +111,27 @@ drop $claude_code.event_name?,
 
 $ocsf.unmapped = drop_null_fields(move $claude_code)
 drop $ocsf._mapping
+
+if $ocsf.metadata.loggers?.where(l => l.name? == null and l.uid? == null).length() > 0 {
+  $ocsf.unmapped.incomplete_loggers = $ocsf.metadata.loggers.where(l => l.name? == null and l.uid? == null)
+  $ocsf.metadata.loggers = $ocsf.metadata.loggers.where(l => l.name? != null or l.uid? != null)
+}
+
+// A system activity needs a device identity. Keep the complete candidate in
+// Base Event residue when the producer omitted that identity.
+if ($ocsf.category_uid == 1 and $ocsf.device? == null) or ($ocsf.class_uid in [3002, 3003] and $ocsf.user? == null) {
+  $ocsf = {
+    time: $ocsf.time,
+    metadata: {...$ocsf.metadata, profiles: []},
+    category_uid: 0,
+    class_uid: 0,
+    activity_id: 99,
+    activity_name: $ocsf.metadata.event_code,
+    type_uid: 99,
+    severity_id: $ocsf.severity_id,
+    status_id: $ocsf.status_id?,
+    message: $ocsf.message?,
+    unmapped: {...$ocsf.unmapped?, incomplete_activity: drop_null_fields({...$ocsf, unmapped: null, raw_data: null, raw_data_size: null})},
+  }
+  @name = "ocsf.base_event"
+}

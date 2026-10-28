@@ -8,8 +8,16 @@ from_file f"{env("TENZIR_INPUTS")}/../logs/file-tools.input" {
 head 1
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
-select class_name, session=ai_agent.instance_uid, turn=metadata.correlation_uid,
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
+select class_name, session=details.ai_agent?.instance_uid?, turn=metadata.correlation_uid,
        invocation=unmapped.tool_use_id, trace=unmapped.trace_id,
        original_event_uid=metadata.original_event_uid

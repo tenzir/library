@@ -11,17 +11,18 @@ description: Detects invisible Unicode formatting characters in agent prompts, r
 // families documented for hiding instructions from human review while an
 // LLM still parses them. `match_regex` requires a constant pattern, so this
 // is not user-configurable.
-where "ai_operation" in metadata.profiles
-where message_context.prompt_text? != null or
-      message_context.response_text? != null or
+tenzir::detect::agent::observation
+where "ai_operation" in metadata.profiles?
+where message_context?.prompt_text? != null or
+      message_context?.response_text? != null or
       file_diff? != null
-prompt_hit = message_context.prompt_text?.match_regex(r"\p{Cf}")
-response_hit = message_context.response_text?.match_regex(r"\p{Cf}")
+prompt_hit = message_context?.prompt_text?.match_regex(r"\p{Cf}")
+response_hit = message_context?.response_text?.match_regex(r"\p{Cf}")
 diff_hit = file_diff?.match_regex(r"\p{Cf}")
 where prompt_hit or response_hit or diff_hit
 location = "prompt_text" if prompt_hit else "response_text" if response_hit else "file_diff"
-agent = ai_agent.name
-instance = ai_agent.instance_uid
+agent = ai_agent?.name? else "unknown agent"
+instance = ai_agent?.instance_uid? else "unknown"
 event_time = time
 this = {
   time: now(),
@@ -55,5 +56,8 @@ this = {
       technique: {uid: "T1027", name: "Obfuscated Files or Information"},
     }],
   },
-  evidences: [{ai_agent: ai_agent}],
+  evidences: [{
+    data: {ai_agent: ai_agent?},
+    ai_agent: ai_agent? if ai_agent?.name? != null or ai_agent?.uid? != null else null,
+  }],
 }

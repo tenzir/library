@@ -21,9 +21,17 @@ from {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+strict {
+  this = ocsf_cast(this)
+}
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...ocsf_derive(unmapped.incomplete_activity?),
+  ...unmapped.ocsf_residue?,
+}
 select class_name, activity_name, status, message,
-       process.uid, process.terminated_time?,
+       details.process?.uid?, details.process?.terminated_time?,
        background_requested=unmapped.background_requested,
        tool_success=unmapped.tool_success
