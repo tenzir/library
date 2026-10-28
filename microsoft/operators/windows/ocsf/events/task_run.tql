@@ -16,6 +16,10 @@ args:
     - name: activity_id
       description: The OCSF scheduled job activity identifier.
       type: int
+    - name: activity_name
+      description: The source activity label when the activity identifier is Other.
+      type: string
+      default: null
 ---
 
 @name = "ocsf.scheduled_job_activity"
@@ -24,6 +28,9 @@ $ocsf.category_uid = 1
 $ocsf.class_uid = 1006
 
 $ocsf.activity_id = $activity_id
+if $activity_name != null {
+  $ocsf.activity_name = $activity_name
+}
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // EIDs 102, 201, and 202 carry a ResultCode; non-zero means failure.
@@ -69,4 +76,18 @@ if $windows.EventData.ProcessId? != null {
   $ocsf.actor.process = { pid: int(move $windows.EventData.ProcessId) }
 } else if $windows.EventData.EnginePID? != null {
   $ocsf.actor.process = { pid: int(move $windows.EventData.EnginePID) }
+}
+
+// Scheduler-generated status events identify the scheduler account in the header.
+if $ocsf.actor? == null and $windows.System.Security?.UserID? != null {
+  if $windows.System.Security.UserID.starts_with("S-1-") {
+    $ocsf.actor.user = {uid: move $windows.System.Security.UserID}
+  } else {
+    $ocsf.actor.user = {
+      name: $windows.System.Security.UserID.split("\\")[-1]?,
+      domain: $windows.System.Security.UserID.split("\\")[0]?
+        if $windows.System.Security.UserID.search("\\"),
+    }
+    drop $windows.System.Security.UserID
+  }
 }
