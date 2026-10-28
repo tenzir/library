@@ -2,6 +2,8 @@
 
 Generate synthetic OCSF 1.9 events with Tenzir and Nova. The `ocsf_generate` package emits
 events that you can pass to any compatible destination.
+The separate `generate_legacy` operator produces OCSF 1.6.0 events for five
+common classes.
 
 The default workload models an organization with 2,000 recurring users,
 2,000 assigned workstations, 800 service endpoints, and 100 organization
@@ -63,6 +65,9 @@ Set `--package-dirs=/absolute/path/to/library` when running from another
 directory. The package ID and TQL namespace are `ocsf_generate`.
 
 ## Configure a workload
+
+The following controls apply to the OCSF 1.9 generators. For a smaller
+OCSF 1.6 workload, see [Generate legacy events](#generate-legacy-events).
 
 `generate` and `generate_load` accept these options:
 
@@ -663,6 +668,63 @@ Larger constants increase package size and startup cost.
 the fraction of fresh filename and URI components. Set either probability to
 zero to use only the recurring pool for that field.
 
+## Generate legacy events
+
+Use `generate_legacy` to produce a finite OCSF **1.6.0** dataset. It has
+dedicated builders for five classes:
+
+| Class | `class_uid` |
+| --- | --- |
+| File System Activity | `1001` |
+| Process Activity | `1007` |
+| Authentication | `3002` |
+| Network Activity | `4001` |
+| DNS Activity | `4003` |
+
+```tql
+ocsf_generate::generate_legacy count=10000
+```
+
+The operator reuses the organization user, workstation, and service fixtures.
+It samples the five classes with equal probability, or generates one class
+when you set `class_uid`. Each event has the Host profile and observables.
+It generates file creations, process launches, successful and failed logons,
+internal TCP connections, and DNS responses.
+
+These events use the 1.6 field layout: `actor.app_name` and `actor.app_uid`,
+singular `file.signature` for Windows file creations, and DNS
+`query.packet_uid`, `query.opcode_id`, and `answers[].flag_ids`.
+The legacy builders omit newer classes, fields, profiles, and extension
+declarations. They build 1.6 events directly from fixture values.
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `count` | `1000000` | Exact nonnegative event count. Zero emits no events. |
+| `class_uid` | Mixed classes | Select one of the five classes in the table. |
+| `eps` | Unlimited | Positive output rate limit in events per second. |
+| `time_eps` | `1000` | Positive logical event rate for timestamps. |
+| `raw` | `"json"` | Synthetic source JSON, or `"none"` to omit `raw_data`. |
+
+The legacy operator has a fixed schema version and a smaller interface than
+the 1.9 generators. Native vendor log rendering, exact-count needles,
+optional schema drift, and historical office-hour patterns are available
+through the 1.9 generators. Unsupported legacy options fail compilation;
+invalid argument values emit a diagnostic and no events.
+
+To combine both versions with exact counts, merge their streams:
+
+```tql
+ocsf_generate::generate count=90000
+merge {
+  ocsf_generate::generate_legacy count=10000
+}
+```
+
+This produces exactly 100,000 events, with 10% using OCSF 1.6.0. The stream
+order is unspecified. The runnable
+[`legacy-mixed.tql`](examples/legacy-mixed.tql) example writes this dataset
+as NDJSON. The existing generators continue to emit only OCSF 1.9.0.
+
 ## Choose an output
 
 The generator has no storage dependency. Append `to_file`, `to_kafka`, or
@@ -704,6 +766,8 @@ compare their source values with normalized fields. Additional assertions
 check process ancestry, file metadata, registry and service changes, scan
 counters, certificate SANs, package fix versions, and observable identities.
 Random UUIDs, timestamps, and complete event records are not snapshot values.
+Legacy tests also check all five 1.6 classes, their field layouts, source
+messages, class filters, empty output, and a mixed 1.6/1.9 stream.
 
 The generator covers the 24 OCSF logical data types. Nested records and lists
 also carry the 13 storable native Tenzir kinds: null, bool, int, uint, float,
