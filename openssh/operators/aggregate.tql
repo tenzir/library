@@ -50,6 +50,8 @@ if $openssh._role == "standalone" {
   // The window only holds the keyed collection; everything after it computes
   // on the per-process record lists and therefore instantiates once, not per
   // window firing.
+  // Advance event-time windows incrementally for bulk historical batches.
+  batch 1
   window size=1min, on=$openssh.syslog.timestamp, tolerance=40s, idle_timeout=30s {
     summarize \
       _records=collect({
@@ -262,7 +264,8 @@ if $openssh._role == "standalone" {
   if $openssh.child_process_id != null or $openssh.template in ["session_closed", "session_started"] {
     $openssh._cpid = $openssh.child_process_id.string() else $openssh.syslog.process_id? else $openssh.syslog.timestamp.string()
     $openssh._chost = $openssh.syslog.hostname
-    window size=1min, on=$openssh.syslog.timestamp, tolerance=40s, idle_timeout=30s {
+    // The preceding window can reorder records across its size and tolerance.
+    window size=1min, on=$openssh.syslog.timestamp, tolerance=2min, idle_timeout=30s {
       summarize \
         _items=collect({
           t: $openssh.start_time else $openssh.syslog.timestamp,
