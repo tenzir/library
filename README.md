@@ -65,6 +65,16 @@ Base Events are selected explicitly for unsupported source observations.
 Agent file/process events without host identity warn to provide the OTel
 resource attribute `host.name` or `host.id`.
 
+Run the demo source and capture validation tests explicitly; they download
+public datasets:
+
+```sh
+TENZIR_BINARY="uvx --from tenzir==6.20.0 tenzir --nova" \
+  uvx tenzir-test demo --run-skipped
+```
+
+Set `TENZIR_DEMO_CAPTURE_DIR` to reuse downloaded captures for validation.
+
 ## ⚖️ License
 
 The Tenzir Library is licensed under the [Apache License 2.0](LICENSE).
