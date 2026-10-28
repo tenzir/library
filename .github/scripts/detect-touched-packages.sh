@@ -13,6 +13,16 @@ if ! diff_output=$(git diff --name-only "${base_ref}"...HEAD 2>/dev/null); then
   exit 0
 fi
 
+# Shared test tooling affects every package.
+while IFS= read -r path; do
+  case "$path" in
+    .github/*)
+      printf '.\n'
+      exit 0
+      ;;
+  esac
+done <<< "$diff_output"
+
 candidate_lines=$(printf '%s\n' "$diff_output" | awk -F/ 'NF>1 && $1 !~ /^\./ {print $1}' | sort -u)
 
 filtered=()
