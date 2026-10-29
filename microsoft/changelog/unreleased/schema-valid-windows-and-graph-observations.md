@@ -8,6 +8,6 @@ prs:
   - 208
 ---
 
-Windows and Microsoft Graph normalization now supplies required identifiers and preserves incomplete optional objects in unmapped data. Windows-specific fields identify the Windows extension. Activities lacking a required actor, device, process, entity, script, or peripheral identity become Base Events with the original mapping preserved under `unmapped.incomplete_activity`.
+Windows and Microsoft Graph normalization now supplies required identifiers and preserves incomplete optional objects in unmapped data. Windows-specific fields identify the Windows extension. Activities lacking a required actor, device, process, entity, script, or peripheral identity become Base Events with the remaining fields retained directly in `unmapped`.
 
 File activities without an identifiable file also become Base Events while retaining the observed context.

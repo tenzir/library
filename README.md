@@ -58,11 +58,11 @@ Use the OCSF functions to finalize mapped records, for example
 `ocsf = ocsf_cast(ocsf_derive(ocsf))` for an event in a field.
 
 OCSF mapping tests call `ocsf_cast` to report missing required fields and
-object-constraint violations as warnings in the test output. If a source omits
-an identity required by its activity class, mappers preserve the candidate under
-`unmapped.incomplete_activity` and emit a Base Event. Incomplete optional
-objects retain their corresponding keys under `unmapped`; null-only objects
-are omitted.
+object-constraint violations as warnings in the test output. When a mapper
+emits a Base Event, remaining fields retain their own keys in `unmapped`;
+class metadata is not copied there. Null-only optional objects are omitted.
+Agent file/process events without host identity warn to provide the OTel
+resource attribute `host.name` or `host.id`.
 
 ## ⚖️ License
 

@@ -255,13 +255,38 @@ if $ocsf.dst_endpoint? != null and $ocsf.dst_endpoint.ip? == null and $ocsf.dst_
 // cannot supply. Retain the complete observation as a Base Event.
 if $ocsf.class_uid == 3002 and $ocsf.user? == null {
   $ocsf = {
-    time: $ocsf.time,
-    metadata: {...$ocsf.metadata, profiles: []},
+    ...drop_null_fields({
+      time: $ocsf.time,
+      metadata: {...$ocsf.metadata, profiles: []},
+      message: $ocsf.message?,
+      raw_data: $ocsf.raw_data?,
+      raw_data_size: $ocsf.raw_data_size?,
+      severity_id: $ocsf.severity_id,
+      status_id: $ocsf.status_id?,
+      status_code: $ocsf.status_code?,
+      status_detail: $ocsf.status_detail?,
+      start_time: $ocsf.start_time?,
+      end_time: $ocsf.end_time?,
+      duration: $ocsf.duration?,
+      count: $ocsf.count?,
+    }),
     category_uid: 0, class_uid: 0, activity_id: 0, type_uid: 0,
-    severity_id: $ocsf.severity_id,
-    message: $ocsf.message?,
-    raw_data: $ocsf.raw_data?, raw_data_size: $ocsf.raw_data_size?,
-    unmapped: {...$ocsf.unmapped?, incomplete_activity: drop_null_fields({...$ocsf, unmapped: null, raw_data: null, raw_data_size: null})},
+    unmapped: {
+      ...$ocsf.unmapped?,
+      ...$ocsf.entries().where(entry => entry.value != null and entry.key not in [
+        "time", "metadata", "message", "raw_data",
+        "raw_data_size", "severity_id", "status_id", "status_code",
+        "status_detail", "start_time", "end_time", "duration",
+        "count", "category_uid", "category_name", "class_uid",
+        "class_name", "activity_id", "activity_name", "type_uid",
+        "type_name", "severity", "unmapped",
+      ]).map(entry => {
+        key: entry.key,
+        value: {...entry.value, ...($ocsf.unmapped? else {}).get(entry.key, null)}
+          if type_kind(entry.value) == "record" and type_kind(($ocsf.unmapped? else {}).get(entry.key, null)) == "record"
+          else ($ocsf.unmapped? else {}).get(entry.key, entry.value),
+      }).collect_record().drop_null_fields(),
+    },
   }
   @name = "ocsf.base_event"
 }
