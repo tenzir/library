@@ -1,4 +1,4 @@
-// Host identity determines whether a complete File Activity can be emitted.
+// OTel host.name or host.id supplies the device identity for File Activity.
 from {
   time: 2026-09-10T12:00:00Z,
   observed_time: 2026-09-10T12:00:00Z,
@@ -19,9 +19,10 @@ from {
     success: "true",
   },
 }
-host_names = [null, "test-host"]
-unroll host_names
-resource.attributes = {...resource.attributes, "host.name": move host_names}
+hosts = [{name: null, uid: null}, {name: "test-host", uid: null},
+         {name: null, uid: "test-host-id"}, {name: "test-host", uid: "test-host-id"}]
+unroll hosts
+resource.attributes = {...resource.attributes, "host.name": hosts.name, "host.id": hosts.uid}
 @name = "otel.log"
 openai::codex::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
@@ -31,12 +32,13 @@ if device? == null {
   assert unmapped.incomplete_activity.file.is_deleted == true
 } else {
   assert class_uid == 1001
-  assert device.hostname == "test-host"
+  assert device.hostname? == "test-host" or device.uid? == "test-host-id"
   assert file.is_deleted == true
 }
 this = {
   class_uid: class_uid,
   hostname: device?.hostname?,
+  host_uid: device?.uid?,
   deleted: file?.is_deleted? else unmapped.incomplete_activity?.file.is_deleted?,
 }
-sort class_uid
+sort class_uid, hostname, host_uid
