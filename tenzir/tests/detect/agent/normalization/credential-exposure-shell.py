@@ -1,3 +1,11 @@
+"""Keep sibling-package diagnostics independent of the checkout path."""
+
+from pathlib import Path
+import sys
+
+from tenzir_test import Executor
+
+result = Executor().run(r"""
 // Synthetic regression case, not a captured OTLP record.
 from {
   time: 2026-09-10T12:00:00Z,
@@ -30,3 +38,8 @@ assert start_time == 2026-09-10T12:00:00Z
 assert not print_json(this).search("AKIAIOSFODNN7EXAMPLE")
 summarize findings=count()
 assert findings == 1
+""")
+root = str(Path(__file__).resolve().parents[5]).encode() + b"/"
+sys.stdout.buffer.write(result.stderr.replace(root, b""))
+sys.stdout.buffer.write(result.stdout)
+result.check_returncode()
