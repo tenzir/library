@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validate tracked TQL files with Nova on the minimum supported Tenzir release.
+# Validate tracked TQL files with the latest stable Tenzir release.
 #
 # Example and test pipelines are complete pipelines, so we compile them all the
 # way to IR (--dump-ir), which resolves operators, their arguments, and
@@ -14,7 +14,7 @@ set -euo pipefail
 # the merge base with the upstream branch.
 
 parallelism="${TENZIR_SYNTAX_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '8')}"
-read -r -a tenzir <<< "${TENZIR_BINARY:-uvx --from tenzir==6.20.0 tenzir --nova}"
+read -r -a tenzir <<< "${TENZIR_BINARY:-uvx tenzir}"
 
 # Loading the repository as a package directory lets IR resolve the
 # package-defined operators that examples and test pipelines reference.

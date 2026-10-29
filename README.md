@@ -3,7 +3,7 @@
 This repository hosts the official collection of content
 [packages](https://tenzir.com/docs/explanations/packages/) for Tenzir.
 
-Packages target Tenzir 6.20.0 or later with Nova enabled (`--nova`).
+Packages require Tenzir 6.20.0 or later, which uses Nova by default.
 
 ## 🚀 Install packages
 
@@ -45,11 +45,11 @@ package up use cases. Then:
 - Keep iterating—tests and good docs make it easier for others to adopt your
   work.
 
-Run the package tests with Nova on Tenzir 6.20.0:
+Run the package tests with the latest Tenzir release:
 
 ```sh
-TENZIR_BINARY="uvx --from tenzir==6.20.0 tenzir --nova" \
-TENZIR_NODE_BINARY="uvx --from tenzir==6.20.0 tenzir-node --nova" \
+TENZIR_BINARY="uvx tenzir" \
+TENZIR_NODE_BINARY="uvx --from tenzir tenzir-node" \
   uvx tenzir-test */
 ```
 
