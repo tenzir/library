@@ -1,0 +1,78 @@
+---
+description: Add optional protocol details from connection, DNS, mail, and file-transfer observations.
+---
+
+match class_uid {
+  4001 => {
+    initiator_id = 1
+    is_src_dst_assignment_known = true
+    observation_point_id = 1 if _ctx.native == "sysmon" else 3
+    network_observation_point = (src_endpoint if _ctx.native == "sysmon" else {
+      uid: "sensor-network-01", hostname: "sensor-01.acme.example", ip: 10.20.0.2,
+    })
+  }
+  4002 => {
+    http_status = http_response.code
+    http_cookies = [{name: "acme_route", value: "web-01"}]
+  }
+  4003 => {
+    // Sysmon reports the lookup result, rather than the DNS wire headers.
+    if _ctx.native != "sysmon" {
+      opcode = "Query"
+      flag_ids = [3] if activity_id == 1 else [3, 4]
+      flags = ["Recursion Desired"] if activity_id == 1 else ["Recursion Desired", "Recursion Available"]
+      if activity_id != 1 and query.hostname.ends_with("acme.example") {
+        if rcode_id == 3 {
+          authority = [{hostname: "acme.example", type: "SOA", class: "IN", ttl: 60,
+            rdata: "dns-01.acme.example hostmaster.acme.example 2026102301 3600 600 86400 60"}]
+        } else {
+          authority = [{hostname: "acme.example", type: "NS", class: "IN", ttl: 300,
+            rdata: "dns-01.acme.example"}]
+          response_additional = {records: [{hostname: "dns-01.acme.example", type: "A", class: "IN",
+            ttl: 300, rdata: "10.20.0.53"}]}
+        }
+      }
+      _ctx.source.dns_flags = flags
+    }
+  }
+  4005 => {
+    capabilities = ["rdpdr", "rdpsnd", "cliprdr", "drdynvc"]
+    identifier_cookie = user.name
+    keyboard_info = {keyboard_layout: "English - United States", function_keys: 12}
+    remote_display = {physical_width: 1920, physical_height: 1080, color_depth: 32, scale_factor: 100}
+  }
+  4006 => {
+    client_dialects = ["2.1", "3.0", "3.1.1"]
+    open_type = "normal"
+    share_type_id = 1
+    tree_uid = hash_md5(f"{src_endpoint.ip}-{share}").slice(end=8)
+  }
+  4007 => {
+    if activity_id in [2, 6] {
+      auth_type_id = 6
+      auth_type = "Public Key"
+    }
+  }
+  4008 => {
+    port = 40000 + int(random() * 20000)
+    command_responses = ["Transfer complete." if codes[0] == 226 else "Failed to open file."]
+  }
+  4009 => {
+    // SMTP envelope addresses are distinct fields from RFC 5322 headers,
+    // even when this fixture uses the same addresses for both.
+    from = email.from
+    to = email.to
+    attempt = 1
+    banner = "220 mail.acme.example ESMTP Postfix"
+    message_trace_uid = email.message_uid
+    if direction_id == 1 {
+      email_auth = {spf: "pass", dkim: "none", dmarc: "pass", dmarc_policy: "none"}
+    }
+    _ctx.source.mail_envelope_from = from
+    _ctx.source.mail_envelope_to = to
+  }
+  4013 => {
+    dispersion = 1
+  }
+  _ => { pass }
+}

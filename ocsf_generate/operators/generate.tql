@@ -1,0 +1,78 @@
+---
+description: Generate exactly count synthetic OCSF events, then finish.
+args:
+  named:
+    - name: count
+      type: int
+      default: 1000000
+    - name: eps
+      type: int
+      default: null
+    - name: time_eps
+      type: int
+      default: 1000
+    - name: class_uid
+      type: int
+      default: null
+    - name: base_event_share
+      type: float
+      default: 0.35
+    - name: raw
+      type: string
+      default: native
+    - name: raw_message
+      type: bool
+      default: false
+    - name: needle_ip_count
+      type: int
+      default: 0
+    - name: needle_dns_count
+      type: int
+      default: 0
+    - name: needle_command_count
+      type: int
+      default: 0
+    - name: observables_probability
+      type: float
+      default: 1.0
+    - name: drift_probability
+      type: float
+      default: 0.0
+    - name: unknown_probability
+      type: float
+      default: 0.0
+    - name: vendor_probability
+      type: float
+      default: 0.0
+---
+
+// One anchor per invocation keeps finite timestamps independent of execution speed.
+let $end_time = now() - 10s
+ocsf_generate::internal::seed raw=$raw, class_uid=$class_uid, base_event_share=$base_event_share,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  observables_probability=$observables_probability,
+  drift_probability=$drift_probability,
+  unknown_probability=$unknown_probability,
+  vendor_probability=$vendor_probability
+assert $time_eps == null or $time_eps > 0, message="time_eps must be positive"
+assert ($needle_ip_count <= $count and $needle_dns_count <= $count - $needle_ip_count
+  and $needle_command_count <= $count - $needle_ip_count - $needle_dns_count),
+  message="combined needle counts must not exceed the event count"
+repeat int(($count + 131071) / 131072)
+head int(($count + 3) / 4)
+enumerate _sequence
+// Throttle completed events below; pacing seeds fragments the enrichment batches.
+ocsf_generate::internal::workload count=$count, time_eps=$time_eps, end_time=$end_time,
+  class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
+  raw_message=$raw_message,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  observables_probability=$observables_probability,
+  drift_probability=$drift_probability,
+  unknown_probability=$unknown_probability,
+  vendor_probability=$vendor_probability
+head $count
+throttle rate=($eps else 9223372036854775807)

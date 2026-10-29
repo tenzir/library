@@ -1,0 +1,57 @@
+---
+description: Map an event index to a slot in the daily UTC office-hours schedule.
+args:
+  named:
+    - name: start
+      type: time
+    - name: end
+      type: time
+    - name: eps_office_hours
+      type: int
+    - name: eps_off
+      type: int
+---
+
+let $midnight = $start.floor(1d)
+let $start_second = $start.floor(1s)
+let $start_seconds = int(($start_second - $midnight) / 1s)
+let $start_fraction_ns = int(($start - $start_second) / 1ns)
+let $morning_count = 28800 * $eps_off
+let $office_count = 32400 * $eps_office_hours
+let $day_count = $office_count + 54000 * $eps_off
+let $start_rate = $eps_office_hours if $start_seconds >= 28800 and $start_seconds < 61200 else $eps_off
+let $start_rank = ($start_seconds * $eps_off if $start_seconds < 28800
+  else $morning_count + ($start_seconds - 28800) * $eps_office_hours if $start_seconds < 61200
+  else $morning_count + $office_count + ($start_seconds - 61200) * $eps_off)
+// Integer ceiling avoids skipping a slot because of fractional-second rounding.
+let $first_rank = $start_rank + int(($start_fraction_ns * $start_rate + 999999999) / 1000000000)
+
+_historical.rank = $first_rank + _event_index
+_historical.day = int(_historical.rank / $day_count)
+_historical.day_rank = _historical.rank - _historical.day * $day_count
+_historical.phase_start = $midnight + _historical.day * 1d
+if _historical.day_rank < $morning_count {
+  _historical.phase_index = _historical.day_rank
+  _historical.rate = $eps_off
+} else if _historical.day_rank < $morning_count + $office_count {
+  _historical.phase_start = _historical.phase_start + 8h
+  _historical.phase_index = _historical.day_rank - $morning_count
+  _historical.rate = $eps_office_hours
+} else {
+  _historical.phase_start = _historical.phase_start + 17h
+  _historical.phase_index = _historical.day_rank - $morning_count - $office_count
+  _historical.rate = $eps_off
+}
+
+// Every complete second has exactly rate slots. Jitter stays inside its slot.
+_historical.second = int(_historical.phase_index / _historical.rate)
+_historical.slot = _historical.phase_index - _historical.second * _historical.rate
+_historical.second_start = _historical.phase_start + _historical.second * 1s
+_event_time = _historical.second_start + (_historical.slot + random()) * 1s / _historical.rate
+if _event_time >= _historical.second_start + 1s {
+  _event_time = _historical.second_start + 1s - 1ns
+}
+// A fractional final second may end in the middle of the last slot.
+if _event_time >= $end {
+  _event_time = $end - 1ns
+}

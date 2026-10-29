@@ -1,0 +1,71 @@
+---
+description: Render PAN-OS TRAFFIC/THREAT CSV and FortiGate key=value firewall logs.
+---
+
+// Both firewalls sit between the user (port2/ethernet1/2) and server (port3/
+// ethernet1/3) segments and see the same session as the sensors.
+_f = {
+  ts: time.format_time("%Y/%m/%d %H:%M:%S").slice(end=19),
+  rx: (time + 1s).format_time("%Y/%m/%d %H:%M:%S").slice(end=19),
+  hr: f"{time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=23)}+00:00",
+}
+if class_uid == 2004 {
+  _f.src = evidences[0].src_endpoint
+  _f.dst = evidences[0].dst_endpoint
+  _f.session = 100000 + int(random() * 900000)
+} else {
+  _f.src = src_endpoint
+  _f.dst = dst_endpoint
+  _f.session = int(connection_info.uid)
+}
+_f.app = "ssl" if _f.dst.port == 443 else "smtp-base" if _f.dst.port == 587 else "ms-ds-smbv3" if _f.dst.port == 445 else "ssh" if _f.dst.port == 22 else "incomplete"
+match _raw.native {
+  "panos" => {
+    _f.serial = "013201028374"
+    _f.seq = 7380000000000000000 + int(random() * 999999999999)
+    _f.rule_uuid = "8f3c2b1e-5d4a-4c6b-9e7f-1a2b3c4d5e6f"
+    _f.head = f"1,{_f.rx},{_f.serial}"
+    _f.tuple = f"{_f.src.ip},{_f.dst.ip},0.0.0.0,0.0.0.0,allow-users-to-servers,,,{_f.app},vsys1,users,servers,ethernet1/2,ethernet1/3,forward-to-siem,,{_f.session},1,{_f.src.port},{_f.dst.port},0,0"
+    match class_uid {
+      4001 => {
+        _f.duration = duration? else 0
+        _f.subtype = "start" if activity_id == 1 else "end"
+        _f.reason = "n/a" if activity_id == 1 else "tcp-rst-from-server" if activity_id == 5 else "tcp-rst-from-client" if activity_id == 3 else "tcp-fin"
+        _f.bytes_out = traffic?.bytes_out? else 74
+        _f.bytes_in = traffic?.bytes_in? else (60 if activity_id == 5 else 0)
+        _f.pkts_out = traffic?.packets_out? else 1 + int(_f.bytes_out / 1200)
+        _f.pkts_in = traffic?.packets_in? else (1 if activity_id == 5 else int(_f.bytes_in / 1400))
+        _f.start = (time - _f.duration * 1ms).format_time("%Y/%m/%d %H:%M:%S").slice(end=19)
+        raw_data = f"{_f.head},TRAFFIC,{_f.subtype},2817,{_f.ts},{_f.tuple},0x41c,tcp,allow,{_f.bytes_out + _f.bytes_in},{_f.bytes_out},{_f.bytes_in},{_f.pkts_out + _f.pkts_in},{_f.start},{int(_f.duration / 1000)},computer-and-internet-info,,{_f.seq},0x0,10.0.0.0-10.255.255.255,10.0.0.0-10.255.255.255,,{_f.pkts_out},{_f.pkts_in},{_f.reason},0,0,0,0,,pa-fw-01,from-policy,,,0,,0,,N/A,0,0,0,0,{_f.rule_uuid},0,0,,,,,,,,0,,,,,,,,,,,,,,,,,,,,,,,0,{_f.hr},,,encrypted-tunnel,networking,browser-based,4,\"used-by-malware,able-to-transfer-file,has-known-vulnerability,tunnel-other-application,pervasive-use\",,{_f.app},no,no,0,,NonProxyTraffic"
+      }
+      4002 => {
+        // URL filtering logs omit the scheme and quote free-form fields.
+        _f.url = f"{http_request.url.hostname}{http_request.url.path}" if http_request.url.query_string? == null else f"{http_request.url.hostname}{http_request.url.path}?{http_request.url.query_string}"
+        _f.url = _f.url.replace("\"", "\"\"")
+        _f.ua = (http_request.user_agent? else "").replace("\"", "\"\"")
+        _f.referer = (http_request.referrer? else "").replace("\"", "\"\"")
+        raw_data = f"{_f.head},THREAT,url,2817,{_f.ts},{_f.tuple},0xb000,tcp,alert,\"{_f.url}\",(9999),business-and-economy,informational,client-to-server,{_f.seq},0x8000000000000000,10.0.0.0-10.255.255.255,10.0.0.0-10.255.255.255,,text/html,0,,,1,\"{_f.ua}\",,,\"{_f.referer}\",,,,0,0,0,0,0,,pa-fw-01,,,,{http_request.http_method.to_lower()},0,,0,,N/A,unknown,AppThreat-8960-9350,0x0,0,4294967295,,\"business-and-economy,low-risk\",{_f.rule_uuid},0,,,,,,,,,,,,,,,,,,,,,,,,,,,0,{_f.hr},,,,,,general-internet,internet-utility,browser-based,4,\"used-by-malware,able-to-transfer-file,has-known-vulnerability,tunnel-other-application,pervasive-use\",,{_f.app},no,no,,,NonProxyTraffic"
+      }
+      2004 => {
+        _f.severity = "low" if severity_id <= 2 else "medium" if severity_id == 3 else "high"
+        raw_data = f"{_f.head},THREAT,spyware,2817,{_f.ts},{_f.tuple},0x2000,tcp,alert,\"{_f.dst.hostname}\",{finding_info.title}(109010001),newly-registered-domain,{_f.severity},client-to-server,{finding_info.uid},0x2000000000000000,10.0.0.0-10.255.255.255,10.0.0.0-10.255.255.255,,,0,,,0,,,,,,,,0,0,0,0,0,,pa-fw-01,,,,,0,,0,,N/A,dns-c2,AppThreat-8960-9350,0x0,0,4294967295,,\"newly-registered-domain,medium-risk\",{_f.rule_uuid},0,,,,,,,,,,,,,,,,,,,,,,,,,,,0,{_f.hr},,,,,,general-internet,internet-utility,browser-based,4,\"used-by-malware,able-to-transfer-file,has-known-vulnerability,tunnel-other-application,pervasive-use\",,{_f.app},no,no,,,NonProxyTraffic"
+      }
+      _ => { pass }
+    }
+  }
+  "fortigate" => {
+    _f.us = int(time.since_epoch().count_microseconds())
+    _f.duration = duration? else 0
+    _f.action = "start" if activity_id == 1 else "server-rst" if activity_id == 5 else "client-rst" if activity_id == 3 else "close"
+    _f.bytes_out = traffic?.bytes_out? else 74
+    _f.bytes_in = traffic?.bytes_in? else (60 if activity_id == 5 else 0)
+    _f.pkts_out = traffic?.packets_out? else 1 + int(_f.bytes_out / 1200)
+    _f.pkts_in = traffic?.packets_in? else (1 if activity_id == 5 else int(_f.bytes_in / 1400))
+    _f.service = "HTTPS" if dst_endpoint.port == 443 else "SMTPS" if dst_endpoint.port == 587 else "SMB" if dst_endpoint.port == 445 else "SSH" if dst_endpoint.port == 22 else "tcp/" + string(dst_endpoint.port)
+    _f.mac = hash_md5(string(src_endpoint.ip))
+    _f.os = "osname=\"Windows\" srcswversion=\"11\"" if _raw.windows else "osname=\"Linux\" srcswversion=\"Ubuntu 24.04\""
+    raw_data = f"date={time.format_time("%Y-%m-%d")} time={time.format_time("%H:%M:%S").slice(end=8)} devname=\"FGT-HQ-01\" devid=\"FG200FT922901234\" eventtime={_f.us}{string(1000 + int(random() * 1000)).slice(begin=1)} tz=\"+0000\" logid=\"0000000013\" type=\"traffic\" subtype=\"forward\" level=\"notice\" vd=\"root\" srcip={src_endpoint.ip} srcport={src_endpoint.port} srcintf=\"port2\" srcintfrole=\"lan\" dstip={dst_endpoint.ip} dstport={dst_endpoint.port} dstintf=\"port3\" dstintfrole=\"dmz\" srccountry=\"Reserved\" dstcountry=\"Reserved\" sessionid={_f.session} proto=6 action=\"{_f.action}\" policyid=12 policytype=\"policy\" poluuid=\"2b4e6f80-91a3-51ee-c2d4-e6f8091a2b3c\" policyname=\"users-to-servers\" service=\"{_f.service}\" trandisp=\"noop\" duration={int(_f.duration / 1000)} sentbyte={_f.bytes_out} rcvdbyte={_f.bytes_in} sentpkt={_f.pkts_out} rcvdpkt={_f.pkts_in} appid=40568 app=\"{_f.service}.BROWSER\" appcat=\"Web.Client\" apprisk=\"medium\" applist=\"default\" utmaction=\"allow\" countapp=1 srchwvendor=\"Dell\" devtype=\"Computer\" {_f.os} srcfamily=\"Computer\" mastersrcmac=\"00:50:56:{_f.mac.slice(end=2)}:{_f.mac.slice(begin=2, end=4)}:{_f.mac.slice(begin=4, end=6)}\" srcmac=\"00:50:56:{_f.mac.slice(end=2)}:{_f.mac.slice(begin=2, end=4)}:{_f.mac.slice(begin=4, end=6)}\" srcserver=0 dstosname=\"Linux\" dstserver=1"
+  }
+  _ => { pass }
+}
+drop _f

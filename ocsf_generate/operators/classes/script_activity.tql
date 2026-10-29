@@ -1,0 +1,107 @@
+// Reusable PowerShell function blocks; scripts take a contiguous run of them.
+let $ps_function_blocks = [
+  "function Write-AcmeLog {\n    [CmdletBinding()]\n    param(\n        [Parameter(Mandatory)][string]$Message,\n        [ValidateSet('Info', 'Warning', 'Error')][string]$Level = 'Info'\n    )\n    $timestamp = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss.fffZ'\n    $line = '{0} [{1}] {2}' -f $timestamp, $Level.ToUpper(), $Message\n    Add-Content -Path (Join-Path $env:ProgramData 'Acme\\Logs\\jobs.log') -Value $line\n    if ($Level -eq 'Error') { Write-Error $Message -ErrorAction Continue }\n}",
+  "function Get-AcmeConfig {\n    param([string]$Path = (Join-Path $env:ProgramData 'Acme\\config.json'))\n    if (-not (Test-Path -LiteralPath $Path)) {\n        throw \"Configuration file not found: $Path\"\n    }\n    $config = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json\n    if (-not $config.Endpoint) { $config | Add-Member -NotePropertyName Endpoint -NotePropertyValue 'https://api.acme.example/v1' }\n    return $config\n}",
+  "function Get-InstalledSoftware {\n    $keys = @(\n        'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',\n        'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'\n    )\n    Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |\n        Where-Object { $_.DisplayName -and -not $_.SystemComponent } |\n        Select-Object DisplayName, DisplayVersion, Publisher, InstallDate |\n        Sort-Object DisplayName -Unique\n}",
+  "function Test-AcmeConnectivity {\n    param([string[]]$Targets = @('api.acme.example', 'files.acme.example', 'portal.acme.example'))\n    foreach ($target in $Targets) {\n        $result = Test-NetConnection -ComputerName $target -Port 443 -WarningAction SilentlyContinue\n        [pscustomobject]@{\n            Target    = $target\n            Reachable = $result.TcpTestSucceeded\n            Address   = $result.RemoteAddress\n            LatencyMs = if ($result.PingReplyDetails) { $result.PingReplyDetails.RoundtripTime } else { $null }\n        }\n    }\n}",
+  "function Invoke-AcmeApi {\n    param(\n        [Parameter(Mandatory)][string]$Resource,\n        [string]$Method = 'GET',\n        [hashtable]$Body\n    )\n    $config = Get-AcmeConfig\n    $headers = @{ Authorization = \"Bearer $($config.Token)\"; 'X-Request-Id' = [guid]::NewGuid().ToString() }\n    $params = @{ Uri = \"$($config.Endpoint)/$Resource\"; Method = $Method; Headers = $headers; UseBasicParsing = $true }\n    if ($Body) { $params.Body = ($Body | ConvertTo-Json -Depth 5); $params.ContentType = 'application/json' }\n    Invoke-RestMethod @params\n}",
+  "function Get-DiskReport {\n    Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType = 3' | ForEach-Object {\n        [pscustomobject]@{\n            Drive      = $_.DeviceID\n            SizeGB     = [math]::Round($_.Size / 1GB, 1)\n            FreeGB     = [math]::Round($_.FreeSpace / 1GB, 1)\n            FreePct    = [math]::Round(100 * $_.FreeSpace / $_.Size, 1)\n            FileSystem = $_.FileSystem\n        }\n    }\n}",
+  "function Backup-UserDocuments {\n    param([string]$Destination = '\\\\files.acme.example\\backup')\n    $source = Join-Path $env:USERPROFILE 'Documents'\n    $target = Join-Path $Destination $env:USERNAME\n    $log = Join-Path $env:TEMP (\"robocopy-{0:yyyyMMdd-HHmmss}.log\" -f (Get-Date))\n    $arguments = @($source, $target, '/MIR', '/Z', '/R:2', '/W:5', '/NP', '/XD', 'node_modules', '.git', \"/LOG:$log\")\n    $process = Start-Process -FilePath 'robocopy.exe' -ArgumentList $arguments -Wait -PassThru -NoNewWindow\n    if ($process.ExitCode -ge 8) { throw \"robocopy failed with exit code $($process.ExitCode)\" }\n    Write-AcmeLog -Message \"Backup of $source completed with exit code $($process.ExitCode)\"\n}",
+  "function Get-PendingReboot {\n    $pending = $false\n    if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { $pending = $true }\n    if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { $pending = $true }\n    $rename = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue\n    if ($rename) { $pending = $true }\n    return $pending\n}",
+  "function Export-AcmeReport {\n    param(\n        [Parameter(Mandatory, ValueFromPipeline)][object]$InputObject,\n        [string]$Name = 'report'\n    )\n    begin { $rows = [System.Collections.Generic.List[object]]::new() }\n    process { $rows.Add($InputObject) }\n    end {\n        $path = Join-Path $env:TEMP (\"{0}-{1:yyyyMMdd}.csv\" -f $Name, (Get-Date))\n        $rows | Export-Csv -Path $path -NoTypeInformation -Encoding UTF8\n        Write-AcmeLog -Message \"Exported $($rows.Count) rows to $path\"\n        Get-Item $path\n    }\n}",
+  "function Get-LocalAdministrators {\n    try {\n        Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop |\n            Select-Object Name, ObjectClass, PrincipalSource\n    } catch {\n        $group = [ADSI]\"WinNT://$env:COMPUTERNAME/Administrators,group\"\n        $group.Invoke('Members') | ForEach-Object {\n            $path = $_.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $_, $null)\n            [pscustomobject]@{ Name = $path -replace '^WinNT://', ''; ObjectClass = 'Unknown'; PrincipalSource = 'Unknown' }\n        }\n    }\n}",
+  "function Get-DefenderStatus {\n    $status = Get-MpComputerStatus\n    [pscustomobject]@{\n        AntivirusEnabled        = $status.AntivirusEnabled\n        RealTimeProtection      = $status.RealTimeProtectionEnabled\n        SignatureVersion        = $status.AntivirusSignatureVersion\n        SignatureAgeDays        = $status.AntivirusSignatureAge\n        LastQuickScan           = $status.QuickScanEndTime\n        TamperProtection        = $status.IsTamperProtected\n    }\n}",
+  "function Remove-StaleFiles {\n    param(\n        [string]$Path = $env:TEMP,\n        [int]$Days = 14\n    )\n    $cutoff = (Get-Date).AddDays(-$Days)\n    $stale = Get-ChildItem -Path $Path -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cutoff }\n    $bytes = ($stale | Measure-Object -Property Length -Sum).Sum\n    $stale | Remove-Item -Force -ErrorAction SilentlyContinue\n    Write-AcmeLog -Message (\"Removed {0} files ({1:N1} MB) older than {2} days from {3}\" -f $stale.Count, ($bytes / 1MB), $Days, $Path)\n}",
+  "function Get-NetworkSummary {\n    Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | ForEach-Object {\n        [pscustomobject]@{\n            Interface = $_.InterfaceAlias\n            IPv4      = ($_.IPv4Address | Select-Object -First 1).IPAddress\n            Gateway   = $_.IPv4DefaultGateway.NextHop\n            DnsServer = ($_.DNSServer | Where-Object AddressFamily -eq 2 | Select-Object -ExpandProperty ServerAddresses) -join ','\n        }\n    }\n}",
+  "function Send-AcmeHeartbeat {\n    $payload = @{\n        host      = $env:COMPUTERNAME\n        user      = $env:USERNAME\n        os        = (Get-CimInstance Win32_OperatingSystem).Caption\n        uptime    = [int]((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalMinutes\n        reboot    = Get-PendingReboot\n        defender  = Get-DefenderStatus\n        timestamp = (Get-Date).ToUniversalTime().ToString('o')\n    }\n    Invoke-AcmeApi -Resource 'heartbeats' -Method POST -Body $payload | Out-Null\n}",
+  "function Update-AcmeAgent {\n    param([string]$Channel = 'stable')\n    $manifest = Invoke-AcmeApi -Resource \"agents/manifest?channel=$Channel\"\n    $current = (Get-Item 'C:\\Program Files\\Acme\\bin\\acme-agent.exe').VersionInfo.ProductVersion\n    if ([version]$manifest.Version -le [version]$current) { return }\n    $installer = Join-Path $env:TEMP \"acme-agent-$($manifest.Version).msi\"\n    Invoke-WebRequest -Uri $manifest.Url -OutFile $installer -UseBasicParsing\n    if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $manifest.Sha256) { throw 'Installer hash mismatch' }\n    Start-Process msiexec.exe -ArgumentList \"/i `\"$installer`\" /qn /norestart\" -Wait\n}",
+  "function Invoke-AcmeJob {\n    param([string]$ComputerName, [string]$Job, [switch]$Verify)\n    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()\n    Write-AcmeLog -Message \"Starting $Job on $ComputerName\"\n    try {\n        switch ($Job) {\n            'daily-report' { Get-DiskReport | Export-AcmeReport -Name 'disk' | Out-Null }\n            'inventory'    { Get-InstalledSoftware | Export-AcmeReport -Name 'software' | Out-Null }\n            'deployment'   { Update-AcmeAgent -Channel 'stable' }\n            'backup'       { Backup-UserDocuments }\n            default        { throw \"Unknown job: $Job\" }\n        }\n        if ($Verify) { Test-AcmeConnectivity | Where-Object { -not $_.Reachable } | ForEach-Object { Write-AcmeLog -Level Warning -Message \"$($_.Target) unreachable\" } }\n    } catch {\n        Write-AcmeLog -Level Error -Message \"$Job failed: $($_.Exception.Message)\"\n        throw\n    } finally {\n        Write-AcmeLog -Message (\"Finished {0} in {1:N0} ms\" -f $Job, $stopwatch.ElapsedMilliseconds)\n    }\n}",
+]
+let $ps_blocks = [...$ps_function_blocks, ...$ps_function_blocks, ...$ps_function_blocks]
+
+// OCSF 1.9.0: script_activity; independently sampled source scenarios.
+@name = "ocsf.script_activity"
+class_uid = 1009
+category_uid = 1
+ocsf_generate::internal::system_base
+activity_id = 1
+script = {uid: metadata.uid, name: ["daily-report", "inventory", "deployment", "backup"][_ctx.scenario], type_id: 6, script_content: {value: ["/usr/local/bin/daily-report --format csv", "/usr/local/bin/inventory --packages", "/usr/local/bin/deploy --environment production", "/usr/local/bin/backup --verify"][_ctx.scenario]}}
+actor.process = {uid: string(100000000000 + int(random() * 899999999999)), name: "bash", pid: 1000 + int(random() * 30000), file: {name: "bash", path: "/usr/bin/bash", type_id: 8}}
+if _ctx.scenario == 3 { status_id = 2 }
+message = f"Executed script {script.name} on {_ctx.host.hostname}"
+_ctx.source.script_name = script.name
+_ctx.source.script_content = script.script_content.value
+
+// Windows workstations run the same jobs as PowerShell scripts with script
+// block logging enabled (event 4104). Script bodies are reused function blocks,
+// so most are a few kilobytes, with a long tail of large modules and an
+// occasional embedded base64 payload.
+if _ctx.windows {
+  _ctx.native = "powershell"
+  metadata.product = {name: "PowerShell", vendor_name: "Microsoft", version: "5.1.26100.4652"}
+  metadata.log_name = "Microsoft-Windows-PowerShell/Operational"
+  actor.process = {
+    uid: uuid(),
+    name: "powershell.exe",
+    pid: actor.process.pid,
+    file: {name: "powershell.exe", path: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", type_id: 8},
+  }
+  _ctx.ps = {draw: random(), start: int(random() * 16)}
+  _ctx.ps.blocks = 1 + int(23 * _ctx.ps.draw * _ctx.ps.draw * _ctx.ps.draw)
+  // Concatenating a fixed number of optional terms is much faster than list lambdas.
+  _ctx.ps.body = ($ps_blocks[_ctx.ps.start]
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 1] if _ctx.ps.blocks > 1 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 2] if _ctx.ps.blocks > 2 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 3] if _ctx.ps.blocks > 3 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 4] if _ctx.ps.blocks > 4 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 5] if _ctx.ps.blocks > 5 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 6] if _ctx.ps.blocks > 6 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 7] if _ctx.ps.blocks > 7 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 8] if _ctx.ps.blocks > 8 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 9] if _ctx.ps.blocks > 9 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 10] if _ctx.ps.blocks > 10 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 11] if _ctx.ps.blocks > 11 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 12] if _ctx.ps.blocks > 12 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 13] if _ctx.ps.blocks > 13 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 14] if _ctx.ps.blocks > 14 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 15] if _ctx.ps.blocks > 15 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 16] if _ctx.ps.blocks > 16 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 17] if _ctx.ps.blocks > 17 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 18] if _ctx.ps.blocks > 18 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 19] if _ctx.ps.blocks > 19 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 20] if _ctx.ps.blocks > 20 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 21] if _ctx.ps.blocks > 21 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 22] if _ctx.ps.blocks > 22 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 23] if _ctx.ps.blocks > 23 else ""))
+  _ctx.ps.text = f"#Requires -Version 5.1\n<#\n.SYNOPSIS\n    Acme {script.name} job for {_ctx.host.hostname}.\n.NOTES\n    Owner: {_ctx.user.email_addr? else _ctx.user.name}\n    Generated: {time.format_time("%Y-%m-%d")}\n#>\n[CmdletBinding()]\nparam(\n    [string]$ComputerName = '{_ctx.host.hostname}',\n    [string]$Job = '{script.name}',\n    [switch]$Verify\n)\nSet-StrictMode -Version Latest\n$ErrorActionPreference = 'Stop'\n\n{_ctx.ps.body}"
+  if random() < 0.3 {
+    _ctx.ps.chunks = 1 + int(random() * 16)
+    _ctx.ps.blob = encode_base64(decode_hex(hash_sha512(metadata.uid)
+      + (hash_sha512(metadata.uid + "-1") if _ctx.ps.chunks > 1 else "")
+      + (hash_sha512(metadata.uid + "-2") if _ctx.ps.chunks > 2 else "")
+      + (hash_sha512(metadata.uid + "-3") if _ctx.ps.chunks > 3 else "")
+      + (hash_sha512(metadata.uid + "-4") if _ctx.ps.chunks > 4 else "")
+      + (hash_sha512(metadata.uid + "-5") if _ctx.ps.chunks > 5 else "")
+      + (hash_sha512(metadata.uid + "-6") if _ctx.ps.chunks > 6 else "")
+      + (hash_sha512(metadata.uid + "-7") if _ctx.ps.chunks > 7 else "")
+      + (hash_sha512(metadata.uid + "-8") if _ctx.ps.chunks > 8 else "")
+      + (hash_sha512(metadata.uid + "-9") if _ctx.ps.chunks > 9 else "")
+      + (hash_sha512(metadata.uid + "-10") if _ctx.ps.chunks > 10 else "")
+      + (hash_sha512(metadata.uid + "-11") if _ctx.ps.chunks > 11 else "")
+      + (hash_sha512(metadata.uid + "-12") if _ctx.ps.chunks > 12 else "")
+      + (hash_sha512(metadata.uid + "-13") if _ctx.ps.chunks > 13 else "")
+      + (hash_sha512(metadata.uid + "-14") if _ctx.ps.chunks > 14 else "")
+      + (hash_sha512(metadata.uid + "-15") if _ctx.ps.chunks > 15 else "")))
+    _ctx.ps.text = f"{_ctx.ps.text}\n\n$Payload = [System.Convert]::FromBase64String('{_ctx.ps.blob}')\n$Stream = New-Object System.IO.MemoryStream(,$Payload)\n$Module = [System.Text.Encoding]::UTF8.GetString((New-Object System.IO.Compression.GZipStream($Stream, [System.IO.Compression.CompressionMode]::Decompress)).ReadToEnd())\nInvoke-Expression $Module"
+  }
+  _ctx.ps.text = f"{_ctx.ps.text}\n\nInvoke-AcmeJob -ComputerName $ComputerName -Job $Job -Verify:$Verify\n"
+  script = {
+    uid: script.uid,
+    name: script.name,
+    type_id: 2,
+    file: {name: f"{script.name}.ps1", path: f"C:\\Program Files\\Acme\\Scripts\\{script.name}.ps1", type_id: 1},
+    script_content: {value: _ctx.ps.text},
+  }
+  _ctx.source.script_content = script.script_content.value
+  drop _ctx.ps
+}

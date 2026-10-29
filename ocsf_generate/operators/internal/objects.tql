@@ -1,0 +1,32 @@
+---
+description: Populate optional related objects for a detailed source record.
+---
+
+let $group_uids = ["group-engineering", "group-finance", "group-operations", "group-security"]
+let $group_names = ["Engineering", "Finance", "Operations", "Security"]
+let $users = ocsf_generate::$users
+let $users_per_group = $users.uid.length() / $group_uids.length()
+_ctx.group_index = int(_ctx.user_index / $users_per_group)
+_ctx.group = {uid: $group_uids[_ctx.group_index], name: $group_names[_ctx.group_index], domain: "acme.example"}
+_ctx.org = {uid: "o-acme123456", name: "Acme", ou_uid: _ctx.group.uid, ou_name: _ctx.group.name}
+
+ocsf_generate::internal::objects_identity
+ocsf_generate::internal::objects_host
+ocsf_generate::internal::objects_network
+ocsf_generate::internal::objects_file
+ocsf_generate::internal::objects_process
+ocsf_generate::internal::objects_finding
+
+if cloud? != null {
+  cloud.org = _ctx.org
+  _ctx.source.organization_uid = cloud.org.uid
+}
+if ai_agent? != null {
+  delegation = {
+    uid: f"delegation-{ai_agent.uid}-{_ctx.user.uid}",
+    issuer_uid: "idp-acme",
+    created_time: 2026-01-01,
+  }
+  _ctx.source.delegation_uid = delegation.uid
+  _ctx.source.delegation_issuer_uid = delegation.issuer_uid
+}

@@ -1,0 +1,101 @@
+// Windows applications that open outbound connections, for Sysmon event 3.
+let $win_net_processes = [
+  {name: "chrome.exe", path: r"C:\Program Files\Google\Chrome\Application\chrome.exe"},
+  {name: "msedge.exe", path: r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"},
+  {name: "ms-teams.exe", path: r"C:\Program Files\WindowsApps\MSTeams_25212.2204.3787.4022_x64__8wekyb3d8bbwe\ms-teams.exe"},
+  {name: "OUTLOOK.EXE", path: r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE"},
+  {name: "OneDrive.exe", path: r"C:\Program Files\Microsoft OneDrive\OneDrive.exe"},
+  {name: "svchost.exe", path: r"C:\Windows\System32\svchost.exe"},
+  {name: "git.exe", path: r"C:\Program Files\Git\mingw64\bin\git.exe"},
+  {name: "python.exe", path: r"C:\Program Files\Python312\python.exe"},
+]
+
+// Zeek, Suricata, PAN-OS, FortiGate, and Sysmon report connections; the mix
+// lists their shares in 20ths: 10%, 10%, 25%, 25%, and 30% of eligible Windows
+// connections. Connections that Sysmon does not report go to Zeek.
+let $network_sources = [
+  {native: "zeek_conn", log_name: "conn.log", product: {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}},
+  {native: "suricata", log_name: "eve.json", product: {name: "Suricata", vendor_name: "OISF", version: "7.0.7"}},
+  {native: "panos", log_name: "TRAFFIC", product: {name: "PAN-OS", vendor_name: "Palo Alto Networks", version: "11.1.4"}},
+  {native: "fortigate", log_name: "traffic", product: {name: "FortiGate", vendor_name: "Fortinet", version: "7.4.5"}},
+  {native: "sysmon", log_name: "Microsoft-Windows-Sysmon/Operational", product: {name: "Sysmon", vendor_name: "Microsoft", version: "15.15"}},
+]
+let $network_source_mix = [0, 0, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4]
+
+// Based on the VPC Flow and Zeek conn.log mapping shapes in the Tenzir Library.
+@name = "ocsf.network_activity"
+class_uid = 4001
+category_uid = 4
+metadata.log_name = "conn.log"
+metadata.product = {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}
+drop actor
+activity_id = 6
+connection_info = {
+  protocol_num: 6,
+  protocol_name: "tcp",
+  direction_id: 3,
+}
+traffic = {
+  bytes: 1024 + int(random() * 1048576),
+  packets: 10 + int(random() * 1000),
+}
+message = f"Connection from {_ctx.host.hostname} to {_ctx.service.hostname}:{dst_endpoint.port} completed"
+if _ctx.variant >= 75 and _ctx.variant < 85 {
+  activity_id = 1
+  message = f"Connection from {_ctx.host.hostname} to {_ctx.service.hostname}:{dst_endpoint.port} opened"
+  drop traffic
+} else if _ctx.variant >= 85 and _ctx.variant < 95 {
+  activity_id = 5
+  status_id = 2
+  status_detail = "Connection refused"
+  message = f"Connection from {_ctx.host.hostname} to {_ctx.service.hostname}:{dst_endpoint.port} refused"
+  drop traffic
+} else if _ctx.variant >= 95 {
+  activity_id = 3
+  status_id = 2
+  message = f"Connection from {_ctx.host.hostname} to {_ctx.service.hostname}:{dst_endpoint.port} reset"
+}
+// Sensors and firewalls report both directions; responses carry most bytes.
+if traffic? != null {
+  traffic.bytes_out = 200 + int(traffic.bytes * 0.15 * random())
+  traffic.bytes_in = traffic.bytes - traffic.bytes_out
+  traffic.packets_out = int(traffic.packets * 0.4)
+  traffic.packets_in = traffic.packets - traffic.packets_out
+  duration = 20 + int(random() * 180000)
+}
+if _ctx.detail < 0.4 {
+  drop traffic.packets?, traffic.packets_out?, traffic.packets_in?
+}
+
+// Each product reports the same connection in its own native format. Index
+// lookups keep one schema per product instead of splitting batches with `if`.
+_ctx.source_index = $network_source_mix[int(random() * $network_source_mix.length())]
+// Sysmon only runs on Windows and reports the connection attempt; Zeek covers the rest.
+if _ctx.source_index == 4 and not (_ctx.windows and activity_id in [1, 6]) {
+  _ctx.source_index = 0
+}
+_ctx.native = $network_sources[_ctx.source_index].native
+metadata.product = $network_sources[_ctx.source_index].product
+metadata.log_name = $network_sources[_ctx.source_index].log_name
+// Zeek connection IDs are "C" and 17 base62 characters; Suricata flow IDs and
+// firewall session IDs are integers.
+connection_info.uid = (f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}" if _ctx.source_index == 0
+  else string(int(random() * 2251799813685248)) if _ctx.source_index == 1
+  else string(100000 + int(random() * 900000)) if _ctx.source_index == 2
+  else string(10000000 + int(random() * 90000000)))
+if _ctx.source_index == 4 {
+  // Sysmon attributes the connection attempt to the initiating process.
+  activity_id = 1
+  drop traffic?, duration?
+  _ctx.net_process = $win_net_processes[int(random() * $win_net_processes.length())]
+  actor = {
+    user: _ctx.user,
+    process: {
+      uid: uuid(),
+      name: _ctx.net_process.name,
+      pid: 1000 + int(random() * 30000),
+      file: {name: _ctx.net_process.name, path: _ctx.net_process.path, type_id: 1},
+    },
+  }
+  message = "Network connection detected"
+}

@@ -1,0 +1,229 @@
+---
+description: Render Windows Security, Sysmon, and PowerShell events as Windows event XML.
+---
+
+// Hexadecimal digits for process IDs, which the Security log prints as 0x....
+let $hex = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+
+// Events look like Windows Event Forwarding output in RenderedText format: the
+// System and EventData sections plus RenderingInfo with the formatted message.
+// Element text escapes &, <, and >, and the message encodes CR, LF, and tab as
+// character references, so every record stays on one line. Attribute values use
+// single quotes and never contain one.
+_w = {
+  system_time: f"{time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=23)}0000Z",
+  utc_time: time.format_time("%Y-%m-%d %H:%M:%S").slice(end=23),
+  computer: _raw.host,
+  record: 1000000 + int(random() * 90000000),
+  sid: f"S-1-5-21-3623811015-3361044348-30300820-{1100 + _raw.user_index}",
+  account: f"ACME\\{_raw.user}",
+  logon_id: f"0x{hash_md5(metadata.uid).slice(end=6).replace_regex("^0+", "")}",
+  user_hash: hash_md5(_raw.user),
+  thread: 1000 + int(random() * 9000),
+  data: "",
+  message: "",
+  rendering: "",
+}
+// Logon GUIDs stay stable for a user's logon session on one day.
+_w.logon_guid = f"{{{hash_md5(_raw.user + string(time.floor(1d))).slice(end=8)}-{_w.user_hash.slice(begin=8, end=12)}-{_w.user_hash.slice(begin=12, end=16)}-{_w.user_hash.slice(begin=16, end=20)}-{_w.user_hash.slice(begin=20)}}}"
+match _raw.native {
+  "winsec" => {
+    _w.provider = "<Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/>"
+    _w.channel = "Security"
+    _w.level = 0
+    _w.keywords = "0x8020000000000000"
+    _w.version = 0
+    _w.opcode = 0
+    _w.pid = 700 + int(random() * 200)
+    _w.security = "<Security/>"
+    _w.correlation = "<Correlation/>"
+    _w.handle = f"0x{hash_md5(metadata.uid).slice(begin=8, end=11).replace_regex("^0+", "")}"
+    match class_uid {
+      3002 => {
+        _w.computer = dst_endpoint.hostname? else "dc-01.acme.example"
+        if status_id == 2 {
+          _w.id = 4625
+          _w.task = 12544
+          _w.keywords = "0x8010000000000000"
+          _w.workstation = (src_endpoint.hostname? else "-").split(".")[0].to_upper()
+          _w.data = f"<Data Name='SubjectUserSid'>S-1-0-0</Data><Data Name='SubjectUserName'>-</Data><Data Name='SubjectDomainName'>-</Data><Data Name='SubjectLogonId'>0x0</Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>{_raw.user}</Data><Data Name='TargetDomainName'>ACME</Data><Data Name='Status'>0xc000006d</Data><Data Name='FailureReason'>%%2313</Data><Data Name='SubStatus'>0xc000006a</Data><Data Name='LogonType'>3</Data><Data Name='LogonProcessName'>NtLmSsp </Data><Data Name='AuthenticationPackageName'>NTLM</Data><Data Name='WorkstationName'>{_w.workstation}</Data><Data Name='TransmittedServices'>-</Data><Data Name='LmPackageName'>-</Data><Data Name='KeyLength'>0</Data><Data Name='ProcessId'>0x0</Data><Data Name='ProcessName'>-</Data><Data Name='IpAddress'>{src_endpoint.ip}</Data><Data Name='IpPort'>{src_endpoint.port}</Data>"
+          _w.message = f"An account failed to log on.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;S-1-0-0&#13;&#10;&#9;Account Name:&#9;&#9;-&#13;&#10;&#9;Account Domain:&#9;&#9;-&#13;&#10;&#9;Logon ID:&#9;&#9;0x0&#13;&#10;&#13;&#10;Logon Type:&#9;&#9;&#9;3&#13;&#10;&#13;&#10;Account For Which Logon Failed:&#13;&#10;&#9;Security ID:&#9;&#9;S-1-0-0&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#13;&#10;Failure Information:&#13;&#10;&#9;Failure Reason:&#9;&#9;Unknown user name or bad password.&#13;&#10;&#9;Status:&#9;&#9;&#9;0xC000006D&#13;&#10;&#9;Sub Status:&#9;&#9;0xC000006A&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;Caller Process ID:&#9;0x0&#13;&#10;&#9;Caller Process Name:&#9;-&#13;&#10;&#13;&#10;Network Information:&#13;&#10;&#9;Workstation Name:&#9;{_w.workstation}&#13;&#10;&#9;Source Network Address:&#9;{src_endpoint.ip}&#13;&#10;&#9;Source Port:&#9;&#9;{src_endpoint.port}&#13;&#10;&#13;&#10;Detailed Authentication Information:&#13;&#10;&#9;Logon Process:&#9;&#9;NtLmSsp &#13;&#10;&#9;Authentication Package:&#9;NTLM&#13;&#10;&#9;Transited Services:&#9;-&#13;&#10;&#9;Package Name (NTLM only):&#9;-&#13;&#10;&#9;Key Length:&#9;&#9;0&#13;&#10;&#13;&#10;This event is generated when a logon request fails. It is generated on the computer where access was attempted.&#13;&#10;&#13;&#10;The Subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.&#13;&#10;&#13;&#10;The Logon Type field indicates the kind of logon that was requested. The most common types are 2 (interactive) and 3 (network).&#13;&#10;&#13;&#10;The Process Information fields indicate which account and process on the system requested the logon.&#13;&#10;&#13;&#10;The Network Information fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.&#13;&#10;&#13;&#10;The authentication information fields provide detailed information about this specific logon request.&#13;&#10;&#9;- Transited services indicate which intermediate services have participated in this logon request.&#13;&#10;&#9;- Package name indicates which sub-protocol was used among the NTLM protocols.&#13;&#10;&#9;- Key length indicates the length of the generated session key. This will be 0 if no session key was requested."
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Logon</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Failure</Keyword></Keywords></RenderingInfo>"
+        } else if activity_id == 2 {
+          _w.id = 4634
+          _w.task = 12545
+          _w.data = f"<Data Name='TargetUserSid'>{_w.sid}</Data><Data Name='TargetUserName'>{_raw.user}</Data><Data Name='TargetDomainName'>ACME</Data><Data Name='TargetLogonId'>{_w.logon_id}</Data><Data Name='LogonType'>3</Data>"
+          _w.message = f"An account was logged off.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#13;&#10;Logon Type:&#9;&#9;&#9;3&#13;&#10;&#13;&#10;This event is generated when a logon session is destroyed. It may be positively correlated with a logon event using the Logon ID value. Logon IDs are only unique between reboots on the same computer."
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Logoff</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+        } else {
+          _w.id = 4624
+          _w.task = 12544
+          _w.version = 3
+          _w.data = f"<Data Name='SubjectUserSid'>S-1-0-0</Data><Data Name='SubjectUserName'>-</Data><Data Name='SubjectDomainName'>-</Data><Data Name='SubjectLogonId'>0x0</Data><Data Name='TargetUserSid'>{_w.sid}</Data><Data Name='TargetUserName'>{_raw.user}</Data><Data Name='TargetDomainName'>ACME</Data><Data Name='TargetLogonId'>{_w.logon_id}</Data><Data Name='LogonType'>3</Data><Data Name='LogonProcessName'>Kerberos</Data><Data Name='AuthenticationPackageName'>Kerberos</Data><Data Name='WorkstationName'>-</Data><Data Name='LogonGuid'>{_w.logon_guid}</Data><Data Name='TransmittedServices'>-</Data><Data Name='LmPackageName'>-</Data><Data Name='KeyLength'>0</Data><Data Name='ProcessId'>0x0</Data><Data Name='ProcessName'>-</Data><Data Name='IpAddress'>{src_endpoint.ip}</Data><Data Name='IpPort'>{src_endpoint.port}</Data><Data Name='ImpersonationLevel'>%%1833</Data><Data Name='RestrictedAdminMode'>-</Data><Data Name='RemoteCredentialGuard'>-</Data><Data Name='TargetOutboundUserName'>-</Data><Data Name='TargetOutboundDomainName'>-</Data><Data Name='VirtualAccount'>%%1843</Data><Data Name='TargetLinkedLogonId'>0x0</Data><Data Name='ElevatedToken'>%%1842</Data>"
+          _w.message = f"An account was successfully logged on.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;S-1-0-0&#13;&#10;&#9;Account Name:&#9;&#9;-&#13;&#10;&#9;Account Domain:&#9;&#9;-&#13;&#10;&#9;Logon ID:&#9;&#9;0x0&#13;&#10;&#13;&#10;Logon Information:&#13;&#10;&#9;Logon Type:&#9;&#9;3&#13;&#10;&#9;Restricted Admin Mode:&#9;-&#13;&#10;&#9;Remote Credential Guard:&#9;-&#13;&#10;&#9;Virtual Account:&#9;&#9;No&#13;&#10;&#9;Elevated Token:&#9;&#9;Yes&#13;&#10;&#13;&#10;Impersonation Level:&#9;&#9;Impersonation&#13;&#10;&#13;&#10;New Logon:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#9;Linked Logon ID:&#9;&#9;0x0&#13;&#10;&#9;Network Account Name:&#9;-&#13;&#10;&#9;Network Account Domain:&#9;-&#13;&#10;&#9;Logon GUID:&#9;&#9;{_w.logon_guid}&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;Process ID:&#9;&#9;0x0&#13;&#10;&#9;Process Name:&#9;&#9;-&#13;&#10;&#13;&#10;Network Information:&#13;&#10;&#9;Workstation Name:&#9;-&#13;&#10;&#9;Source Network Address:&#9;{src_endpoint.ip}&#13;&#10;&#9;Source Port:&#9;&#9;{src_endpoint.port}&#13;&#10;&#13;&#10;Detailed Authentication Information:&#13;&#10;&#9;Logon Process:&#9;&#9;Kerberos&#13;&#10;&#9;Authentication Package:&#9;Kerberos&#13;&#10;&#9;Transited Services:&#9;-&#13;&#10;&#9;Package Name (NTLM only):&#9;-&#13;&#10;&#9;Key Length:&#9;&#9;0&#13;&#10;&#13;&#10;This event is generated when a logon session is created. It is generated on the computer that was accessed.&#13;&#10;&#13;&#10;The subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.&#13;&#10;&#13;&#10;The logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).&#13;&#10;&#13;&#10;The New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.&#13;&#10;&#13;&#10;The network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.&#13;&#10;&#13;&#10;The impersonation level field indicates the extent to which a process in the logon session can impersonate.&#13;&#10;&#13;&#10;The authentication information fields provide detailed information about this specific logon request.&#13;&#10;&#9;- Logon GUID is a unique identifier that can be used to correlate this event with a KDC event.&#13;&#10;&#9;- Transited services indicate which intermediate services have participated in this logon request.&#13;&#10;&#9;- Package name indicates which sub-protocol was used among the NTLM protocols.&#13;&#10;&#9;- Key length indicates the length of the generated session key. This will be 0 if no session key was requested."
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Logon</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+        }
+      }
+      1007 => {
+        _w.pid_hex = f"0x{$hex[int(process.pid / 4096)]}{$hex[int(process.pid / 256) - int(process.pid / 4096) * 16]}{$hex[int(process.pid / 16) - int(process.pid / 256) * 16]}{$hex[process.pid - int(process.pid / 16) * 16]}".replace_regex("^0x0+", "0x")
+        _w.actor_hex = f"0x{$hex[int(actor.process.pid / 4096)]}{$hex[int(actor.process.pid / 256) - int(actor.process.pid / 4096) * 16]}{$hex[int(actor.process.pid / 16) - int(actor.process.pid / 256) * 16]}{$hex[actor.process.pid - int(actor.process.pid / 16) * 16]}".replace_regex("^0x0+", "0x")
+        _w.subject = f"<Data Name='SubjectUserSid'>{_w.sid}</Data><Data Name='SubjectUserName'>{_raw.user}</Data><Data Name='SubjectDomainName'>ACME</Data><Data Name='SubjectLogonId'>{_w.logon_id}</Data>"
+        _w.image = process.file.path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if activity_id == 1 {
+          _w.id = 4688
+          _w.task = 13312
+          _w.version = 2
+          _w.parent_hex = _w.actor_hex
+          _w.cmd = process.cmd_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+          _w.data = f"{_w.subject}<Data Name='NewProcessId'>{_w.pid_hex}</Data><Data Name='NewProcessName'>{_w.image}</Data><Data Name='TokenElevationType'>%%1938</Data><Data Name='ProcessId'>{_w.parent_hex}</Data><Data Name='CommandLine'>{_w.cmd}</Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>-</Data><Data Name='TargetDomainName'>-</Data><Data Name='TargetLogonId'>0x0</Data><Data Name='ParentProcessName'>{actor.process.file.path}</Data><Data Name='MandatoryLabel'>S-1-16-8192</Data>"
+          _w.message = f"A new process has been created.&#13;&#10;&#13;&#10;Creator Subject:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#13;&#10;Target Subject:&#13;&#10;&#9;Security ID:&#9;&#9;S-1-0-0&#13;&#10;&#9;Account Name:&#9;&#9;-&#13;&#10;&#9;Account Domain:&#9;&#9;-&#13;&#10;&#9;Logon ID:&#9;&#9;0x0&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;New Process ID:&#9;&#9;{_w.pid_hex}&#13;&#10;&#9;New Process Name:&#9;{_w.image}&#13;&#10;&#9;Token Elevation Type:&#9;%%1938&#13;&#10;&#9;Mandatory Label:&#9;&#9;S-1-16-8192&#13;&#10;&#9;Creator Process ID:&#9;{_w.parent_hex}&#13;&#10;&#9;Creator Process Name:&#9;{actor.process.file.path}&#13;&#10;&#9;Process Command Line:&#9;{_w.cmd}&#13;&#10;&#13;&#10;Token Elevation Type indicates the type of token that was assigned to the new process in accordance with User Account Control policy.&#13;&#10;&#13;&#10;Type 1 is a full token with no privileges removed or groups disabled.  A full token is only used if User Account Control is disabled or if the user is the built-in Administrator account or a service account.&#13;&#10;&#13;&#10;Type 2 is an elevated token with no privileges removed or groups disabled.  An elevated token is used when User Account Control is enabled and the user chooses to start the program using Run as administrator.  An elevated token is also used when an application is configured to always require administrative privilege or to always require maximum privilege, and the user is a member of the Administrators group.&#13;&#10;&#13;&#10;Type 3 is a limited token with administrative privileges removed and administrative groups disabled.  The limited token is used when User Account Control is enabled, the application does not require administrative privilege, and the user does not choose to start the program using Run as administrator."
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Process Creation</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+        } else if activity_id == 2 {
+          _w.id = 4689
+          _w.task = 13313
+          _w.data = f"{_w.subject}<Data Name='Status'>0x{exit_code? else 0}</Data><Data Name='ProcessId'>{_w.pid_hex}</Data><Data Name='ProcessName'>{_w.image}</Data>"
+          _w.message = f"A process has exited.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;Process ID:&#9;{_w.pid_hex}&#13;&#10;&#9;Process Name:&#9;{_w.image}&#13;&#10;&#9;Exit Status:&#9;0x{exit_code? else 0}"
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Process Termination</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+        } else {
+          _w.id = 4656
+          _w.task = 12802
+          _w.version = 1
+          _w.object = "\\Device\\HarddiskVolume3" + _w.image.slice(begin=2)
+          _w.data = f"{_w.subject}<Data Name='ObjectServer'>Security</Data><Data Name='ObjectType'>Process</Data><Data Name='ObjectName'>{_w.object}</Data><Data Name='HandleId'>{_w.handle}</Data><Data Name='TransactionId'>{{00000000-0000-0000-0000-000000000000}}</Data><Data Name='AccessList'>%%4484</Data><Data Name='AccessReason'>-</Data><Data Name='AccessMask'>0x1000</Data><Data Name='PrivilegeList'>-</Data><Data Name='RestrictedSidCount'>0</Data><Data Name='ProcessId'>{_w.actor_hex}</Data><Data Name='ProcessName'>{actor.process.file.path}</Data><Data Name='ResourceAttributes'>-</Data>"
+          _w.message = f"A handle to an object was requested.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#13;&#10;Object:&#13;&#10;&#9;Object Server:&#9;&#9;Security&#13;&#10;&#9;Object Type:&#9;&#9;Process&#13;&#10;&#9;Object Name:&#9;&#9;{_w.object}&#13;&#10;&#9;Handle ID:&#9;&#9;{_w.handle}&#13;&#10;&#9;Resource Attributes:&#9;-&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;Process ID:&#9;&#9;{_w.actor_hex}&#13;&#10;&#9;Process Name:&#9;&#9;{actor.process.file.path}&#13;&#10;&#13;&#10;Access Request Information:&#13;&#10;&#9;Transaction ID:&#9;&#9;{{00000000-0000-0000-0000-000000000000}}&#13;&#10;&#9;Accesses:&#9;&#9;Query limited information&#13;&#10;&#9;&#9;&#9;&#9;&#13;&#10;&#9;Access Reasons:&#9;&#9;-&#13;&#10;&#9;Access Mask:&#9;&#9;0x1000&#13;&#10;&#9;Privileges Used for Access Check:&#9;-&#13;&#10;&#9;Restricted SID Count:&#9;0"
+          _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>Kernel Object</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+        }
+      }
+      1001 => {
+        _w.id = 4663
+        _w.task = 12800
+        _w.version = 1
+        _w.actor_hex = f"0x{$hex[int(actor.process.pid / 4096)]}{$hex[int(actor.process.pid / 256) - int(actor.process.pid / 4096) * 16]}{$hex[int(actor.process.pid / 16) - int(actor.process.pid / 256) * 16]}{$hex[actor.process.pid - int(actor.process.pid / 16) * 16]}".replace_regex("^0x0+", "0x")
+        _w.access = ["%%4417", "%%4416", "%%4417", "%%1537"][activity_id - 1]
+        _w.access_name = ["WriteData (or AddFile)", "ReadData (or ListDirectory)", "WriteData (or AddFile)", "DELETE"][activity_id - 1]
+        _w.mask = ["0x2", "0x1", "0x2", "0x10000"][activity_id - 1]
+        _w.target = file.path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        _w.data = f"<Data Name='SubjectUserSid'>{_w.sid}</Data><Data Name='SubjectUserName'>{_raw.user}</Data><Data Name='SubjectDomainName'>ACME</Data><Data Name='SubjectLogonId'>{_w.logon_id}</Data><Data Name='ObjectServer'>Security</Data><Data Name='ObjectType'>File</Data><Data Name='ObjectName'>{_w.target}</Data><Data Name='HandleId'>{_w.handle}</Data><Data Name='AccessList'>{_w.access}</Data><Data Name='AccessMask'>{_w.mask}</Data><Data Name='ProcessId'>{_w.actor_hex}</Data><Data Name='ProcessName'>{actor.process.file.path}</Data><Data Name='ResourceAttributes'>S:AI</Data>"
+        _w.message = f"An attempt was made to access an object.&#13;&#10;&#13;&#10;Subject:&#13;&#10;&#9;Security ID:&#9;&#9;{_w.sid}&#13;&#10;&#9;Account Name:&#9;&#9;{_raw.user}&#13;&#10;&#9;Account Domain:&#9;&#9;ACME&#13;&#10;&#9;Logon ID:&#9;&#9;{_w.logon_id}&#13;&#10;&#13;&#10;Object:&#13;&#10;&#9;Object Server:&#9;&#9;Security&#13;&#10;&#9;Object Type:&#9;&#9;File&#13;&#10;&#9;Object Name:&#9;&#9;{_w.target}&#13;&#10;&#9;Handle ID:&#9;&#9;{_w.handle}&#13;&#10;&#9;Resource Attributes:&#9;S:AI&#13;&#10;&#13;&#10;Process Information:&#13;&#10;&#9;Process ID:&#9;&#9;{_w.actor_hex}&#13;&#10;&#9;Process Name:&#9;&#9;{actor.process.file.path}&#13;&#10;&#13;&#10;Access Request Information:&#13;&#10;&#9;Accesses:&#9;&#9;{_w.access_name}&#13;&#10;&#9;&#9;&#9;&#9;&#13;&#10;&#9;Access Mask:&#9;&#9;{_w.mask}"
+        _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>File System</Task><Opcode>Info</Opcode><Channel>Security</Channel><Provider>Microsoft Windows security auditing.</Provider><Keywords><Keyword>Audit Success</Keyword></Keywords></RenderingInfo>"
+      }
+      _ => { pass }
+    }
+  }
+  "sysmon" => {
+    _w.provider = "<Provider Name='Microsoft-Windows-Sysmon' Guid='{5770385f-c22a-43e0-bf4c-06f5698ffbd9}'/>"
+    _w.channel = "Microsoft-Windows-Sysmon/Operational"
+    _w.level = 4
+    _w.keywords = "0x8000000000000000"
+    _w.version = 5
+    _w.opcode = 0
+    _w.pid = 3000 + int(random() * 1000)
+    _w.security = "<Security UserID='S-1-5-18'/>"
+    _w.correlation = "<Correlation/>"
+    match class_uid {
+      1007 => {
+        _w.image = process.file.path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if activity_id == 1 {
+          _w.id = 1
+          _w.task = 1
+          _w.title = "Process Create"
+          _w.task_name = "Process Create (rule: ProcessCreate)"
+          _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{process.uid}}}</Data><Data Name='ProcessId'>{process.pid}</Data><Data Name='Image'>{_w.image}</Data><Data Name='FileVersion'>-</Data><Data Name='Description'>-</Data><Data Name='Product'>-</Data><Data Name='Company'>-</Data><Data Name='OriginalFileName'>{process.file.name}</Data><Data Name='CommandLine'>{process.cmd_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</Data><Data Name='CurrentDirectory'>C:\\Users\\{_raw.user}\\</Data><Data Name='User'>{_w.account}</Data><Data Name='LogonGuid'>{_w.logon_guid}</Data><Data Name='LogonId'>{_w.logon_id}</Data><Data Name='TerminalSessionId'>1</Data><Data Name='IntegrityLevel'>Medium</Data><Data Name='Hashes'>MD5={process.file.hashes[0].value.to_upper()},SHA256={process.file.hashes[1].value.to_upper()},IMPHASH={hash_md5(process.file.name).to_upper()}</Data><Data Name='ParentProcessGuid'>{{{actor.process.uid}}}</Data><Data Name='ParentProcessId'>{actor.process.pid}</Data><Data Name='ParentImage'>{actor.process.file.path}</Data><Data Name='ParentCommandLine'>C:\\Windows\\Explorer.EXE</Data><Data Name='ParentUser'>{_w.account}</Data>"
+        } else if activity_id == 2 {
+          _w.id = 5
+          _w.task = 5
+          _w.version = 3
+          _w.title = "Process terminated"
+          _w.task_name = "Process terminated (rule: ProcessTerminate)"
+          _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{process.uid}}}</Data><Data Name='ProcessId'>{process.pid}</Data><Data Name='Image'>{_w.image}</Data><Data Name='User'>{_w.account}</Data>"
+        } else {
+          _w.id = 10
+          _w.task = 10
+          _w.version = 3
+          _w.title = "Process accessed"
+          _w.task_name = "Process accessed (rule: ProcessAccess)"
+          _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='SourceProcessGUID'>{{{actor.process.uid}}}</Data><Data Name='SourceProcessId'>{actor.process.pid}</Data><Data Name='SourceThreadId'>{_w.thread}</Data><Data Name='SourceImage'>{actor.process.file.path}</Data><Data Name='TargetProcessGUID'>{{{process.uid}}}</Data><Data Name='TargetProcessId'>{process.pid}</Data><Data Name='TargetImage'>{_w.image}</Data><Data Name='GrantedAccess'>0x1410</Data><Data Name='CallTrace'>C:\\Windows\\SYSTEM32\\ntdll.dll+9d4c4|C:\\Windows\\System32\\KERNELBASE.dll+2c13e|C:\\Windows\\System32\\SHELL32.dll+1b2f04|C:\\Windows\\Explorer.EXE+7d4e1|C:\\Windows\\System32\\KERNEL32.DLL+17374|C:\\Windows\\SYSTEM32\\ntdll.dll+4cc91</Data><Data Name='SourceUser'>{_w.account}</Data><Data Name='TargetUser'>{_w.account}</Data>"
+        }
+      }
+      1001 => {
+        _w.target = file.path.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if activity_id == 4 {
+          _w.id = 23
+          _w.task = 23
+          _w.title = "File Delete archived"
+          _w.task_name = "File Delete archived (rule: FileDelete)"
+          _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{actor.process.uid}}}</Data><Data Name='ProcessId'>{actor.process.pid}</Data><Data Name='User'>{_w.account}</Data><Data Name='Image'>{actor.process.file.path}</Data><Data Name='TargetFilename'>{_w.target}</Data><Data Name='Hashes'>SHA256={hash_sha256("synthetic-fixture-" + file.name).to_upper()}</Data><Data Name='IsExecutable'>false</Data><Data Name='Archived'>true</Data>"
+        } else {
+          _w.id = 11
+          _w.task = 11
+          _w.version = 2
+          _w.title = "File created"
+          _w.task_name = "File created (rule: FileCreate)"
+          _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{actor.process.uid}}}</Data><Data Name='ProcessId'>{actor.process.pid}</Data><Data Name='Image'>{actor.process.file.path}</Data><Data Name='TargetFilename'>{_w.target}</Data><Data Name='CreationUtcTime'>{_w.utc_time}</Data><Data Name='User'>{_w.account}</Data>"
+        }
+      }
+      4001 => {
+        _w.id = 3
+        _w.task = 3
+        _w.title = "Network connection detected"
+        _w.task_name = "Network connection detected (rule: NetworkConnect)"
+        _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{actor.process.uid}}}</Data><Data Name='ProcessId'>{actor.process.pid}</Data><Data Name='Image'>{actor.process.file.path}</Data><Data Name='User'>{_w.account}</Data><Data Name='Protocol'>{connection_info.protocol_name}</Data><Data Name='Initiated'>true</Data><Data Name='SourceIsIpv6'>false</Data><Data Name='SourceIp'>{src_endpoint.ip}</Data><Data Name='SourceHostname'>{src_endpoint.hostname? else "-"}</Data><Data Name='SourcePort'>{src_endpoint.port}</Data><Data Name='SourcePortName'>-</Data><Data Name='DestinationIsIpv6'>false</Data><Data Name='DestinationIp'>{dst_endpoint.ip}</Data><Data Name='DestinationHostname'>{dst_endpoint.hostname? else "-"}</Data><Data Name='DestinationPort'>{dst_endpoint.port}</Data><Data Name='DestinationPortName'>{"https" if dst_endpoint.port == 443 else "microsoft-ds" if dst_endpoint.port == 445 else "ssh" if dst_endpoint.port == 22 else "submission" if dst_endpoint.port == 587 else "-"}</Data>"
+      }
+      4003 => {
+        _w.id = 22
+        _w.task = 22
+        _w.title = "Dns query"
+        _w.task_name = "Dns query (rule: DnsQuery)"
+        _w.results = "-" if answers? == null else (f"::ffff:{answers[0].rdata};" if query.type == "A" else f"{answers[0].rdata};")
+        _w.data = f"<Data Name='RuleName'>-</Data><Data Name='UtcTime'>{_w.utc_time}</Data><Data Name='ProcessGuid'>{{{actor.process.uid}}}</Data><Data Name='ProcessId'>{actor.process.pid}</Data><Data Name='QueryName'>{query.hostname}</Data><Data Name='QueryStatus'>{9003 if rcode_id? == 3 else 0}</Data><Data Name='QueryResults'>{_w.results}</Data><Data Name='Image'>{actor.process.file.path}</Data><Data Name='User'>{_w.account}</Data>"
+      }
+      _ => { pass }
+    }
+    // Sysmon's message lists each data field as "Name: value" on its own line.
+    _w.message = _w.title + ":&#13;&#10;" + _w.data.replace_regex("<Data Name='([^']+)'>([^<]*)</Data>", "\\1: \\2&#13;&#10;")
+    _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{_w.message}</Message><Level>Information</Level><Task>{_w.task_name}</Task><Opcode>Info</Opcode><Channel></Channel><Provider></Provider><Keywords></Keywords></RenderingInfo>"
+  }
+  "powershell" => {
+    _w.provider = "<Provider Name='Microsoft-Windows-PowerShell' Guid='{a0c1853b-5c40-4b15-8766-3cf1c58f985a}'/>"
+    _w.channel = "Microsoft-Windows-PowerShell/Operational"
+    _w.id = 4104
+    _w.version = 1
+    _w.level = 5
+    _w.task = 2
+    _w.opcode = 15
+    _w.keywords = "0x0"
+    _w.pid = actor.process.pid
+    _w.security = f"<Security UserID='{_w.sid}'/>"
+    _w.correlation = f"<Correlation ActivityID='{{{hash_md5(metadata.uid).slice(end=8).to_upper()}-{hash_md5(metadata.uid).slice(begin=8, end=12).to_upper()}-0000-0000-{hash_md5(metadata.uid).slice(begin=12, end=24).to_upper()}}}'/>"
+    // Newlines become character references so the record stays on one line.
+    _w.script = script.script_content.value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "&#10;")
+    _w.path = script.file?.path? else ""
+    _w.data = f"<Data Name='MessageNumber'>1</Data><Data Name='MessageTotal'>1</Data><Data Name='ScriptBlockText'>{_w.script}</Data><Data Name='ScriptBlockId'>{script.uid}</Data><Data Name='Path'>{_w.path}</Data>"
+    // The rendered message repeats the script block.
+    _w.rendering = f"<RenderingInfo Culture='en-US'><Message>Creating Scriptblock text (1 of 1):&#13;&#10;{_w.script}&#13;&#10;&#13;&#10;ScriptBlock ID: {script.uid}&#13;&#10;Path: {_w.path}</Message><Level>Verbose</Level><Task>Execute a Remote Command</Task><Opcode>On create calls</Opcode><Channel>Microsoft-Windows-PowerShell/Operational</Channel><Provider>Microsoft-Windows-PowerShell</Provider><Keywords></Keywords></RenderingInfo>"
+  }
+  "winapp" => {
+    // Classic Application log entries carry positional data and a provider message.
+    _w.provider = f"<Provider Name='{unmapped.ProviderName}'/>"
+    _w.channel = "Application"
+    _w.id = f"<EventID Qualifiers='0'>{unmapped.EventID}</EventID>"
+    _w.version = 0
+    _w.level = unmapped.Level
+    _w.task = 0
+    _w.opcode = 0
+    _w.keywords = unmapped.Keywords
+    _w.record = unmapped.EventRecordID
+    _w.pid = 0
+    _w.thread = 0
+    _w.computer = unmapped.Computer
+    _w.security = f"<Security UserID='{_w.sid}'/>"
+    _w.correlation = "<Correlation/>"
+    _w.data = f"<Data>{unmapped.EventData.Data[0]}</Data><Data>{unmapped.EventData.Data[1]}</Data><Data>{unmapped.EventData.Data[2]}</Data>"
+    _w.rendering = f"<RenderingInfo Culture='en-US'><Message>{message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</Message><Level>{"Error" if unmapped.Level == 2 else "Information"}</Level><Task>None</Task><Opcode>Info</Opcode><Channel>Application</Channel><Provider>{unmapped.ProviderName}</Provider><Keywords><Keyword>Classic</Keyword></Keywords></RenderingInfo>"
+  }
+  _ => { pass }
+}
+// Classic events wrap the EventID with its qualifiers.
+_w.id = _w.id if _raw.native == "winapp" else f"<EventID>{_w.id}</EventID>"
+raw_data = f"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>{_w.provider}{_w.id}<Version>{_w.version}</Version><Level>{_w.level}</Level><Task>{_w.task}</Task><Opcode>{_w.opcode}</Opcode><Keywords>{_w.keywords}</Keywords><TimeCreated SystemTime='{_w.system_time}'/><EventRecordID>{_w.record}</EventRecordID>{_w.correlation}<Execution ProcessID='{_w.pid}' ThreadID='{_w.thread}'/><Channel>{_w.channel}</Channel><Computer>{_w.computer}</Computer>{_w.security}</System><EventData>{_w.data}</EventData>{_w.rendering}</Event>"
+drop _w

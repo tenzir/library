@@ -1,0 +1,89 @@
+// Shares in 20ths: nginx 30%, Apache 15%, PAN-OS 15%, Suricata 15%, Zeek 25%.
+let $http_sources = [
+  {native: "nginx", log_name: "access.log", product: {name: "nginx", vendor_name: "F5", version: "1.26.3"}},
+  {native: "nginx", log_name: "access_log", product: {name: "HTTP Server", vendor_name: "Apache Software Foundation", version: "2.4.62"}},
+  {native: "panos", log_name: "THREAT", product: {name: "PAN-OS", vendor_name: "Palo Alto Networks", version: "11.1.4"}},
+  {native: "suricata", log_name: "eve.json", product: {name: "Suricata", vendor_name: "OISF", version: "7.0.7"}},
+  {native: "zeek_http", log_name: "http.log", product: {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}},
+]
+let $http_source_mix = [0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4]
+
+// Bind package constants once; Nova 6.19.1 cannot evaluate module references per row.
+let $user_agents = ocsf_generate::$user_agents
+let $web_services = ocsf_generate::$web_services
+let $randomization = ocsf_generate::$randomization
+
+// Request, URL, and response objects follow zeek::ocsf_generate::logs::http.
+@name = "ocsf.http_activity"
+class_uid = 4002
+category_uid = 4
+metadata.log_name = "http.log"
+metadata.product = {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}
+drop actor
+_ctx.web = $web_services[_ctx.service_index]
+dst_endpoint = {ip: ip(_ctx.web.ip), hostname: _ctx.web.hostname, port: 443}
+connection_info = {protocol_num: 6, protocol_name: "tcp", direction_id: 3}
+activity_id = 3
+http_request = {
+  http_method: "GET",
+  version: "HTTP/2",
+  url: {
+    hostname: _ctx.web.hostname,
+    path: _ctx.web.path,
+    scheme: "https",
+    port: 443,
+    url_string: f"https://{_ctx.web.hostname}{_ctx.web.path}",
+  },
+}
+_ctx.uri_variant = random()
+if _ctx.uri_variant < $randomization.uri_probability / 2 {
+  http_request.url.path = f"{http_request.url.path}/items/{uuid()}"
+} else if _ctx.uri_variant < $randomization.uri_probability {
+  http_request.url.query_string = f"request_id={uuid()}&page={1 + int(random() * 20)}"
+}
+http_request.url.url_string = f"https://{http_request.url.hostname}{http_request.url.path}"
+if http_request.url.query_string? != null {
+  http_request.url.url_string = f"{http_request.url.url_string}?{http_request.url.query_string}"
+}
+http_response = {code: 200}
+if _ctx.variant >= 75 and _ctx.variant < 85 {
+  activity_id = 6
+  http_request.http_method = "POST"
+  http_response.code = 201
+} else if _ctx.variant >= 85 and _ctx.variant < 95 {
+  http_response.code = 404
+  status_id = 2
+} else if _ctx.variant >= 95 {
+  http_response.code = 503
+  status_id = 2
+}
+message = f"{http_request.http_method} {http_request.url.url_string} returned {http_response.code}"
+if _ctx.detail > 0.35 {
+  http_request.user_agent = $user_agents[int(random() * $user_agents.length())]
+}
+if _ctx.detail > 0.75 {
+  http_request.referrer = "https://portal.acme.example/"
+}
+// Response sizes are known to every source; the web server reports the bytes it sent.
+http_response.length = (300 + int(random() * 60000)) if http_response.code in [200, 201] else 150 + int(random() * 400)
+// The web server logs the request it served in the combined log format; the
+// firewall's URL filter, Suricata, and Zeek observe it on the network.
+_ctx.source_index = $http_source_mix[int(random() * $http_source_mix.length())]
+_ctx.native = $http_sources[_ctx.source_index].native
+metadata.product = $http_sources[_ctx.source_index].product
+metadata.log_name = $http_sources[_ctx.source_index].log_name
+connection_info.uid = (f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}" if _ctx.source_index == 4
+  else string(int(random() * 2251799813685248)) if _ctx.source_index == 3
+  else string(100000 + int(random() * 900000)) if _ctx.source_index == 2
+  else null)
+// Web servers have no connection ID; a null keeps one schema for the class.
+// Passive sensors observe the clear-text backend leg behind a TLS proxy.
+// The normalized connection and URL must describe that leg too.
+if _ctx.source_index >= 3 {
+  dst_endpoint.port = 80
+  http_request.version = "HTTP/1.1"
+  http_request.url.scheme = "http"
+  http_request.url.port = 80
+  http_request.url.url_string = http_request.url.url_string.replace("https://", "http://")
+  message = f"{http_request.http_method} {http_request.url.url_string} returned {http_response.code}"
+}

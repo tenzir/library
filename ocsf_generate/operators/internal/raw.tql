@@ -1,0 +1,214 @@
+---
+description: Render the final event as its product's native log, or as JSON, KV, or syslog.
+args:
+  named:
+    - name: raw
+      type: string
+    - name: raw_message
+      type: bool
+---
+
+batch 8192, timeout=100ms
+if $raw == "native" {
+  // Each product writes one format. Class operators tag products that have a
+  // dedicated renderer; base events keep one generic format per source group,
+  // and other products use JSON or, for Unix daemons, syslog.
+  _raw.native = _raw.native else ""
+  // Only claim FDR for telemetry represented by a known event family. Other
+  // Falcon observations retain their product and use the generic JSON envelope.
+  if _raw.native == "falcon" and (class_uid in [1006, 1008, 1009, 6007]
+      or (class_uid == 1005 and activity_id != 1)
+      or (class_uid == 1001 and activity_id == 2)) {
+    _raw.native = "generic"
+  }
+  _raw.format = ("windows-xml" if _raw.native in ["winsec", "sysmon", "powershell", "winapp"]
+    else "zeek-tsv" if _raw.native in ["zeek_conn", "zeek_dns", "zeek_http", "zeek_other"]
+    else "eve-json" if _raw.native == "suricata"
+    else "pan-os-csv" if _raw.native == "panos"
+    else "fortigate-kv" if _raw.native == "fortigate"
+    else "combined" if _raw.native == "nginx"
+    else "nginx-error" if _raw.native == "nginx_error"
+    else "syslog-rfc3164" if _raw.native == "sshd"
+    else "cloudtrail-json" if _raw.native == "cloudtrail"
+    else "falcon-json" if _raw.native == "falcon"
+    else "asff-json" if _raw.native == "securityhub"
+    else ["json", "syslog", "json", "syslog", "kv"][_raw.base_group] if class_uid == 0
+    else "syslog" if metadata.product.name in ["Postfix", "systemd", "OpenVPN", "PostgreSQL", "nginx"]
+    else "json")
+} else {
+  _raw.format = $raw if $raw != "mixed" else ["json", "kv", "syslog"][int(random() * 3)]
+}
+metadata.log_format = _raw.format
+// Native renderers read the event directly; the generic formats share one record.
+if _raw.format in ["json", "kv", "syslog"] {
+  _raw.event = {
+    timestamp: int(round(time.since_epoch().count_milliseconds())),
+    host: _raw.host,
+    user: _raw.user,
+    event_id: metadata.uid,
+    product: metadata.product.name,
+    activity: activity_id,
+    status: status_id?,
+    message: message,
+    extra: unmapped,
+  }
+  // Unmapped sources omit the user and outcome when they do not report them.
+  if class_uid == 0 {
+    if _raw.user == null {
+      drop _raw.event.user
+    }
+    if status_id? == null {
+      drop _raw.event.status
+    }
+  }
+  if _raw.context? != null {
+    _raw.event.context = _raw.context
+  }
+  if metadata.profiles? != null {
+    _raw.event.profiles = metadata.profiles
+  }
+  if cloud? != null {
+    _raw.event.cloud = cloud
+  }
+  if ai_agent? != null {
+    _raw.event.ai_agent = ai_agent
+  }
+  if message_context? != null {
+    _raw.event.message_context = message_context
+  }
+  if policy? != null {
+    _raw.event.policy = policy
+    _raw.event.action_id = action_id
+    _raw.event.disposition_id = disposition_id
+    _raw.event.is_alert = is_alert
+  }
+  if metadata.profiles? != null {
+    if "host" in metadata.profiles {
+      _raw.event.observed_device = device
+    }
+  }
+  if src_endpoint? != null {
+    _raw.event.src_ip = src_endpoint.ip
+    _raw.event.src_port = src_endpoint.port
+  }
+  if dst_endpoint? != null {
+    _raw.event.dst_ip = dst_endpoint.ip
+    _raw.event.dst_port = dst_endpoint.port
+  }
+  match class_uid {
+    1001 => {
+      _raw.event.file_name = file.name
+      _raw.event.file_path = file.path
+      _raw.event.process_name = actor.process.name
+      _raw.event.pid = actor.process.pid
+      _raw.event.process_id = actor.process.uid
+      if file.size? != null {
+        _raw.event.file_size = file.size
+      }
+    }
+    1007 => {
+      _raw.event.process_name = process.name
+      _raw.event.pid = process.pid
+      _raw.event.process_id = process.uid
+      _raw.event.executable = process.file.path
+      if process.cmd_line? != null {
+        _raw.event.command_line = process.cmd_line
+      }
+      if exit_code? != null {
+        _raw.event.exit_code = exit_code
+      }
+    }
+    2004 => {
+      _raw.event.alert_id = finding_info.uid
+      _raw.event.alert_name = finding_info.title
+      _raw.event.severity = severity_id
+      if confidence_score? != null {
+        _raw.event.confidence = confidence_score
+      }
+    }
+    3002 => {
+      if auth_factors? != null {
+        _raw.event.auth_method = auth_factors[0].factor_type
+      }
+      if status_detail? != null {
+        _raw.event.reason = status_detail
+      }
+    }
+    4001 => {
+      _raw.event.protocol = connection_info.protocol_name
+      if traffic? != null {
+        _raw.event.bytes = traffic.bytes
+        if traffic.packets? != null {
+          _raw.event.packets = traffic.packets
+        }
+      }
+    }
+    4002 => {
+      _raw.event.method = http_request.http_method
+      _raw.event.url = http_request.url.url_string
+      _raw.event.status_code = http_response.code
+      if http_request.user_agent? != null {
+        _raw.event.user_agent = http_request.user_agent
+      }
+    }
+    4003 => {
+      _raw.event.query = query.hostname
+      _raw.event.query_type = query.type
+      if rcode_id? != null {
+        _raw.event.rcode = rcode_id
+      }
+      if answers? != null {
+        _raw.event.answer = answers[0].rdata
+        _raw.event.ttl = answers[0].ttl
+      }
+    }
+    4009 => {
+      _raw.event.mail_from = email.from
+      _raw.event.rcpt_to = email.to
+      _raw.event.message_id = email.message_uid
+      _raw.event.direction = direction_id
+      if email.subject? != null {
+        _raw.event.subject = email.subject
+      }
+    }
+    6003 => {
+      _raw.event.event_source = api.service.name
+      _raw.event.event_name = api.operation
+      _raw.event.resource = resources[0].uid
+      if api.request? != null {
+        _raw.event.request_id = api.request.uid
+      }
+    }
+    _ => { pass }
+  }
+}
+
+// Native serializers escape quotes, backslashes, lists, and nested source data.
+batch 8192, timeout=100ms
+match _raw.format {
+  "json" => {
+    raw_data = print_ndjson(_raw.event)
+  }
+  "kv" => {
+    raw_data = print_kv(_raw.event)
+  }
+  "syslog" => {
+    _raw.payload = print_kv(_raw.event)
+    raw_data = f"<134>1 {time} {_raw.host} workload - - - {_raw.payload}"
+  }
+  "windows-xml" => { ocsf_generate::internal::raw_windows }
+  "zeek-tsv" => { ocsf_generate::internal::raw_zeek }
+  "eve-json" => { ocsf_generate::internal::raw_suricata }
+  "pan-os-csv" => { ocsf_generate::internal::raw_firewall }
+  "fortigate-kv" => { ocsf_generate::internal::raw_firewall }
+  "combined" => { ocsf_generate::internal::raw_text }
+  "nginx-error" => { ocsf_generate::internal::raw_text }
+  "syslog-rfc3164" => { ocsf_generate::internal::raw_text }
+  "cloudtrail-json" => { ocsf_generate::internal::raw_cloudtrail }
+  "falcon-json" => { ocsf_generate::internal::raw_falcon }
+  "asff-json" => { ocsf_generate::internal::raw_securityhub }
+  _ => { discard }
+}
+if $raw_message {
+  raw_message = raw_data
+}

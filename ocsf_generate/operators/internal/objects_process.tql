@@ -1,0 +1,60 @@
+---
+description: Decorate process, parent, and executable contexts while preserving their relationships.
+---
+
+if actor?.process? != null {
+  _ctx.entity = actor.process
+  ocsf_generate::internal::enrich_process
+  actor.process = _ctx.entity
+  _ctx.entity = actor.process.file
+  ocsf_generate::internal::enrich_file
+  actor.process.file = _ctx.entity
+}
+if process? != null {
+  _ctx.entity = process
+  ocsf_generate::internal::enrich_process launched=(class_uid == 1007 and activity_id == 1),
+    exited=(class_uid == 1007 and activity_id == 2)
+  process = _ctx.entity
+  _ctx.entity = process.file
+  ocsf_generate::internal::enrich_file
+  process.file = _ctx.entity
+  if class_uid == 1007 {
+    if activity_id == 2 {
+      actor.process = process
+    } else {
+      process.parent_process = actor.process
+      process.ancestry = [{uid: actor.process.uid, pid: actor.process.pid,
+        name: actor.process.name, path: actor.process.file.path,
+        cmd_line: actor.process.cmd_line, created_time: actor.process.created_time}]
+      process.lineage = [actor.process.file.path]
+    }
+  }
+}
+if file? != null {
+  _ctx.entity = file
+  ocsf_generate::internal::enrich_file
+  file = _ctx.entity
+}
+if module?.file? != null {
+  _ctx.entity = module.file
+  ocsf_generate::internal::enrich_file
+  module.file = _ctx.entity
+}
+if driver?.file? != null {
+  _ctx.entity = driver.file
+  ocsf_generate::internal::enrich_file
+  driver.file = _ctx.entity
+}
+if script?.file? != null {
+  _ctx.entity = script.file
+  ocsf_generate::internal::enrich_file
+  script.file = _ctx.entity
+}
+if startup_item?.process? != null {
+  _ctx.entity = startup_item.process
+  ocsf_generate::internal::enrich_process
+  startup_item.process = _ctx.entity
+  _ctx.entity = startup_item.process.file
+  ocsf_generate::internal::enrich_file
+  startup_item.process.file = _ctx.entity
+}

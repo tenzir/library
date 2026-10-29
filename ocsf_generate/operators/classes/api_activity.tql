@@ -1,0 +1,41 @@
+@name = "ocsf.api_activity"
+class_uid = 6003
+category_uid = 6
+metadata.log_name = "cloud-audit"
+metadata.product = {name: "CloudTrail", vendor_name: "Amazon Web Services"}
+dst_endpoint = {ip: 10.20.0.40, hostname: "api.acme.example", port: 443}
+activity_id = 2
+api = {operation: "ListObjectsV2", service: {name: "s3.amazonaws.com"}}
+if _ctx.variant >= 70 and _ctx.variant < 80 {
+  activity_id = 1
+  api.operation = "PutObject"
+} else if _ctx.variant >= 80 and _ctx.variant < 95 {
+  activity_id = 4
+  api.operation = "DeleteObject"
+} else if _ctx.variant >= 95 {
+  status_id = 2
+  status_detail = "AccessDenied"
+}
+resources = [{uid: "arn:aws:s3:::team-documents", name: "team-documents", type: "Bucket"}]
+message = f"{_ctx.user.name} called {api.operation} on team-documents"
+if _ctx.detail > 0.65 {
+  api.request.uid = metadata.uid
+}
+// CloudTrail records the SDK or console agent and a request ID for every call.
+_ctx.native = "cloudtrail"
+_ctx.request_id = hash_md5(metadata.uid).slice(end=16).to_upper()
+if api.request? != null {
+  api.request.uid = _ctx.request_id
+}
+http_request.user_agent = [
+  "aws-cli/2.27.49 md/awscrt#0.26.1 ua/2.1 os/windows#10 md/arch#amd64 lang/python#3.13.5 md/pyimpl#CPython m/E,b cfg/retry-mode#standard md/installer#exe md/prompt#off md/command#s3.ls",
+  "Boto3/1.39.4 md/Botocore#1.39.4 ua/2.1 os/linux#6.8.0-1031-aws md/arch#x86_64 lang/python#3.12.3 md/pyimpl#CPython m/Z,b,D cfg/retry-mode#legacy Botocore/1.39.4",
+  "[S3Console/0.4, aws-internal/3 aws-sdk-java/1.12.788 Linux/5.10.238-208.946.amzn2int.x86_64 OpenJDK_64-Bit_Server_VM/25.452-b10 java/1.8.0_452 vendor/Oracle_Corporation cfg/retry-mode/standard]",
+  "aws-sdk-go-v2/1.36.5 ua/2.1 os/linux lang/go#1.24.4 md/GOOS#linux md/GOARCH#amd64 api/s3#1.83.0 m/E,g",
+][int(random() * 4)]
+if api.operation != "ListObjectsV2" {
+  resources = resources.append({
+    uid: f"arn:aws:s3:::team-documents/{_ctx.user.name}/{time.format_time("%Y-%m-%d")}/{hash_md5(metadata.uid).slice(begin=16)}.parquet",
+    type: "Object",
+  })
+}

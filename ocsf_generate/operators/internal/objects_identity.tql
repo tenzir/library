@@ -1,0 +1,75 @@
+---
+description: Reuse departments, roles, sessions, and access decisions.
+---
+
+_ctx.entity = _ctx.user
+ocsf_generate::internal::enrich_user
+_ctx.user = _ctx.entity
+
+if actor?.user? != null or user? != null or process?.user? != null {
+  _ctx.source.group_uid = _ctx.group.uid
+  _ctx.source.group_name = _ctx.group.name
+  _ctx.source.organization_uid = _ctx.org.uid
+}
+if actor?.user? != null {
+  actor.user.groups = [_ctx.group]
+  actor.user.org = _ctx.org
+  _ctx.entity = actor.user
+  ocsf_generate::internal::enrich_user
+  actor.user = _ctx.entity
+}
+if user? != null {
+  user.groups = [_ctx.group]
+  user.org = _ctx.org
+  _ctx.entity = user
+  ocsf_generate::internal::enrich_user
+  user = _ctx.entity
+}
+if process?.user? != null {
+  process.user.groups = [_ctx.group]
+  process.user.org = _ctx.org
+  _ctx.entity = process.user
+  ocsf_generate::internal::enrich_user
+  process.user = _ctx.entity
+}
+if actor?.process?.user? != null {
+  _ctx.entity = actor.process.user
+  ocsf_generate::internal::enrich_user
+  actor.process.user = _ctx.entity
+}
+if assignee? != null {
+  _ctx.entity = assignee
+  ocsf_generate::internal::enrich_user
+  assignee = _ctx.entity
+}
+if query_evidence?.user? != null {
+  _ctx.entity = query_evidence.user
+  ocsf_generate::internal::enrich_user
+  query_evidence.user = _ctx.entity
+}
+if class_uid == 6003 {
+  actor.iam_role = {
+    uid: f"arn:aws:iam::123456789012:role/{_ctx.group.name}WorkspaceAccess",
+    name: f"{_ctx.group.name}WorkspaceAccess",
+    account: {uid: "123456789012", name: "acme-production", type_id: 10},
+  }
+  _ctx.source.role_uid = actor.iam_role.uid
+  actor.iam_role.policies = [{uid: "policy-team-documents", name: "Team documents access", is_applied: true}]
+}
+if policy? != null and actor? != null and action_id? in [1, 2] {
+  actor.authorizations = [{decision: "Allow" if action_id == 1 else "Deny", policy: policy}]
+  _ctx.source.authorization_decision = actor.authorizations[0].decision
+}
+if class_uid == 3002 and status_id == 1 {
+  session = {
+    uid: f"session-{_ctx.user.uid}-{auth_protocol_id}-{time.floor(1h)}",
+    created_time: time.floor(1h),
+    expiration_time: time.floor(1h) + 1h,
+    is_remote: true,
+    issuer: "idp-acme" if auth_protocol_id == 4 else "bastion-01.acme.example",
+  }
+  actor.session = session
+  _ctx.source.session_uid = session.uid
+  _ctx.source.session_created_time = session.created_time
+  _ctx.source.session_expiration_time = session.expiration_time
+}

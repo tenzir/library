@@ -1,0 +1,199 @@
+---
+description: Add unmapped fields for mail, wireless, facility, and IoT devices.
+---
+
+// Office devices use the sampled user's division domain; shared ones use fixed hosts.
+match _ctx.base.source {
+  0 => {
+    metadata.product = {name: "Secure Email Gateway", vendor_name: "Cisco", version: "15.5.1"}
+    metadata.log_name = "mail_logs"
+    metadata.log_provider = "syslog"
+    device = {hostname: "esa-01.acme.example", ip: 10.30.0.51, type_id: 1}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      MID: 30000000 + _ctx.base.n,
+      ICID: 90000000 + _ctx.base.n,
+      DCID: 50000000 + int(random() * 900000),
+      from: f"newsletter@partner-{1 + int(random() * 100)}.example",
+      rcpt: _ctx.user.email_addr,
+      rcpt_count: 1 + int(random() * 3),
+      policy: ["DEFAULT", "DEFAULT", "inbound-executives", "DEFAULT"][_ctx.scenario],
+      verdicts: {spam: ["negative", "negative", "suspect", "positive"][_ctx.scenario], av: "negative", amp: "file unknown", graymail: random() < 0.3},
+      size_bytes: 2000 + int(random() * 900000),
+    }
+    message = [f"MID {unmapped.MID} queued for delivery",
+      f"MID {unmapped.MID} ICID {unmapped.ICID} RID 0 To: <{_ctx.user.email_addr}>",
+      f"MID {unmapped.MID} quarantined to \"Policy\" (content filter: suspect_newsletter)",
+      f"MID {unmapped.MID} dropped by spam verdict positive"][_ctx.scenario]
+    severity_id = [1, 1, 2, 3][_ctx.scenario]
+  }
+  1 => {
+    metadata.product = {name: "UniFi Network", vendor_name: "Ubiquiti", version: "8.4.62"}
+    metadata.log_name = "events"
+    metadata.log_provider = "unifi-controller"
+    device = {hostname: f"ap-{1 + int(_ctx.variant / 10)}.{_ctx.user.domain}", type_id: 99, type: "Access Point"}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      key: ["EVT_WU_Connected", "EVT_WU_Roam", "EVT_WU_RoamRadio", "EVT_WU_Disconnected"][_ctx.scenario],
+      subsystem: "wlan",
+      ap_mac: f"f4:92:bf:{int(random() * 90) + 10}:{int(random() * 90) + 10}:{_ctx.variant + 10}",
+      ap_name: device.hostname,
+      user: f"{hash_md5(_ctx.host.hostname).slice(end=12)}",
+      hostname: _ctx.host.hostname.split(".")[0],
+      ssid: ["ACME-Corp", "ACME-Corp", "ACME-Guest", "ACME-Corp"][_ctx.scenario],
+      channel: [36, 44, 6, 149][int(random() * 4)],
+      radio: ["na", "ng"][int(random() * 2)],
+      rssi: -40 - int(random() * 45),
+    }
+    if _ctx.scenario == 1 {
+      unmapped.roam_from = f"ap-{1 + int(random() * 10)}.{_ctx.user.domain}"
+    }
+    message = f"User[{unmapped.hostname}] {unmapped.key.replace("EVT_WU_", "").to_lower()} on \"{unmapped.ssid}\" via {unmapped.ap_name}"
+  }
+  2 => {
+    metadata.product = {name: "PaperCut MF", vendor_name: "PaperCut", version: "23.0.9"}
+    metadata.log_name = "print-log"
+    metadata.log_provider = "PaperCut Application Server"
+    device = {hostname: f"prn-{1 + int(_ctx.variant / 25)}.{_ctx.user.domain}", type_id: 99, type: "Printer"}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      printer: device.hostname,
+      user: _ctx.user.name,
+      document_name: ["Quarterly report.pdf", "Invoice batch.xlsx", "Boarding pass.pdf", "Microsoft Word - Contract.docx"][int(random() * 4)],
+      pages: 1 + int(random() * 40),
+      copies: 1 + int(random() * 2),
+      color: random() < 0.3,
+      duplex: random() < 0.6,
+      paper_size: ["A4", "A4", "A3", "Letter"][int(random() * 4)],
+      cost: int(random() * 500) / 100,
+      client_machine: _ctx.host.hostname,
+    }
+    if _ctx.scenario == 3 {
+      unmapped.denied_reason = "INSUFFICIENT_BALANCE"
+      status_id = 2
+    }
+    message = f"{_ctx.user.name} printed {unmapped.pages} pages on {unmapped.printer}" if _ctx.scenario < 3 else f"Print job for {_ctx.user.name} denied: insufficient balance"
+  }
+  3 => {
+    metadata.product = {name: "OnGuard", vendor_name: "LenelS2", version: "8.2"}
+    metadata.log_name = "access-events"
+    metadata.log_provider = "LS Linkage Server"
+    device = {hostname: f"badge-panel-{1 + int(_ctx.variant / 20)}.acme.example", ip: ip(f"10.30.0.{60 + int(_ctx.variant / 20)}"), type_id: 7}
+    _ctx.base.user = _ctx.user.name
+    _ctx.base.door = ["Main entrance", "Server room", "Parking garage", "Lab 2"][int(random() * 4)]
+    unmapped = {
+      panel_id: 60 + int(_ctx.variant / 20),
+      reader: {id: int(random() * 64), name: f"{_ctx.base.door} reader", door: _ctx.base.door},
+      badge_id: 1000000 + int(_ctx.user_index),
+      cardholder: {name: _ctx.user.name, employee_id: _ctx.user.uid},
+      event_type: ["Granted Access", "Granted Access", "Door Held Open", "Access Denied - Invalid Badge"][_ctx.scenario],
+      granted: _ctx.scenario < 3,
+    }
+    message = f"{unmapped.event_type} at {_ctx.base.door} for {_ctx.user.name}"
+    status_id = 1 if _ctx.scenario < 3 else 2
+    severity_id = 3 if _ctx.scenario == 2 else severity_id
+  }
+  4 => {
+    metadata.product = {name: "sensor-gateway", vendor_name: "Acme", version: "0.9.3"}
+    metadata.log_name = "mqtt"
+    metadata.log_provider = "mosquitto"
+    device = {uid: f"sensor-{_ctx.variant}", name: f"env-sensor-{_ctx.variant}", type_id: 7}
+    unmapped = {
+      topic: f"acme/{_ctx.user.domain.split(".")[0]}/floor{1 + int(_ctx.variant / 25)}/env",
+      device_id: device.uid,
+      rssi: -50 - int(random() * 40),
+      battery_v: (270 + int(random() * 60)) / 100,
+      readings: {temp_c: (180 + int(random() * 80)) / 10, humidity_pct: 30 + int(random() * 30), co2_ppm: 400 + int(random() * 1200)},
+      fw: "0.9.3",
+    }
+    // Some sensors publish readings as raw strings.
+    if _ctx.variant >= 90 {
+      unmapped.readings.temp_c = string(unmapped.readings.temp_c)
+      unmapped.readings.co2_ppm = string(unmapped.readings.co2_ppm)
+    }
+    message = f"{unmapped.device_id} temp={unmapped.readings.temp_c} co2={unmapped.readings.co2_ppm}"
+  }
+  5 => {
+    metadata.product = {name: "AXIS Camera Station", vendor_name: "Axis Communications", version: "5.57"}
+    metadata.log_name = "system-log"
+    metadata.log_provider = "AXIS Camera Station Server"
+    device = {hostname: "nvr-01.acme.example", ip: 10.30.0.71, type_id: 1}
+    unmapped = {
+      camera: {id: 1 + int(random() * 40), name: f"CAM-{["LOBBY", "GARAGE", "DOCK", "DC"][int(random() * 4)]}", model: "AXIS P3265-LVE", firmware: "11.11.73"},
+      event: ["Motion detected", "Recording started", "Tampering", "Camera disconnected"][_ctx.scenario],
+      motion_window: "DefaultWindow",
+      recording_id: _ctx.base.n,
+      storage_pct: 40 + int(random() * 60),
+    }
+    message = f"{unmapped.camera.name}: {unmapped.event}"
+    severity_id = [1, 1, 3, 4][_ctx.scenario]
+  }
+  6 => {
+    metadata.product = {name: "Desigo CC", vendor_name: "Siemens", version: "7.0"}
+    metadata.log_name = "event-list"
+    metadata.log_provider = "BACnet/IP"
+    device = {hostname: "bms-01.acme.example", ip: 10.30.0.81, type_id: 7}
+    unmapped = {
+      point: {name: f"B1.F{1 + int(random() * 6)}.AHU{1 + int(random() * 4)}.SupplyTemp", object_type: "analog-input", instance: int(random() * 4000)},
+      present_value: (150 + int(random() * 100)) / 10,
+      units: "degrees-celsius",
+      alarm_state: ["normal", "normal", "offnormal", "fault"][_ctx.scenario],
+      building: "HQ",
+      floor: 1 + int(random() * 6),
+    }
+    // Faulted points report a textual reliability value instead of a reading.
+    if _ctx.scenario == 3 {
+      unmapped.present_value = "unreliable-other"
+    }
+    message = f"{unmapped.point.name} {unmapped.alarm_state} ({unmapped.present_value})"
+    severity_id = [1, 1, 2, 3][_ctx.scenario]
+  }
+  7 => {
+    metadata.product = {name: "RoomOS", vendor_name: "Cisco", version: "11.20"}
+    metadata.log_name = "xapi-events"
+    metadata.log_provider = "Webex Control Hub"
+    device = {hostname: f"room-{1 + int(_ctx.variant / 10)}.{_ctx.user.domain}", type_id: 99, type: "Video Endpoint"}
+    unmapped = {
+      room: f"Meeting room {1 + int(_ctx.variant / 10)}",
+      device_serial: f"FOC{2600 + _ctx.variant}X{int(random() * 9000) + 1000}",
+      people_count: int(random() * 12),
+      call: {status: ["Connected", "Idle", "Connected", "Disconnected"][_ctx.scenario], duration_s: int(random() * 5400), protocol: "Spark"},
+      peripherals: [{type: "TouchPanel", status: "Connected"}, {type: "Camera", status: "Connected"}],
+    }
+    message = f"{unmapped.room}: call {unmapped.call.status}, {unmapped.people_count} people"
+  }
+  8 => {
+    metadata.product = {name: "canteen-pos", vendor_name: "Acme", version: "3.2"}
+    metadata.log_name = "transactions"
+    metadata.log_provider = "pos-agent"
+    device = {uid: f"pos-terminal-{1 + int(random() * 4)}", name: "Canteen register", type_id: 99, type: "POS Terminal"}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      terminal_id: device.uid,
+      txn_id: f"T{_ctx.base.n}",
+      items: 1 + int(random() * 5),
+      total: (450 + int(random() * 2000)) / 100,
+      currency: "CHF",
+      tender: ["badge", "badge", "card", "badge"][_ctx.scenario],
+      employee_badge: 1000000 + int(_ctx.user_index),
+    }
+    message = f"Sale {unmapped.txn_id} {unmapped.total} CHF via {unmapped.tender}"
+  }
+  9 => {
+    metadata.product = {name: "NOTIFIER ONYX", vendor_name: "Honeywell"}
+    metadata.log_name = "panel-history"
+    metadata.log_provider = "serial-gateway"
+    device = {hostname: "fire-panel-hq.acme.example", type_id: 7}
+    unmapped = {
+      panel: 1,
+      loop: 1 + int(random() * 4),
+      address: 1 + int(random() * 159),
+      device_type: ["PHOTO", "HEAT", "MONITOR", "PULL STATION"][int(random() * 4)],
+      zone: f"Z{100 + int(random() * 40)}",
+      condition: ["NORMAL", "TEST", "TROUBLE", "ALARM"][_ctx.scenario],
+    }
+    message = f"{unmapped.condition} L{unmapped.loop}D{unmapped.address} {unmapped.device_type} {unmapped.zone}"
+    severity_id = [1, 1, 3, 5][_ctx.scenario]
+  }
+  _ => { discard }
+}

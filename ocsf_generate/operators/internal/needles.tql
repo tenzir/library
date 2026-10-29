@@ -1,0 +1,40 @@
+---
+description: Populate reserved IOC values in exactly the requested event positions.
+args:
+  named:
+    - name: ip_count
+      type: int
+    - name: dns_count
+      type: int
+    - name: command_count
+      type: int
+---
+
+// Background fixtures never use the benchmark subnet, .invalid, or this command.
+if _ctx.needle_rank >= 0 and _ctx.needle_rank < $ip_count {
+  _ctx.service = {hostname: "ip-needle.ocsf-gen.invalid", ip: "198.18.0.1", ipv6: "2001:db8:ffff::1", port: 443}
+  dst_endpoint.ip = 198.18.0.1
+  dst_endpoint.hostname = _ctx.service.hostname
+  dst_endpoint.port = _ctx.service.port
+  message = f"Benchmark connection to {dst_endpoint.ip}"
+} else if _ctx.needle_rank >= 0 and _ctx.needle_rank < $ip_count + $dns_count {
+  query.hostname = "dns-needle.ocsf-gen.invalid"
+  query.type = "A"
+  activity_id = 6
+  rcode_id = 0
+  answers = [{rdata: "198.18.0.2", ttl: 300}]
+  message = f"DNS A query for {query.hostname} returned 198.18.0.2"
+} else if _ctx.needle_rank >= 0 and _ctx.needle_rank < $ip_count + $dns_count + $command_count {
+  process.name = "ocsf-gen-needle.exe" if _ctx.windows else "ocsf-gen-needle"
+  process.file.name = process.name
+  process.file.path = r"C:\Tools\ocsf-gen-needle.exe" if _ctx.windows else "/opt/ocsf-gen/ocsf-gen-needle"
+  process.file.hashes = [
+    {algorithm_id: 1, value: hash_md5(f"synthetic-binary-{process.file.path}")},
+    {algorithm_id: 3, value: hash_sha256(f"synthetic-binary-{process.file.path}")},
+  ]
+  process.cmd_line = "ocsf-gen-needle --ioc"
+  if activity_id == 2 {
+    actor.process = process
+  }
+  message = f"Benchmark process {process.cmd_line} on {_ctx.host.hostname}"
+}
