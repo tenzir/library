@@ -1,5 +1,5 @@
 ---
-description: Preserves incomplete optional objects as source residue.
+description: Preserves incomplete optional objects as unmapped data.
 args:
   positional:
     - name: ocsf
@@ -13,7 +13,13 @@ if (
   and $ocsf.actor?.user.name? == null
   and $ocsf.actor?.user.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.actor_user = move $ocsf.actor?.user
+  if not drop_null_fields($ocsf.actor.user).flatten().is_empty() {
+    $ocsf.unmapped.actor.user = {
+      ...drop_null_fields($ocsf.actor.user),
+      ...$ocsf.unmapped?.actor?.user?,
+    }
+  }
+  drop $ocsf.actor.user
 }
 if (
   $ocsf.actor?.process? != null
@@ -21,7 +27,13 @@ if (
   and $ocsf.actor?.process.uid? == null
   and $ocsf.actor?.process.cpid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.actor_process = move $ocsf.actor?.process
+  if not drop_null_fields($ocsf.actor.process).flatten().is_empty() {
+    $ocsf.unmapped.actor.process = {
+      ...drop_null_fields($ocsf.actor.process),
+      ...$ocsf.unmapped?.actor?.process?,
+    }
+  }
+  drop $ocsf.actor.process
 }
 if (
   $ocsf.logon_process? != null
@@ -29,7 +41,13 @@ if (
   and $ocsf.logon_process.uid? == null
   and $ocsf.logon_process.cpid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.logon_process = move $ocsf.logon_process
+  if not drop_null_fields($ocsf.logon_process).flatten().is_empty() {
+    $ocsf.unmapped.logon_process = {
+      ...drop_null_fields($ocsf.logon_process),
+      ...$ocsf.unmapped?.logon_process?,
+    }
+  }
+  drop $ocsf.logon_process
 }
 if (
   $ocsf.src_endpoint? != null
@@ -43,7 +61,13 @@ if (
   and $ocsf.src_endpoint.interface_name? == null
   and $ocsf.src_endpoint.domain? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint = move $ocsf.src_endpoint
+  if not drop_null_fields($ocsf.src_endpoint).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint = {
+      ...drop_null_fields($ocsf.src_endpoint),
+      ...$ocsf.unmapped?.src_endpoint?,
+    }
+  }
+  drop $ocsf.src_endpoint
 }
 if (
   $ocsf.dst_endpoint? != null
@@ -57,7 +81,13 @@ if (
   and $ocsf.dst_endpoint.interface_name? == null
   and $ocsf.dst_endpoint.domain? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.dst_endpoint = move $ocsf.dst_endpoint
+  if not drop_null_fields($ocsf.dst_endpoint).flatten().is_empty() {
+    $ocsf.unmapped.dst_endpoint = {
+      ...drop_null_fields($ocsf.dst_endpoint),
+      ...$ocsf.unmapped?.dst_endpoint?,
+    }
+  }
+  drop $ocsf.dst_endpoint
 }
 
 if $ocsf.actor? != null and drop_null_fields($ocsf.actor).is_empty() {
@@ -81,16 +111,25 @@ if (
   and $ocsf.application.url.url_string? == null
   and $ocsf.application.url.path? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.application_url = move $ocsf.application.url
+  if not drop_null_fields($ocsf.application.url).flatten().is_empty() {
+    $ocsf.unmapped.application.url = {
+      ...drop_null_fields($ocsf.application.url),
+      ...$ocsf.unmapped?.application?.url?,
+    }
+  }
+  drop $ocsf.application.url
 }
 if $ocsf.resources? != null {
-  $ocsf.unmapped.ocsf_residue.resource_owners = $ocsf.resources.where(r => r.owner? != null
+  $ocsf.unmapped.resources = $ocsf.resources.where(r => r.owner? != null
     and r.owner.account? == null
     and r.owner.name? == null
     and r.owner.uid? == null).map(r => {
     uid: r.uid?,
     owner: r.owner
-  })
+  }).map(x => drop_null_fields(x)).where(x => not x.flatten().is_empty())
+  if $ocsf.unmapped.resources.is_empty() {
+    drop $ocsf.unmapped.resources
+  }
   $ocsf.resources = $ocsf.resources.map(r => {
     ...r,
     owner: r.owner? if r.owner?.account? != null or r.owner?.name? != null or r.owner?.uid? != null else null
@@ -102,7 +141,13 @@ if (
   and $ocsf.process.uid? == null
   and $ocsf.process.cpid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.process = move $ocsf.process
+  if not drop_null_fields($ocsf.process).flatten().is_empty() {
+    $ocsf.unmapped.process = {
+      ...drop_null_fields($ocsf.process),
+      ...$ocsf.unmapped?.process?,
+    }
+  }
+  drop $ocsf.process
 }
 if (
   $ocsf.entity? != null
@@ -114,7 +159,13 @@ if (
   and $ocsf.entity.policy? == null
   and $ocsf.entity.user? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.entity = move $ocsf.entity
+  if not drop_null_fields($ocsf.entity).flatten().is_empty() {
+    $ocsf.unmapped.entity = {
+      ...drop_null_fields($ocsf.entity),
+      ...$ocsf.unmapped?.entity?,
+    }
+  }
+  drop $ocsf.entity
 }
 if $ocsf.connection_info? != null {
   $ocsf.connection_info.direction_id = $ocsf.connection_info.direction_id? else 0
@@ -131,7 +182,13 @@ if $ocsf.file? != null and $ocsf.file.name? == null and $ocsf.file.path? != null
   $ocsf.file.name = $ocsf.file.path.replace("\\", "/").split("/")[-1]
 }
 if $ocsf.file? != null and $ocsf.file.name? == null {
-  $ocsf.unmapped.ocsf_residue.file = move $ocsf.file
+  if not drop_null_fields($ocsf.file).flatten().is_empty() {
+    $ocsf.unmapped.file = {
+      ...drop_null_fields($ocsf.file),
+      ...$ocsf.unmapped?.file?,
+    }
+  }
+  drop $ocsf.file
 }
 // These System Activity classes require an actor, device, and their primary
 // object. Incomplete observations retain their typed facts as Base Event data.

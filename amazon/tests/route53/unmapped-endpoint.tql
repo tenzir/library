@@ -1,0 +1,30 @@
+from {
+  case: "null-only",
+  endpoint: {uid: null, interface_uid: null},
+  existing: {marker: "keep"},
+}, {
+  case: "partial",
+  endpoint: {uid: null, port: 53},
+  existing: {marker: "keep"},
+}, {
+  case: "existing",
+  endpoint: {uid: null, port: 53},
+  existing: {dst_endpoint: {label: "original"}},
+}
+ocsf = {
+  class_uid: 4003,
+  category_uid: 4,
+  src_endpoint: {ip: 192.0.2.1},
+  dst_endpoint: move endpoint,
+  unmapped: move existing,
+}
+amazon::ocsf::finalize ocsf
+assert ocsf.dst_endpoint? == null
+assert not ocsf.unmapped.has("ocsf_residue")
+assert ocsf.unmapped.dst_endpoint?.uid? == null
+assert ocsf.unmapped.dst_endpoint?.port? == (null if case == "null-only" else 53)
+if case == "existing" {
+  assert ocsf.unmapped.dst_endpoint.label == "original"
+}
+select case, ocsf.unmapped
+sort case

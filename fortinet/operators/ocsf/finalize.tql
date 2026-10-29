@@ -26,7 +26,13 @@ if (
   and $ocsf.device?.interface_uid? == null
   and $ocsf.device?.interface_name? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.device = move $ocsf.device
+  if not drop_null_fields($ocsf.device).flatten().is_empty() {
+    $ocsf.unmapped.device = {
+      ...drop_null_fields($ocsf.device),
+      ...$ocsf.unmapped?.device?,
+    }
+  }
+  drop $ocsf.device
 }
 if (
   $ocsf.src_endpoint?.location? != null
@@ -35,7 +41,13 @@ if (
   and $ocsf.src_endpoint?.location?.postal_code? == null
   and $ocsf.src_endpoint?.location?.region? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_location = move $ocsf.src_endpoint.location
+  if not drop_null_fields($ocsf.src_endpoint.location).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.location = {
+      ...drop_null_fields($ocsf.src_endpoint.location),
+      ...$ocsf.unmapped?.src_endpoint?.location?,
+    }
+  }
+  drop $ocsf.src_endpoint.location
 }
 if (
   $ocsf.dst_endpoint?.location? != null
@@ -44,14 +56,26 @@ if (
   and $ocsf.dst_endpoint?.location?.postal_code? == null
   and $ocsf.dst_endpoint?.location?.region? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.dst_endpoint_location = move $ocsf.dst_endpoint.location
+  if not drop_null_fields($ocsf.dst_endpoint.location).flatten().is_empty() {
+    $ocsf.unmapped.dst_endpoint.location = {
+      ...drop_null_fields($ocsf.dst_endpoint.location),
+      ...$ocsf.unmapped?.dst_endpoint?.location?,
+    }
+  }
+  drop $ocsf.dst_endpoint.location
 }
 if (
   $ocsf.finding_info?.analytic? != null
   and $ocsf.finding_info?.analytic?.name? == null
   and $ocsf.finding_info?.analytic?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.finding_info_analytic = move $ocsf.finding_info.analytic
+  if not drop_null_fields($ocsf.finding_info.analytic).flatten().is_empty() {
+    $ocsf.unmapped.finding_info.analytic = {
+      ...drop_null_fields($ocsf.finding_info.analytic),
+      ...$ocsf.unmapped?.finding_info?.analytic?,
+    }
+  }
+  drop $ocsf.finding_info.analytic
 }
 if $ocsf.evidences? != null {
   if (
@@ -66,7 +90,7 @@ if $ocsf.evidences? != null {
     and e.dst_endpoint?.location?.postal_code? == null
     and e.dst_endpoint?.location?.region? == null)).length() > 0
   ) {
-    $ocsf.unmapped.ocsf_residue.evidences = $ocsf.evidences.where(e => (e.src_endpoint?.location? != null
+    $ocsf.unmapped.evidences = $ocsf.evidences.where(e => (e.src_endpoint?.location? != null
       and e.src_endpoint?.location?.city? == null
       and e.src_endpoint?.location?.country? == null
       and e.src_endpoint?.location?.postal_code? == null
@@ -75,7 +99,10 @@ if $ocsf.evidences? != null {
       and e.dst_endpoint?.location?.city? == null
       and e.dst_endpoint?.location?.country? == null
       and e.dst_endpoint?.location?.postal_code? == null
-      and e.dst_endpoint?.location?.region? == null))
+      and e.dst_endpoint?.location?.region? == null)).map(x => drop_null_fields(x)).where(x => not x.flatten().is_empty())
+    if $ocsf.unmapped.evidences.is_empty() {
+      drop $ocsf.unmapped.evidences
+    }
   }
   $ocsf.evidences = $ocsf.evidences.map(e => {
     ...e,

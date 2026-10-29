@@ -13,7 +13,13 @@ if (
   and $ocsf.src_endpoint?.owner?.name? == null
   and $ocsf.src_endpoint?.owner?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_owner = move $ocsf.src_endpoint.owner
+  if not drop_null_fields($ocsf.src_endpoint.owner).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.owner = {
+      ...drop_null_fields($ocsf.src_endpoint.owner),
+      ...$ocsf.unmapped?.src_endpoint?.owner?,
+    }
+  }
+  drop $ocsf.src_endpoint.owner
 }
 if (
   $ocsf.src_endpoint?.location? != null
@@ -22,7 +28,13 @@ if (
   and $ocsf.src_endpoint?.location?.postal_code? == null
   and $ocsf.src_endpoint?.location?.region? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_location = move $ocsf.src_endpoint.location
+  if not drop_null_fields($ocsf.src_endpoint.location).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.location = {
+      ...drop_null_fields($ocsf.src_endpoint.location),
+      ...$ocsf.unmapped?.src_endpoint?.location?,
+    }
+  }
+  drop $ocsf.src_endpoint.location
 }
 $ocsf.metadata.loggers = $ocsf.metadata.loggers.map(l => {...l, name: l.name? else "Okta"})
 if (
@@ -30,7 +42,13 @@ if (
   and $ocsf.http_request.url.url_string? == null
   and $ocsf.http_request.url.path? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.url = move $ocsf.http_request.url
+  if not drop_null_fields($ocsf.http_request.url).flatten().is_empty() {
+    $ocsf.unmapped.http_request.url = {
+      ...drop_null_fields($ocsf.http_request.url),
+      ...$ocsf.unmapped?.http_request?.url?,
+    }
+  }
+  drop $ocsf.http_request.url
 }
 if $ocsf.api? != null and $ocsf.api.operation? == null {
   $ocsf.api.operation = $ocsf.metadata.event_code
@@ -39,10 +57,13 @@ if $ocsf.class_uid == 3002 and $ocsf.service? == null and $ocsf.dst_endpoint? ==
   $ocsf.service = {name: "Okta"}
 }
 if $ocsf.evidences? != null {
-  $ocsf.unmapped.ocsf_residue.evidences = $ocsf.evidences.where(e => e.src_endpoint?.owner? != null
+  $ocsf.unmapped.evidences = $ocsf.evidences.where(e => e.src_endpoint?.owner? != null
     and e.src_endpoint.owner.account? == null
     and e.src_endpoint.owner.name? == null
-    and e.src_endpoint.owner.uid? == null)
+    and e.src_endpoint.owner.uid? == null).map(x => drop_null_fields(x)).where(x => not x.flatten().is_empty())
+  if $ocsf.unmapped.evidences.is_empty() {
+    drop $ocsf.unmapped.evidences
+  }
   $ocsf.evidences = $ocsf.evidences.map(e => {
     ...e,
     src_endpoint: {
@@ -59,7 +80,13 @@ if (
   and $ocsf.user?.name? == null
   and $ocsf.user?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.user = move $ocsf.user
+  if not drop_null_fields($ocsf.user).flatten().is_empty() {
+    $ocsf.unmapped.user = {
+      ...drop_null_fields($ocsf.user),
+      ...$ocsf.unmapped?.user?,
+    }
+  }
+  drop $ocsf.user
 }
 if (
   $ocsf.entity?.policy? != null

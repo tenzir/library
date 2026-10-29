@@ -61,7 +61,8 @@ OCSF mapping tests call `ocsf_cast` to report missing required fields and
 object-constraint violations as warnings in the test output. If a source omits
 an identity required by its activity class, mappers preserve the candidate under
 `unmapped.incomplete_activity` and emit a Base Event. Incomplete optional
-objects remain under `unmapped.ocsf_residue`.
+objects retain their corresponding keys under `unmapped`; null-only objects
+are omitted.
 
 ## ⚖️ License
 

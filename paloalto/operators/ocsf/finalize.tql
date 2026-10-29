@@ -14,7 +14,13 @@ if (
   and $ocsf.src_endpoint?.location?.postal_code? == null
   and $ocsf.src_endpoint?.location?.region? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_location = move $ocsf.src_endpoint.location
+  if not drop_null_fields($ocsf.src_endpoint.location).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.location = {
+      ...drop_null_fields($ocsf.src_endpoint.location),
+      ...$ocsf.unmapped?.src_endpoint?.location?,
+    }
+  }
+  drop $ocsf.src_endpoint.location
 }
 if (
   $ocsf.dst_endpoint?.location? != null
@@ -23,7 +29,13 @@ if (
   and $ocsf.dst_endpoint?.location?.postal_code? == null
   and $ocsf.dst_endpoint?.location?.region? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.dst_endpoint_location = move $ocsf.dst_endpoint.location
+  if not drop_null_fields($ocsf.dst_endpoint.location).flatten().is_empty() {
+    $ocsf.unmapped.dst_endpoint.location = {
+      ...drop_null_fields($ocsf.dst_endpoint.location),
+      ...$ocsf.unmapped?.dst_endpoint?.location?,
+    }
+  }
+  drop $ocsf.dst_endpoint.location
 }
 if (
   $ocsf.src_endpoint?.owner? != null
@@ -31,7 +43,13 @@ if (
   and $ocsf.src_endpoint?.owner?.name? == null
   and $ocsf.src_endpoint?.owner?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_owner = move $ocsf.src_endpoint.owner
+  if not drop_null_fields($ocsf.src_endpoint.owner).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.owner = {
+      ...drop_null_fields($ocsf.src_endpoint.owner),
+      ...$ocsf.unmapped?.src_endpoint?.owner?,
+    }
+  }
+  drop $ocsf.src_endpoint.owner
 }
 if (
   $ocsf.dst_endpoint?.owner? != null
@@ -39,7 +57,13 @@ if (
   and $ocsf.dst_endpoint?.owner?.name? == null
   and $ocsf.dst_endpoint?.owner?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.dst_endpoint_owner = move $ocsf.dst_endpoint.owner
+  if not drop_null_fields($ocsf.dst_endpoint.owner).flatten().is_empty() {
+    $ocsf.unmapped.dst_endpoint.owner = {
+      ...drop_null_fields($ocsf.dst_endpoint.owner),
+      ...$ocsf.unmapped?.dst_endpoint?.owner?,
+    }
+  }
+  drop $ocsf.dst_endpoint.owner
 }
 if (
   $ocsf.src_endpoint?.proxy_endpoint? != null
@@ -53,7 +77,13 @@ if (
   and $ocsf.src_endpoint?.proxy_endpoint?.interface_name? == null
   and $ocsf.src_endpoint?.proxy_endpoint?.domain? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.src_endpoint_proxy_endpoint = move $ocsf.src_endpoint.proxy_endpoint
+  if not drop_null_fields($ocsf.src_endpoint.proxy_endpoint).flatten().is_empty() {
+    $ocsf.unmapped.src_endpoint.proxy_endpoint = {
+      ...drop_null_fields($ocsf.src_endpoint.proxy_endpoint),
+      ...$ocsf.unmapped?.src_endpoint?.proxy_endpoint?,
+    }
+  }
+  drop $ocsf.src_endpoint.proxy_endpoint
 }
 if (
   $ocsf.dst_endpoint?.proxy_endpoint? != null
@@ -67,14 +97,26 @@ if (
   and $ocsf.dst_endpoint?.proxy_endpoint?.interface_name? == null
   and $ocsf.dst_endpoint?.proxy_endpoint?.domain? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.dst_endpoint_proxy_endpoint = move $ocsf.dst_endpoint.proxy_endpoint
+  if not drop_null_fields($ocsf.dst_endpoint.proxy_endpoint).flatten().is_empty() {
+    $ocsf.unmapped.dst_endpoint.proxy_endpoint = {
+      ...drop_null_fields($ocsf.dst_endpoint.proxy_endpoint),
+      ...$ocsf.unmapped?.dst_endpoint?.proxy_endpoint?,
+    }
+  }
+  drop $ocsf.dst_endpoint.proxy_endpoint
 }
 if (
   $ocsf.firewall_rule? != null
   and $ocsf.firewall_rule?.name? == null
   and $ocsf.firewall_rule?.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.firewall_rule = move $ocsf.firewall_rule
+  if not drop_null_fields($ocsf.firewall_rule).flatten().is_empty() {
+    $ocsf.unmapped.firewall_rule = {
+      ...drop_null_fields($ocsf.firewall_rule),
+      ...$ocsf.unmapped?.firewall_rule?,
+    }
+  }
+  drop $ocsf.firewall_rule
 }
 if (
   $ocsf.policy? != null
@@ -82,7 +124,13 @@ if (
   and $ocsf.policy.type? == null
   and $ocsf.policy.uid? == null
 ) {
-  $ocsf.unmapped.ocsf_residue.policy = move $ocsf.policy
+  if not drop_null_fields($ocsf.policy).flatten().is_empty() {
+    $ocsf.unmapped.policy = {
+      ...drop_null_fields($ocsf.policy),
+      ...$ocsf.unmapped?.policy?,
+    }
+  }
+  drop $ocsf.policy
 }
 if $ocsf.evidences? != null {
   if (
@@ -91,10 +139,13 @@ if $ocsf.evidences? != null {
     and e.actor?.user?.name? == null
     and e.actor?.user?.uid? == null)).length() > 0
   ) {
-    $ocsf.unmapped.ocsf_residue.evidences = $ocsf.evidences.where(e => (e.actor?.user? != null
+    $ocsf.unmapped.evidences = $ocsf.evidences.where(e => (e.actor?.user? != null
       and e.actor?.user?.account? == null
       and e.actor?.user?.name? == null
-      and e.actor?.user?.uid? == null))
+      and e.actor?.user?.uid? == null)).map(x => drop_null_fields(x)).where(x => not x.flatten().is_empty())
+    if $ocsf.unmapped.evidences.is_empty() {
+      drop $ocsf.unmapped.evidences
+    }
   }
   $ocsf.evidences = $ocsf.evidences.map(e => {
     ...e,
