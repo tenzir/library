@@ -35,25 +35,36 @@ let $jev_model = $model else jev::$model
 let $jev_api_key_secret_name = $api_key_secret_name else jev::$api_key_secret_name
 
 this = {event: this, questions: $questions, state: $state}
-// Tenzir 6.19 can hang when HTTP subpipelines finish concurrently.
-each parallel=1 {
-  let $body = {
-    model: $jev_model,
-    state: $this.state,
-    questions: $this.questions,
+// Keep requests serial so responses preserve input order.
+// Choose the pipeline before resolving secrets: an empty name disables auth.
+if $jev_api_key_secret_name == "" {
+  each parallel=1 {
+    from_http $jev_url, body={
+      model: $jev_model,
+      state: $this.state,
+      questions: $this.questions,
+    } {
+      read_json raw=true
+    }
+    this = {...$this.event, answers: answers, usage: usage}
   }
-
-  from_http $jev_url,
-    headers=({} if $jev_api_key_secret_name == "" else {Authorization: f"Bearer {secret($jev_api_key_secret_name)}"}),
-    body=$body {
-    read_json raw=true
+} else {
+  each parallel=1 {
+    from_http $jev_url,
+      headers={Authorization: f"Bearer {secret($jev_api_key_secret_name)}"},
+      body={
+        model: $jev_model,
+        state: $this.state,
+        questions: $this.questions,
+      } {
+      read_json raw=true
+    }
+    this = {...$this.event, answers: answers, usage: usage}
   }
-  this = {...$this.event, answers: answers, usage: usage}
-  // TODO(TNZ-1410): use the proposed inverse of collect_record once available.
-  answer_list = answers.keys().map(key => {...answers[key], id: key})
-  if answer_list.map(answer => answer.id.is_numeric()).all() {
-    answer_list = answer_list.sort(cmp=(a, b) => int(a.id) < int(b.id))
-  } else {
-    answer_list = answer_list.sort(cmp=(a, b) => a.id < b.id)
-  }
+}
+answer_list = answers.entries().map(e => {...e.value, id: e.key})
+if answer_list.map(answer => answer.id.is_numeric()).all() {
+  answer_list = answer_list.sort(cmp=(a, b) => int(a.id) < int(b.id))
+} else {
+  answer_list = answer_list.sort(cmp=(a, b) => a.id < b.id)
 }

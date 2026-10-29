@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validate TQL syntax for tracked files with the prerelease Tenzir CLI.
+# Validate tracked TQL files with the latest stable Tenzir release.
 #
 # Example and test pipelines are complete pipelines, so we compile them all the
 # way to IR (--dump-ir), which resolves operators, their arguments, and
@@ -13,8 +13,8 @@ set -euo pipefail
 # CI checks all tracked files; pre-push uses --changed for files changed since
 # the merge base with the upstream branch.
 
-parallelism="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '8')"
-tenzir=(uvx --prerelease allow tenzir)
+parallelism="${TENZIR_SYNTAX_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '8')}"
+read -r -a tenzir <<< "${TENZIR_BINARY:-uvx tenzir}"
 
 # Loading the repository as a package directory lets IR resolve the
 # package-defined operators that examples and test pipelines reference.

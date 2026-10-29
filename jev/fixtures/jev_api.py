@@ -1,11 +1,12 @@
 """Deterministic System One responses and assertions on captured HTTP requests.
 
-The fixture provides JEV_API_URL and temporary Tenzir configuration with dummy
+The fixture provides JEV_API_URL and a temporary Tenzir node with dummy
 secrets. Tests declare expected requests through assertions.fixtures.jev_api.
 Responses are test data, not model predictions.
 """
 
-from dataclasses import dataclass
+from contextlib import ExitStack
+from dataclasses import dataclass, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -15,6 +16,8 @@ import time
 from typing import Any
 
 from tenzir_test import FixtureHandle, current_options, fixture
+from tenzir_test.fixtures import current_context, pop_context, push_context
+from tenzir_test.fixtures.node import node
 
 
 @dataclass(frozen=True)
@@ -68,7 +71,7 @@ def jev_api() -> FixtureHandle:
     options = current_options("jev_api")
     directory = tempfile.TemporaryDirectory(prefix="jev-api-")
     config = Path(directory.name) / "tenzir.yaml"
-    config_text = "tenzir:\n  legacy-secret-model: true\n"
+    config_text = "tenzir:\n"
     if options.secrets:
         config_text += """  secrets:
     VERCEL_AI_GATEWAY_API_KEY: default-dummy
@@ -173,11 +176,27 @@ def jev_api() -> FixtureHandle:
         worker.join()
         directory.cleanup()
 
+    context = current_context()
+    assert context is not None
+    token = push_context(replace(
+        context,
+        env={**context.env, "TENZIR_NODE_CONFIG": str(config)},
+    ))
+    stack = ExitStack()
+    stack.callback(teardown)
+    try:
+        node_env = stack.enter_context(node())
+    except BaseException:
+        stack.close()
+        raise
+    finally:
+        pop_context(token)
     return FixtureHandle(
         env={
+            **node_env,
+            "TENZIR_ENDPOINT": node_env["TENZIR_NODE_CLIENT_ENDPOINT"],
             "JEV_API_URL": f"http://127.0.0.1:{server.server_port}/v1/systemone",
-            "TENZIR_CONFIG": str(config),
         },
-        teardown=teardown,
+        teardown=stack.close,
         hooks={"assert_test": assert_test},
     )

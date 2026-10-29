@@ -3,6 +3,8 @@
 This repository hosts the official collection of content
 [packages](https://tenzir.com/docs/explanations/packages/) for Tenzir.
 
+Packages require Tenzir 6.20.0 or later, which uses Nova by default.
+
 ## 🚀 Install packages
 
 Pick the workflow that fits your environment. For details, see our [installation
@@ -42,6 +44,14 @@ package up use cases. Then:
   appears in the public Tenzir Library.
 - Keep iterating—tests and good docs make it easier for others to adopt your
   work.
+
+Run the package tests with the latest Tenzir release:
+
+```sh
+TENZIR_BINARY="uvx tenzir" \
+TENZIR_NODE_BINARY="uvx --from tenzir tenzir-node" \
+  uvx tenzir-test */
+```
 
 ## ⚖️ License
 
