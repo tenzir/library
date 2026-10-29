@@ -69,7 +69,7 @@ Run the demo source and capture validation tests explicitly; they download
 public datasets:
 
 ```sh
-TENZIR_BINARY="uvx --from tenzir==6.20.0 tenzir --nova" \
+TENZIR_BINARY="uvx tenzir" \
   uvx tenzir-test demo --run-skipped
 ```
 
