@@ -57,9 +57,9 @@ Use the OCSF functions to finalize mapped records, for example
 `this = ocsf_cast(ocsf_derive(this))` for a top-level event or
 `ocsf = ocsf_cast(ocsf_derive(ocsf))` for an event in a field.
 
-OCSF mapping tests run `ocsf_cast` inside `strict` to fail on missing required
-fields and object constraints. If a source omits the identity required by its
-activity class, mappers preserve the candidate under
+OCSF mapping tests call `ocsf_cast` to report missing required fields and
+object-constraint violations as warnings in the test output. If a source omits
+an identity required by its activity class, mappers preserve the candidate under
 `unmapped.incomplete_activity` and emit a Base Event. Incomplete optional
 objects remain under `unmapped.ocsf_residue`.
 
