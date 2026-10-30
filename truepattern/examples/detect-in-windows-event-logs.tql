@@ -1,0 +1,28 @@
+---
+name: Detect in Windows event logs with TruePattern Sigma rules
+description: |
+  Reads native Windows event XML, selects Security-channel auditing events,
+  matches Security-service rules without additional logsource constraints,
+  and writes enriched detection findings to NDJSON files.
+---
+
+// Replace this source with your Windows events, such as from `accept_wef` or
+// `evtx_dump`. The update pipeline writes the Security-service rule file.
+from_file "/var/log/windows/events.xml" {
+  read_delimited "</Event>\n", include_separator=true
+}
+this = data.parse_winlog()
+// Reject unrelated channels/providers before matching native fields.
+where System.Channel? == "Security"
+where System.Provider.Name? == "Microsoft-Windows-Security-Auditing"
+// Sigma rules for Windows name the fields of `System` and `EventData` directly,
+// and the provider as `Provider_Name`.
+this = {...System, Provider_Name: System.Provider.Name?, ...EventData}
+// Native matching ignores `logsource`. The update pipeline selects exactly
+// {product: "windows", service: "security"}, with no category or other keys.
+sigma path="/var/lib/tenzir/truepattern/sigma-windows-security.yaml"
+truepattern::enrich
+// Replace this sink with your SIEM or another destination as needed.
+to_file "/var/lib/tenzir/truepattern/findings/windows-{uuid}.ndjson" {
+  write_ndjson
+}
