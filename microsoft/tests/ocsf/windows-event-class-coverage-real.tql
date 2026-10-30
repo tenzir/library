@@ -1,0 +1,33 @@
+---
+pre-compare: sort
+---
+
+from_file f"{env("TENZIR_INPUTS")}/windows-event-class-coverage-real.ndjson" {
+  read_ndjson
+}
+microsoft::windows::ocsf::normalize
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+assert class_uid == (
+  1006 if metadata.product.name == "Microsoft-Windows-TaskScheduler"
+  else 2004 if metadata.event_code == "1122"
+  else 3004
+)
+if metadata.event_code == "1122" {
+  assert actor?.process? == null
+  assert unmapped.EventData["Process Name"].ends_with("powershell.exe")
+  assert unmapped.EventData["Parent Commandline"].search("run-interesting-events.ps1")
+}
+this = {
+  provider: metadata.product.name,
+  event_code: metadata.event_code,
+  class_uid: class_uid,
+  activity_id: activity_id,
+  activity_name: activity_name?,
+  disposition_id: disposition_id?,
+  job_name: job?.name?,
+  entity_type: entity?.type?,
+  entity_name: entity?.name?,
+  finding_title: finding_info?.title?,
+}
+drop_null_fields
