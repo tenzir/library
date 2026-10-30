@@ -3,9 +3,9 @@ title: alphaMountain API operators and OCSF mapping
 type: feature
 authors:
   - mavam
-  - codex
 prs:
   - 150
+  - 208
 created: 2026-06-05T07:36:42.46596Z
 ---
 
@@ -16,8 +16,8 @@ Use the namespaced operators directly in your own workflows:
 ```tql
 alphamountain::threat::feed license="ALPHAMOUNTAIN_LICENSE", limit=100
 alphamountain::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
 ```
 
 The package covers real-time URI lookups, hostname intelligence, and threat and category feeds. It also ships anonymized OCSF mapping coverage that derives and casts the resulting events.

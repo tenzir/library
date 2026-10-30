@@ -17,25 +17,35 @@ $ocsf.status_id = 2 if $windows.System.Keywords? == "0x8010000000000000" else 1
 $ocsf.access_mask = int($windows.EventData.AccessMask, base=16)
 
 $ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid,
-    name: move $windows.EventData.SubjectUserName,
-    domain: move $windows.EventData.SubjectDomainName,
-  },
+  user: null,
   session: {
     uid_alt: move $windows.EventData.SubjectLogonId,
   },
-  process: {
+  process: null,
+}
+if $windows.EventData.ProcessId? != null {
+  $ocsf.actor.process = {
     pid: int(move $windows.EventData.ProcessId, base=16),
     path: move $windows.EventData.ProcessName,
     file: {type_id: 8},
-  },
+  }
 }
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file = {
-  name: $ocsf.actor.process.name,
-  path: $ocsf.actor.process.path,
-  type_id: 8,
+
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor.user = {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName,
+  }
+}
+
+if $ocsf.actor.process? != null {
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file = {
+    name: $ocsf.actor.process.name,
+    path: $ocsf.actor.process.path,
+    type_id: 8,
+  }
 }
 
 match $windows.EventData.ObjectType {
@@ -48,11 +58,13 @@ match $windows.EventData.ObjectType {
       $ocsf.activity_id = 99
       $ocsf.activity_name = "Access"
     }
-    $ocsf.file = {
-      path: move $windows.EventData.ObjectName,
-      type_id: 0, // Unknown; ObjectType "File" also covers directories.
+    if $windows.EventData.ObjectName? != null {
+      $ocsf.file = {
+        path: move $windows.EventData.ObjectName,
+        type_id: 0, // Unknown; ObjectType "File" also covers directories.
+      }
+      $ocsf.file.name = $ocsf.file.path.split("\\")[-1]?
     }
-    $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
   }
   "Key" => {
     @name = "ocsf.registry_key_activity"

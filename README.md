@@ -53,6 +53,18 @@ TENZIR_NODE_BINARY="uvx --from tenzir tenzir-node" \
   uvx tenzir-test */
 ```
 
+Use the OCSF functions to finalize mapped records, for example
+`this = ocsf_cast(ocsf_derive(this))` for a top-level event or
+`ocsf = ocsf_cast(ocsf_derive(ocsf))` for an event in a field.
+
+OCSF mapping tests call `ocsf_cast` to report missing required fields and
+object-constraint violations as warnings in the test output. Mappers preserve
+known classes and activities when context is incomplete. Optional objects are
+built from source identities, and unused source fields remain in `unmapped`.
+Base Events are selected explicitly for unsupported source observations.
+Agent file/process events without host identity warn to provide the OTel
+resource attribute `host.name` or `host.id`.
+
 ## ⚖️ License
 
 The Tenzir Library is licensed under the [Apache License 2.0](LICENSE).

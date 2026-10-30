@@ -58,26 +58,8 @@ $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.severity_id = $threat_level[move $event.threat_level_id]? else 1
 // Context
-$ocsf.actor = {
-  app_name: "Tenzir",
-  process: {
-    name: "MISP",
-  },
-  user: {
-    // Creator org of the MISP event.
-    org: {
-      name: move $event.Orgc.name?,
-      uid: move $event.Orgc.uuid?,
-    }
-  }
-}
-if $event.Org? != null {
-  // Org currently owning the MISP event.
-  $ocsf.actor.process.user.org = {
-    name: move $event.Org.name?,
-    uid: move $event.Org.uuid?,
-  }
-}
+// The publisher is an application; source organizations remain in residue.
+$ocsf.actor = {application: {name: "MISP"}}
 $ocsf.metadata = {
   product: {
     name: "MISP",
@@ -93,9 +75,6 @@ $ocsf.message = move $event.info
 $ocsf.osint = $event.Attribute.map(x => {
   category: x.category,
   created_time: from_epoch(int(x.timestamp) * 1s),
-  creator: {
-    org: $ocsf.actor.user.org, // Orgc
-  },
   desc: x.comment,
   external_uid: x.uuid,
   severity_id: $ocsf.severity_id,

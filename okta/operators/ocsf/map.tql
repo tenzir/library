@@ -37,17 +37,22 @@ $ocsf.metadata = {
   profiles: ["cloud"],
   version: "1.9.0",
   loggers: [{
+    name: "Okta",
     event_uid: move $event.uuid?,
   }],
 }
 
 $ocsf.http_request = {
   uid: move $event.debugContext.debugData.requestId?,
-  url: {
+  url: null,
+}
+if $event.debugContext.debugData.url? != null {
+  $ocsf.http_request.url = {
     path: move $event.debugContext.debugData.url?,
     hostname: move $event.debugContext.debugData.authnRequestId? else move $event.debugContext.debugData.origin?,
-  },
+  }
 }
+
 if $event.client.userAgent? != null {
   $ocsf.http_request.user_agent = move $event.client.userAgent.rawUserAgent?
 }
@@ -63,20 +68,29 @@ let $actor_type_id = {
 }
 
 $ocsf.actor = {
-  user: {
+  user: null,
+  session: {
+    uid: $event.authenticationContext.externalSessionId?,
+    uid_alt: move $event.authenticationContext.rootSessionId?,
+  },
+}
+if $event.actor.id? != null or $event.actor.alternateId? != null {
+  $ocsf.actor.user = {
     uid: move $event.actor.id?,
     name: $event.actor.alternateId?.split("@")[0]?,
     domain: $event.actor.alternateId?.split("@")[1]?,
     full_name: string(move $event.actor.displayName?),
     email_addr: move $event.actor.alternateId?,
     type_id: $actor_type_id[$event.actor.type?]? else 99,
-  },
-  session: {
-    uid: $event.authenticationContext.externalSessionId?,
-    uid_alt: move $event.authenticationContext.rootSessionId?,
-  },
+  }
 }
-drop $event.actor?
+
+if $ocsf.actor.user? != null and $event.actor.type? in ["User", "SystemPrincipal"] {
+  drop $event.actor.type
+}
+if $event.actor?.is_empty() == true {
+  drop $event.actor
+}
 
 let $device_type_map = {
   Computer: "Desktop",
@@ -91,14 +105,10 @@ $ocsf.src_endpoint = {
   autonomous_system: {
     number: move $event.securityContext.asNumber?,
   },
-  owner: {
-    org: {
-      name: move $event.securityContext.asOrg?,
-    },
-  },
 }
-$ocsf.src_endpoint.location.isp = move $event.securityContext.isp?
-if $event.client.geographicalContext? != null {
+if $event.client.geographicalContext?.city? != null or
+   $event.client.geographicalContext?.country? != null or
+   $event.client.geographicalContext?.postalCode? != null {
   $ocsf.src_endpoint.location = {
     ...$ocsf.src_endpoint.location?,
     city: move $event.client.geographicalContext.city?,
@@ -295,10 +305,8 @@ drop $event.legacyEventType?
 drop $event.debugContext?.debugData?.threatSuspected?
 drop $event.debugContext?.debugData?.responseTime?
 drop $event.target?
-drop $event.client?
-drop $event.securityContext?
 drop $event.request?
 drop $event.transaction?
 drop $event.authenticationContext?
 
-$ocsf.unmapped = move $event
+$ocsf.unmapped = drop_null_fields(move $event)

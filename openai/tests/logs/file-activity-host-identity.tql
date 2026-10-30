@@ -1,0 +1,42 @@
+// OTel host.name or host.id supplies the device identity for File Activity.
+from {
+  time: 2026-09-10T12:00:00Z,
+  observed_time: 2026-09-10T12:00:00Z,
+  trace_id: null,
+  span_id: null,
+  severity_number: 0,
+  severity_text: null,
+  flags: 1,
+  resource: {attributes: {"service.name": "codex_cli_rs"}},
+  scope: {name: "codex_otel.log_only"},
+  receiver: {transport: "grpc"},
+  body: null,
+  attributes: {
+    "event.name": "codex.tool_result",
+    tool_name: "Delete",
+    call_id: "synthetic-delete-success",
+    arguments: "{\"file_path\":\"/tmp/example.txt\"}",
+    success: "true",
+  },
+}
+hosts = [{name: null, uid: null}, {name: "", uid: ""}, {name: "test-host", uid: null},
+         {name: null, uid: "test-host-id"}, {name: "test-host", uid: "test-host-id"}]
+unroll hosts
+resource.attributes = {...resource.attributes, "host.name": hosts.name, "host.id": hosts.uid}
+@name = "otel.log"
+openai::codex::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+assert class_uid == 1001
+assert @name == "ocsf.file_activity"
+assert file.is_deleted == true
+if device? != null {
+  assert device.hostname? == "test-host" or device.uid? == "test-host-id"
+}
+
+this = {
+  class_uid: class_uid,
+  hostname: device?.hostname?,
+  host_uid: device?.uid?,
+  deleted: file.is_deleted,
+}
+sort class_uid, hostname, host_uid

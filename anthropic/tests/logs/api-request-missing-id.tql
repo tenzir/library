@@ -1,0 +1,27 @@
+// An API request without an ID retains its data under the original key.
+from_file f"{env("TENZIR_INPUTS")}/../security/tool-decision.input" {
+  read_json
+}
+head 1
+attributes = {
+  "event.name": "tool_result",
+  tool_name: "mcp__example__read",
+  tool_input: "{\"query\":\"request-data-sentinel\"}",
+  success: "true",
+}
+request_ids = [null, "reported-request-id"]
+unroll request_ids
+attributes.tool_use_id = request_ids
+attributes.call_id = request_ids
+@name = "otel.log"
+anthropic::claude_code::ocsf::normalize include_content=true
+this = ocsf_cast(ocsf_derive(this))
+assert class_uid == 6003
+assert (api.request?.data?.query? else unmapped?.request_data?.query?) == "request-data-sentinel"
+this = {
+  class_uid: class_uid,
+  request_uid: api.request?.uid?,
+  mapped_data: api.request?.data?,
+  unmapped_data: unmapped?.request_data?,
+}
+sort request_uid

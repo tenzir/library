@@ -7,9 +7,14 @@ from_file f"{env("TENZIR_INPUTS")}/../logs/permission-mode.input" {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
-select time, class_name, activity_name, message, status, severity, privileges,
-       session.uid, from_mode=unmapped.permission_from?,
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...unmapped?,
+}
+select time, class_name, activity_name, message, status, severity, details.privileges?,
+       details.session?.uid?, from_mode=unmapped.permission_from?,
        trigger=unmapped.permission_trigger?
 sort time

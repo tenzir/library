@@ -51,21 +51,28 @@ $event.ocsf.http_response = {
 }
 $event.ocsf.web_resources = [
   {
-    url_string: $event.ocsf.http_request.url.url_string?,
-  },
+  url_string: $event.ocsf.http_request.url.url_string?,
+},
 ]
-$event.ocsf.src_endpoint = {
-  ip: move $event.cim.src_ip?,
+if $event.cim.src_ip? != null {
+
+  $event.ocsf.src_endpoint = {
+    ip: move $event.cim.src_ip?,
+  }
 }
 $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
 $event.ocsf.actor = {
   app_name: move $event.cim.app?,
-  user: {
-    name: move $event.cim.user?,
-  },
+  user: null,
 }
+if $event.cim.user? != null {
+  $event.ocsf.actor.user = {
+    name: move $event.cim.user?,
+  }
+}
+
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.web_resource_access_activity"
-$event = {...$event.ocsf, unmapped: $event.cim}
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.cim)}

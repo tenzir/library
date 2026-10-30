@@ -12,21 +12,18 @@ args:
 
 // Hook groups report no PID or execution ID, so lifecycle pairing remains ambiguous.
 $ocsf._mapping.hook_completed = $claude_code.event_name == "hook_execution_complete"
-$ocsf._mapping.hook_name = move $claude_code.hook_name? else $claude_code.hook_event? else "Unknown"
+$ocsf._mapping.hook_name = $claude_code.hook_name? else $claude_code.hook_event? else "Unknown"
 $ocsf.category_uid = 1
 $ocsf.class_uid = 1007
+@name = "ocsf.process_activity"
 $ocsf.activity_id = 2 if $ocsf._mapping.hook_completed else 1
 $ocsf.launch_type_id = 0 if not $ocsf._mapping.hook_completed else null
-$ocsf.process = {
-  name: $ocsf._mapping.hook_name,
-  cmd_line: "",
-  created_time: $claude_code.time if not $ocsf._mapping.hook_completed else null,
-  terminated_time: $claude_code.time if $ocsf._mapping.hook_completed else null,
-}
+
 $ocsf.message = f"Agent hook {$ocsf._mapping.hook_name} " + (
   ("completed" if $claude_code.success? != false else "failed") if $ocsf._mapping.hook_completed else "started")
 $ocsf.actor = $ocsf._mapping.actor
-$ocsf.device = $ocsf._mapping.device
-$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 4}
+anthropic::claude_code::ocsf::device $claude_code, $ocsf
+anthropic::claude_code::ocsf::message_context $claude_code, $ocsf
+$ocsf.message_context.ai_role_id = 4
 $ocsf.metadata.profiles = ["ai_operation"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+anthropic::claude_code::ocsf::ai_agent $claude_code, $ocsf

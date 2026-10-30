@@ -24,14 +24,14 @@ $ocsf.metadata = {
   log_format: $transports[$claude_code.transport?]? else "OTLP",
   log_provider: "OpenTelemetry",
   log_source: $claude_code.scope.name?,
-  log_level: $claude_code.severity_text?,
+  log_level: move $claude_code.severity_text?,
   logged_time: $claude_code.observed_time?,
   // Only span_id identifies a source record; tool-call IDs identify shared invocations.
   original_event_uid: $claude_code.span_id? if $claude_code.signal? == "trace" else null,
   // Correlate by prompt/turn; keep session, invocation, and trace IDs separate.
   correlation_uid: $claude_code.prompt_id? if ($claude_code.prompt_id? else "") != "" else null,
-  sequence: $claude_code.event_sequence?,
-  tenant_uid: $claude_code.organization_id?,
+  sequence: move $claude_code.event_sequence?,
+  tenant_uid: move $claude_code.organization_id?,
   product: {
     name: "Claude Code",
     vendor_name: "Anthropic",
@@ -42,11 +42,14 @@ $ocsf.metadata = {
 
 // Instrumentation-scope version is the logger version, not the application
 // or event-schema version.
-$ocsf.metadata.loggers = [{
-  name: move $claude_code.scope.name?,
-  version: move $claude_code.scope.version?,
-  log_provider: "OpenTelemetry",
-}]
+if $claude_code.scope.name? != null {
+  $ocsf.metadata.loggers = [{
+    name: move $claude_code.scope.name?,
+    version: move $claude_code.scope.version?,
+    log_provider: "OpenTelemetry",
+  }]
+}
+
 
 $ocsf.time = $claude_code.time? else $claude_code.start_time? else $claude_code.observed_time?
 // Top-level timing describes aggregates; discrete events use time and trace timing.
@@ -107,22 +110,24 @@ $ocsf._mapping.actor = {
     terminal: $claude_code.terminal_type?,
   },
   user: {
-    uid: $claude_code.user_id?,
+    uid: $claude_code.user_id? else $claude_code.user_uid_alt?,
     uid_alt: $claude_code.user_uid_alt?,
     email_addr: $claude_code.user_email?,
-  },
+  } if $claude_code.user_id? != null or $claude_code.user_uid_alt? != null else null,
 }
 // Device requires host identity. Service names and collector peer IPs are not hosts.
 $ocsf._mapping.device = {
-  hostname: $claude_code.resource.host_name?,
-  name: $claude_code.resource.host_name?,
+  uid: $claude_code.resource.host_id? if $claude_code.resource.host_id? != "" else null,
+  hostname: $claude_code.resource.host_name? if $claude_code.resource.host_name? != "" else null,
+  name: $claude_code.resource.host_name? if $claude_code.resource.host_name? != "" else null,
   os: {
+    type_id: 0,
     name: $claude_code.resource.os_type?,
     version: $claude_code.resource.os_version?,
   } if $claude_code.resource.os_type? != null else null,
   // Host type is required but not reported.
   type_id: 0,
-} if $claude_code.resource.host_name? != null else null
+} if ($claude_code.resource.host_name? else "") != "" or ($claude_code.resource.host_id? else "") != "" else null
 $ocsf._mapping.message_context = {
   uid: $claude_code.session_id?,
   name: $claude_code.prompt_id?,
@@ -146,4 +151,19 @@ $ocsf._mapping.ai_agent = {
     name: $claude_code.model,
     ai_provider: $claude_code.provider? else "Anthropic",
   } if ($claude_code.model? else "") != "" else null,
+}
+
+// Every mapped event carries this actor; consume only the identity we built.
+drop $claude_code.session_id?, $claude_code.terminal_type?
+if $ocsf._mapping.actor.user? != null {
+  drop $claude_code.user_id?, $claude_code.user_uid_alt?, $claude_code.user_email?
+}
+
+if ($claude_code.prompt_id? else "") != "" {
+  drop $claude_code.prompt_id
+}
+
+// Product version selected app_version only when no service version was reported.
+if $claude_code.resource.service_version? == null {
+  drop $claude_code.app_version?
 }

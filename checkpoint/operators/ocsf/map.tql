@@ -61,8 +61,15 @@ $ocsf.time = move $event.time? else move $event.syslog?.timestamp?
 $ocsf.message = move $event.message_info? else $event.action?
 // Prefer the Check Point payload hostname over the syslog header hostname,
 // because forwarded syslog headers often identify a relay.
-$ocsf.device.hostname = (move $event.hostname? else move $event.syslog?.hostname?).string()
-$ocsf.device.ip = move $event.origin?
+if $event.hostname? != null or $event.origin? != null or $event.syslog?.hostname? != null {
+  $ocsf.device.type_id = 0
+  if $event.hostname? != null {
+    $ocsf.device.hostname = (move $event.hostname).string()
+  } else {
+    $ocsf.device.hostname = (move $event.syslog?.hostname?).string()
+  }
+  $ocsf.device.ip = move $event.origin?
+}
 
 match @name {
   "checkpoint.firewall.threat" | "checkpoint.firewall.detection" => {
@@ -107,7 +114,8 @@ match @name {
 
 
 // Observation points are network-class attributes, not finding attributes.
-if $ocsf.category_uid == 4 and $ocsf.class_uid != 4009 {
+if $ocsf.category_uid == 4 and $ocsf.class_uid != 4009 and
+   ($ocsf.device?.hostname? != null or $event.ifname? != null) {
   $ocsf.observation_point_id = 3
   $ocsf.network_observation_point = {
     hostname: $ocsf.device.hostname?,

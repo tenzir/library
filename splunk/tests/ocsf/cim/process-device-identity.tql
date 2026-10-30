@@ -1,0 +1,19 @@
+from {case: "device", dest: "workstation-1", os: "Linux", process: "/bin/example"},
+     {case: "process", process_id: 123, process_exec: "example", os: "Linux"},
+     {case: "both", dest: "workstation-1", process_id: 123, process_exec: "example", os: "Linux"}
+this = {...this, tag: ["process", "report"], _time: 2026-01-01, action: "start"}
+splunk::ocsf::from_cim
+assert class_uid == 1007
+if unmapped.case == "device" {
+  assert device.hostname == "workstation-1"
+  assert process? == null
+  assert unmapped.process == "/bin/example"
+} else if unmapped.case == "process" {
+  assert device? == null
+  assert process.pid == 123
+  assert unmapped.os == "Linux"
+} else {
+  assert device.hostname == "workstation-1"
+  assert process.pid == 123
+}
+select class_uid, device?, process?, unmapped

@@ -1,0 +1,15 @@
+// Ports without an address are retained as source fields, including NAT ports.
+from {
+  netflow: {version: 10, record_type: "flow", export_time: 2026-09-10T12:00:00Z},
+  source_transport_port: 53,
+  post_napt_source_transport_port: 3128,
+  destination_ipv4_address: 192.0.2.1,
+}
+this = {source: this, ocsf: {}}
+netflow::ocsf::map source, ocsf
+ocsf = ocsf_cast(ocsf_derive(ocsf))
+assert ocsf.class_uid == 4001
+assert ocsf.src_endpoint? == null
+assert ocsf.unmapped.source_transport_port == 53
+assert ocsf.unmapped.post_napt_source_transport_port == 3128
+select ocsf.class_uid, ocsf.unmapped.source_transport_port, ocsf.unmapped.post_napt_source_transport_port

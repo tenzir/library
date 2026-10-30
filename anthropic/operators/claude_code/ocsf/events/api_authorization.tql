@@ -14,20 +14,24 @@ args:
 $ocsf._mapping.decision_operation = $claude_code.api_operation? else $claude_code.tool_name? else $claude_code.event_name
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6003
+@name = "ocsf.api_activity"
 $ocsf.activity_id = 99
 $ocsf.activity_name = "Authorize"
 // tool_source describes provisioning, not the serving API.
 $ocsf.api = {
   operation: $ocsf._mapping.decision_operation,
-  request: {
-    uid: move $claude_code.tool_use_id?,
-  },
+
 }
-if $claude_code.request_data? != null {
-  $ocsf.api.request.data = move $claude_code.request_data
-  drop $claude_code.tool_input?,
-       $claude_code.tool_parameters?,
-       $claude_code.arguments?
+if $claude_code.tool_use_id? != null {
+  $ocsf.api.request.uid = move $claude_code.tool_use_id
+}
+if $ocsf.api.request?.uid? != null {
+  if $claude_code.request_data? != null {
+    $ocsf.api.request.data = move $claude_code.request_data
+    drop $claude_code.tool_input?,
+         $claude_code.tool_parameters?,
+         $claude_code.arguments?
+  }
 }
 $ocsf._mapping.decision_parts = $ocsf._mapping.decision_operation.split("__") if $ocsf._mapping.decision_operation.starts_with("mcp__") else []
 $ocsf._mapping.decision_server = $claude_code.api_service? else
@@ -45,6 +49,19 @@ $ocsf.src_endpoint = {
 $ocsf.message = f"Tool call {$ocsf._mapping.decision_operation} " + (
   "allowed" if $ocsf._mapping.decision_status_id == 1 else
   "denied" if $ocsf._mapping.decision_status_id == 2 else "decided")
-$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 3}
+anthropic::claude_code::ocsf::message_context $claude_code, $ocsf
+$ocsf.message_context.ai_role_id = 3
 $ocsf.metadata.profiles = ["ai_operation"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+anthropic::claude_code::ocsf::ai_agent $claude_code, $ocsf
+
+// These source values selected the emitted API operation.
+drop $claude_code.api_operation?, $claude_code.remote_tool?
+if $claude_code.api_service? != null and $ocsf.api.service?.name? == $claude_code.api_service {
+  drop $claude_code.api_service
+}
+if $claude_code.server_name? != null and $ocsf.api.service?.name? == $claude_code.server_name {
+  drop $claude_code.server_name
+}
+if $claude_code.resource.host_name? != null and $ocsf.src_endpoint.hostname? == $claude_code.resource.host_name {
+  drop $claude_code.resource.host_name
+}

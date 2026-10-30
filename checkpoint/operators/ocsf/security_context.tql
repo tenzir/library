@@ -34,7 +34,7 @@ let $connection_direction_ids = {
   Incoming: 1,
   Outgoing: 2,
 }
-$ocsf.connection_info.direction_id = $connection_direction_ids[move $event.conn_direction?]?
+$ocsf.connection_info.direction_id = $connection_direction_ids[move $event.conn_direction?]? else 0
 if $event.inzone? != null and $event.outzone? != null {
   if $event.inzone == "Internal" and $event.outzone == "Internal" {
     $ocsf.connection_info.direction_id = 3
@@ -50,11 +50,15 @@ $ocsf.src_endpoint = {
   port: move $event.s_port?,
   hostname: move $event.sname?,
   zone: move $event.inzone?,
-  proxy_endpoint: {
+  proxy_endpoint: null,
+}
+if $event.snatip? != null {
+  $ocsf.src_endpoint.proxy_endpoint = {
     ip: move $event.snatip?,
     port: move $event.snatport?,
-  },
+  }
 }
+
 $ocsf.dst_endpoint = {
   ip: move $event.dst?,
   port: move $event.service?,
@@ -62,12 +66,18 @@ $ocsf.dst_endpoint = {
   hostname: move $event.dname?,
   domain: move $event.dst_domain_name?,
   zone: move $event.outzone?,
-  proxy_endpoint: {
+  proxy_endpoint: null,
+}
+if $event.dnatip? != null {
+  $ocsf.dst_endpoint.proxy_endpoint = {
     ip: move $event.dnatip?,
     port: move $event.dnatport?,
-  },
+  }
 }
-$ocsf.actor.user.name = move $event.user?
+
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
+}
 if $event.app_name? != null {
   $ocsf.app_name = move $event.app_name
 }

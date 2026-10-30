@@ -4,9 +4,14 @@ from_file env("TENZIR_INPUT") {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize include_content=true
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...unmapped?,
+}
 select time, metadata.event_code, metadata.profiles, class_name,
-       activity_name, api?.operation?, script?.uid?, action, disposition,
-       policy?, authorizations, status, severity
+       activity_name, details.api?.operation?, details.script?.uid?, details.action_id?, details.disposition_id?,
+       details.policy?, details.authorizations?, status, severity
 sort time

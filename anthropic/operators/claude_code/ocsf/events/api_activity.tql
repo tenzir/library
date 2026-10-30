@@ -30,6 +30,7 @@ $ocsf._mapping.api_activity_id = 2 if $ocsf._mapping.http_verb in ["get", "head"
                    99
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6003
+@name = "ocsf.api_activity"
 $ocsf.activity_id = $ocsf._mapping.api_activity_id
 // A wait for approval is neither the authorization nor the invocation.
 $ocsf.activity_name = "Invoke" if $ocsf._mapping.api_activity_id == 99 and ($claude_code.tool_name? else "") != "" else
@@ -39,15 +40,19 @@ $ocsf.activity_name = "Invoke" if $ocsf._mapping.api_activity_id == 99 and ($cla
 // Use the observed capability as api.operation; do not invent an MCP protocol method.
 $ocsf.api = {
   operation: $ocsf._mapping.api_operation,
-  request: {
-    uid: move $claude_code.request_id? else move $claude_code.tool_use_id?,
-  },
 }
-if $claude_code.request_data? != null {
-  $ocsf.api.request.data = move $claude_code.request_data
-  drop $claude_code.tool_input?,
-       $claude_code.tool_parameters?,
-       $claude_code.arguments?
+if $claude_code.request_id? != null {
+  $ocsf.api.request.uid = move $claude_code.request_id
+} else if $claude_code.tool_use_id? != null {
+  $ocsf.api.request.uid = move $claude_code.tool_use_id
+}
+if $ocsf.api.request?.uid? != null {
+  if $claude_code.request_data? != null {
+    $ocsf.api.request.data = move $claude_code.request_data
+    drop $claude_code.tool_input?,
+         $claude_code.tool_parameters?,
+         $claude_code.arguments?
+  }
 }
 $ocsf.message = "User prompted the agent" if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] else
                       "Agent responded to the user" if $claude_code.event_name == "assistant_response" else
@@ -99,12 +104,10 @@ $ocsf._mapping.total_tokens = $claude_code.input_tokens + $claude_code.output_to
                 $claude_code.input_tokens? != null and
                 $claude_code.output_tokens? != null else
                 null
-$ocsf.message_context = {
-  ...$ocsf._mapping.message_context,
-  prompt_tokens: move $claude_code.input_tokens?,
-  completion_tokens: move $claude_code.output_tokens?,
-  total_tokens: $ocsf._mapping.total_tokens,
-}
+anthropic::claude_code::ocsf::message_context $claude_code, $ocsf
+$ocsf.message_context.prompt_tokens = move $claude_code.input_tokens?
+$ocsf.message_context.completion_tokens = move $claude_code.output_tokens?
+$ocsf.message_context.total_tokens = $ocsf._mapping.total_tokens
 // OCSF has no field for the conversation content hash.
 if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] {
   $ocsf.message_context.prompt_text = move $claude_code.content?
@@ -112,7 +115,7 @@ if $claude_code.event_name in ["user_prompt", "claude_code.interaction"] {
   $ocsf.message_context.response_text = move $claude_code.content?
 }
 $ocsf.metadata.profiles = ["ai_operation"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+anthropic::claude_code::ocsf::ai_agent $claude_code, $ocsf
 if ($claude_code.trace_id? else "") != "" {
   $ocsf.trace = {
     uid: move $claude_code.trace_id,
@@ -135,4 +138,22 @@ if ($claude_code.trace_id? else "") != "" {
     }
   }
   $ocsf.metadata.profiles = ["ai_operation", "trace"]
+}
+
+// These source values selected the emitted API operation.
+drop $claude_code.api_operation?, $claude_code.remote_tool?, $claude_code.http_method?
+if $claude_code.api_service? != null and $ocsf.api.service?.name? == $claude_code.api_service {
+  drop $claude_code.api_service
+}
+if $claude_code.server_name? != null and $ocsf.api.service?.name? == $claude_code.server_name {
+  drop $claude_code.server_name
+}
+if $claude_code.resource.host_name? != null and $ocsf.src_endpoint.hostname? == $claude_code.resource.host_name {
+  drop $claude_code.resource.host_name
+}
+if $ocsf.dst_endpoint?.hostname? != null {
+  drop $claude_code.server_address?, $claude_code.server_port?
+}
+if $ocsf.resources? != null {
+  drop $claude_code.target_resource_type?
 }

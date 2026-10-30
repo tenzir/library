@@ -36,19 +36,26 @@ splunk::ocsf::cim::helpers::common event=$event
 $event.ocsf.duration = (move $event.cim.duration?).seconds().count_milliseconds().round()
 $event.ocsf.tunnel_type = move $event.cim.signature?
 $event.ocsf.tunnel_type_id = int(move $event.cim.signature_id?)
-$event.ocsf.src_endpoint = {
-  hostname: move $event.cim.src_dns? else move $event.cim.src_nt_host?,
-  ip: move $event.cim.src_ip?,
-  mac: move $event.cim.src_mac?,
+if $event.cim.src_dns? != null or $event.cim.src_nt_host? != null or $event.cim.src_ip? != null {
+
+  $event.ocsf.src_endpoint = {
+    hostname: move $event.cim.src_dns? else move $event.cim.src_nt_host?,
+    ip: move $event.cim.src_ip?,
+    mac: move $event.cim.src_mac?,
+  }
 }
-$event.ocsf.dst_endpoint = {
-  hostname: move $event.cim.dest_dns? else move $event.cim.dest_nt_host?,
-  ip: move $event.cim.dest_ip?,
-  mac: move $event.cim.dest_mac?,
+if $event.cim.dest_dns? != null or $event.cim.dest_nt_host? != null or $event.cim.dest_ip? != null {
+
+  $event.ocsf.dst_endpoint = {
+    hostname: move $event.cim.dest_dns? else move $event.cim.dest_nt_host?,
+    ip: move $event.cim.dest_ip?,
+    mac: move $event.cim.dest_mac?,
+  }
 }
 if $event.cim.dvc? != null {
   $event.ocsf.metadata.profiles = ["host"]
   $event.ocsf.device = {
+    type_id: 0,
     hostname: move $event.cim.dvc,
   }
 }
@@ -59,4 +66,4 @@ $event.ocsf.user = {
 // --- Finalize ---------------------------------
 
 @name = "ocsf.tunnel_activity"
-$event = {...$event.ocsf, unmapped: $event.cim}
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.cim)}

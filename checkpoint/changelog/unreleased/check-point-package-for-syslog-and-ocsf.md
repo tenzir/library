@@ -3,9 +3,9 @@ title: Check Point package for syslog and OCSF
 type: feature
 authors:
   - mavam
-  - codex
 prs:
   - 147
+  - 208
 created: 2026-05-28T10:01:09Z
 ---
 
@@ -26,8 +26,8 @@ from "udp://0.0.0.0:514" {
 }
 checkpoint::syslog::parse_structured_data
 checkpoint::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
 ```
 
 The syslog parser entry points are explicit for each configured feed format.

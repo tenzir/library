@@ -6,10 +6,15 @@ from_file f"{env("TENZIR_INPUTS")}/../logs/file-tools.input" {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize include_content=true
-ocsf_derive
-ocsf_cast
-select time, class_name, activity_name, message, status, status_detail?,
-       severity, action?, disposition?, file.path, file.name, file.type,
-       file_diff?, tool_use_id=unmapped.tool_use_id,
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...unmapped?,
+}
+select time, class_name, activity_name, message, status, details.status_detail?,
+       severity, details.action_id?, details.disposition_id?, details.file?.path?, details.file?.name?, details.file?.type_id?,
+       details.file_diff?, tool_use_id=unmapped.tool_use_id,
        tool_name=unmapped.tool_name?
 sort time

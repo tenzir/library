@@ -1,13 +1,12 @@
-strict {
-  from_file f"{env("TENZIR_INPUTS")}/dns.log" {
-    read_json
-    this = this.unflatten(".")
-  }
-  TTLs = TTLs.map(ttl => ttl.seconds())
-  rcode = uint(rcode)
-  this = {source: this, ocsf: {}}
-  zeek::ocsf::map source, ocsf
-  assert ocsf.answers.map(answer => answer.ttl) == [300, 140]
-  assert ocsf.rcode_id == 0
+from_file f"{env("TENZIR_INPUTS")}/dns.log" {
+  read_json
+  this = this.unflatten(".")
 }
+TTLs = TTLs.map(ttl => ttl.seconds())
+rcode = uint(rcode)
+this = {source: this, ocsf: {}}
+zeek::ocsf::map source, ocsf
+ocsf = ocsf_cast(ocsf_derive(ocsf))
+assert ocsf.answers.map(answer => answer.ttl) == [300, 140]
+assert ocsf.rcode_id == 0
 this = {ttls: ocsf.answers.map(answer => answer.ttl), rcode_id: ocsf.rcode_id}

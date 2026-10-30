@@ -4,9 +4,14 @@ from_file env("TENZIR_INPUT") {
 }
 @name = "otel.log"
 openai::codex::ocsf::normalize include_content=true
-ocsf_derive
-ocsf_cast
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...unmapped?,
+}
 where metadata.event_code == "codex.conversation_starts"
 select time, metadata.event_code, metadata.profiles, class_name,
-       activity_name, severity, privileges, user, session, ai_agent,
+       activity_name, severity, details.privileges?, details.user?, details.session?, details.ai_agent?,
        unmapped.mcp_servers

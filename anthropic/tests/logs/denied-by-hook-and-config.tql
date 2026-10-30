@@ -8,8 +8,13 @@ from_file f"{env("TENZIR_INPUTS")}/../logs/denied-by-hook-and-config.input" {
 }
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
-select time, class_name, activity_name, message, status, severity, action,
-       disposition, policy, authorizations, process.uid, process.cmd_line
+this = ocsf_derive(this)
+this = ocsf_cast(this)
+// Inspect retained mapping facts separately from the validated event.
+details = {
+  ...this,
+  ...unmapped?,
+}
+select time, class_name, activity_name, message, status, severity, details.action_id?,
+       details.disposition_id?, details.policy?, details.authorizations?, details.process?.uid?, details.process?.cmd_line?
 sort time

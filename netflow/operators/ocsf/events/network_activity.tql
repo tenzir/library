@@ -68,56 +68,78 @@ $ocsf.traffic.end_time = $ocsf.traffic.end_time else (
 $ocsf.time = $ocsf.traffic.start_time else
                    $ocsf.traffic.end_time else
                    $event.netflow.export_time?
-$ocsf.traffic.timespan.duration = count_milliseconds(
-  $ocsf.traffic.end_time? - $ocsf.traffic.start_time?
-).round()
+if $ocsf.traffic.start_time? != null and $ocsf.traffic.end_time? != null {
+  $ocsf.traffic.timespan.duration = count_milliseconds(
+    $ocsf.traffic.end_time - $ocsf.traffic.start_time
+  ).round()
+}
 
 // --- OCSF: primary attributes -----------------
 
-$ocsf.src_endpoint = {
-  ip: (
-    (move $event.source_ipv6_address?)
-    if $event.ip_version? == 6
-  ) else (move $event.source_ipv4_address?) else
-         (move $event.source_ipv6_address?),
-  port: move $event.source_transport_port?,
-  interface_uid: (move $event.ingress_interface?).string(),
-  vlan_uid: (move $event.dot1q_vlan_id?).string(),
-  mac: move $event.source_mac_address?,
-  autonomous_system: {
-    number: move $event.bgp_source_as_number?,
-  },
-  proxy_endpoint: {
-    ip: (
-      (move $event.post_nat_source_ipv6_address?)
-      if $event.ip_version? == 6
-    ) else (move $event.post_nat_source_ipv4_address?) else
-           (move $event.post_nat_source_ipv6_address?),
-    port: move $event.post_napt_source_transport_port?,
-  },
+if $event.source_ipv4_address? != null or $event.source_ipv6_address? != null or $event.ingress_interface? != null {
+  $ocsf.src_endpoint = {
+    port: move $event.source_transport_port?,
+    interface_uid: (move $event.ingress_interface?).string(),
+    vlan_uid: (move $event.dot1q_vlan_id?).string(),
+    mac: move $event.source_mac_address?,
+    autonomous_system: {
+      number: move $event.bgp_source_as_number?,
+    } if $event.bgp_source_as_number? != null else null,
+    proxy_endpoint: null,
+  }
+  if $event.ip_version? == 6 and $event.source_ipv6_address? != null {
+    $ocsf.src_endpoint.ip = move $event.source_ipv6_address
+  } else if $event.source_ipv4_address? != null {
+    $ocsf.src_endpoint.ip = move $event.source_ipv4_address
+  } else if $event.source_ipv6_address? != null {
+    $ocsf.src_endpoint.ip = move $event.source_ipv6_address
+  }
+  if $event.post_nat_source_ipv4_address? != null or $event.post_nat_source_ipv6_address? != null {
+    $ocsf.src_endpoint.proxy_endpoint = {
+      port: move $event.post_napt_source_transport_port?,
+    }
+    if $event.ip_version? == 6 and $event.post_nat_source_ipv6_address? != null {
+      $ocsf.src_endpoint.proxy_endpoint.ip = move $event.post_nat_source_ipv6_address
+    } else if $event.post_nat_source_ipv4_address? != null {
+      $ocsf.src_endpoint.proxy_endpoint.ip = move $event.post_nat_source_ipv4_address
+    } else if $event.post_nat_source_ipv6_address? != null {
+      $ocsf.src_endpoint.proxy_endpoint.ip = move $event.post_nat_source_ipv6_address
+    }
+  }
+
 }
 
-$ocsf.dst_endpoint = {
-  ip: (
-    (move $event.destination_ipv6_address?)
-    if $event.ip_version? == 6
-  ) else (move $event.destination_ipv4_address?) else
-         (move $event.destination_ipv6_address?),
-  port: move $event.destination_transport_port?,
-  interface_uid: (move $event.egress_interface?).string(),
-  vlan_uid: (move $event.post_dot1q_vlan_id?).string(),
-  mac: move $event.destination_mac_address?,
-  autonomous_system: {
-    number: move $event.bgp_destination_as_number?,
-  },
-  proxy_endpoint: {
-    ip: (
-      (move $event.post_nat_destination_ipv6_address?)
-      if $event.ip_version? == 6
-    ) else (move $event.post_nat_destination_ipv4_address?) else
-           (move $event.post_nat_destination_ipv6_address?),
-    port: move $event.post_napt_destination_transport_port?,
-  },
+if $event.destination_ipv4_address? != null or $event.destination_ipv6_address? != null or $event.egress_interface? != null {
+  $ocsf.dst_endpoint = {
+    port: move $event.destination_transport_port?,
+    interface_uid: (move $event.egress_interface?).string(),
+    vlan_uid: (move $event.post_dot1q_vlan_id?).string(),
+    mac: move $event.destination_mac_address?,
+    autonomous_system: {
+      number: move $event.bgp_destination_as_number?,
+    } if $event.bgp_destination_as_number? != null else null,
+    proxy_endpoint: null,
+  }
+  if $event.ip_version? == 6 and $event.destination_ipv6_address? != null {
+    $ocsf.dst_endpoint.ip = move $event.destination_ipv6_address
+  } else if $event.destination_ipv4_address? != null {
+    $ocsf.dst_endpoint.ip = move $event.destination_ipv4_address
+  } else if $event.destination_ipv6_address? != null {
+    $ocsf.dst_endpoint.ip = move $event.destination_ipv6_address
+  }
+  if $event.post_nat_destination_ipv4_address? != null or $event.post_nat_destination_ipv6_address? != null {
+    $ocsf.dst_endpoint.proxy_endpoint = {
+      port: move $event.post_napt_destination_transport_port?,
+    }
+    if $event.ip_version? == 6 and $event.post_nat_destination_ipv6_address? != null {
+      $ocsf.dst_endpoint.proxy_endpoint.ip = move $event.post_nat_destination_ipv6_address
+    } else if $event.post_nat_destination_ipv4_address? != null {
+      $ocsf.dst_endpoint.proxy_endpoint.ip = move $event.post_nat_destination_ipv4_address
+    } else if $event.post_nat_destination_ipv6_address? != null {
+      $ocsf.dst_endpoint.proxy_endpoint.ip = move $event.post_nat_destination_ipv6_address
+    }
+  }
+
 }
 
 // IPFIX `flow_direction` is relative to the observation point, whereas OCSF
@@ -132,10 +154,10 @@ $ocsf.connection_info = {
 $ocsf.connection_info.protocol_ver_id = (
   (move $event.ip_version?).int()
   if $event.ip_version? in [4, 6]
-  else 6 if $ocsf.src_endpoint.ip?.is_v6() or
-            $ocsf.dst_endpoint.ip?.is_v6()
-  else 4 if $ocsf.src_endpoint.ip? != null or
-            $ocsf.dst_endpoint.ip? != null
+  else 6 if $ocsf.src_endpoint?.ip?.is_v6() or
+            $ocsf.dst_endpoint?.ip?.is_v6()
+  else 4 if $ocsf.src_endpoint?.ip? != null or
+            $ocsf.dst_endpoint?.ip? != null
   else 0
 )
 // A NetFlow or IPFIX flow record is unidirectional: its counters describe

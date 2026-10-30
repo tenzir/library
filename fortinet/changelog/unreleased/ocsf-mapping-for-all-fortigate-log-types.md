@@ -3,10 +3,10 @@ title: OCSF mapping for all FortiGate log types
 type: feature
 authors:
   - mavam
-  - claude
 prs:
   - 140
   - 147
+  - 208
 created: 2026-03-21T17:28:46.407793Z
 ---
 
@@ -17,7 +17,7 @@ from_file "fortigate.log" {
   read_lines
 }
 fortinet::fortigate::ocsf::normalize
-ocsf_cast
+this = ocsf_cast(this)
 ```
 
 All major FortiGate log types are covered:
