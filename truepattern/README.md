@@ -46,12 +46,10 @@ The `sigma` operator only accepts constant rules or a path, so rules can't flow
 from the feed into the operator as events. Instead, the walk writes a file,
 and the `sigma` operator reloads it within seconds of every change.
 
-The package requires the `stix` package. The package tests pass with the
-published Tenzir 6.20.0-rc.4, which includes the empty Sigma source and HTTP
-retry fixes (tenzir/mono#771 and tenzir/mono#772). Tenzir 6.20.0-rc.3 predates
-these fixes: it retains obsolete rules when a source becomes empty and fails
-transient HTTP retries under `strict`. Tenzir 6.19.1 can also assert on malformed
-Sigma YAML. No minimum engine version is enforced by the package manifest.
+The package requires the `stix` package and Tenzir 6.20.0 or later. The package
+tests pass with stable Tenzir 6.20.0, which includes the empty Sigma source and
+HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772). No minimum engine version
+is enforced by the package manifest.
 
 The package does not filter execution or onward routing by license metadata.
 Rules fetched through the authenticated API remain eligible when that metadata
@@ -135,8 +133,8 @@ external references as a JSON-encoded YAML comment on the rule, preserving
 source and license references and their descriptions. It skips these kinds of
 rules:
 
-- Rules with invalid YAML, because one invalid document makes the `sigma`
-  operator ignore the complete file.
+- Rules with invalid YAML, so the published snapshot contains only valid YAML
+  documents.
 - Rules with several YAML documents, such as correlation rules. The operator
   warns about each one.
 - Older rules that share a Sigma rule ID with a more recently modified rule,
@@ -306,11 +304,11 @@ the STIX `id` and `modified` time.
 ## Test the package
 
 Use `tenzir-test` 2.3.1 or later. From the library root, select both the CLI
-and node from the validated published Tenzir 6.20.0-rc.4 distribution:
+and node from the validated stable Tenzir 6.20.0 distribution:
 
 ```sh
-TENZIR_BINARY='uvx --from tenzir==6.20.0rc4 tenzir' \
-TENZIR_NODE_BINARY='uvx --from tenzir==6.20.0rc4 tenzir-node' \
+TENZIR_BINARY='uvx --from tenzir==6.20.0 tenzir' \
+TENZIR_NODE_BINARY='uvx --from tenzir==6.20.0 tenzir-node' \
 uvx --refresh 'tenzir-test>=2.3.1' truepattern stix
 ```
 
