@@ -1,0 +1,24 @@
+---
+fixtures: [truepattern_taxii]
+assertions:
+  fixtures:
+    truepattern_taxii:
+      pages: 3
+pre-compare: sort
+---
+
+// Only Sigma rules carry a Sigma rule ID. A rule without a license reference
+// has no license.
+truepattern::feed credential=env("TRUEPATTERN_TEST_CREDENTIAL"),
+  base_url=env("TRUEPATTERN_TEST_URL")
+truepattern::latest
+truepattern::ocsf::normalize
+this = {
+  id: osint[0].external_uid,
+  type: osint[0].detection_pattern_type,
+  type_id: osint[0].detection_pattern_type_id,
+  analytic: osint[0].related_analytics[0],
+  src_url: osint[0].src_url,
+  techniques: osint[0].attacks.map(x => x.sub_technique.uid? else x.technique.uid? else x.tactic.uid?),
+  license: unmapped.external_references.where(x => x.source_name == "rule-vendor-license").first().external_id?,
+}
