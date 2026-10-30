@@ -1,0 +1,11 @@
+from_file f"{env("TENZIR_DEMO_CAPTURE_DIR")}/windows.zst" {
+  decompress_zstd
+  read_ndjson
+}
+where format == "fluent-bit"
+event = raw.parse_json()
+microsoft::windows::ocsf::normalize event, into=ocsf
+ocsf = ocsf_cast(ocsf_derive(ocsf))
+assert ocsf != null
+summarize class_uid=ocsf.class_uid, events=count()
+sort class_uid
