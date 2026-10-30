@@ -29,18 +29,7 @@ $ocsf.finding_info = {
   types: [move $windows.EventData.RuleType?],
 }
 
-if $windows.EventData["Process Name"]? != null {
-  $ocsf.actor.process = {
-    cmd_line: move $windows.EventData["Parent Commandline"]?,
-    path: move $windows.EventData["Process Name"],
-  }
-  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]?
-  $ocsf.actor.process.file = {
-    name: $ocsf.actor.process.name,
-    path: $ocsf.actor.process.path,
-    type_id: 8,
-  }
-}
+// Executable paths alone do not identify a process; keep those source fields.
 if $windows.EventData.User? != null {
   $ocsf.actor.user = {
     name: move $windows.EventData.User,
@@ -57,15 +46,8 @@ if $windows.EventData.Path? != null and $windows.EventData.Path != "" {
       path: $windows.EventData.Path,
       type_id: 8,
     },
-    data: {
-      process: {
-        cmd_line: $windows.EventData["Target Commandline"]?,
-        path: $windows.EventData.Path,
-        name: $windows.EventData.Path.split("\\")[-1]?,
-      },
-    },
   }]
-  drop $windows.EventData.Path, $windows.EventData["Target Commandline"]?
+  drop $windows.EventData.Path
 }
 
 drop $windows.EventData.Unused?
