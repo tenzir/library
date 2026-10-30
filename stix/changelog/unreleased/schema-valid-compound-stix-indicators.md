@@ -1,5 +1,5 @@
 ---
-title: Schema-valid compound STIX indicators
+title: Preserved compound STIX indicator classification
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-STIX indicators with compound patterns now become Base Events because they have no single indicator value required by OCSF OSINT. Unmappable fields, including the detection pattern, retain their own keys in `unmapped`. A creator is emitted only when the source identifies one.
+STIX indicators with compound patterns retain their OSINT Inventory classification and detection pattern. When no single indicator value can be extracted, OCSF validation reports the missing value as a warning. A creator is emitted only when the source identifies one.

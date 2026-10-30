@@ -1,0 +1,25 @@
+from {case: "packet", src_ip: 192.0.2.1, dest_ip: 198.51.100.1, src_port: 50000, dest_port: 443},
+     {case: "flow", src_ip: 192.0.2.1, dest_ip: 198.51.100.1, src_port: 50000, dest_port: 443, flow: {src_port: 50001, dest_port: 8443}},
+     {case: "unidentified", src_port: 50000, dest_port: 443}
+source = {...this, timestamp: 2026-01-01, event_type: "flow", proto: "TCP", flow: {...this.flow?, start: 2026-01-01, end: 2026-01-01, pkts_toserver: 1, pkts_toclient: 1, bytes_toserver: 1, bytes_toclient: 1, age: 0, state: "closed", reason: "timeout", alerted: false}}
+case = source.case
+drop source.case
+ocsf = {}
+suricata::ocsf::map source, ocsf
+if case == "packet" {
+  assert ocsf.src_endpoint.port == 50000
+  assert ocsf.dst_endpoint.port == 443
+  assert ocsf.unmapped.src_port? == null
+  assert ocsf.unmapped.dest_port? == null
+} else if case == "flow" {
+  assert ocsf.src_endpoint.port == 50001
+  assert ocsf.dst_endpoint.port == 8443
+  assert ocsf.unmapped.src_port == 50000
+  assert ocsf.unmapped.dest_port == 443
+} else {
+  assert ocsf.src_endpoint? == null
+  assert ocsf.dst_endpoint? == null
+  assert ocsf.unmapped.src_port == 50000
+  assert ocsf.unmapped.dest_port == 443
+}
+select case, src_endpoint=ocsf.src_endpoint?, dst_endpoint=ocsf.dst_endpoint?, unmapped=ocsf.unmapped

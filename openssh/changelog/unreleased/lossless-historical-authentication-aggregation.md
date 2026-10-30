@@ -10,4 +10,4 @@ prs:
   - 205
 ---
 
-OpenSSH aggregation now retains authentication records when processing bulk historical input and correlating parent and child sessions. Incomplete endpoint details remain in unmapped data. Authentication observations without a user become Base Events with their original mapping preserved.
+OpenSSH aggregation retains authentication records when processing bulk historical input and correlating parent and child sessions. Authentication observations keep their known class and activity when a user is missing. OCSF validation reports the missing user as a warning while preserving the event.

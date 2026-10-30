@@ -1,5 +1,5 @@
 ---
-title: Schema-valid firewall observation context
+title: Source-aware firewall observation context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Firewall normalization now preserves incomplete location, owner, proxy-endpoint, firewall-rule, policy, and evidence-user details in unmapped data. Empty evidence actors are omitted after incomplete users are preserved. Optional context no longer produces OCSF identity-constraint warnings.
+PAN-OS mappings now construct optional locations, endpoint owners, NAT proxies, firewall rules, policies, and evidence users from the corresponding source identities. Unused facts, including human-readable country names, retain their original source keys in `unmapped`.

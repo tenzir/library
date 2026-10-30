@@ -1,5 +1,5 @@
 ---
-title: Schema-valid OCSF network observations
+title: Source-aware OCSF network mappings
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Route 53 and VPC Flow Log normalization now supplies required connection direction identifiers and retains incomplete endpoint details in unmapped data. Flow observations without either endpoint become Base Events, with the original mapping preserved. Unparseable or absent source events use their observation time when no source clock is available.
+Route 53 and VPC Flow Log mappings now construct endpoints only when source identities are available, retaining unused source fields in `unmapped`. Connection direction uses the honest Unknown value when it cannot be determined. VPC `NODATA` and `SKIPDATA` collection statuses become explicit Base Events and retain their cloud profile and account identity. Known network activities keep their classification when required context is missing; OCSF validation reports warnings.

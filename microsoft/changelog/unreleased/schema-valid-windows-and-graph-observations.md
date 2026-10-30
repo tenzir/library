@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Windows and Graph observations
+title: Preserved Windows and Graph activity classification
 type: bugfix
 authors:
   - zedoraps
@@ -8,6 +8,6 @@ prs:
   - 208
 ---
 
-Windows and Microsoft Graph normalization now supplies required identifiers and preserves incomplete optional objects in unmapped data. Windows-specific fields identify the Windows extension. Activities lacking a required actor, device, process, entity, script, or peripheral identity become Base Events with the remaining fields retained directly in `unmapped`.
+Windows and Microsoft Graph mappings now preserve known OCSF classes and activities when required context is missing. Validation reports incomplete actor, process, file, script, or peripheral context as warnings. Windows-specific attributes declare the Windows extension.
 
-File activities without an identifiable file also become Base Events while retaining the observed context.
+Optional identities are built from reported source identifiers. Unused executable paths, user display names, and other context retain their source fields in `unmapped`; they are not promoted into unidentified OCSF objects.

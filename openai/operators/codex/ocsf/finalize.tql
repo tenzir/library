@@ -26,152 +26,70 @@ if $ocsf._mapping.decision_status_id != null {
     }
   }
   $ocsf.metadata.profiles = [...($ocsf.metadata.profiles? else []), "security_control"]
+  drop $codex.decision?
 }
 
-$codex.tool_name = $codex.tool_name? if $ocsf.class_uid == 0 else null
-$codex.model = $codex.model? if $ocsf.class_uid == 0 else null
-drop $codex.scope?
-$codex.resource = {
-  host_arch: $codex.resource.host_arch?,
-  os_type: $codex.resource.os_type?,
-  os_version: $codex.resource.os_version?,
-} if $codex.resource.host_arch? != null or $codex.resource.os_type? != null or $codex.resource.os_version? != null else null
+// Consume shared context only when it was emitted by this event builder.
+drop $codex.event_name?, $codex.time?, $codex.observed_time?, $codex.transport?
+// Attributes duplicate canonical inputs; signal is an internal discriminator.
+drop $codex.attributes?, $codex.resource.service_name?, $codex.resource.service_version?
+// Preserve unselected error details even when their values happen to match.
+if $codex.error? != null {
+  if $ocsf.status_detail? == $codex.error {
+    drop $codex.error
+  }
+} else if $codex.error_type? != null {
+  if $ocsf.status_detail? == $codex.error_type {
+    drop $codex.error_type
+  }
+} else if $codex.status_message? != null {
+  if $ocsf.status_detail? == $codex.status_message {
+    drop $codex.status_message
+  }
+} else if $codex.startup_status? != null {
+  if $ocsf.status_detail? == $codex.startup_status {
+    drop $codex.startup_status
+  }
+} else if $codex.source_status? != null {
+  if $ocsf.status_detail? == $codex.source_status {
+    drop $codex.source_status
+  }
+}
+if $codex.source_status_code? != null and $ocsf.status_code? == $codex.source_status_code.string() {
+  drop $codex.source_status_code
+}
+if $codex.http_status? != null and $ocsf.status_code? == $codex.http_status.string() {
+  drop $codex.http_status
+}
+if $codex.command_exit_code? != null and $ocsf.status_code? == $codex.command_exit_code.string() {
+  drop $codex.command_exit_code
+}
+if $ocsf.policy?.type? == $codex.decision_source? {
+  drop $codex.decision_source?
+}
+if $codex.success? != null {
+  // Status, or tool_success on background requests, carries this outcome.
+  drop $codex.success
+}
 if $codex.signal? == "metric" or $ocsf.trace?.span? != null {
-  // Metric duration already populated the OCSF aggregation window. A mapped
-  // trace duration is on `trace.span.duration` with real span boundaries.
-  drop $codex.duration?
+  drop $codex.duration?, $codex.start_time?, $codex.end_time?
 } else if $codex.duration? != null {
-  // Logs do not carry the span boundaries needed by the Trace profile.
-  // Preserve the provider's explicit unit without using aggregate duration.
   $codex.duration_ms = move $codex.duration
 }
-
-drop $codex.event_name?,
-     $codex.metric_name?,
-     $codex.time?,
-     $codex.observed_time?,
-     $codex.start_time?,
-     $codex.end_time?,
-     $codex.event_sequence?,
-     $codex.session_id?,
-     $codex.turn_id?,
-     $codex.prompt_id?,
-     $codex.user_id?,
-     $codex.user_uid_alt?,
-     $codex.user_email?,
-     $codex.organization_id?,
-     $codex.app_version?,
-     $codex.app_entrypoint?,
-     $codex.terminal_type?,
-     $codex.provider?,
-     $codex.rpc_method?,
-     $codex.rpc_request_id?,
-     $codex.client_name?,
-     $codex.client_version?,
-     $codex.source_status?,
-     $codex.tool_namespace?,
-     $codex.api_operation?,
-     $codex.api_service?,
-     $codex.remote_tool?,
-     $codex.mcp_server?,
-     $codex.request_data?,
-     $codex.target_resource_uris?,
-     $codex.target_resource_type?,
-     $codex.server_name?,
-     $codex.file_path?,
-     $codex.file_name?,
-     $codex.file_operation?,
-     $codex.process_name?,
-     $codex.command?,
-     $codex.command_exit_code?,
-     $codex.command_running?,
-     $codex.decision?,
-     $codex.success?,
-     $codex.request_id?,
-     $codex.http_method?,
-     $codex.http_status?,
-     $codex.server_address?,
-     $codex.server_port?,
-     $codex.startup_status?,
-     $codex.input_tokens?,
-     $codex.output_tokens?,
-     $codex.total_tokens?,
-     // `trace_id` is not dropped here: the API and HTTP branches move it into
-     // `trace.uid`, and on every other class it stays in `unmapped`.
-     $codex.status_code?,
-     $codex.status_message?,
-     $codex.error?,
-     $codex.error_type?,
-     $codex.source_status_code?,
-     $codex.severity_text?,
-     $codex.attributes?,
-     $codex.signal?,
-     $codex.transport?,
-     $codex.decision_source?
-
-// Keep request data under its input key when no request ID was reported.
-if $ocsf.api?.request? != null and $ocsf.api.request.uid? == null {
-  if $ocsf.api.request.data? != null {
-    $codex.request_data = move $ocsf.api.request.data
-  }
-  drop $ocsf.api.request
+drop $codex.signal?
+if $codex.resource? != null and drop_null_fields($codex.resource).is_empty() {
+  drop $codex.resource
 }
-
+if $codex.scope? != null and drop_null_fields($codex.scope).is_empty() {
+  drop $codex.scope
+}
 $ocsf.unmapped = drop_null_fields(move $codex)
 drop $ocsf._mapping
 
-if $ocsf.metadata.loggers?.where(l => l.name? == null and l.uid? == null).length() > 0 {
-  if $ocsf.metadata.loggers[0].version? != null {
-    $ocsf.unmapped.scope.version = $ocsf.metadata.loggers[0].version
-  }
-  $ocsf.metadata.loggers = $ocsf.metadata.loggers.where(l => l.name? != null or l.uid? != null)
-}
-
-// Warn without dropping the event from the main pipeline.
+// Warn once while preserving the known activity and all events.
 fork {
   where $ocsf.category_uid == 1 and $ocsf.device? == null
   head 1
-  assert false, message="Missing host identity for file/process activity: add host.name or host.id to the OpenTelemetry resource attributes (OTEL_RESOURCE_ATTRIBUTES). Emitting a Base Event."
+  assert false, message="Missing host identity for file/process activity: add host.name or host.id to the OpenTelemetry resource attributes (OTEL_RESOURCE_ATTRIBUTES). Host enrichment is required for complete OCSF file/process activity."
   discard
-}
-
-// A system activity needs device identity. Preserve fields under their own
-// keys when the producer omits the identity required by the mapped class.
-if ($ocsf.category_uid == 1 and $ocsf.device? == null) or ($ocsf.class_uid in [3002, 3003] and $ocsf.user? == null) {
-  $ocsf = {
-    ...drop_null_fields({
-      time: $ocsf.time,
-      metadata: {...$ocsf.metadata, profiles: []},
-      message: $ocsf.message?,
-      raw_data: $ocsf.raw_data?,
-      raw_data_size: $ocsf.raw_data_size?,
-      severity_id: $ocsf.severity_id,
-      status_id: $ocsf.status_id?,
-      status_code: $ocsf.status_code?,
-      status_detail: $ocsf.status_detail?,
-      start_time: $ocsf.start_time?,
-      end_time: $ocsf.end_time?,
-      duration: $ocsf.duration?,
-      count: $ocsf.count?,
-    }),
-    category_uid: 0, class_uid: 0, activity_id: 99, type_uid: 99,
-    activity_name: $ocsf.metadata.event_code,
-    unmapped: {
-      ...$ocsf.unmapped?,
-      ...$ocsf.entries().where(entry => entry.value != null and entry.key not in [
-        "time", "metadata", "message", "raw_data",
-        "raw_data_size", "severity_id", "status_id", "status_code",
-        "status_detail", "start_time", "end_time", "duration",
-        "count", "category_uid", "category_name", "class_uid",
-        "class_name", "activity_id", "activity_name", "type_uid",
-        "type_name", "severity", "unmapped",
-      ]).map(entry => {
-        key: entry.key,
-        value: {...entry.value, ...($ocsf.unmapped? else {}).get(entry.key, null)}
-          if type_kind(entry.value) == "record" and type_kind(($ocsf.unmapped? else {}).get(entry.key, null)) == "record"
-          else ($ocsf.unmapped? else {}).get(entry.key, entry.value),
-      }).collect_record().drop_null_fields(),
-    },
-  }
-  @name = "ocsf.base_event"
 }

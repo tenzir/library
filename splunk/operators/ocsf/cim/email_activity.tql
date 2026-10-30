@@ -32,6 +32,7 @@ match $event.cim.action? {
 }
 $event.ocsf.category_uid = 4
 $event.ocsf.class_uid = 4009
+$event.ocsf.direction_id = 0
 splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: occurrence and email attributes ----
@@ -58,18 +59,25 @@ if $event.cim.url? != null {
 }
 if $event.cim.file_name? != null {
   $event.ocsf.email.files = zip(move $event.cim.file_name, [...move $event.cim.file_size?]).map(x => {
+    type_id: 0,
     name: x.left,
     size: x.right,
   })
 }
-$event.ocsf.src_endpoint = {
-  hostname: move $event.cim.src?,
+if $event.cim.src? != null {
+
+  $event.ocsf.src_endpoint = {
+    hostname: move $event.cim.src?,
+  }
 }
-$event.ocsf.dst_endpoint = {
-  hostname: move $event.cim.dest?,
+if $event.cim.dest? != null {
+
+  $event.ocsf.dst_endpoint = {
+    hostname: move $event.cim.dest?,
+  }
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.email_activity"
-$event = {...$event.ocsf, unmapped: $event.cim}
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.cim)}

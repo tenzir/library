@@ -1,5 +1,5 @@
 ---
-title: Schema-valid FortiGate observation context
+title: Source-aware FortiGate observation context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-FortiGate normalization now supplies required device, operating-system, and file type identifiers. Incomplete device, location, and analytic details remain in unmapped data, including location details attached to finding evidence.
+FortiGate mappings now supply required Unknown type identifiers during object construction. Device and analytic objects use reported identities. Country names that cannot populate an OCSF location retain their original source keys in `unmapped`, including when network context becomes finding evidence.

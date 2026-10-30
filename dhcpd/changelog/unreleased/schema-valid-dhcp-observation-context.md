@@ -1,5 +1,5 @@
 ---
-title: Schema-valid DHCP observation context
+title: Preserved DHCP observation context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-DHCP normalization now retains incomplete device and relay details in unmapped data when the source does not identify those objects. This prevents optional context from violating OCSF identity constraints.
+DHCP mappings now construct device and relay objects when the source identifies them. Unused source context remains in `unmapped`, and known DHCP activities retain their classification when required context is incomplete.

@@ -40,10 +40,14 @@ $ocsf.src_endpoint = {
   interface_name: move $event.inbound_interface?,
   hostname: move $event.source_hostname?,
   mac: move $event.source_mac_address?,
-  owner: {
-    name: move $event.source_user?,
-  },
+  owner: null,
 }
+if $event.source_user? != null {
+  $ocsf.src_endpoint.owner = {
+    name: move $event.source_user?,
+  }
+}
+
 $ocsf.dst_endpoint = {
   ip: move $event.destination_address?,
   port: move $event.destination_port?,
@@ -51,10 +55,14 @@ $ocsf.dst_endpoint = {
   interface_name: move $event.outbound_interface?,
   hostname: move $event.destination_hostname?,
   mac: move $event.destination_mac_address?,
-  owner: {
-    name: move $event.destination_user?,
-  },
+  owner: null,
 }
+if $event.destination_user? != null {
+  $ocsf.dst_endpoint.owner = {
+    name: move $event.destination_user?,
+  }
+}
+
 paloalto::ocsf::endpoint_locations $event, $ocsf
 $ocsf.connection_info = {
   direction_id: 0,
@@ -73,9 +81,11 @@ $ocsf.http_request = {
 if $event.category? != null {
   $ocsf.http_request.url.categories = [move $event.category]
 }
-$ocsf.firewall_rule = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+if $event.rule_name? != null or $event.rule_uuid? != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
 }
 if paloalto::$action_ids[$event.action?]? != null {
   $ocsf.action_id = paloalto::$action_ids[$event.action?]?

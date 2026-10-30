@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Check Point observations
+title: Source-aware Check Point observation context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Check Point normalization now supplies required device type and connection direction identifiers. Incomplete user, device, observation-point, and proxy-endpoint details remain in unmapped data instead of producing invalid optional OCSF objects.
+Check Point mappings now supply Unknown device type and connection direction values where the source does not report them. Optional device, user, observation-point, and NAT-proxy objects are constructed from reported identities. Unused details retain their source keys in `unmapped`; missing required context remains visible through OCSF validation warnings.

@@ -8,8 +8,8 @@ description: |
 
   A pattern with a single comparison, such as
   `[ipv4-addr:value = '192.0.2.1']`, yields the indicator value and type. A
-  compound pattern has no single required indicator value, so it becomes a
-  Base Event with the unmapped fields preserved under their own keys.
+  compound pattern retains its detection pattern on OSINT Inventory Info.
+  Validation warns that it has no single required indicator value.
   A revoked indicator gets
   the status `Removed`, which `tenzir::osint::update_context` erases from its
   lookup table.
@@ -122,43 +122,3 @@ drop $stix.confidence?, $stix.observable
 $ocsf.osint = [$ocsf.osint]
 $ocsf.unmapped = move $stix
 @name = "ocsf.osint_inventory_info"
-
-// A compound pattern has no single indicator value required by OSINT.
-if $ocsf.osint[0].value == null {
-  // Keep source facts when the selected class cannot be identified.
-  $ocsf = {
-    ...drop_null_fields({
-      time: $ocsf.time,
-      metadata: {...$ocsf.metadata, profiles: []},
-      message: $ocsf.message?,
-      raw_data: $ocsf.raw_data?,
-      raw_data_size: $ocsf.raw_data_size?,
-      severity_id: $ocsf.severity_id,
-      status_id: $ocsf.status_id?,
-      status_code: $ocsf.status_code?,
-      status_detail: $ocsf.status_detail?,
-      start_time: $ocsf.start_time?,
-      end_time: $ocsf.end_time?,
-      duration: $ocsf.duration?,
-      count: $ocsf.count?,
-    }),
-    category_uid: 0, class_uid: 0, activity_id: 0, type_uid: 0,
-    unmapped: {
-      ...$ocsf.unmapped?,
-      ...$ocsf.entries().where(entry => entry.value != null and entry.key not in [
-        "time", "metadata", "message", "raw_data",
-        "raw_data_size", "severity_id", "status_id", "status_code",
-        "status_detail", "start_time", "end_time", "duration",
-        "count", "category_uid", "category_name", "class_uid",
-        "class_name", "activity_id", "activity_name", "type_uid",
-        "type_name", "severity", "unmapped",
-      ]).map(entry => {
-        key: entry.key,
-        value: {...entry.value, ...($ocsf.unmapped? else {}).get(entry.key, null)}
-          if type_kind(entry.value) == "record" and type_kind(($ocsf.unmapped? else {}).get(entry.key, null)) == "record"
-          else ($ocsf.unmapped? else {}).get(entry.key, entry.value),
-      }).collect_record().drop_null_fields(),
-    },
-  }
-  @name = "ocsf.base_event"
-}

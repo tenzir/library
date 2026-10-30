@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Sophos finding evidence
+title: Preserved Sophos finding evidence
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Sophos normalization now supplies required file type identifiers in events and finding evidence. Evidence processes without a reported process identifier remain in evidence data, preserving their details without creating an invalid OCSF process.
+Sophos mappings now supply required file type identifiers when constructing finding evidence. Process names and command lines without a reported process identifier remain in the original source fields under `unmapped`. Display names without user identity are retained without creating unidentified owners.

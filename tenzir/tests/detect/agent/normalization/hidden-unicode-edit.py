@@ -12,7 +12,7 @@ from_file env("TENZIR_INPUT") {
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize include_content=true
 this = ocsf_cast(ocsf_derive(this))
-assert class_uid == 0
+assert class_uid == 1001
 tenzir::detect::agent::hidden_unicode
 this = ocsf_cast(ocsf_derive(this))
 assert class_uid == 2004

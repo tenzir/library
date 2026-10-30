@@ -1,22 +1,12 @@
-from_file f"{env("TENZIR_INPUTS")}/eid-4663.xml" {
-  read_all
-}
+from_file f"{env("TENZIR_INPUTS")}/eid-4663.xml" { read_all }
 windows = data.parse_winlog()
 windows.EventData.ObjectName = null
 windows.EventData.ProcessId = null
 microsoft::windows::ocsf::normalize windows, into=ocsf
 ocsf = ocsf_cast(ocsf_derive(ocsf))
-assert ocsf.class_uid == 0
-assert not ocsf.unmapped.has("incomplete_activity")
-assert not ocsf.unmapped.has("class_uid")
-assert not ocsf.unmapped.has("metadata")
-assert ocsf.unmapped.actor.user.uid == windows.EventData.SubjectUserSid
-assert ocsf.unmapped.actor.user.name == windows.EventData.SubjectUserName
-assert ocsf.unmapped.actor.session.uid_alt != null
-assert ocsf.unmapped.actor.process.file.path != null
-assert ocsf.unmapped.file.type_id == 0
-this = {
-  class_uid: ocsf.class_uid,
-  retained_file: ocsf.unmapped.file,
-  retained_actor: ocsf.unmapped.actor,
-}
+assert ocsf.class_uid == 1001
+assert ocsf.file? == null
+assert ocsf.actor.user.uid != null
+assert ocsf.actor.session.uid_alt != null
+assert ocsf.unmapped.EventData.ProcessName == windows.EventData.ProcessName
+this = {class_uid: ocsf.class_uid, actor: ocsf.actor, original_process_name: ocsf.unmapped.EventData.ProcessName}

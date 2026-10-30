@@ -15,6 +15,7 @@ $ocsf._mapping.http_method = move $codex.http_method
 $ocsf._mapping.server_address = $codex.server_address.string()
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4002
+@name = "ocsf.http_activity"
 $ocsf.activity_id = $http_activities[$ocsf._mapping.http_method.to_lower()]? else 0
 $ocsf.actor = $ocsf._mapping.actor
 $ocsf.src_endpoint = {
@@ -40,11 +41,12 @@ if $codex.http_status? != null {
   }
 }
 $ocsf.message = f"Agent sent HTTP {$ocsf._mapping.http_method} to {$ocsf._mapping.server_address}"
-$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 4}
+openai::codex::ocsf::message_context $codex, $ocsf
+$ocsf.message_context.ai_role_id = 4
 // HTTP Activity takes `actor` from the Host profile rather than natively,
 // so the profile has to be declared or the actor is dropped on cast.
 $ocsf.metadata.profiles = ["ai_operation", "host"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+openai::codex::ocsf::ai_agent $codex, $ocsf
 if ($codex.trace_id? else "") != "" {
   $ocsf.trace = {
     uid: move $codex.trace_id,

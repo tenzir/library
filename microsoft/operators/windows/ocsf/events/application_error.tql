@@ -21,29 +21,36 @@ $ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
 $ocsf.status_code = move $windows.EventData.ExceptionCode? else move $windows.EventData.param7?
 
-$ocsf.process = {
-  pid: int(move $windows.EventData.ProcessId? else move $windows.EventData.param9?, base=16),
-  path: move $windows.EventData.AppPath? else move $windows.EventData.param11?,
-}
-$ocsf.process.name = $ocsf.process.path?.split("\\")[-1]? else move $windows.EventData.AppName? else move $windows.EventData.param1?
-if $ocsf.process.name? != null {
-  $ocsf.process.file = {
-    name: $ocsf.process.name,
-    path: $ocsf.process.path,
-    type_id: 8,
-    version: (move $windows.EventData.AppVersion? else move $windows.EventData.param2?).string(),
+if $windows.EventData.ProcessId? != null or $windows.EventData.param9? != null {
+  $ocsf.process = {
+    pid: int(move $windows.EventData.ProcessId? else move $windows.EventData.param9?, base=16),
+    path: move $windows.EventData.AppPath? else move $windows.EventData.param11?,
+  }
+  $ocsf.process.name = $ocsf.process.path?.split("\\")[-1]? else move $windows.EventData.AppName? else move $windows.EventData.param1?
+  if $ocsf.process.name? != null {
+    $ocsf.process.file = {
+      name: $ocsf.process.name,
+      path: $ocsf.process.path,
+      type_id: 8,
+      version: (move $windows.EventData.AppVersion? else move $windows.EventData.param2?).string(),
+    }
   }
 }
 
 // Process Activity has a module object for the faulting module.
-$ocsf.module.file = {
-  name: move $windows.EventData.param4?,
-  path: move $windows.EventData.param12?,
-  version: (move $windows.EventData.param5?).string(),
-  type_id: 8,
+if $windows.EventData.param4? != null or $windows.EventData.param12? != null {
+  $ocsf.module.load_type_id = 0
+  $ocsf.module.file = {
+    name: move $windows.EventData.param4?,
+    path: move $windows.EventData.param12?,
+    version: (move $windows.EventData.param5?).string(),
+    type_id: 8,
+  }
 }
-$ocsf.process.created_time = from_epoch(
-  (int(move $windows.EventData.param10?, base=16) - 116444736000000000) * 100ns,
-)
+if $ocsf.process? != null {
+  $ocsf.process.created_time = from_epoch(
+    (int(move $windows.EventData.param10?, base=16) - 116444736000000000) * 100ns,
+  )
+}
 // param3/param6 are PE timestamps, not process/module load times.
 // param8/param13 are the fault offset and WER report ID.

@@ -1,0 +1,20 @@
+// Collection status is an explicit Base Event with preserved cloud context.
+from {status: "NODATA"}, {status: "SKIPDATA"}
+source = {
+  start: 2026-09-10T12:00:00Z,
+  end: 2026-09-10T12:01:00Z,
+  log_status: status,
+  account_id: "123456789012",
+  interface_id: "eni-source-identity",
+  version: 2,
+}
+ocsf = {}
+amazon::vpc_flow::ocsf::map source, ocsf
+ocsf = ocsf_cast(ocsf_derive(ocsf))
+assert ocsf.class_uid == 0
+assert ocsf.activity_name == status
+assert "cloud" in ocsf.metadata.profiles
+assert ocsf.cloud.account.uid == "123456789012"
+assert ocsf.unmapped.interface_id == "eni-source-identity"
+select ocsf.class_uid, ocsf.activity_name, ocsf.metadata.profiles, ocsf.cloud.account.uid
+sort ocsf.activity_name

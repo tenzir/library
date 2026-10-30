@@ -1,0 +1,46 @@
+// Only values represented by emitted objects are consumed.
+from_file f"{env("TENZIR_INPUTS")}/../native-log.input" { read_ndjson }
+head 1
+@name = "otel.log"
+anthropic::claude_code::canonicalize
+source = this
+cases = ["api", "base"]
+unroll cases
+source.event_name = "tool_result" if cases == "api" else "unsupported_observation"
+source.remote_tool = cases == "api"
+source.api_operation = "inspect"
+source.file_operation = null
+source.process_name = null
+source.http_method = null
+source.user_id = null
+source.user_uid_alt = null
+source.user_email = "only@example.test"
+source.request_id = "selected-request"
+source.tool_use_id = "unselected-tool-call"
+source.request_data = {query: "retained-request"}
+source.prompt_id = "selected-prompt"
+source.resource.host_id = "original-host-id"
+source.resource.os_type = "original-os"
+source.resource.os_version = "original-os-version"
+source.model = "original-model"
+source.provider = "original-provider"
+anthropic::claude_code::ocsf::map source, ocsf
+ocsf = ocsf_cast(ocsf_derive(ocsf))
+assert @name.starts_with("ocsf.")
+assert ocsf.unmapped.user_email == "only@example.test"
+if cases == "api" {
+  assert ocsf.class_uid == 6003
+  assert ocsf.api.request.uid == "selected-request"
+  assert ocsf.unmapped.tool_use_id == "unselected-tool-call"
+  assert ocsf.api.request.data.query == "retained-request"
+  assert ocsf.unmapped.resource.host_id == "original-host-id"
+  assert ocsf.unmapped.resource.os_type == "original-os"
+  assert ocsf.unmapped.resource.os_version == "original-os-version"
+  assert ocsf.metadata.correlation_uid == "selected-prompt"
+} else {
+  assert ocsf.class_uid == 0
+  assert ocsf.unmapped.model == "original-model"
+  assert ocsf.unmapped.provider == "original-provider"
+}
+select cases, ocsf.class_uid, retained_email=ocsf.unmapped.user_email
+sort cases

@@ -45,126 +45,134 @@ if $event.flow_id? != null {
   $ocsf.metadata.correlation_uid = $event.flow_id.string()
 }
 
-// Prefer flow initiator/responder fields when Suricata provides them. Alert
-// packets can point in the opposite direction of the flow that triggered them.
-if $event.flow?.src_ip? != null {
-  $ocsf.src_endpoint.ip = move $event.flow.src_ip
-} else if $event.src_ip? != null {
-  $ocsf.src_endpoint.ip = move $event.src_ip
-}
-if $event.flow?.dest_ip? != null {
-  $ocsf.dst_endpoint.ip = move $event.flow.dest_ip
-} else if $event.dest_ip? != null {
-  $ocsf.dst_endpoint.ip = move $event.dest_ip
-}
-if $event.flow?.src_port? != null {
-  $ocsf.src_endpoint.port = move $event.flow.src_port
-} else if $event.src_port? != null {
-  $ocsf.src_endpoint.port = move $event.src_port
-}
-if $event.flow?.dest_port? != null {
-  $ocsf.dst_endpoint.port = move $event.flow.dest_port
-} else if $event.dest_port? != null {
-  $ocsf.dst_endpoint.port = move $event.dest_port
-}
-
-if $event.event_type != "krb5" and $event.event_type != "smtp" {
-  $ocsf.connection_info.direction_id = 0
-  if $event.ip_v? != null {
-    $ocsf.connection_info.protocol_ver_id = move $event.ip_v
-  } else if $ocsf.src_endpoint?.ip? != null {
-    $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() else 4
-  } else if $ocsf.dst_endpoint?.ip? != null {
-    $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.dst_endpoint.ip.is_v6() else 4
+if $event.event_type in ["alert", "anomaly", "dhcp", "dns", "fileinfo", "flow", "netflow", "ftp", "http", "krb5", "mqtt", "sip", "smb", "smtp", "snmp", "ssh", "tls"] {
+  // Prefer flow initiator/responder fields when Suricata provides them. Alert
+  // packets can point in the opposite direction of the flow that triggered them.
+  if $event.flow?.src_ip? != null {
+    $ocsf.src_endpoint.ip = move $event.flow.src_ip
+  } else if $event.src_ip? != null {
+    $ocsf.src_endpoint.ip = move $event.src_ip
   }
-
-  if $event.flow_id? != null {
-    $ocsf.connection_info.uid = $event.flow_id.string()
+  if $event.flow?.dest_ip? != null {
+    $ocsf.dst_endpoint.ip = move $event.flow.dest_ip
+  } else if $event.dest_ip? != null {
+    $ocsf.dst_endpoint.ip = move $event.dest_ip
   }
-
-  if $event.proto? != null {
-    let $proto_nums = {
-      TCP: 6,
-      UDP: 17,
-      ICMP: 1,
-      ICMPV6: 58,
+  if $ocsf.src_endpoint? != null {
+    if $event.flow?.src_port? != null {
+      $ocsf.src_endpoint.port = move $event.flow.src_port
+    } else if $event.src_port? != null {
+      $ocsf.src_endpoint.port = move $event.src_port
     }
-    $ocsf.connection_info.protocol_name = $event.proto.to_lower()
-    $ocsf.connection_info.protocol_num = $proto_nums[$event.proto]? else 0
-    drop $event.proto
+  }
+  if $ocsf.dst_endpoint? != null {
+    if $event.flow?.dest_port? != null {
+      $ocsf.dst_endpoint.port = move $event.flow.dest_port
+    } else if $event.dest_port? != null {
+      $ocsf.dst_endpoint.port = move $event.dest_port
+    }
   }
 
-  if $event.community_id? != null {
-    $ocsf.connection_info.community_uid = move $event.community_id
-  }
-}
+  if $event.event_type != "krb5" and $event.event_type != "smtp" {
+    $ocsf.connection_info.direction_id = 0
+    if $event.ip_v? != null {
+      $ocsf.connection_info.protocol_ver_id = move $event.ip_v
+    } else if $ocsf.src_endpoint?.ip? != null {
+      $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() else 4
+    } else if $ocsf.dst_endpoint?.ip? != null {
+      $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.dst_endpoint.ip.is_v6() else 4
+    }
 
-let $event_types_without_app_proto = ["alert", "krb5", "smtp"]
-if $event.app_proto? != null and $event.app_proto != "failed" and not ($event.event_type in $event_types_without_app_proto) {
-  $ocsf.app_protocol_name = move $event.app_proto
-}
-drop $event.flow_id?
+    if $event.flow_id? != null {
+      $ocsf.connection_info.uid = $event.flow_id.string()
+    }
 
-// --- Event-specific mapping -------------------
+    if $event.proto? != null {
+      let $proto_nums = {
+        TCP: 6,
+        UDP: 17,
+        ICMP: 1,
+        ICMPV6: 58,
+      }
+      $ocsf.connection_info.protocol_name = $event.proto.to_lower()
+      $ocsf.connection_info.protocol_num = $proto_nums[$event.proto]? else 0
+      drop $event.proto
+    }
 
-match $event.event_type {
-  "alert" => {
-    suricata::ocsf::logs::alert $event, $ocsf
+    if $event.community_id? != null {
+      $ocsf.connection_info.community_uid = move $event.community_id
+    }
   }
-  "anomaly" => {
-    suricata::ocsf::logs::anomaly $event, $ocsf
-  }
-  "dhcp" => {
-    suricata::ocsf::logs::dhcp $event, $ocsf
-  }
-  "dns" => {
-    suricata::ocsf::logs::dns $event, $ocsf
-  }
-  "fileinfo" => {
-    suricata::ocsf::logs::fileinfo $event, $ocsf
-  }
-  "flow" | "netflow" => {
-    suricata::ocsf::logs::flow $event, $ocsf
-  }
-  "ftp" => {
-    suricata::ocsf::logs::ftp $event, $ocsf
-  }
-  "http" => {
-    suricata::ocsf::logs::http $event, $ocsf
-  }
-  "krb5" => {
-    suricata::ocsf::logs::krb5 $event, $ocsf
-  }
-  "mqtt" => {
-    suricata::ocsf::logs::mqtt $event, $ocsf
-  }
-  "sip" => {
-    suricata::ocsf::logs::sip $event, $ocsf
-  }
-  "smb" => {
-    suricata::ocsf::logs::smb $event, $ocsf
-  }
-  "smtp" => {
-    suricata::ocsf::logs::smtp $event, $ocsf
-  }
-  "snmp" => {
-    suricata::ocsf::logs::snmp $event, $ocsf
-  }
-  "ssh" => {
-    suricata::ocsf::logs::ssh $event, $ocsf
-  }
-  "tls" => {
-    suricata::ocsf::logs::tls $event, $ocsf
-  }
-  _ => {
-    suricata::ocsf::base $event, $ocsf
-  }
-}
 
-// Map connection control bits on network classes only. SMTP and Kerberos
-// have different schemas and retain their connection context as source residue.
-if $ocsf.category_uid == 4 and $ocsf.class_uid != 4009 {
-  $ocsf.connection_info.tcp_flags = int(move $event.tcp?.tcp_flags?, base=16)
+  let $event_types_without_app_proto = ["alert", "krb5", "smtp"]
+  if $event.app_proto? != null and $event.app_proto != "failed" and not ($event.event_type in $event_types_without_app_proto) {
+    $ocsf.app_protocol_name = move $event.app_proto
+  }
+  drop $event.flow_id?
+
+  // --- Event-specific mapping -------------------
+
+  match $event.event_type {
+    "alert" => {
+      suricata::ocsf::logs::alert $event, $ocsf
+    }
+    "anomaly" => {
+      suricata::ocsf::logs::anomaly $event, $ocsf
+    }
+    "dhcp" => {
+      suricata::ocsf::logs::dhcp $event, $ocsf
+    }
+    "dns" => {
+      suricata::ocsf::logs::dns $event, $ocsf
+    }
+    "fileinfo" => {
+      suricata::ocsf::logs::fileinfo $event, $ocsf
+    }
+    "flow" | "netflow" => {
+      suricata::ocsf::logs::flow $event, $ocsf
+    }
+    "ftp" => {
+      suricata::ocsf::logs::ftp $event, $ocsf
+    }
+    "http" => {
+      suricata::ocsf::logs::http $event, $ocsf
+    }
+    "krb5" => {
+      suricata::ocsf::logs::krb5 $event, $ocsf
+    }
+    "mqtt" => {
+      suricata::ocsf::logs::mqtt $event, $ocsf
+    }
+    "sip" => {
+      suricata::ocsf::logs::sip $event, $ocsf
+    }
+    "smb" => {
+      suricata::ocsf::logs::smb $event, $ocsf
+    }
+    "smtp" => {
+      suricata::ocsf::logs::smtp $event, $ocsf
+    }
+    "snmp" => {
+      suricata::ocsf::logs::snmp $event, $ocsf
+    }
+    "ssh" => {
+      suricata::ocsf::logs::ssh $event, $ocsf
+    }
+    "tls" => {
+      suricata::ocsf::logs::tls $event, $ocsf
+    }
+    _ => {
+      suricata::ocsf::base $event, $ocsf
+    }
+  }
+
+  // Map connection control bits on network classes only. SMTP and Kerberos
+  // have different schemas and retain unmapped connection fields under their source keys.
+  if $ocsf.category_uid == 4 and $ocsf.class_uid != 4009 {
+    $ocsf.connection_info.tcp_flags = int(move $event.tcp?.tcp_flags?, base=16)
+  }
+} else {
+  suricata::ocsf::base $event, $ocsf
 }
 
 // --- Epilogue ---------------------------------
@@ -173,5 +181,3 @@ drop $event.event_type
 
 
 $ocsf.unmapped = move $event
-
-suricata::ocsf::finalize $ocsf

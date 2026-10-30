@@ -73,21 +73,31 @@ $event.ocsf.traffic = {
 
 // --- OCSF: endpoint and user attributes -------
 
-$event.ocsf.src_endpoint = {
-  ip: move $event.cim.src_ip?,
+if $event.cim.src_ip? != null {
+
+  $event.ocsf.src_endpoint = {
+    ip: move $event.cim.src_ip?,
+  }
 }
-$event.ocsf.dst_endpoint = {
-  ip: move $event.cim.dest_ip?,
-  port: move $event.cim.dest_port?,
+if $event.cim.dest_ip? != null {
+
+  $event.ocsf.dst_endpoint = {
+    ip: move $event.cim.dest_ip?,
+    port: move $event.cim.dest_port?,
+  }
 }
 $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
 $event.ocsf.actor = {
-  user: {
-    name: move $event.cim.user?,
-  },
+  user: null,
 }
+if $event.cim.user? != null {
+  $event.ocsf.actor.user = {
+    name: move $event.cim.user?,
+  }
+}
+
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.http_activity"
-$event = {...$event.ocsf, unmapped: $event.cim}
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.cim)}

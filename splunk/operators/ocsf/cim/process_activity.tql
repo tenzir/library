@@ -36,82 +36,90 @@ splunk::ocsf::cim::helpers::common event=$event
 
 // --- OCSF: process attributes -----------------
 
-$event.ocsf.process = {
-  cmd_line: move $event.cim.process?,
-  file: {
-    name: move $event.cim.process_exec?,
-    path: move $event.cim.process_path?,
-  },
-  name: move $event.cim.process_name?,
-  pid: move $event.cim.process_id?,
-  uid: move $event.cim.process_guid?,
-  user: {
-    name: move $event.cim.user?,
-    uid: move $event.cim.user_id?,
-  },
-  working_directory: move $event.cim.process_current_directory?,
-}
-match $event.cim.process_integrity_level?.to_lower() {
-  "unknown" => {
-    $event.ocsf.process.integrity_id = 0
-  }
-  "untrusted" => {
-    $event.ocsf.process.integrity_id = 1
-  }
-  "low" => {
-    $event.ocsf.process.integrity_id = 2
-  }
-  "medium" => {
-    $event.ocsf.process.integrity_id = 3
-  }
-  "high" => {
-    $event.ocsf.process.integrity_id = 4
-  }
-  "system" => {
-    $event.ocsf.process.integrity_id = 5
-  }
-  "protected" => {
-    $event.ocsf.process.integrity_id = 6
-  }
-  null => {}
-  _ => {
-    $event.ocsf.process.integrity_id = 99
-    $event.ocsf.process.integrity = $event.cim.process_integrity_level
-  }
-}
-drop $event.cim.process_integrity_level?
-if $event.cim.process_hash? != null {
-  $event.ocsf.process.file.hashes = (move $event.cim.process_hash).map(h => {
-    algorithm_id: 0,
-    value: h,
-  })
-}
-if $event.cim.parent_process? != null or $event.cim.parent_process_name? != null {
-  $event.ocsf.process.parent_process = {
-    cmd_line: move $event.cim.parent_process?,
+if $event.cim.process_id? != null or $event.cim.process_guid? != null {
+  $event.ocsf.process = {
+    cmd_line: move $event.cim.process?,
     file: {
-      name: move $event.cim.parent_process_exec?,
-      path: move $event.cim.parent_process_path?,
+      type_id: 0,
+      name: move $event.cim.process_exec?,
+      path: move $event.cim.process_path?,
     },
-    name: move $event.cim.parent_process_name?,
-    pid: move $event.cim.parent_process_id?,
-    uid: move $event.cim.parent_process_guid?,
+    name: move $event.cim.process_name?,
+    pid: move $event.cim.process_id?,
+    uid: move $event.cim.process_guid?,
     user: {
-      name: move $event.cim.parent_user?,
+      name: move $event.cim.user?,
+      uid: move $event.cim.user_id?,
     },
+    working_directory: move $event.cim.process_current_directory?,
   }
-  if $event.cim.parent_process_hash? != null {
-    $event.ocsf.process.parent_process.file.hashes = (move $event.cim.parent_process_hash).map(h => {
+  match $event.cim.process_integrity_level?.to_lower() {
+    "unknown" => {
+      $event.ocsf.process.integrity_id = 0
+    }
+    "untrusted" => {
+      $event.ocsf.process.integrity_id = 1
+    }
+    "low" => {
+      $event.ocsf.process.integrity_id = 2
+    }
+    "medium" => {
+      $event.ocsf.process.integrity_id = 3
+    }
+    "high" => {
+      $event.ocsf.process.integrity_id = 4
+    }
+    "system" => {
+      $event.ocsf.process.integrity_id = 5
+    }
+    "protected" => {
+      $event.ocsf.process.integrity_id = 6
+    }
+    null => {}
+    _ => {
+      $event.ocsf.process.integrity_id = 99
+      $event.ocsf.process.integrity = $event.cim.process_integrity_level
+    }
+  }
+  drop $event.cim.process_integrity_level?
+  if $event.cim.process_hash? != null {
+    $event.ocsf.process.file.hashes = (move $event.cim.process_hash).map(h => {
       algorithm_id: 0,
-    value: h,
+      value: h,
     })
   }
+  if $event.cim.parent_process_id? != null or $event.cim.parent_process_guid? != null {
+    $event.ocsf.process.parent_process = {
+      cmd_line: move $event.cim.parent_process?,
+      file: {
+        type_id: 0,
+        name: move $event.cim.parent_process_exec?,
+        path: move $event.cim.parent_process_path?,
+      },
+      name: move $event.cim.parent_process_name?,
+      pid: move $event.cim.parent_process_id?,
+      uid: move $event.cim.parent_process_guid?,
+      user: {
+        name: move $event.cim.parent_user?,
+      },
+    }
+    if $event.cim.parent_process_hash? != null {
+      $event.ocsf.process.parent_process.file.hashes = (move $event.cim.parent_process_hash).map(h => {
+        algorithm_id: 0,
+        value: h,
+      })
+    }
+  }
 }
-$event.ocsf.device = {
-  hostname: move $event.cim.dest?,
-  os: {
-    name: move $event.cim.os?,
-  },
+if $event.cim.dest? != null {
+  $event.ocsf.device = {
+    type_id: 0,
+    hostname: move $event.cim.dest?,
+    os: {
+      type_id: 0,
+      name: move $event.cim.os?,
+    },
+  }
 }
 
 // --- Finalize ---------------------------------
@@ -119,5 +127,5 @@ $event.ocsf.device = {
 @name = "ocsf.process_activity"
 $event = {
   ...$event.ocsf,
-  unmapped: $event.cim,
+  unmapped: drop_null_fields($event.cim),
 }

@@ -10,22 +10,13 @@ args:
       description: The OCSF output field.
 ---
 
-$ocsf._source_location = $event.source_country? else $event.source_location?
-$ocsf._destination_location = $event.destination_country? else $event.destination_location?
-drop $event.source_country?, $event.destination_country?
-// Structured inputs can carry both aliases. Consume only equal aliases.
-if $event.source_location? == $ocsf._source_location {
-  drop $event.source_location?
+if $event.source_country?.length_chars() == 2 {
+  $ocsf.src_endpoint.location.country = (move $event.source_country).to_upper()
+} else if $event.source_location?.length_chars() == 2 {
+  $ocsf.src_endpoint.location.country = (move $event.source_location).to_upper()
 }
-if $event.destination_location? == $ocsf._destination_location {
-  drop $event.destination_location?
+if $event.destination_country?.length_chars() == 2 {
+  $ocsf.dst_endpoint.location.country = (move $event.destination_country).to_upper()
+} else if $event.destination_location?.length_chars() == 2 {
+  $ocsf.dst_endpoint.location.country = (move $event.destination_location).to_upper()
 }
-$ocsf.src_endpoint.location = {
-  country: $ocsf._source_location.to_upper() if $ocsf._source_location.length_chars() == 2,
-  desc: $ocsf._source_location if $ocsf._source_location.length_chars() != 2,
-}
-$ocsf.dst_endpoint.location = {
-  country: $ocsf._destination_location.to_upper() if $ocsf._destination_location.length_chars() == 2,
-  desc: $ocsf._destination_location if $ocsf._destination_location.length_chars() != 2,
-}
-drop $ocsf._source_location, $ocsf._destination_location

@@ -1,5 +1,5 @@
 ---
-title: Schema-valid OCSF output from CIM
+title: Preserved CIM activity classification and context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,6 @@ prs:
   - 208
 ---
 
-CIM normalization now supplies required file, device, operating-system, database, direction, state, and hash-algorithm identifiers. Incomplete optional identities remain in unmapped data, and file names can be recovered from reported paths. System activities lacking a required actor or device, and File Activities lacking an identifiable file, become Base Events with their original mapping preserved.
+CIM mappings now supply required Unknown type and direction values during construction and recover file names from reported paths. Optional processes, users, endpoints, and devices use their source identities; unused facts retain their CIM keys in `unmapped`.
+
+Known System and File Activities retain their class and activity when required actor, device, or file context is missing. OCSF validation reports warnings instead of reclassifying these observations as Base Events.

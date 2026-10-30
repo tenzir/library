@@ -13,19 +13,23 @@ args:
 $ocsf._mapping.decision_operation = $codex.api_operation? else $codex.tool_name? else $codex.event_name
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6003
+@name = "ocsf.api_activity"
 $ocsf.activity_id = 99
 $ocsf.activity_name = "Authorize"
 $ocsf.api = {
   operation: $ocsf._mapping.decision_operation,
-  request: {
-    uid: move $codex.tool_use_id?,
-  },
+
 }
-if $codex.request_data? != null {
-  $ocsf.api.request.data = move $codex.request_data
-  drop $codex.tool_input?,
-       $codex.tool_parameters?,
-       $codex.arguments?
+if $codex.tool_use_id? != null {
+  $ocsf.api.request.uid = move $codex.tool_use_id
+}
+if $ocsf.api.request?.uid? != null {
+  if $codex.request_data? != null {
+    $ocsf.api.request.data = move $codex.request_data
+    drop $codex.tool_input?,
+         $codex.tool_parameters?,
+         $codex.arguments?
+  }
 }
 $ocsf._mapping.decision_parts = $ocsf._mapping.decision_operation.split("__") if $ocsf._mapping.decision_operation.starts_with("mcp__") else []
 $ocsf._mapping.decision_server = $codex.api_service? else
@@ -45,6 +49,22 @@ $ocsf.src_endpoint = {
 $ocsf.message = f"Tool call {$ocsf._mapping.decision_operation} " + (
   "allowed" if $ocsf._mapping.decision_status_id == 1 else
   "denied" if $ocsf._mapping.decision_status_id == 2 else "decided")
-$ocsf.message_context = {...$ocsf._mapping.message_context, ai_role_id: 3}
+openai::codex::ocsf::message_context $codex, $ocsf
+$ocsf.message_context.ai_role_id = 3
 $ocsf.metadata.profiles = ["ai_operation"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+openai::codex::ocsf::ai_agent $codex, $ocsf
+
+// These source values selected the emitted API operation.
+drop $codex.api_operation?, $codex.remote_tool?
+if $codex.api_service? != null and $ocsf.api.service?.name? == $codex.api_service {
+  drop $codex.api_service
+}
+if $codex.server_name? != null and $ocsf.api.service?.name? == $codex.server_name {
+  drop $codex.server_name
+}
+if $codex.mcp_server? != null and $ocsf.api.service?.name? == $codex.mcp_server {
+  drop $codex.mcp_server
+}
+if $codex.resource.host_name? != null and $ocsf.src_endpoint.hostname? == $codex.resource.host_name {
+  drop $codex.resource.host_name
+}

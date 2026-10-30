@@ -1,5 +1,5 @@
 ---
-title: Schema-valid native Zeek observations
+title: Preserved native Zeek observation context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Zeek normalization now supplies required direction and file identifiers while preserving incomplete optional protocol objects in unmapped data. Observations without identities required by their activity class become Base Events with their original mapping preserved.
+Zeek mappings now construct optional protocol objects from reported identities and retain unused certificate names, encryption details, and other source facts in `unmapped`. Known activities keep their classification when required context is missing, with OCSF validation reporting warnings. Standalone X.509 certificate records use an explicit Base Event mapping and retain their original certificate fields.

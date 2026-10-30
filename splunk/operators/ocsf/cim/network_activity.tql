@@ -52,6 +52,7 @@ $event.ocsf.traffic = {
   packets_out: move $event.cim.packets_out?,
 }
 $event.ocsf.connection_info = {
+  direction_id: 0,
   community_uid: move $event.cim.flow_id?,
   protocol_name: move $event.cim.transport? else move $event.cim.protocol?,
   protocol_ver: move $event.cim.protocol_version?,
@@ -96,36 +97,53 @@ match $event.ocsf.connection_info.protocol_name {
 
 // --- OCSF: endpoint attributes ----------------
 
-$event.ocsf.src_endpoint = {
-  ip: move $event.cim.src_ip?,
-  mac: move $event.cim.src_mac?,
-  interface_name: move $event.cim.src_interface?,
-  network_scope: move $event.cim.src_zone?,
-  port: move $event.cim.src_port?,
-  proxy_endpoint: {
-    ip: move $event.cim.src_translated_ip?,
-    port: move $event.cim.src_translated_port?,
-  },
+if $event.cim.src_ip? != null or $event.cim.src_interface? != null {
+
+  $event.ocsf.src_endpoint = {
+    ip: move $event.cim.src_ip?,
+    mac: move $event.cim.src_mac?,
+    interface_name: move $event.cim.src_interface?,
+    network_scope: move $event.cim.src_zone?,
+    port: move $event.cim.src_port?,
+    proxy_endpoint: null,
+  }
+  if $event.cim.src_translated_ip? != null {
+    $event.ocsf.src_endpoint.proxy_endpoint = {
+      ip: move $event.cim.src_translated_ip?,
+      port: move $event.cim.src_translated_port?,
+    }
+  }
+
 }
-$event.ocsf.dst_endpoint = {
-  ip: move $event.cim.dest_ip?,
-  mac: move $event.cim.dest_mac?,
-  interface_name: move $event.cim.dest_interface?,
-  network_scope: move $event.cim.dest_zone?,
-  port: move $event.cim.dest_port?,
-  proxy_endpoint: {
-    ip: move $event.cim.dest_translated_ip?,
-    port: move $event.cim.dest_translated_port?,
-  },
+if $event.cim.dest_ip? != null or $event.cim.dest_interface? != null {
+
+  $event.ocsf.dst_endpoint = {
+    ip: move $event.cim.dest_ip?,
+    mac: move $event.cim.dest_mac?,
+    interface_name: move $event.cim.dest_interface?,
+    network_scope: move $event.cim.dest_zone?,
+    port: move $event.cim.dest_port?,
+    proxy_endpoint: null,
+  }
+  if $event.cim.dest_translated_ip? != null {
+    $event.ocsf.dst_endpoint.proxy_endpoint = {
+      ip: move $event.cim.dest_translated_ip?,
+      port: move $event.cim.dest_translated_port?,
+    }
+  }
+
 }
 $event.ocsf.metadata.profiles = [...$event.ocsf.metadata.profiles?, "host"]
-$event.ocsf.device = {
-  hostname: move $event.cim.dvc?,
-  ip: move $event.cim.dvc_ip?,
-  mac: move $event.cim.dvc_mac?,
+if $event.cim.dvc? != null or $event.cim.dvc_ip? != null {
+  $event.ocsf.device = {
+    type_id: 0,
+    hostname: move $event.cim.dvc?,
+    ip: move $event.cim.dvc_ip?,
+    mac: move $event.cim.dvc_mac?,
+  }
 }
 
 // --- Finalize ---------------------------------
 
 @name = "ocsf.network_activity"
-$event = {...$event.ocsf, unmapped: $event.cim}
+$event = {...$event.ocsf, unmapped: drop_null_fields($event.cim)}

@@ -12,7 +12,7 @@ args:
 ---
 
 $ocsf = {}
-if $event != null {
+if $event != null and $event.log_status? not in ["NODATA", "SKIPDATA"] {
 
 
 
@@ -61,21 +61,12 @@ if $event != null {
   }
 
   $ocsf.connection_info = {
+    direction_id: 0,
     protocol_num: move $event.protocol?,
     tcp_flags: move $event.tcp_flags?,
   }
 
   $ocsf.status_code = move $event.log_status?
-
-  $ocsf.src_endpoint = {
-    port: move $event.srcport?,
-    svc_name: move $event.pkt_src_aws_service?,
-  }
-
-  $ocsf.dst_endpoint = {
-    port: move $event.dstport?,
-    svc_name: move $event.pkt_dst_aws_service?,
-  }
 
   // --- Security control: action/disposition -----
 
@@ -110,51 +101,68 @@ if $event != null {
     $ocsf.connection_info.boundary_id = $ocsf.connection_info.boundary_id + 3
   }
 
-  // --- Flow direction and endpoint assignment ---
-
+  // Map endpoint attributes only when this source identifies the endpoint.
   match $event.flow_direction? {
-    "ingress" => {
-      $ocsf.connection_info.direction_id = 1
-      $ocsf.dst_endpoint.interface_uid = move $event.interface_id?
-      $ocsf.dst_endpoint.vpc_uid = move $event.vpc_id?
-      $ocsf.dst_endpoint.instance_uid = move $event.instance_id?
-      $ocsf.dst_endpoint.subnet_uid = move $event.subnet_id?
+    "ingress" => { $ocsf.connection_info.direction_id = 1 }
+    "egress" => { $ocsf.connection_info.direction_id = 2 }
+    _ => {}
+  }
+
+  if $event.srcaddr? != null or $event.pkt_srcaddr? != null or
+     $event.pkt_src_aws_service? != null or
+     ($event.flow_direction? == "egress" and
+      ($event.interface_id? != null or $event.instance_id? != null)) {
+    $ocsf.src_endpoint = {
+      port: move $event.srcport?,
+      svc_name: move $event.pkt_src_aws_service?,
     }
-    "egress" => {
-      $ocsf.connection_info.direction_id = 2
+    if $event.flow_direction? == "egress" {
       $ocsf.src_endpoint.interface_uid = move $event.interface_id?
       $ocsf.src_endpoint.vpc_uid = move $event.vpc_id?
       $ocsf.src_endpoint.instance_uid = move $event.instance_id?
       $ocsf.src_endpoint.subnet_uid = move $event.subnet_id?
     }
-    _ => {}
-  }
-  drop $event.flow_direction?
-
-  // --- IP address handling ----------------------
-  // pkt_srcaddr/pkt_dstaddr are the original addresses; srcaddr/dstaddr may
-  // differ when NAT or intermediate devices are involved.
-
-  if $event.pkt_srcaddr? != $event.srcaddr? and $event.pkt_srcaddr? != null {
-    $ocsf.src_endpoint.ip = move $event.pkt_srcaddr
-    $ocsf.src_endpoint.intermediate_ips = [move $event.srcaddr?]
-  } else {
-    $ocsf.src_endpoint.ip = move $event.srcaddr?
-    drop $event.pkt_srcaddr?
+    // Packet addresses precede addresses observed after NAT.
+    if $event.pkt_srcaddr? != $event.srcaddr? and $event.pkt_srcaddr? != null {
+      $ocsf.src_endpoint.ip = move $event.pkt_srcaddr
+      $ocsf.src_endpoint.intermediate_ips = [move $event.srcaddr?]
+    } else {
+      $ocsf.src_endpoint.ip = move $event.srcaddr?
+      drop $event.pkt_srcaddr?
+    }
   }
 
-  if $event.pkt_dstaddr? != $event.dstaddr? and $event.pkt_dstaddr? != null {
-    $ocsf.dst_endpoint.ip = move $event.pkt_dstaddr
-    $ocsf.dst_endpoint.intermediate_ips = [move $event.dstaddr?]
-  } else {
-    $ocsf.dst_endpoint.ip = move $event.dstaddr?
-    drop $event.pkt_dstaddr?
+  if $event.dstaddr? != null or $event.pkt_dstaddr? != null or
+     $event.pkt_dst_aws_service? != null or
+     ($event.flow_direction? == "ingress" and
+      ($event.interface_id? != null or $event.instance_id? != null)) {
+    $ocsf.dst_endpoint = {
+      port: move $event.dstport?,
+      svc_name: move $event.pkt_dst_aws_service?,
+    }
+    if $event.flow_direction? == "ingress" {
+      $ocsf.dst_endpoint.interface_uid = move $event.interface_id?
+      $ocsf.dst_endpoint.vpc_uid = move $event.vpc_id?
+      $ocsf.dst_endpoint.instance_uid = move $event.instance_id?
+      $ocsf.dst_endpoint.subnet_uid = move $event.subnet_id?
+    }
+    // Packet addresses precede addresses observed after NAT.
+    if $event.pkt_dstaddr? != $event.dstaddr? and $event.pkt_dstaddr? != null {
+      $ocsf.dst_endpoint.ip = move $event.pkt_dstaddr
+      $ocsf.dst_endpoint.intermediate_ips = [move $event.dstaddr?]
+    } else {
+      $ocsf.dst_endpoint.ip = move $event.dstaddr?
+      drop $event.pkt_dstaddr?
+    }
+  }
+  if $event.flow_direction? in ["ingress", "egress"] {
+    drop $event.flow_direction
   }
 
-  if ($ocsf.src_endpoint.ip? != null and $ocsf.src_endpoint.ip.is_v6()) or
-     ($ocsf.dst_endpoint.ip? != null and $ocsf.dst_endpoint.ip.is_v6()) {
+  if ($ocsf.src_endpoint?.ip? != null and $ocsf.src_endpoint.ip.is_v6()) or
+     ($ocsf.dst_endpoint?.ip? != null and $ocsf.dst_endpoint.ip.is_v6()) {
     $ocsf.connection_info.protocol_ver_id = 6
-  } else if $ocsf.src_endpoint.ip? != null or $ocsf.dst_endpoint.ip? != null {
+  } else if $ocsf.src_endpoint?.ip? != null or $ocsf.dst_endpoint?.ip? != null {
     $ocsf.connection_info.protocol_ver_id = 4
   }
 
@@ -173,6 +181,30 @@ if $event != null {
 
   @name = "ocsf.network_activity"
 
+} else if $event != null {
+  // NODATA/SKIPDATA describe log collection, not a network connection.
+  // https://docs.aws.amazon.com/vpc/latest/userguide/flow-log-records.html
+  @name = "ocsf.base_event"
+  $ocsf = {
+    time: $event.start? else $event.end?,
+    category_uid: 0, class_uid: 0, activity_id: 99, type_uid: 99,
+    severity_id: 1,
+    status_id: 0,
+    status_code: move $event.log_status,
+    metadata: {
+      version: "1.9.0",
+      profiles: ["cloud"],
+      product: {name: "Amazon VPC", vendor_name: "AWS", version: (move $event.version?).string()},
+    },
+    cloud: {
+      account: {uid: (move $event.account_id?).string()},
+      provider: "AWS",
+      region: move $event.region?,
+      zone: move $event.az_id?,
+    },
+  }
+  $ocsf.activity_name = $ocsf.status_code
+  drop $event.start?
 } else {
   @name = "ocsf.base_event"
   $ocsf = {
@@ -191,5 +223,3 @@ if $event != null {
   }
 }
 $ocsf.unmapped = move $event
-
-amazon::ocsf::finalize $ocsf

@@ -37,14 +37,22 @@ $ocsf.src_endpoint = {
   interface_name: move $event.inbound_interface?,
   hostname: move $event.source_hostname?,
   mac: move $event.source_mac_address?,
-  owner: {
-    name: move $event.source_user?,
-  },
-  proxy_endpoint: {
+  owner: null,
+  proxy_endpoint: null,
+}
+if $event.nat_source_ip? != null {
+  $ocsf.src_endpoint.proxy_endpoint = {
     ip: move $event.nat_source_ip?,
     port: move $event.nat_source_port?,
-  },
+  }
 }
+
+if $event.source_user? != null {
+  $ocsf.src_endpoint.owner = {
+    name: move $event.source_user?,
+  }
+}
+
 $ocsf.dst_endpoint = {
   ip: move $event.destination_address?,
   port: move $event.destination_port?,
@@ -52,14 +60,22 @@ $ocsf.dst_endpoint = {
   interface_name: move $event.outbound_interface?,
   hostname: move $event.destination_hostname?,
   mac: move $event.destination_mac_address?,
-  owner: {
-    name: move $event.destination_user?,
-  },
-  proxy_endpoint: {
+  owner: null,
+  proxy_endpoint: null,
+}
+if $event.nat_destination_ip? != null {
+  $ocsf.dst_endpoint.proxy_endpoint = {
     ip: move $event.nat_destination_ip?,
     port: move $event.nat_destination_port?,
-  },
+  }
 }
+
+if $event.destination_user? != null {
+  $ocsf.dst_endpoint.owner = {
+    name: move $event.destination_user?,
+  }
+}
+
 paloalto::ocsf::endpoint_locations $event, $ocsf
 $ocsf.connection_info = {
   direction_id: 0,
@@ -76,9 +92,11 @@ $ocsf.cumulative_traffic = {
   start_time: move $event.start_time?,
   end_time: $ocsf.time,
 }
-$ocsf.firewall_rule = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+if $event.rule_name? != null or $event.rule_uuid? != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
 }
 if paloalto::$action_ids[$event.action?]? != null {
   $ocsf.action_id = paloalto::$action_ids[$event.action?]?

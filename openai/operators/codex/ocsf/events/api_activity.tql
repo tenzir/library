@@ -29,6 +29,7 @@ $ocsf._mapping.api_activity_id = 2 if $ocsf._mapping.http_verb in ["get", "head"
                    99
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6003
+@name = "ocsf.api_activity"
 $ocsf.activity_id = $ocsf._mapping.api_activity_id
 $ocsf.activity_name = "Invoke" if $ocsf._mapping.api_activity_id == 99 and ($codex.tool_name? else "") != "" else
                             "Call" if $ocsf._mapping.api_activity_id == 99 and ($codex.rpc_method? else "") != "" else
@@ -38,17 +39,21 @@ $ocsf.activity_name = "Invoke" if $ocsf._mapping.api_activity_id == 99 and ($cod
                             $ocsf._mapping.api_operation if $ocsf._mapping.api_activity_id == 99 else null
 $ocsf.api = {
   operation: $ocsf._mapping.api_operation,
-  request: {
-    uid: move $codex.rpc_request_id? else
-         move $codex.request_id? else
-         move $codex.tool_use_id?,
-  },
 }
-if $codex.request_data? != null {
-  $ocsf.api.request.data = move $codex.request_data
-  drop $codex.tool_input?,
-       $codex.tool_parameters?,
-       $codex.arguments?
+if $codex.rpc_request_id? != null {
+  $ocsf.api.request.uid = move $codex.rpc_request_id
+} else if $codex.request_id? != null {
+  $ocsf.api.request.uid = move $codex.request_id
+} else if $codex.tool_use_id? != null {
+  $ocsf.api.request.uid = move $codex.tool_use_id
+}
+if $ocsf.api.request?.uid? != null {
+  if $codex.request_data? != null {
+    $ocsf.api.request.data = move $codex.request_data
+    drop $codex.tool_input?,
+         $codex.tool_parameters?,
+         $codex.arguments?
+  }
 }
 $ocsf.message = "User prompted the agent" if $codex.event_name == "codex.user_prompt" else
                       "Model response completed" if $codex.event_name == "codex.sse_event" else
@@ -94,12 +99,10 @@ $ocsf._mapping.total_tokens = $codex.total_tokens? else
                 $codex.input_tokens? != null and
                 $codex.output_tokens? != null else
                 null
-$ocsf.message_context = {
-  ...$ocsf._mapping.message_context,
-  prompt_tokens: move $codex.input_tokens?,
-  completion_tokens: move $codex.output_tokens?,
-  total_tokens: $ocsf._mapping.total_tokens,
-}
+openai::codex::ocsf::message_context $codex, $ocsf
+$ocsf.message_context.prompt_tokens = move $codex.input_tokens?
+$ocsf.message_context.completion_tokens = move $codex.output_tokens?
+$ocsf.message_context.total_tokens = $ocsf._mapping.total_tokens
 // #1674 gave conversation text a schema home in 1.9; the hash stays in
 // `unmapped.content_hash` as the integrity handle, which has none yet.
 if $codex.event_name == "codex.user_prompt" {
@@ -108,7 +111,7 @@ if $codex.event_name == "codex.user_prompt" {
   $ocsf.message_context.response_text = move $codex.content?
 }
 $ocsf.metadata.profiles = ["ai_operation"]
-$ocsf.ai_agent = $ocsf._mapping.ai_agent
+openai::codex::ocsf::ai_agent $codex, $ocsf
 if ($codex.trace_id? else "") != "" {
   $ocsf.trace = {
     uid: move $codex.trace_id,
@@ -131,4 +134,28 @@ if ($codex.trace_id? else "") != "" {
     }
   }
   $ocsf.metadata.profiles = ["ai_operation", "trace"]
+}
+
+// These source values selected the emitted API operation.
+drop $codex.api_operation?, $codex.remote_tool?, $codex.http_method?
+if $codex.api_service? != null and $ocsf.api.service?.name? == $codex.api_service {
+  drop $codex.api_service
+}
+if $codex.server_name? != null and $ocsf.api.service?.name? == $codex.server_name {
+  drop $codex.server_name
+}
+if $codex.mcp_server? != null and $ocsf.api.service?.name? == $codex.mcp_server {
+  drop $codex.mcp_server
+}
+if $codex.resource.host_name? != null and $ocsf.src_endpoint.hostname? == $codex.resource.host_name {
+  drop $codex.resource.host_name
+}
+if $ocsf.dst_endpoint?.hostname? != null {
+  drop $codex.server_address?, $codex.server_port?
+}
+if $ocsf.resources? != null {
+  drop $codex.target_resource_type?
+}
+if $ocsf.message_context.total_tokens? != null {
+  drop $codex.total_tokens?
 }

@@ -1,5 +1,5 @@
 ---
-title: Schema-valid OCSF output from UDM
+title: Preserved UDM activity classification
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-UDM normalization now includes required device, file, module, and connection identifiers and preserves incomplete endpoints in unmapped data. OSINT observations without a required indicator value become Base Events with their original mapping preserved.
+UDM mappings now construct optional endpoint and process context from reported identities and include the required Unknown type and direction values. Known activities and OSINT observations retain their OCSF classification when context or an indicator value is missing. Validation reports the missing required fields as warnings.

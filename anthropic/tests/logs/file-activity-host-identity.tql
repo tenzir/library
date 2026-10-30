@@ -19,28 +19,24 @@ from {
     success: "true",
   },
 }
-hosts = [{name: null, uid: null}, {name: "test-host", uid: null},
+hosts = [{name: null, uid: null}, {name: "", uid: ""}, {name: "test-host", uid: null},
          {name: null, uid: "test-host-id"}, {name: "test-host", uid: "test-host-id"}]
 unroll hosts
 resource.attributes = {...resource.attributes, "host.name": hosts.name, "host.id": hosts.uid}
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
-if device? == null {
-  assert class_uid == 0
-  assert not unmapped.has("incomplete_activity")
-  assert not unmapped.has("class_uid")
-  assert not unmapped.has("metadata")
-  assert unmapped.file.is_deleted == true
-} else {
-  assert class_uid == 1001
+assert class_uid == 1001
+assert @name == "ocsf.file_activity"
+assert file.is_deleted == true
+if device? != null {
   assert device.hostname? == "test-host" or device.uid? == "test-host-id"
-  assert file.is_deleted == true
 }
+
 this = {
   class_uid: class_uid,
   hostname: device?.hostname?,
   host_uid: device?.uid?,
-  deleted: file?.is_deleted? else unmapped?.file.is_deleted?,
+  deleted: file.is_deleted,
 }
 sort class_uid, hostname, host_uid

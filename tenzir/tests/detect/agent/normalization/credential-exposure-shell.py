@@ -30,7 +30,7 @@ from {
 @name = "otel.log"
 anthropic::claude_code::ocsf::normalize include_content=true
 this = ocsf_cast(ocsf_derive(this))
-assert class_uid == 0
+assert class_uid == 1007
 tenzir::detect::agent::credential_exposure
 this = ocsf_cast(ocsf_derive(this))
 assert class_uid == 2004

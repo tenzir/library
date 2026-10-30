@@ -1,5 +1,5 @@
 ---
-title: Schema-valid incomplete flow observations
+title: Preserved incomplete flow observations
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,6 @@ prs:
   - 208
 ---
 
-NetFlow normalization now preserves incomplete reporter, autonomous-system, proxy-endpoint, and timespan details in unmapped data. Flows that identify neither endpoint become Base Events with their original mapping preserved, including records with an unknown IP version.
+NetFlow mappings now construct reporter, endpoint, autonomous-system, NAT-proxy, and timespan objects from the source values needed to identify them. Unused ports, addresses, and other facts retain their original source keys in `unmapped`.
+
+Flow records retain Network Activity classification when endpoint identities are missing; validation emits warnings. Source records that do not describe flows use an explicit Base Event mapping. Selecting one IP address preserves distinct unselected address-family values.

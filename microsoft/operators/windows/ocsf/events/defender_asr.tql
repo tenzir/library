@@ -31,19 +31,11 @@ $ocsf.finding_info = {
   types: ["ASR Rule Block"],
 }
 $ocsf.malware = [{
+  classification_ids: [0],
   name: move $windows.EventData["Threat Name"],
 }]
 
-// Process that was blocked.
-$ocsf.actor = {
-  process: {
-    path: move $windows.EventData["Process name"],
-    file: { type_id: 1 },
-  },
-}
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+// Executable-only process details remain in the original EventData fields.
 
 // User is "DOMAIN\username" format.
 _user = (move $windows.EventData.User).split("\\")
@@ -71,8 +63,8 @@ let $algorithms = {
 $ocsf.file.hashes = ((move $windows.EventData.Hashes)
   .split(",")
   .map(h => h.split("=", max=1))
-  .map(kv => {
-    algorithm_id: $algorithms[kv[0]?]? else 99,
-    value: kv[1]?,
-  }))
+.map(kv => {
+  algorithm_id: $algorithms[kv[0]?]? else 99,
+  value: kv[1]?,
+}))
 $ocsf.evidences = [{ file: move $ocsf.file }]

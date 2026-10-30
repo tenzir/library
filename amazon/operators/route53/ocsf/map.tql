@@ -116,22 +116,26 @@ if $event != null {
 
   // --- OCSF: network attributes -----------------
 
-  $ocsf.src_endpoint = {
-    ip: ip(move $event.srcaddr?),
-    port: int(move $event.srcport?),
-    vpc_uid: move $event.vpc_id?,
-    instance_uid: move $event.srcids?.instance?,
+  if $event.srcaddr? != null or $event.srcids?.instance? != null {
+    $ocsf.src_endpoint = {
+      ip: ip(move $event.srcaddr?),
+      port: int(move $event.srcport?),
+      vpc_uid: move $event.vpc_id?,
+      instance_uid: move $event.srcids?.instance?,
+    }
   }
-  if $ocsf.src_endpoint.ip? != null {
+  if $ocsf.src_endpoint?.ip? != null {
     $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() else 4
   }
   // Resolver endpoint info goes to dst_endpoint since it's the DNS server.
-  $ocsf.dst_endpoint = {
-    uid: move $event.srcids?.resolver_endpoint?,
-    interface_uid: move $event.srcids?.resolver_network_interface?,
+  if $event.srcids?.resolver_endpoint? != null or $event.srcids?.resolver_network_interface? != null {
+    $ocsf.dst_endpoint = {
+      uid: move $event.srcids?.resolver_endpoint?,
+      interface_uid: move $event.srcids?.resolver_network_interface?,
+    }
   }
-  drop $event.srcids?
   if $event.transport? != null {
+    $ocsf.connection_info.direction_id = 0
     $ocsf.connection_info.protocol_name = $event.transport.to_lower()
     $ocsf.connection_info.protocol_num = $proto_nums[move $event.transport]? else 0
   }
@@ -181,5 +185,3 @@ if $event != null {
   }
 }
 $ocsf.unmapped = move $event
-
-amazon::ocsf::finalize $ocsf

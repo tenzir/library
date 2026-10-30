@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Zscaler device context
+title: Source-aware Zscaler device context
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Zscaler normalization now includes the required device type identifier and preserves incomplete devices, owners, and user organizations in unmapped data. Optional context no longer produces OCSF identity-constraint warnings.
+Zscaler mappings now include the required Unknown device type when a device is identified. Unused device-owner and department facts retain their original source keys in `unmapped`, without creating unidentified devices or organization objects.

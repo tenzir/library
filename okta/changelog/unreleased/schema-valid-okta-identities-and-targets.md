@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Okta identities and targets
+title: Source-aware Okta identities and targets
 type: bugfix
 authors:
   - zedoraps
@@ -8,4 +8,4 @@ prs:
   - 208
 ---
 
-Okta normalization now identifies its logger and authentication service and derives policy identities from the reported target. Incomplete owner, location, and URL details remain in unmapped data. Authentication and account-change observations without a required user become Base Events with their original mapping preserved.
+Okta mappings now identify their logger and authentication service and use reported policy targets as policy identities. Optional users, locations, and URLs are constructed from source identities. Unused organization, ISP, and other source facts remain in `unmapped`. Authentication and account-change observations retain their known classification when the target user is missing; validation reports the missing context as warnings.

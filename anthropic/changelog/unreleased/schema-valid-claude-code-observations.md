@@ -1,5 +1,5 @@
 ---
-title: Schema-valid Claude Code observations
+title: Preserved Claude Code activities and source context
 type: bugfix
 authors:
   - zedoraps
@@ -8,8 +8,8 @@ prs:
   - 208
 ---
 
-Claude Code normalization now emits schema-valid OCSF events when telemetry omits a user, host, logger name, or request identifier. Incomplete request and logger details remain in unmapped data. Activities that require an unavailable host or user become Base Events with their remaining fields retained directly in `unmapped`.
+Claude Code normalization now preserves the known OCSF class and activity when host or user context is missing. File renames remain File System Activity/Rename, and validation reports incomplete required fields as warnings.
 
-OpenTelemetry resource attributes `host.name` and `host.id` now identify the device for file and process activity. Operations with reported host context retain their specific OCSF class and activity, including file renames.
+Supply a real host identity through OpenTelemetry resource attributes, for example `OTEL_RESOURCE_ATTRIBUTES=host.name=workstation-42`. Missing or empty host identities produce actionable guidance at most once per normalizer instance without dropping events.
 
-Missing host identity now emits a warning explaining how to supply `host.name` or `host.id` through OpenTelemetry resource attributes. The event is retained, and the warning is emitted at most once per normalizer instance.
+Optional requests and loggers are constructed only when identified. Email-only identity, unused request identifiers, and host or model facts that were not mapped retain their original canonical keys in `unmapped`. Normalized events receive their OCSF schema names.
