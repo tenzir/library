@@ -1,0 +1,43 @@
+---
+description: |
+  Builds the OCSF actor and AI agent of an event that an agent performed.
+
+  Agentmetry records the agent by the name of its harness, such as `claude`,
+  `cursor`, or `codex`, and one session of it under `correlation_id`, which
+  becomes the instance UID. The recorder runs the agent's hooks, not a
+  framework, so the agent type is Native. The event also gets the OCSF AI
+  Operation profile.
+
+  The person the agent acts for is the actor's user. A system actor, such as
+  the recorder itself, is not a user and stays in the source event.
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The Agentmetry event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+$ocsf.actor = {}
+if $agentmetry.actor?.type? == "user" {
+  $ocsf.actor.user = {
+    uid: move $agentmetry.actor.id,
+  }
+  drop $agentmetry.actor.type
+  // The initiator repeats the operator for a run that a person started.
+  if $agentmetry.initiator?.operator_id? == $ocsf.actor.user.uid {
+    drop $agentmetry.initiator.operator_id
+  }
+}
+$ocsf.ai_agent = {
+  name: move $agentmetry.agent.name,
+  instance_uid: move $agentmetry.correlation_id?,
+  type_id: 1,
+}
+// The skill is set only for a run that Agentmetry itself started.
+if $agentmetry.agent.skill_id? == null {
+  drop $agentmetry.agent
+}
+$ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "ai_operation"]

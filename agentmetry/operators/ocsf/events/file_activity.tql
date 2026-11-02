@@ -1,0 +1,41 @@
+---
+description: Agentmetry file tool call with a path → OCSF File System Activity (1001).
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The Agentmetry event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.file_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+// The tool decides the activity: Read, Create, or Update.
+$ocsf.activity_id = $ocsf._file_activity
+
+$ocsf.file = {
+  name: file_name($ocsf._path),
+  path: $ocsf._path,
+  type_id: 1,
+}
+// Agents name the path under one of these arguments.
+drop $agentmetry.tool.arguments.file_path?,
+     $agentmetry.tool.arguments.path?,
+     $agentmetry.tool.arguments.target_file?
+if $agentmetry.tool.arguments.is_empty() {
+  drop $agentmetry.tool.arguments
+}
+agentmetry::ocsf::ai_agent $agentmetry, $ocsf
+$ocsf._verb = "write" if $ocsf.activity_id == 1 else "read" if $ocsf.activity_id == 2 else "edit"
+$ocsf._done = "wrote" if $ocsf.activity_id == 1 else "read" if $ocsf.activity_id == 2 else "edited"
+$ocsf.message = f"Agent asked for approval to {$ocsf._verb} {$ocsf.file.path}" if $ocsf.metadata.event_code == "approval_request" else
+                f"Agent file {$ocsf._verb} was still awaiting approval when the session ended: {$ocsf.file.path}" if $ocsf.disposition_id? == 0 else
+                f"Agent file {$ocsf._verb} approved: {$ocsf.file.path}" if $ocsf.disposition_id? == 8 else
+                f"Agent file {$ocsf._verb} rejected: {$ocsf.file.path}" if $ocsf.disposition_id? == 25 else
+                f"Agent file {$ocsf._verb} denied: {$ocsf.file.path}" if $ocsf.action_id? == 2 else
+                f"Agent failed to {$ocsf._verb} {$ocsf.file.path}" if $ocsf.status_id == 2 else
+                f"Agent {$ocsf._done} file {$ocsf.file.path}"
+drop $ocsf._verb, $ocsf._done
