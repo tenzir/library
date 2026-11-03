@@ -33,12 +33,22 @@ let $shell_tools = [
   "bash", "shell", "powershell", "run_shell_command", "run_terminal_cmd",
   "exec_command", "shell_command", "execute_command", "local_shell",
 ]
-let $read_tools = ["read", "read_file", "view", "notebookread"]
-let $create_tools = ["write", "write_file", "create_file", "write_to_file"]
-let $update_tools = [
-  "edit", "multiedit", "edit_file", "str_replace", "str_replace_editor",
-  "notebookedit",
-]
+let $file_activities = {
+  read: 2,
+  read_file: 2,
+  view: 2,
+  notebookread: 2,
+  write: 1,
+  write_file: 1,
+  create_file: 1,
+  write_to_file: 1,
+  edit: 3,
+  multiedit: 3,
+  edit_file: 3,
+  str_replace: 3,
+  str_replace_editor: 3,
+  notebookedit: 3,
+}
 
 // An approval that Agentmetry inferred at the end of a session names the gated
 // tool in `gated_action` and carries no tool section.
@@ -48,18 +58,12 @@ if $agentmetry.tool? == null and $agentmetry.gated_action? != null {
     server: move $agentmetry.gated_action.server?,
     input_hash: move $agentmetry.gated_action.input_hash?,
   }
-  if $agentmetry.gated_action.is_empty() {
-    drop $agentmetry.gated_action
-  }
 }
-$ocsf._tool = ($agentmetry.tool?.name? else "").to_lower()
+$ocsf._tool = $agentmetry.tool?.name?.to_lower()
 $ocsf._path = $agentmetry.tool?.arguments?.file_path? else
               $agentmetry.tool?.arguments?.path? else
               $agentmetry.tool?.arguments?.target_file?
-$ocsf._file_activity = 2 if $ocsf._tool in $read_tools else
-                       1 if $ocsf._tool in $create_tools else
-                       3 if $ocsf._tool in $update_tools else
-                       null
+$ocsf._file_activity = $file_activities[$ocsf._tool]?
 $ocsf._outcome = move $agentmetry.action.outcome
 $ocsf._reason = move $agentmetry.action.reason?
 
@@ -67,6 +71,7 @@ match $ocsf.metadata.event_code {
   "approval_request" => {
     // Nobody has decided yet, and nothing has run.
     $ocsf.status_id = 0
+    $ocsf._result = "requested"
   }
   "approval_response" => {
     // A decision is not an execution, so the status stays Unknown when the
@@ -75,41 +80,46 @@ match $ocsf.metadata.event_code {
       $ocsf.status_id = 0
       $ocsf.action_id = 1
       $ocsf.disposition_id = 8
-    } else if ($ocsf._reason else "").starts_with("inferred:") {
-      $ocsf.status_id = 2
-      $ocsf.status_detail = $ocsf._reason
-      $ocsf.action_id = 2
-      $ocsf.disposition_id = 0
+      $ocsf._result = "approved"
     } else {
       $ocsf.status_id = 2
       $ocsf.action_id = 2
-      $ocsf.disposition_id = 25
+      $ocsf.disposition_id = 0 if $ocsf._reason.starts_with("inferred:") else 25
+      $ocsf.status_detail = $ocsf._reason if $ocsf.disposition_id == 0 else null
+      $ocsf._result = "inferred" if $ocsf.disposition_id == 0 else "rejected"
     }
   }
   _ => {
-    if $ocsf._outcome == "success" {
-      $ocsf.status_id = 1
-    } else if $ocsf._outcome == "denied" {
-      $ocsf.status_id = 2
-      $ocsf.status_detail = $ocsf._reason
-      $ocsf.severity_id = 2
-      $ocsf.action_id = 2
-      $ocsf.disposition_id = 2
-      if $agentmetry.tool_policy? != null {
-        $ocsf.policy = {
-          uid: move $agentmetry.tool_policy.rule_id?,
-          is_applied: true,
-        }
-      } else if ($ocsf._reason else "").starts_with("policy:") {
-        $ocsf.policy = {
-          name: $ocsf._reason.split(":")[1],
-          is_applied: true,
+    match $ocsf._outcome {
+      "success" => {
+        $ocsf.status_id = 1
+        $ocsf._result = "success"
+      }
+      "denied" => {
+        $ocsf.status_id = 2
+        $ocsf.status_detail = $ocsf._reason
+        $ocsf.severity_id = 2
+        $ocsf.action_id = 2
+        $ocsf.disposition_id = 2
+        $ocsf._result = "denied"
+        if $agentmetry.tool_policy? != null {
+          $ocsf.policy = {
+            uid: move $agentmetry.tool_policy.rule_id?,
+            is_applied: true,
+          }
+        } else if $ocsf._reason.starts_with("policy:") {
+          $ocsf.policy = {
+            name: $ocsf._reason.split(":")[1],
+            is_applied: true,
+          }
         }
       }
-    } else {
-      $ocsf.status_id = 2
-      $ocsf.status_detail = $ocsf._reason
-      $ocsf.severity_id = 3
+      _ => {
+        $ocsf.status_id = 2
+        $ocsf.status_detail = $ocsf._reason
+        $ocsf.severity_id = 3
+        $ocsf._result = "failed"
+      }
     }
   }
 }
@@ -121,4 +131,4 @@ if $ocsf._tool in $shell_tools {
 } else {
   agentmetry::ocsf::events::api_activity $agentmetry, $ocsf
 }
-drop $ocsf._tool, $ocsf._path, $ocsf._file_activity, $ocsf._outcome, $ocsf._reason
+drop $ocsf._tool, $ocsf._path, $ocsf._file_activity, $ocsf._outcome, $ocsf._reason, $ocsf._result

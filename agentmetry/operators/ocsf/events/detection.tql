@@ -36,7 +36,7 @@ $ocsf.status_id = 1
 $ocsf.is_alert = true
 $ocsf.action_id = 3
 $ocsf.disposition_id = 15
-$ocsf.severity_id = $severities[($agentmetry.detection.severity? else "").to_lower()]? else 0
+$ocsf.severity_id = $severities[$agentmetry.detection.severity?.to_lower()]? else 0
 // The outcome of a detection repeats its severity.
 if $agentmetry.action.outcome? == $agentmetry.detection.severity? {
   drop $agentmetry.action.outcome
@@ -62,8 +62,8 @@ $ocsf.finding_info = {
     name: move $agentmetry.detection.rule_id?,
     type_id: 1,
   },
-  first_seen_time: time(move $agentmetry.detection.first_seen_utc) if $agentmetry.detection.first_seen_utc? != null else null,
-  last_seen_time: time(move $agentmetry.detection.last_seen_utc) if $agentmetry.detection.last_seen_utc? != null else null,
+  first_seen_time: time(move $agentmetry.detection.first_seen_utc?),
+  last_seen_time: time(move $agentmetry.detection.last_seen_utc?),
   related_events: (move $agentmetry.detection.event_ids? else []).map(id => {uid: id}),
   // OCSF asks to duplicate the ATT&CK references of a security control into
   // the finding.
@@ -89,9 +89,6 @@ if $agentmetry.agent?.name? != null {
       type_id: 1,
     },
   }]
-  if $agentmetry.agent.skill_id? == null {
-    drop $agentmetry.agent
-  }
 }
 // The summary is also the reason of the action, and the detection repeats the
 // session that the event already names.
@@ -100,12 +97,4 @@ if $agentmetry.action.reason? == $ocsf.finding_info.desc {
 }
 if $agentmetry.detection.correlation_id? == $agentmetry.correlation_id? {
   drop $agentmetry.detection.correlation_id
-}
-// Agentmetry adds the analyst's triage verdict once someone has triaged the
-// detection.
-if $agentmetry.detection.disposition? == null {
-  drop $agentmetry.detection.disposition?
-}
-if $agentmetry.detection.is_empty() {
-  drop $agentmetry.detection
 }

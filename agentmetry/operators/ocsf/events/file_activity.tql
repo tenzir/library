@@ -25,17 +25,16 @@ $ocsf.file = {
 drop $agentmetry.tool.arguments.file_path?,
      $agentmetry.tool.arguments.path?,
      $agentmetry.tool.arguments.target_file?
-if $agentmetry.tool.arguments.is_empty() {
-  drop $agentmetry.tool.arguments
-}
 agentmetry::ocsf::ai_agent $agentmetry, $ocsf
-$ocsf._verb = "write" if $ocsf.activity_id == 1 else "read" if $ocsf.activity_id == 2 else "edit"
-$ocsf._done = "wrote" if $ocsf.activity_id == 1 else "read" if $ocsf.activity_id == 2 else "edited"
-$ocsf.message = f"Agent asked for approval to {$ocsf._verb} {$ocsf.file.path}" if $ocsf.metadata.event_code == "approval_request" else
-                f"Agent file {$ocsf._verb} was still awaiting approval when the session ended: {$ocsf.file.path}" if $ocsf.disposition_id? == 0 else
-                f"Agent file {$ocsf._verb} approved: {$ocsf.file.path}" if $ocsf.disposition_id? == 8 else
-                f"Agent file {$ocsf._verb} rejected: {$ocsf.file.path}" if $ocsf.disposition_id? == 25 else
-                f"Agent file {$ocsf._verb} denied: {$ocsf.file.path}" if $ocsf.action_id? == 2 else
-                f"Agent failed to {$ocsf._verb} {$ocsf.file.path}" if $ocsf.status_id == 2 else
-                f"Agent {$ocsf._done} file {$ocsf.file.path}"
+$ocsf._verb = ["write", "read", "edit"][$ocsf.activity_id - 1]
+$ocsf._done = ["wrote", "read", "edited"][$ocsf.activity_id - 1]
+$ocsf.message = {
+  requested: f"Agent asked for approval to {$ocsf._verb} {$ocsf.file.path}",
+  inferred: f"Agent file {$ocsf._verb} was still awaiting approval when the session ended: {$ocsf.file.path}",
+  approved: f"Agent file {$ocsf._verb} approved: {$ocsf.file.path}",
+  rejected: f"Agent file {$ocsf._verb} rejected: {$ocsf.file.path}",
+  denied: f"Agent file {$ocsf._verb} denied: {$ocsf.file.path}",
+  failed: f"Agent failed to {$ocsf._verb} {$ocsf.file.path}",
+  success: f"Agent {$ocsf._done} file {$ocsf.file.path}",
+}[$ocsf._result]
 drop $ocsf._verb, $ocsf._done
