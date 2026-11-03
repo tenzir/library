@@ -1,0 +1,87 @@
+id: agentmetry
+name: Agentmetry
+author: Agentmetry
+description: |
+  [Agentmetry](https://github.com/blitzcrieg1/agentmetry) is an open-source
+  recorder for AI coding agents. It records each tool call that an agent makes
+  through the agent's own hooks, for Claude Code, Cursor, Codex, GitHub
+  Copilot, and several more, writes the events to a hash-chained JSONL trail,
+  and correlates the calls of a session into detections. This package maps
+  those events to OCSF 1.9.0.
+
+  Operators:
+
+  - `agentmetry::ocsf::normalize` normalizes an Agentmetry event to OCSF.
+  - `agentmetry::ocsf::map` maps a structured Agentmetry event to OCSF. It takes
+    the field that it reads and the field that it writes, in that order.
+
+  Tenzir reads Agentmetry's JSON natively, so the package needs no parser. Call
+  `agentmetry::ocsf::normalize` without arguments on a stream of Agentmetry
+  events, either from the trail:
+
+  ```tql
+  from_file "agentmetry-trail.jsonl" {
+    read_ndjson
+  }
+  agentmetry::ocsf::normalize
+  ```
+
+  or from Agentmetry's webhook sink, which posts one canonical event per
+  request:
+
+  ```tql
+  accept_http "0.0.0.0:8080" {
+    read_json
+  }
+  agentmetry::ocsf::normalize
+  ```
+
+  Use `agentmetry::ocsf::map` when your pipeline already holds the event under a
+  field, or when it inspects, filters, or enriches the Agentmetry event first.
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map remains under `unmapped`.
+
+  ## Event mapping
+
+  | Agentmetry event                                                         | OCSF class                         |
+  | ------------------------------------------------------------------------ | ---------------------------------- |
+  | `tool_called`, `approval_request`, `approval_response` for a shell tool  | Process Activity, Launch           |
+  | the same for a file tool, when the event names the file                  | File System Activity               |
+  | the same for any other tool, including MCP tools                         | API Activity, Invoke               |
+  | `detection`                                                              | Detection Finding, Create          |
+  | `mcp_schema` with outcome `changed`                                      | Detection Finding, Create          |
+
+  Session boundaries, configuration changes, an unchanged MCP listing, and
+  records that are not Agentmetry events become OCSF Base Events.
+
+  ## Semantics worth knowing
+
+  - Agentmetry names the agent by its harness, such as `claude` or `cursor`, and
+    groups one session under `correlation_id`. The mapping adds the AI
+    Operation profile and makes the session the `ai_agent.instance_uid` and the
+    `metadata.correlation_uid`.
+  - Agentmetry keeps a hash of the tool arguments and the command line by
+    default, and the arguments themselves only when the operator turns on full
+    capture. A file tool call without a path therefore has no file to report,
+    and it becomes API Activity with the tool as the operation.
+  - A tool call that a policy denied gets the Security Control profile with
+    action Denied and disposition Blocked. A person's decision on an approval
+    request is Approved or Rejected. Agentmetry marks a request that was still
+    open when the session ended as denied; its disposition is Unknown, and the
+    reason is the status detail.
+  - A detection is a sequence rule that matched across the calls of one
+    session. The rule becomes the analytic, the matched calls become
+    `finding_info.related_events`, and the ATT&CK identifiers become `attacks`.
+  - An `mcp_schema` event with outcome `changed` says that the `tools/list` of a
+    known MCP server changed: the shape of an MCP rug pull. Agentmetry assigns it
+    no severity.
+  - MITRE ATLAS identifiers, the per-call ATT&CK classification of a tool, DLP
+    matches, and the hash-chain fields of a trail line have no OCSF attribute
+    and stay under `unmapped`. The chain hashes cover the Agentmetry event, not
+    the OCSF event, so they cannot become a Record Integrity attestation.
+
+  The mapping targets the canonical event schema 1.2.0 of Agentmetry 0.10. The
+  test fixtures come from Agentmetry's ingest API with synthetic sessions.
+categories:
+- sources
+- mappings

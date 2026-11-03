@@ -1,0 +1,37 @@
+---
+description: |
+  Normalizes an Agentmetry event to OCSF.
+
+  ```tql
+  from_file "agentmetry-trail.jsonl" {
+    read_ndjson
+  }
+  agentmetry::ocsf::normalize
+  ```
+
+  Agentmetry writes one JSON object per event, which Tenzir reads natively, so
+  the package starts at the mapper. The operator accepts both forms the
+  recorder emits: the canonical event that its webhook sink posts, and a line
+  of its hash-chained trail, which wraps the same event. It maps each event to
+  the OCSF class that fits it. Whatever has no OCSF attribute remains under
+  `unmapped`.
+
+  Callers who already hold a structured Agentmetry event under another field,
+  or who want to inspect and enrich the event before mapping, use
+  `agentmetry::ocsf::map`.
+args:
+  positional:
+    - name: agentmetry
+      description: The structured Agentmetry event.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+$into.agentmetry = $agentmetry
+agentmetry::ocsf::map $into.agentmetry, $into.ocsf
+$into = $into.ocsf

@@ -1,0 +1,44 @@
+---
+description: |
+  Agentmetry tool call → OCSF API Activity (6003, Invoke).
+
+  The tool is the operation. An MCP tool also names its server, which becomes
+  the API service. A built-in tool of the harness, such as a web fetch, names
+  the harness as its server, which is not a service, so it gets none.
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The Agentmetry event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.api_activity"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6003
+$ocsf.activity_id = 99
+$ocsf.activity_name = "Invoke"
+
+$ocsf.api = {
+  operation: $agentmetry.tool?.name? else "unknown",
+}
+if $agentmetry.tool?.server? != null and $agentmetry.tool.server != $agentmetry.agent?.name? {
+  $ocsf.api.service = {
+    name: move $agentmetry.tool.server,
+  }
+}
+$ocsf.src_endpoint = {
+  hostname: $ocsf.device.hostname,
+}
+agentmetry::ocsf::ai_agent $agentmetry, $ocsf
+$ocsf.message = {
+  requested: f"Agent asked for approval to call {$ocsf.api.operation}",
+  approved: f"Agent call to {$ocsf.api.operation} approved",
+  rejected: f"Agent call to {$ocsf.api.operation} rejected",
+  inferred: f"Agent call to {$ocsf.api.operation} was still awaiting approval when the session ended",
+  denied: f"Agent call to {$ocsf.api.operation} denied",
+  failed: f"Agent call to {$ocsf.api.operation} failed",
+  success: f"Agent called {$ocsf.api.operation}",
+}[$ocsf._result]
