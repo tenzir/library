@@ -3,6 +3,9 @@ title: Agentmetry package for OCSF
 type: feature
 authors:
   - blitzcrieg1
+prs:
+  - 211
+  - 208
 created: 2026-11-02T20:00:00.000000Z
 ---
 
@@ -25,3 +28,5 @@ agentmetry::ocsf::normalize
 | `detection`, `mcp_schema` with outcome `changed` | Detection Finding |
 
 Tool calls get the AI Operation profile, with the agent and its session in `ai_agent`. A call that a policy denied, and a person's decision on an approval request, get the Security Control profile. A detection keeps its severity, its ATT&CK identifiers, and the calls it matched.
+
+Reported hosts use `device.type_id = 0` (Unknown) because Agentmetry does not report the device type. Events without a reported host leave `device` unset and retain their event class so validation can report missing required context.
