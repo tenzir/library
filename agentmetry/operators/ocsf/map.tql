@@ -1,0 +1,97 @@
+---
+description: |
+  Agentmetry events → OCSF.
+
+  Reads a structured Agentmetry event, as its webhook sink posts it or as one
+  line of its trail holds it, and builds the corresponding OCSF event in the
+  second field:
+
+  ```tql
+  agentmetry::ocsf::map agentmetry, ocsf
+  ```
+
+  The mapping picks the event class from the action type and, for tool calls,
+  from the tool:
+
+  | Agentmetry event                                                   | OCSF class                  |
+  | ------------------------------------------------------------------ | --------------------------- |
+  | `tool_called`, `approval_request`, `approval_response`, shell tool | Process Activity (1007)     |
+  | the same, file tool with a path                                    | File System Activity (1001) |
+  | the same, any other tool                                           | API Activity (6003)         |
+  | `detection`                                                        | Detection Finding (2004)    |
+  | `mcp_schema` with outcome `changed`                                | Detection Finding (2004)    |
+
+  A `null` event, a record without Agentmetry's `action` section, and every
+  other action type, such as `session_start`, become an OCSF Base Event.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event. The operator does not
+  preserve the original log record.
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The structured Agentmetry event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// Every event carries the product identity, whatever its class.
+$ocsf = {
+  metadata: {
+    version: "1.9.0",
+    product: {
+      name: "Agentmetry",
+      vendor_name: "Agentmetry",
+    },
+    profiles: ["host"],
+  },
+  severity_id: 1,
+}
+
+// A trail line wraps the canonical event with its position in the hash chain.
+if $agentmetry.event? != null and $agentmetry.trail? != null {
+  $agentmetry = {...move $agentmetry.event, trail: move $agentmetry.trail}
+}
+
+if $agentmetry.action?.type? != null {
+  // Agentmetry writes empty strings for what does not apply, such as the
+  // reason of a tool call that succeeded.
+  replace $agentmetry, what="", with=null
+  agentmetry::ocsf::common $agentmetry, $ocsf
+}
+
+match $ocsf.metadata.event_code? {
+  "tool_called" | "approval_request" | "approval_response" => {
+    agentmetry::ocsf::tool $agentmetry, $ocsf
+  }
+  "detection" => {
+    agentmetry::ocsf::events::detection $agentmetry, $ocsf
+  }
+  "mcp_schema" if $agentmetry.action.outcome == "changed" => {
+    agentmetry::ocsf::events::mcp_schema_changed $agentmetry, $ocsf
+  }
+  _ => {
+    // A session boundary, a configuration change, an unchanged MCP listing, or
+    // a record that is not an Agentmetry event: all that is left to say is that
+    // an event happened.
+    @name = "ocsf.base_event"
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
+    $ocsf.message = move $agentmetry.action?.reason?
+  }
+}
+
+// The correlation UID carries the session.
+drop $agentmetry.correlation_id?
+
+// --- Finalize ---------------------------------
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+if $ocsf.action_id? != null {
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
+}
+// What the mapping did not consume has no OCSF attribute.
+$ocsf = {...$ocsf, unmapped: move $agentmetry}

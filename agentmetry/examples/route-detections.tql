@@ -1,0 +1,60 @@
+---
+name: Route Agentmetry detections
+description: |
+  Agentmetry correlates the tool calls of one agent session and emits a
+  `detection` event when a sequence rule matches, such as a credential read
+  followed by network egress. The normalizer turns it into an OCSF Detection
+  Finding with the rule as the analytic, the matched calls as related events,
+  and the ATT&CK techniques as `attacks`. A downstream pipeline selects these
+  findings without knowing Agentmetry's rule names.
+---
+
+from {
+  schema_version: "1.2.0",
+  event_id: "d871b984-3678-4032-afbf-1ceabee2ad3a",
+  session_id: "",
+  correlation_id: "demo-session-1",
+  timestamp_utc: "2026-11-02T18:13:18.204872+00:00",
+  host_id: "dev-laptop",
+  source_topic: "detection/credential-exfil",
+  source: {
+    tier: "external",
+    app: "claude",
+    adapter: "claude_hook",
+  },
+  initiator: {
+    actor_type: "human",
+    trigger: "manual",
+    operator_id: "alice",
+    operator_source: "orchestrator_os",
+  },
+  actor: {
+    type: "user",
+    id: "alice",
+    role: "operator",
+  },
+  action: {
+    type: "detection",
+    outcome: "critical",
+    reason: "cursor.Read accessed credentials, then WebFetch egressed to the network in the same session.",
+  },
+  agent: {
+    name: "claude",
+    skill_id: "",
+  },
+  detection: {
+    rule_id: "credential-exfil",
+    title: "Credential access followed by network egress",
+    severity: "critical",
+    summary: "cursor.Read accessed credentials, then WebFetch egressed to the network in the same session.",
+    correlation_id: "demo-session-1",
+    tactic_ids: ["TA0006", "TA0011"],
+    technique_ids: ["T1552.004", "T1071.001"],
+    event_ids: ["2cd02ce7-cffd-4957-a85c-b6e5f2da06c8", "94f67547-16d9-48f6-b22b-856f49c114cc"],
+    first_seen_utc: "2026-11-02T18:13:18.104904+00:00",
+    last_seen_utc: "2026-11-02T18:13:18.204872+00:00",
+    disposition: null,
+  },
+}
+agentmetry::ocsf::normalize
+where class_uid == 2004 and severity_id >= 4

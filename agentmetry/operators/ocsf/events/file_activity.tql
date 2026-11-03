@@ -1,0 +1,40 @@
+---
+description: Agentmetry file tool call with a path → OCSF File System Activity (1001).
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The Agentmetry event to consume.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.file_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+// The tool decides the activity: Read, Create, or Update.
+$ocsf.activity_id = $ocsf._file_activity
+
+$ocsf.file = {
+  name: file_name($ocsf._path),
+  path: $ocsf._path,
+  type_id: 1,
+}
+// Agents name the path under one of these arguments.
+drop $agentmetry.tool.arguments.file_path?,
+     $agentmetry.tool.arguments.path?,
+     $agentmetry.tool.arguments.target_file?
+agentmetry::ocsf::ai_agent $agentmetry, $ocsf
+$ocsf._verb = ["write", "read", "edit"][$ocsf.activity_id - 1]
+$ocsf._done = ["wrote", "read", "edited"][$ocsf.activity_id - 1]
+$ocsf.message = {
+  requested: f"Agent asked for approval to {$ocsf._verb} {$ocsf.file.path}",
+  inferred: f"Agent file {$ocsf._verb} was still awaiting approval when the session ended: {$ocsf.file.path}",
+  approved: f"Agent file {$ocsf._verb} approved: {$ocsf.file.path}",
+  rejected: f"Agent file {$ocsf._verb} rejected: {$ocsf.file.path}",
+  denied: f"Agent file {$ocsf._verb} denied: {$ocsf.file.path}",
+  failed: f"Agent failed to {$ocsf._verb} {$ocsf.file.path}",
+  success: f"Agent {$ocsf._done} file {$ocsf.file.path}",
+}[$ocsf._result]
+drop $ocsf._verb, $ocsf._done
