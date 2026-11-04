@@ -1,6 +1,8 @@
 ---
 title: Preserved Okta identities and request context
 type: bugfix
+prs:
+  - 218
 created: 2026-11-04T15:46:59.061701Z
 ---
 
