@@ -1,0 +1,12 @@
+// Collection statuses from the CloudWatch capture preserve their source context.
+from_file f"{env("TENZIR_INPUTS")}/cloudwatch-v2.ndjson" {
+  read_ndjson
+}
+amazon::vpc_flow::parse message, source
+where source.log_status in ["NODATA", "SKIPDATA"]
+ocsf = {}
+amazon::vpc_flow::ocsf::map source, ocsf
+this = ocsf_cast(ocsf_derive(ocsf))
+select class_uid, activity_name, metadata.profiles, cloud.account.uid,
+       unmapped.interface_id
+sort activity_name
