@@ -39,14 +39,24 @@ $ocsf.connection_info.protocol_num = 6
 $ocsf.file = {
   name: $event.name?,
   type_id: 0,
-  path: move $event.path,
+  path: move $event.path?,
   accessed_time: move $event.times?.accessed?,
   created_time: move $event.times?.created?,
   modified_time: move $event.times?.modified?,
   size: move $event.size?,
   uid: move $event.fuid?,
 }
-$ocsf.share = move $event.name
+// Native JSON stores Zeek times as Unix seconds; Zeek readers already use time.
+if type_kind($ocsf.file.accessed_time) in ["int", "uint", "float"] {
+  $ocsf.file.accessed_time = $ocsf.file.accessed_time.seconds().from_epoch()
+}
+if type_kind($ocsf.file.created_time) in ["int", "uint", "float"] {
+  $ocsf.file.created_time = $ocsf.file.created_time.seconds().from_epoch()
+}
+if type_kind($ocsf.file.modified_time) in ["int", "uint", "float"] {
+  $ocsf.file.modified_time = $ocsf.file.modified_time.seconds().from_epoch()
+}
+$ocsf.share = move $event.name?
 match $event.action.split("::")[1].split("_")[0] {
   "FILE" => {
     $ocsf.share_type_id = 1

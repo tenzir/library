@@ -81,12 +81,26 @@ $ocsf.rcode = $rcode_names[$event.rcode_name?]? else $event.rcode_name?
 if $event.rcode_name? == "BADSIG" {
   $ocsf.rcode_id = 99
   drop $event.rcode
+} else if (
+  $event.rcode? in [12, 13, 14, 15]
+  or ($event.rcode? >= 24 and $event.rcode? <= 3840)
+  or ($event.rcode? >= 4096 and $event.rcode? <= 65534)
+) {
+  $ocsf.rcode_id = 24
+  $ocsf.rcode = "Unassigned"
+} else if ($event.rcode? >= 3841 and $event.rcode? <= 4095) or $event.rcode? == 65535 {
+  $ocsf.rcode_id = 25
+  $ocsf.rcode = "Reserved"
 } else {
   $ocsf.rcode_id = int(move $event.rcode?)
 }
-drop $event.rcode_name?
+// Keep the original wire code and name when OCSF uses a range identifier.
+if $ocsf.rcode_id not in [24, 25] {
+  drop $event.rcode_name?
+}
 
 $ocsf.connection_info = {
+  ...$ocsf.connection_info,
   direction: "Other",
   direction_id: 99,
 }
