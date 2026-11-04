@@ -1,6 +1,8 @@
 ---
 title: Preserved Zeek protocol context in OCSF
 type: bugfix
+prs:
+  - 216
 created: 2026-11-04T15:20:20.508587Z
 ---
 
