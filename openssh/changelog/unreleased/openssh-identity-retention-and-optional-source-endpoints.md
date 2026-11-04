@@ -1,6 +1,8 @@
 ---
 title: OpenSSH identity retention and optional source endpoints
 type: bugfix
+prs:
+  - 213
 created: 2026-11-04T14:41:26.876782Z
 ---
 
