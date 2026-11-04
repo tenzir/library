@@ -82,8 +82,10 @@ if $event.debugContext.debugData.signOnMode? != null {
 
 $ocsf.metadata.profiles = ["cloud", "security_control"]
 
-$ocsf.session = {
-  uid: move $event.authenticationContext.externalSessionId?,
+$ocsf.service = {name: "Okta"}
+
+if $ocsf.actor?.session?.uid? != null {
+  $ocsf.session = {uid: $ocsf.actor.session.uid}
 }
 
 // --- OCSF: risk & alert ----------------------
@@ -98,10 +100,10 @@ if string($event.debugContext.debugData.threatSuspected?) == "true" or $event.de
 
 if $event.target? != null {
   $ocsf.user = $event.target.where(t => t.type == "User" or t.type == "AppUser").map(t => {
-    uid: t.id,
+    uid: t.id?,
     name: t.alternateId?.split("@")[0]?,
     full_name: string(t.displayName?),
-    email_addr: t.alternateId,
+    email_addr: t.alternateId?,
     type_id: 1,
   })[0]?
 }

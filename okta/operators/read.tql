@@ -19,3 +19,18 @@ replace what="UNKNOWN", with=null
 if securityContext?.asNumber? != null {
   securityContext.asNumber = int(securityContext.asNumber)
 }
+
+// `replace` does not recurse into lists. Normalize target identity sentinels
+// before they can become usernames or account identifiers.
+if target? != null {
+  let $sentinels = ["null", "unknown", "None", "UNKNOWN", ""]
+  target = target.map(t => drop_null_fields({
+    ...t,
+    id: null if t.id? in $sentinels else t.id?,
+    alternateId: null if t.alternateId? in $sentinels else t.alternateId?,
+    displayName: null if t.displayName? in $sentinels else t.displayName?,
+  }))
+}
+if request?.ipChain? != null {
+  request.ipChain = request.ipChain.map(ip => drop_null_fields(ip))
+}
