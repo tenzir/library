@@ -57,11 +57,6 @@ $ocsf.finding_info = {
   uid: $ocsf.metadata.uid,
   title: move $agentmetry.detection.title?,
   desc: move $agentmetry.detection.summary?,
-  analytic: {
-    uid: $agentmetry.detection.rule_id?,
-    name: move $agentmetry.detection.rule_id?,
-    type_id: 1,
-  },
   first_seen_time: time(move $agentmetry.detection.first_seen_utc?),
   last_seen_time: time(move $agentmetry.detection.last_seen_utc?),
   related_events: (move $agentmetry.detection.event_ids? else []).map(id => {uid: id}),
@@ -69,10 +64,17 @@ $ocsf.finding_info = {
   // the finding.
   attacks: $ocsf.attacks,
 }
+if $agentmetry.detection.rule_id? != null {
+  $ocsf.finding_info.analytic = {
+    uid: $agentmetry.detection.rule_id,
+    name: move $agentmetry.detection.rule_id,
+    type_id: 1,
+  }
+}
 $ocsf.message = $ocsf.finding_info.desc
 // The agent whose calls matched is the evidence, and the person it acted for
 // is the actor.
-if $agentmetry.actor?.type? == "user" {
+if $agentmetry.actor?.type? == "user" and $agentmetry.actor?.id? != null {
   $ocsf.actor.user = {
     uid: move $agentmetry.actor.id,
   }

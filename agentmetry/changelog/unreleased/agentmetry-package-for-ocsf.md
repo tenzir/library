@@ -3,6 +3,7 @@ title: Agentmetry package for OCSF
 type: feature
 authors:
   - blitzcrieg1
+  - zedoraps
 prs:
   - 211
   - 208
@@ -30,3 +31,5 @@ agentmetry::ocsf::normalize
 Tool calls get the AI Operation profile, with the agent and its session in `ai_agent`. A call that a policy denied, and a person's decision on an approval request, get the Security Control profile. A detection keeps its severity, its ATT&CK identifiers, and the calls it matched.
 
 Reported hosts use `device.type_id = 0` (Unknown) because Agentmetry does not report the device type. Events without a reported host leave `device` unset and retain their event class so validation can report missing required context.
+
+Analytics and actor identities are included only when the source identifies them. Unmapped actor details retain their original keys. Missing required finding, host, actor, and process context remains visible in validation warnings.
