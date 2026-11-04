@@ -35,21 +35,26 @@ $ocsf.metadata.log_name = "smtp.log"
 
 $ocsf.dst_endpoint.intermediate_ips = move $event.path
 
-$ocsf.email = {
-  from_mailbox: move $event.from,
-  from: move $event.mailfrom,
-  cc: move $event.cc?,
-  reply_to: move $event.reply_to?,
-  message_uid: move $event.msg_id,
-  to: move $event.rcptto,
-  to_mailboxes: move $event.to,
-  subject: move $event.subject,
-  urls: (move $event.urls?).map(url => {
-    url_string: url,
-  }),
+// SMTP negotiation can finish before an envelope is observed. Retain the
+// source fields in that case rather than constructing an unidentified email.
+if $event.mailfrom? != null or $event.rcptto?.length() > 0 {
+  $ocsf.email = {
+    from_mailbox: move $event.from?,
+    from: move $event.mailfrom?,
+    cc: move $event.cc?,
+    reply_to: move $event.reply_to?,
+    message_uid: move $event.msg_id?,
+    to: move $event.rcptto?,
+    to_mailboxes: move $event.to?,
+    subject: move $event.subject?,
+    urls: (move $event.urls?).map(url => {
+      url_string: url,
+    }),
+  }
 }
 $ocsf.command = move $event.helo
 $ocsf.protocol_name = "SMTP"
+$ocsf.direction_id = 0
 $ocsf.status_detail = move $event.last_reply
 
 @name = "ocsf.email_activity"

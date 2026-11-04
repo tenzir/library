@@ -1,0 +1,9 @@
+---
+title: Preserved Zeek protocol context in OCSF
+type: bugfix
+created: 2026-11-04T15:20:20.508587Z
+---
+
+Zeek mappings now include the required direction, device-type, and file-type classifications, using Unknown when the source does not report them. Optional DNS, HTTP, FTP, TLS, and device objects are constructed only when their required source values are available; unmapped facts keep their original source keys.
+
+Standalone X.509 records become Base Events that retain the complete certificate record. RDP client names no longer imply a Windows desktop. SMTP observations without an email envelope retain their class and the corresponding OCSF validation warning.

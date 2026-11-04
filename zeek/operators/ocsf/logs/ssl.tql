@@ -63,25 +63,23 @@ let $alert_codes = {
   ech_required: 121, // draft-ietf-tls-esni-17
 }
 
-$ocsf.tls = {
-  certificate: {
-    issuer: move $event.issuer,
-    subject: move $event.subject,
-  },
-  cipher: move $event.cipher,
-  ja3_hash: {
-    algorithm_id: 1,
-    value: move $event.ja3?,
-  },
-  ja3s_hash: {
-    algorithm_id: 1,
-    value: move $event.ja3s?,
-  },
-  sni: move $event.server_name,
-  version: move $event.version,
+if $event.version? != null {
+  $ocsf.tls = {
+    cipher: move $event.cipher?,
+    ja3_hash: {
+      algorithm_id: 1,
+      value: move $event.ja3,
+    } if $event.ja3? != null else null,
+    ja3s_hash: {
+      algorithm_id: 1,
+      value: move $event.ja3s,
+    } if $event.ja3s? != null else null,
+    sni: move $event.server_name?,
+    version: move $event.version,
+  }
+  // NB: If we have an alert, `ssl_history` also contains [lL].
+  $ocsf.tls.alert = $alert_codes[$event.last_alert?]?
 }
-// NB: If we have an alert, `ssl_history` also contains [lL].
-$ocsf.tls.alert = $alert_codes[$event.last_alert?]?
 
 // --- OCSF: primary attributes -----------------
 

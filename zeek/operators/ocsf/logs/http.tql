@@ -35,28 +35,26 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.metadata.log_name = "http.log"
 $ocsf.metadata.profiles = ["host"]
-$ocsf.actor.user.name = move $event.username?
+if $event.username? != null {
+  $ocsf.actor.user.name = move $event.username
+}
 
 // --- OCSF: primary attributes -----------------
-
-if $event.has("dest_host") {
-  $event.host = move $event.dest_host
-} else {
-  $event.host = $event.host
-}
 
 $ocsf.http_request = {
   body_length: move $event.request_body_len?,
   http_method: $event._method?.to_title(),
   referrer: move $event.referrer,
-  url: {
-    hostname: move $event.host,
-    // TODO: Take this apart with string or URL functions.
-    // Zeek's uri field is actually the path plus all parameters.
-    path: move $event.uri,
-  },
   user_agent: move $event.user_agent,
   version: move $event.version,
+}
+if $event.uri? != null {
+  $ocsf.http_request.url.path = move $event.uri
+  if $event.dest_host? != null {
+    $ocsf.http_request.url.hostname = move $event.dest_host
+  } else {
+    $ocsf.http_request.url.hostname = move $event.host?
+  }
 }
 drop $event._method?
 if $event.has("client_headers") {
@@ -67,7 +65,7 @@ if $event.has("client_headers") {
     })
   drop $event.client_headers
 }
-if $event.has("server_headers") {
+if $event.server_headers? != null and $event.status_code? != null {
   $ocsf.http_response.http_headers = \
     $event.server_headers.map(x => x.split(": ", max=1)).map(xs => {
       name: xs[0],
@@ -76,11 +74,13 @@ if $event.has("server_headers") {
   drop $event.server_headers
 }
 
-$ocsf.http_response = {
-  ...$ocsf.http_response?,
-  body_length: move $event.response_body_len?,
-  code: move $event.status_code,
-  status: move $event.status_msg,
+if $event.status_code? != null {
+  $ocsf.http_response = {
+    ...$ocsf.http_response?,
+    body_length: move $event.response_body_len?,
+    code: move $event.status_code,
+    status: move $event.status_msg?,
+  }
 }
 
 $ocsf.connection_info.direction = "Other"
