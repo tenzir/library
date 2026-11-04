@@ -244,6 +244,12 @@ if $openssh._role == "standalone" {
     raw_data: _raws.join("\n") if _raws.length() > 0 else _arecs.map(r => r.m).join("\n"),
   }
   $openssh.raw_data_size = $openssh.raw_data.length_bytes()
+
+  // A PAM verdict may omit the user named by companion evidence. Recover
+  // that identity only when the attempt names exactly one user.
+  if $openssh.user.name == null and $openssh.user.uid == null and _attempt_users.length() == 1 {
+    $openssh.user = _arecs.where(r => r.o.user.name? == _attempt_users[0]).last().o.user
+  }
   drop _arecs, _sel, _locked, _pam, _disc, _post, _fail, _cert, _close, _child
   drop _start, _end, _conn, _accepted_keys, _attempt_users, _auth_methods
   drop _raws, _severity, _n, _fold_close, _fold_lock, _fold_postponed
