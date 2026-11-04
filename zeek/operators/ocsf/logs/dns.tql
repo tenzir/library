@@ -50,8 +50,8 @@ let $rcode_names = {
   BADCOOKIE: "BADCOOKIE",
   BADSIG: "BADSIG",
 }
-$ocsf.answers = zip(move $event.answers, move $event.TTLs).map(x => {
-  rdata: x.left,
+$ocsf.answers = zip(move $event.answers?, move $event.TTLs?).map(x => {
+  rdata: x.left.string(),
   ttl: int(count_seconds(x.right) if type_kind(x.right) == "duration" else x.right),
 })
 if $event.query? != null {
@@ -77,14 +77,14 @@ drop $event.AA?, $event.TC?, $event.RD?, $event.RA?, $event.AD?, $event.CD?
 
 $ocsf.query_time = $ocsf.time
 $ocsf.response_time = $ocsf.time
-$ocsf.rcode = $rcode_names[$event.rcode_name]? else $event.rcode_name
+$ocsf.rcode = $rcode_names[$event.rcode_name?]? else $event.rcode_name?
 if $event.rcode_name? == "BADSIG" {
   $ocsf.rcode_id = 99
   drop $event.rcode
 } else {
-  $ocsf.rcode_id = int(move $event.rcode)
+  $ocsf.rcode_id = int(move $event.rcode?)
 }
-drop $event.rcode_name
+drop $event.rcode_name?
 
 $ocsf.connection_info = {
   direction: "Other",
