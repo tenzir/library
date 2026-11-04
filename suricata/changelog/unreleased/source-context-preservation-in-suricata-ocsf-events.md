@@ -1,6 +1,8 @@
 ---
 title: Source context preservation in Suricata OCSF events
 type: bugfix
+prs:
+  - 217
 created: 2026-11-04T15:28:49.994681Z
 ---
 
