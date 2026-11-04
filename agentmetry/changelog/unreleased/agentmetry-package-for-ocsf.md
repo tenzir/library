@@ -3,7 +3,6 @@ title: Agentmetry package for OCSF
 type: feature
 authors:
   - blitzcrieg1
-  - zedoraps
 prs:
   - 211
   - 208
