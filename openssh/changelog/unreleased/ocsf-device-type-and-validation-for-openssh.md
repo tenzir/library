@@ -1,6 +1,8 @@
 ---
 title: Required OCSF device type for OpenSSH
 type: bugfix
+prs:
+  - 212
 created: 2026-11-04T13:58:44.845909Z
 ---
 
