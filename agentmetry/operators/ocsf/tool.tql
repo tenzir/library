@@ -15,10 +15,9 @@ description: |
   - A tool call that a policy denied is a Security Control that blocked it. The
     rule that matched becomes the policy.
   - An approval request is pending, so its status is Unknown.
-  - An approval response is a person's decision: Approved or Rejected. A
-    response that Agentmetry inferred, because the session ended with the
-    request still open, was denied without a decision, so its disposition is
-    Unknown.
+  - An observed approval response is Approved or Rejected. An inferred
+    response keeps its reason and has disposition Unknown, whether the tool
+    ran after the request or the session ended with the request still open.
 args:
   positional:
     - name: agentmetry
@@ -60,6 +59,14 @@ if $agentmetry.tool? == null and $agentmetry.gated_action? != null {
   }
 }
 $ocsf._tool = $agentmetry.tool?.name?.to_lower()
+// Strip the harness qualifier for class selection. A remote tool keeps its
+// name even if it ends with a known shell tool name.
+if $ocsf._tool != null and $agentmetry.agent?.name? != null {
+  if $ocsf._tool.starts_with(f"{$agentmetry.agent.name.to_lower()}.") and
+     ($agentmetry.tool?.server? == null or $agentmetry.tool.server == $agentmetry.agent.name) {
+    $ocsf._tool = $ocsf._tool.split(".", max=1)[1]
+  }
+}
 $ocsf._path = $agentmetry.tool?.arguments?.file_path? else
               $agentmetry.tool?.arguments?.path? else
               $agentmetry.tool?.arguments?.target_file?
@@ -74,9 +81,15 @@ match $ocsf.metadata.event_code {
     $ocsf._result = "requested"
   }
   "approval_response" => {
-    // A decision is not an execution, so the status stays Unknown when the
-    // person approves.
-    if $ocsf._outcome == "success" {
+    if $ocsf._reason.starts_with("inferred:") {
+      // A subsequent tool call is evidence that it ran, not a person's yes.
+      $ocsf.status_id = 0 if $ocsf._outcome == "success" else 2
+      $ocsf.action_id = 0 if $ocsf._outcome == "success" else 2
+      $ocsf.disposition_id = 0
+      $ocsf.status_detail = $ocsf._reason
+      $ocsf._result = "success" if $ocsf._outcome == "success" else "inferred"
+    } else if $ocsf._outcome == "success" {
+      // A person's decision is not an execution.
       $ocsf.status_id = 0
       $ocsf.action_id = 1
       $ocsf.disposition_id = 8
@@ -84,9 +97,8 @@ match $ocsf.metadata.event_code {
     } else {
       $ocsf.status_id = 2
       $ocsf.action_id = 2
-      $ocsf.disposition_id = 0 if $ocsf._reason.starts_with("inferred:") else 25
-      $ocsf.status_detail = $ocsf._reason if $ocsf.disposition_id == 0 else null
-      $ocsf._result = "inferred" if $ocsf.disposition_id == 0 else "rejected"
+      $ocsf.disposition_id = 25
+      $ocsf._result = "rejected"
     }
   }
   _ => {
