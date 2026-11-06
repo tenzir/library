@@ -1,8 +1,10 @@
 ---
 title: OCSF context handling for Agentmetry
 type: bugfix
+authors:
+  - zedoraps
 prs:
-  - 214
+  - 225
 created: 2026-11-04T14:57:22.654089Z
 ---
 
