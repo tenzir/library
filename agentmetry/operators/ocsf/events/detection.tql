@@ -57,11 +57,6 @@ $ocsf.finding_info = {
   uid: $ocsf.metadata.uid,
   title: move $agentmetry.detection.title?,
   desc: move $agentmetry.detection.summary?,
-  analytic: {
-    uid: $agentmetry.detection.rule_id?,
-    name: move $agentmetry.detection.rule_id?,
-    type_id: 1,
-  },
   first_seen_time: time(move $agentmetry.detection.first_seen_utc?),
   last_seen_time: time(move $agentmetry.detection.last_seen_utc?),
   related_events: (move $agentmetry.detection.event_ids? else []).map(id => {uid: id}),
@@ -69,10 +64,17 @@ $ocsf.finding_info = {
   // the finding.
   attacks: $ocsf.attacks,
 }
+if $agentmetry.detection.rule_id? != null {
+  $ocsf.finding_info.analytic = {
+    uid: $agentmetry.detection.rule_id,
+    name: move $agentmetry.detection.rule_id,
+    type_id: 1,
+  }
+}
 $ocsf.message = $ocsf.finding_info.desc
 // The agent whose calls matched is the evidence, and the person it acted for
 // is the actor.
-if $agentmetry.actor?.type? == "user" {
+if $agentmetry.actor?.type? == "user" and $agentmetry.actor?.id? != null {
   $ocsf.actor.user = {
     uid: move $agentmetry.actor.id,
   }
@@ -81,6 +83,9 @@ if $agentmetry.actor?.type? == "user" {
     drop $agentmetry.initiator.operator_id
   }
 }
+// OCSF 1.9 defines evidences.ai_agent but omits it from the constraint.
+// Keep AI-only evidence and the expected cast warning until the target
+// schema includes https://github.com/ocsf/ocsf-schema/pull/1796.
 if $agentmetry.agent?.name? != null {
   $ocsf.evidences = [{
     ai_agent: {
