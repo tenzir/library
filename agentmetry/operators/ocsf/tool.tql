@@ -31,6 +31,7 @@ args:
 let $shell_tools = [
   "bash", "shell", "powershell", "run_shell_command", "run_terminal_cmd",
   "exec_command", "shell_command", "execute_command", "local_shell",
+  "run_command",
 ]
 let $file_activities = {
   read: 2,
@@ -75,6 +76,12 @@ $ocsf._tool = $agentmetry.tool?.name?.to_lower()
 if $agentmetry.tool?.server? in [null, $agentmetry.agent?.name?] and
    $ocsf._tool.starts_with(f"{$agentmetry.agent?.name?.to_lower()}.") {
   $ocsf._tool = $ocsf._tool.split(".", max=1)[1]
+}
+// Agentmetry files the shell calls of several harnesses, such as Codex and
+// Cursor, under server `shell` with a tool name like `run`, which says nothing
+// on its own.
+if $agentmetry.tool?.server? == "shell" {
+  $ocsf._tool = "shell"
 }
 $ocsf._path = $agentmetry.tool?.arguments?.file_path? else
               $agentmetry.tool?.arguments?.path? else
