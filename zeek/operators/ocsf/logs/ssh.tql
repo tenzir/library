@@ -22,11 +22,11 @@ zeek::ocsf::map_network $event, $ocsf
 $ocsf.activity_id = 6
 $ocsf.class_uid = 4007
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-if "ABP" in $event.inferences or "BFS" in $event.inferences {
+if "ABP" in $event.inferences? or "BFS" in $event.inferences? {
   // Client authentication bypass (ABP) or brute force success (BFS) are
   // worthwhile escalating.
   $ocsf.severity_id = 4
-} else if "BF" in $event.inferences or "SV" in $event.inferences or "SC" in $event.inferences or "SP" in $event.inferences {
+} else if "BF" in $event.inferences? or "SV" in $event.inferences? or "SC" in $event.inferences? or "SP" in $event.inferences? {
   // Noteworthy are brute force attempts (BF), version scanning (SV),
   // capability scanning (SC), or other scanning (SP).
   $ocsf.severity_id = 3
@@ -37,7 +37,7 @@ if "ABP" in $event.inferences or "BFS" in $event.inferences {
 
 // --- OCSF: occurence attributes ---------------
 
-$ocsf.count = move $event.auth_attempts
+$ocsf.count = move $event.auth_attempts?
 
 // --- OCSF: context attributes -----------------
 
@@ -82,39 +82,49 @@ let $direction = {
     name: "Unknown"
   },
 }
-$ocsf.connection_info.direction = $direction[$event.direction].name
-$ocsf.connection_info.direction_id = $direction[$event.direction].id
-drop $event.direction
-
-$ocsf.src_endpoint.agent_list = [{
-  name: move $event.client,
-  type: "Remote Access",
-  type_id: 9,
-}]
-$ocsf.dst_endpoint.agent_list = [{
-  name: move $event.server,
-  type: "Remote Access",
-  type_id: 9,
-}]
-
-$ocsf.server_hassh = {
-  algorithm: move $event.hasshServerAlgorithms,
-  fingerprint: {
-    algorithm_id: 20,
-    value: move $event.hasshServer,
-  },
+if $event.direction? in ["INBOUND", "OUTBOUND", "BIDIRECTIONAL", "NO_DIRECTION"] {
+  $ocsf.connection_info.direction = $direction[$event.direction].name
+  $ocsf.connection_info.direction_id = $direction[$event.direction].id
+  drop $event.direction
 }
-$ocsf.client_hassh = {
-  algorithm: move $event.hasshAlgorithms,
-  fingerprint: {
-    algorithm_id: 20,
-    value: move $event.hassh,
-  },
+
+if $event.client? != null {
+  $ocsf.src_endpoint.agent_list = [{
+    name: move $event.client,
+    type: "Remote Access",
+    type_id: 9,
+  }]
+}
+if $event.server? != null {
+  $ocsf.dst_endpoint.agent_list = [{
+    name: move $event.server,
+    type: "Remote Access",
+    type_id: 9,
+  }]
+}
+
+if $event.hasshServer? != null {
+  $ocsf.server_hassh = {
+    algorithm: move $event.hasshServerAlgorithms?,
+    fingerprint: {
+      algorithm_id: 20,
+      value: move $event.hasshServer,
+    },
+  }
+}
+if $event.hassh? != null {
+  $ocsf.client_hassh = {
+    algorithm: move $event.hasshAlgorithms?,
+    fingerprint: {
+      algorithm_id: 20,
+      value: move $event.hassh,
+    },
+  }
 }
 
 // The Authentication Type can be deduced if we have the `inferences`
 // package.
-if "KS" in $event.inferences {
+if "KS" in $event.inferences? {
   $ocsf.auth_type_id = 4
   $ocsf.auth_type = "Keyboard Interactive"
 } else {

@@ -1,6 +1,6 @@
 ---
 description: |
-  Zeek smtp.log → OCSF Email Activity.
+  Zeek smtp.log → OCSF Email Activity or SMTP network traffic.
 args:
   positional:
     - name: event
@@ -18,38 +18,54 @@ args:
 //   events when possible.
 
 zeek::ocsf::map_network $event, $ocsf
-drop $ocsf.connection_info?
-
-// --- OCSF: classification attributes ----------
-
-$ocsf.activity_id = 1
-$ocsf.class_uid = 4009
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-// --- OCSF: context attributes -----------------
-
 $ocsf.metadata.log_name = "smtp.log"
 
-// --- OCSF: primary attributes -----------------
-
-$ocsf.dst_endpoint.intermediate_ips = move $event.path
-
-$ocsf.email = {
-  from_mailbox: move $event.from,
-  from: move $event.mailfrom,
-  cc: move $event.cc?,
-  reply_to: move $event.reply_to?,
-  message_uid: move $event.msg_id,
-  to: move $event.rcptto,
-  to_mailboxes: move $event.to,
-  subject: move $event.subject,
-  urls: (move $event.urls?).map(url => {
-    url_string: url,
-  }),
+if (
+  $event.mailfrom? != null or $event.rcptto?.length() > 0
+  or $event.from? != null or $event.to?.length() > 0
+  or $event.cc?.length() > 0 or $event.reply_to? != null
+  or $event.msg_id? != null or $event.subject? != null
+  or $event.date? != null or $event.in_reply_to? != null
+  or $event.first_received? != null or $event.second_received? != null
+  or $event.user_agent? != null or $event.x_originating_ip? != null
+  or $event.urls?.length() > 0 or $event.fuids?.length() > 0
+) {
+  // Keep observed email activity even when its envelope is incomplete.
+  drop $ocsf.connection_info?
+  $ocsf.activity_id = 1
+  $ocsf.class_uid = 4009
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = 400901
+  $ocsf.dst_endpoint.intermediate_ips = move $event.path?
+  if $event.mailfrom? != null or $event.rcptto?.length() > 0 {
+    $ocsf.email = {
+      from_mailbox: move $event.from?,
+      from: move $event.mailfrom?,
+      cc: move $event.cc?,
+      reply_to: move $event.reply_to?,
+      message_uid: move $event.msg_id?,
+      to: move $event.rcptto?,
+      to_mailboxes: move $event.to?,
+      subject: move $event.subject?,
+      urls: (move $event.urls?).map(url => {
+        url_string: url,
+      }),
+    }
+  }
+  $ocsf.command = move $event.helo?
+  $ocsf.protocol_name = "SMTP"
+  $ocsf.direction_id = 0
+  $ocsf.status_detail = move $event.last_reply?
+  @name = "ocsf.email_activity"
+} else {
+  // HELO/STARTTLS can finish without an email envelope. Report the observed
+  // SMTP traffic and retain negotiation details under their original keys.
+  $ocsf.activity_id = 6
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = 400106
+  $ocsf.app_protocol_name = "smtp"
+  $ocsf.connection_info.protocol_name = "tcp"
+  $ocsf.connection_info.protocol_num = 6
+  @name = "ocsf.network_activity"
 }
-$ocsf.command = move $event.helo
-$ocsf.protocol_name = "SMTP"
-$ocsf.status_detail = move $event.last_reply
-
-@name = "ocsf.email_activity"
