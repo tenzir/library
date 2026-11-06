@@ -1,0 +1,28 @@
+---
+description: Extract scalar observables from final event fields, including base events.
+---
+
+// Build and filter one list instead of fragmenting batches for each field.
+observables = [
+  {type_id: 2, name: "src_endpoint.ip", value: string(src_endpoint?.ip?), event_uid: metadata.uid},
+  {type_id: 2, name: "dst_endpoint.ip", value: string(dst_endpoint?.ip?), event_uid: metadata.uid},
+  {type_id: 1, name: "query.hostname", value: query?.hostname?, event_uid: metadata.uid},
+  {type_id: 6, name: "http_request.url.url_string", value: http_request?.url?.url_string?, event_uid: metadata.uid},
+  {type_id: 31, name: "actor.user.uid", value: actor?.user?.uid?, event_uid: metadata.uid},
+  {type_id: 31, name: "user.uid", value: user?.uid?, event_uid: metadata.uid},
+  {type_id: 2, name: "device.ip", value: string(device?.ip?), event_uid: metadata.uid},
+  {type_id: 45, name: "file.path", value: file?.path?, event_uid: metadata.uid},
+  {type_id: 45, name: "process.file.path", value: process?.file?.path?, event_uid: metadata.uid},
+].where(o => o.value != null)
+// Some unclassified sources have no mapped entity. Their message is an actual
+// scalar in this event; type 99 makes its source-specific meaning explicit.
+if observables.length() == 0 {
+  observables = [{type_id: 99, type: "Source message", name: "message", value: message, event_uid: metadata.uid}]
+}
+// Preserve the raw context and reputation detail on rich mapped records.
+if _ctx.rich {
+  observables = observables.map(o => {...o, reputation: {provider: "Acme synthetic reputation", base_score: 0.9, score_id: 2}})
+  _ctx.source.observable_name = observables[0].name
+  _ctx.source.observable_value = observables[0].value
+  _ctx.source.reputation_score_id = 2
+}

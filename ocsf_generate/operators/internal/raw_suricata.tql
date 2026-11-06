@@ -1,0 +1,144 @@
+---
+description: Render Suricata EVE JSON flow, DNS, HTTP, and alert records.
+---
+
+// EVE records share a flow header; the JSON printer escapes all values.
+// Alerts carry their flow tuple in the finding's evidence.
+if class_uid == 2004 {
+  _s = {src: evidences[0].src_endpoint, dst: evidences[0].dst_endpoint, flow_id: int(finding_info.uid)}
+} else {
+  _s = {src: src_endpoint, dst: dst_endpoint, flow_id: int(connection_info.uid)}
+}
+_s.us = int(time.since_epoch().count_microseconds())
+_s.proto = "UDP" if class_uid == 4003 else "TCP"
+_s.mac = hash_md5(string(_s.src.ip))
+_s.tuple = f"{_s.src.ip}:{_s.src.port}-{_s.dst.ip}:{_s.dst.port}/{_s.proto}"
+_s.ts = f"{time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=19)}.{string(1000000 + _s.us - int(_s.us / 1000000) * 1000000).slice(begin=1)}+0000"
+_s.event = {
+  timestamp: _s.ts,
+  flow_id: _s.flow_id,
+  in_iface: "ens5",
+  event_type: "flow",
+  src_ip: string(_s.src.ip),
+  src_port: _s.src.port,
+  dest_ip: string(_s.dst.ip),
+  dest_port: _s.dst.port,
+  proto: _s.proto,
+  // Community IDs hash the flow tuple: version 1, base64 of a SHA-1 digest.
+  community_id: "1:" + encode_base64(decode_hex(hash_sha1(_s.tuple))),
+  host: "ids-01.acme.example",
+  pkt_src: "wire/pcap",
+  // The sensor sees frames between the access switch and the core router.
+  ether: {
+    src_mac: "00:50:56:" + _s.mac.slice(end=2) + ":" + _s.mac.slice(begin=2, end=4) + ":" + _s.mac.slice(begin=4, end=6),
+    dest_mac: "00:1c:73:5e:a1:0c",
+  },
+}
+match class_uid {
+  4001 => {
+    _s.event.app_proto = "tls" if dst_endpoint.port == 443 else "smtp" if dst_endpoint.port == 587 else "smb" if dst_endpoint.port == 445 else "ssh" if dst_endpoint.port == 22 else "failed"
+    _s.age = int((duration? else 0) / 1000)
+    _s.start = (time - (duration? else 0) * 1ms).format_time("%Y-%m-%dT%H:%M:%S").slice(end=26)
+    _s.event.flow = {
+      pkts_toserver: traffic?.packets_out? else (1 if traffic? == null else 2 + int(traffic.bytes_out / 1200)),
+      pkts_toclient: traffic?.packets_in? else (1 if traffic? == null else 2 + int(traffic.bytes_in / 1400)),
+      bytes_toserver: traffic?.bytes_out? else 74,
+      bytes_toclient: traffic?.bytes_in? else (60 if activity_id == 5 else 0),
+      start: f"{_s.start}+0000",
+      end: f"{_s.ts.slice(end=26)}+0000",
+      age: _s.age,
+      state: "closed" if activity_id in [3, 5, 6] else "new",
+      reason: "shutdown" if activity_id == 6 else "timeout",
+      alerted: false,
+    }
+    _s.event.tcp = {
+      tcp_flags: "1b" if activity_id == 6 else "1e" if activity_id == 3 else "16" if activity_id == 5 else "02",
+      tcp_flags_ts: "1b" if activity_id == 6 else "1e" if activity_id == 3 else "02",
+      tcp_flags_tc: "1b" if activity_id == 6 else "1a" if activity_id == 3 else "14" if activity_id == 5 else "00",
+      syn: true,
+      fin: activity_id == 6,
+      rst: activity_id in [3, 5],
+      psh: activity_id in [3, 6],
+      ack: activity_id != 1,
+      state: "closed" if activity_id in [3, 5, 6] else "syn_sent",
+    }
+  }
+  4003 => {
+    _s.event.event_type = "dns"
+    _s.rrtype = query.type
+    if activity_id == 1 {
+      _s.event.dns = {type: "query", id: query.packet_uid, rrname: query.hostname, rrtype: _s.rrtype, tx_id: 0, opcode: 0}
+    } else if answers? != null {
+      _s.event.dns = {
+        version: 2, type: "answer", id: query.packet_uid, flags: "8180", qr: true, rd: true, ra: true, opcode: 0,
+        rrname: query.hostname, rrtype: _s.rrtype, rcode: "NOERROR",
+        answers: [{rrname: query.hostname, rrtype: _s.rrtype, ttl: answers[0].ttl, rdata: answers[0].rdata}],
+      }
+    } else {
+      _s.event.dns = {
+        version: 2, type: "answer", id: query.packet_uid, flags: "8183", qr: true, rd: true, ra: true, opcode: 0,
+        rrname: query.hostname, rrtype: _s.rrtype, rcode: "NXDOMAIN",
+        authorities: [{rrname: "acme.example", rrtype: "SOA", ttl: 900, soa: {mname: "dns-01.acme.example", rname: "hostmaster.acme.example", serial: 2026102201, refresh: 7200, retry: 3600, expire: 1209600, minimum: 300}}],
+      }
+    }
+  }
+  4002 => {
+    _s.event.event_type = "http"
+    _s.event.tx_id = 0
+    _s.event.http = {
+      hostname: http_request.url.hostname,
+      url: http_request.url.path if http_request.url.query_string? == null else f"{http_request.url.path}?{http_request.url.query_string}",
+      http_user_agent: http_request.user_agent?,
+      http_content_type: "text/html" if http_response.code != 201 else "application/json",
+      http_refer: http_request.referrer?,
+      http_method: http_request.http_method,
+      protocol: "HTTP/1.1",
+      status: http_response.code,
+      length: http_response.length,
+    }
+    if http_request.user_agent? == null {
+      drop _s.event.http.http_user_agent
+    }
+    if http_request.referrer? == null {
+      drop _s.event.http.http_refer
+    }
+  }
+  2004 => {
+    _s.event.event_type = "alert"
+    _s.event.tx_id = 0
+    _s.event.alert = {
+      action: "allowed",
+      gid: 1,
+      signature_id: 2047702,
+      rev: 3,
+      signature: finding_info.title,
+      category: "Potentially Bad Traffic",
+      severity: 4 - severity_id if severity_id < 4 else 1,
+      metadata: {
+        affected_product: ["Any"],
+        attack_target: ["Client_Endpoint"],
+        created_at: ["2023_08_21"],
+        deployment: ["Perimeter"],
+        signature_severity: ["Informational"],
+        updated_at: ["2026_09_30"],
+      },
+    }
+    _s.event.app_proto = "tls"
+    _s.event.tls = {sni: _s.dst.hostname, version: "TLS 1.3", ja3s: {hash: hash_md5(_s.dst.hostname)}}
+    _s.event.direction = "to_server"
+    _s.event.flow = {
+      pkts_toserver: 4 + int(random() * 20),
+      pkts_toclient: 3 + int(random() * 20),
+      bytes_toserver: 600 + int(random() * 4000),
+      bytes_toclient: 900 + int(random() * 20000),
+      start: f"{_s.ts.slice(end=26)}+0000",
+      src_ip: string(_s.src.ip),
+      dest_ip: string(_s.dst.ip),
+      src_port: _s.src.port,
+      dest_port: _s.dst.port,
+    }
+  }
+  _ => { pass }
+}
+raw_data = print_ndjson(_s.event)
+drop _s

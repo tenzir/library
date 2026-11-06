@@ -1,0 +1,95 @@
+---
+description: Build OCSF 1.6 events directly from shared organization fixtures.
+args:
+  named:
+    - name: class_uid
+      type: int
+    - name: count
+      type: int
+    - name: time_eps
+      type: int
+    - name: end_time
+      type: time
+    - name: raw
+      type: string
+---
+
+let $users = ocsf_generate::$users
+let $hosts = ocsf_generate::$workstations
+let $services = ocsf_generate::$services
+let $classes = [1001, 1007, 3002, 4001, 4003]
+_ctx = {
+  user_index: int(random() * $users.uid.length()),
+  service_index: int(random() * $services.hostname.length()),
+  class_uid: $class_uid else $classes[int(random() * 5)],
+  time: ($end_time - ($count - _sequence) * 1s / $time_eps).floor(1ms),
+  failed: random() < 0.1,
+}
+_ctx.windows = _ctx.user_index - int(_ctx.user_index / 5) * 5 < 4
+_ctx.user = {
+  uid: $users.uid[_ctx.user_index], name: $users.name[_ctx.user_index],
+  email_addr: $users.email_addr[_ctx.user_index],
+  domain: $users.domain[_ctx.user_index], type_id: 1,
+}
+_ctx.host = {
+  uid: $hosts.uid[_ctx.user_index], hostname: $hosts.hostname[_ctx.user_index],
+  ip: ip($hosts.ip[_ctx.user_index]), type_id: 2,
+}
+_ctx.executable = {
+  name: ("powershell.exe" if _ctx.windows else "curl"),
+  path: ("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" if _ctx.windows else "/usr/bin/curl"),
+  type_id: 8,
+}
+_ctx.process = {
+  uid: uuid(), pid: 1000 + int(random() * 30000),
+  name: _ctx.executable.name, file: _ctx.executable,
+  user: _ctx.user,
+  cmd_line: ("powershell.exe -NoProfile -Command Get-Date" if _ctx.windows
+    else f"curl https://{$services.hostname[_ctx.service_index]}/health"),
+}
+this = {
+  _ctx: _ctx,
+  metadata: {
+    version: "1.6.0", uid: uuid(), profiles: ["host"],
+    product: {name: "Legacy workload collector", vendor_name: "Tenzir"},
+  },
+  time: _ctx.time,
+  class_uid: _ctx.class_uid,
+  severity_id: 1, status_id: 1,
+  device: _ctx.host,
+  // OCSF 1.6 uses these scalars, before actor.application was introduced.
+  actor: {user: _ctx.user, app_name: "Workstation collector", app_uid: "acme-collector"},
+}
+match class_uid {
+  1001 => { ocsf_generate::internal::legacy16::file_activity }
+  1007 => { ocsf_generate::internal::legacy16::process_activity }
+  3002 => { ocsf_generate::internal::legacy16::authentication }
+  4001 => { ocsf_generate::internal::legacy16::network_activity }
+  4003 => { ocsf_generate::internal::legacy16::dns_activity }
+  _ => { discard }
+}
+type_uid = class_uid * 100 + activity_id
+// Observables reference the final 1.6 paths; their type_uid/event_uid fields
+// were added after 1.6 and must not appear here.
+observables = [
+  {name: "device.ip", type_id: 2, value: string(device.ip)},
+  {name: "device.hostname", type_id: 1, value: device.hostname},
+]
+if class_uid == 1001 {
+  observables = observables.append({name: "file.path", type_id: 45, value: file.path})
+} else if class_uid == 1007 {
+  observables = observables.append({name: "process.cmd_line", type_id: 13, value: process.cmd_line})
+} else if class_uid == 4003 {
+  observables = observables.append({name: "query.hostname", type_id: 1, value: query.hostname})
+}
+if $raw == "json" {
+  // Synthetic source JSON, with no claim to a vendor's native log format.
+  // metadata.log_format and metadata.source do not exist in OCSF 1.6.
+  raw_data = print_ndjson({
+    event_id: metadata.uid, timestamp: int(time.since_epoch().count_milliseconds()),
+    host: device.hostname, user: actor.user.name,
+    activity: activity_id, status: status_id, message: message,
+    details: _ctx.source,
+  })
+}
+drop _ctx

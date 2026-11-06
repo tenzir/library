@@ -1,0 +1,38 @@
+---
+description: Model an OIDC authentication attempt against the recurring identity provider.
+---
+
+metadata.product = {name: "Keycloak", vendor_name: "Keycloak"}
+metadata.log_name = "identity-audit"
+dst_endpoint = {ip: 10.20.0.16, hostname: "idp.acme.example", port: 443}
+service.name = "openid-connect"
+auth_protocol_id = 4
+auth_protocol = "OpenID"
+auth_factors = [{factor_type_id: 11, factor_type: "Password"}]
+actor.idp = {
+  uid: "idp-acme",
+  name: "Acme Identity",
+  domain: "acme.example",
+  protocol_name: "OIDC",
+  issuer: "https://idp.acme.example/realms/acme",
+  url_string: "https://idp.acme.example/",
+  state_id: 1,
+  tenant_uid: "acme",
+}
+_ctx.source.identity_provider_uid = actor.idp.uid
+message = f"OIDC authentication succeeded for {_ctx.user.name}"
+if status_id == 1 {
+  authentication_token = {
+    uid: f"oidc-{metadata.uid}",
+    type_id: 3,
+    created_time: time,
+    expiration_time: time + 1h,
+    tenant_uid: "acme",
+    is_renewable: false,
+  }
+  _ctx.source.token_uid = authentication_token.uid
+  _ctx.source.token_created_time = authentication_token.created_time
+  _ctx.source.token_expiration_time = authentication_token.expiration_time
+} else {
+  message = f"OIDC authentication failed for {_ctx.user.name}"
+}

@@ -1,0 +1,24 @@
+---
+description: Add process context to _ctx.entity using its existing executable and user.
+args:
+  named:
+    - name: launched
+      type: bool
+      default: false
+    - name: exited
+      type: bool
+      default: false
+---
+
+_ctx.entity.created_time = time if $launched else time - 1h
+if $exited { _ctx.entity.terminated_time = time }
+_ctx.entity.cmd_line = _ctx.entity.cmd_line? else _ctx.entity.file.path
+_ctx.entity.environment_variables = [
+  {name: "PATH", value: r"C:\Windows\System32" if _ctx.windows else "/usr/local/bin:/usr/bin:/bin"},
+  {name: "USERNAME" if _ctx.windows else "USER", value: _ctx.entity.user?.name? else _ctx.user.name},
+]
+_ctx.entity.session = {
+  uid: hash_md5(f"{_ctx.host.uid}-{_ctx.entity.user?.uid? else _ctx.user.uid}-{time.floor(8h)}"),
+  created_time: time.floor(8h) - 8h, expiration_time: time.floor(8h) + 8h, is_remote: false,
+}
+if _ctx.windows { _ctx.entity.integrity_id = 3 }

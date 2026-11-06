@@ -1,0 +1,48 @@
+---
+description: Render web server combined access logs and RFC 3164 sshd syslog lines.
+---
+
+match _raw.native {
+  "nginx_error" => {
+    // nginx's file error log has no syslog header. Keep the error text after
+    // the standard time, level, PID/TID, and connection-number prefix.
+    raw_data = f"{time.format_time("%Y/%m/%d %H:%M:%S").slice(end=19)} [error] {1000 + int(random() * 60000)}#0: *{100000 + int(random() * 900000)} {message}"
+  }
+  "nginx" => {
+    // Combined log format; both servers escape embedded quotes as \x22.
+    _t = {
+      uri: http_request.url.path if http_request.url.query_string? == null else f"{http_request.url.path}?{http_request.url.query_string}",
+      version: "HTTP/2.0" if http_request.version == "HTTP/2" else http_request.version,
+      referrer: (http_request.referrer? else "-").replace("\"", "\\x22"),
+      agent: (http_request.user_agent? else "-").replace("\"", "\\x22"),
+    }
+    raw_data = f"{src_endpoint.ip} - - [{time.format_time("%d/%b/%Y:%H:%M:%S").slice(end=20)} +0000] \"{http_request.http_method} {_t.uri} {_t.version}\" {http_response.code} {http_response.length} \"{_t.referrer}\" \"{_t.agent}\""
+    drop _t
+  }
+  "sshd" => {
+    // auth facility, info level: PRI 38. Days below 10 are space-padded.
+    _t = {
+      header: f"<38>{time.format_time("%b %e %H:%M:%S").slice(end=15)} {(dst_endpoint.hostname? else "bastion-01.acme.example").split(".")[0]} sshd[{1000 + int(random() * 60000)}]: ",
+      peer: f"{src_endpoint.ip} port {src_endpoint.port}",
+    }
+    if class_uid == 3002 {
+      if activity_id == 2 {
+        _t.text = f"Disconnected from user {_raw.user} {_t.peer}"
+      } else if status_id == 2 {
+        _t.text = f"Failed password for {_raw.user} from {_t.peer} ssh2"
+      } else if message.starts_with("Accepted publickey") {
+        _t.text = f"Accepted publickey for {_raw.user} from {_t.peer} ssh2: ED25519 SHA256:{encode_base64(decode_hex(hash_sha256(_raw.user))).slice(end=43)}"
+      } else {
+        _t.text = f"Accepted password for {_raw.user} from {_t.peer} ssh2"
+      }
+    } else {
+      _t.text = (f"Connection from {_t.peer} on {dst_endpoint.ip} port {dst_endpoint.port} rdomain \"\"" if activity_id == 1
+        else f"Connection closed by {_t.peer}" if activity_id == 2
+        else f"Connection reset by {_t.peer} [preauth]" if activity_id == 4
+        else f"Received disconnect from {_t.peer}:11: disconnected by user")
+    }
+    raw_data = _t.header + _t.text
+    drop _t
+  }
+  _ => { pass }
+}

@@ -1,0 +1,17 @@
+ocsf_generate::generate count=4096, raw="json", raw_message=true
+assert raw_message == raw_data
+_source = raw_data.parse_json(raw=true)
+assert _source.event_id == metadata.uid
+assert _source.product == metadata.product.name
+assert _source.message == message
+assert _source.activity == activity_id
+assert _source.timestamp == int(round(time.since_epoch().count_milliseconds()))
+if class_uid != 0 {
+  assert _source.status == status_id
+  assert string(_source.extra.observed_host) == string(unmapped.observed_host)
+} else {
+  // Base events keep their source fields and omit unreported outcomes.
+  assert _source.status? == status_id?
+  assert print_ndjson(_source.extra) == print_ndjson(unmapped)
+}
+summarize events=count()

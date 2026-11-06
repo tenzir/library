@@ -1,0 +1,20 @@
+// Exact needle counts must survive four branches and a partial final batch.
+ocsf_generate::generate count=131073, raw="json", needle_ip_count=1,
+  needle_dns_count=10, needle_command_count=1000
+assert observables.length() > 0
+_source = raw_data.parse_json(raw=true)
+if dst_endpoint?.ip? == 198.18.0.1 {
+  assert class_uid == 4001 and _source.dst_ip == "198.18.0.1"
+}
+if query?.hostname? == "dns-needle.ocsf-gen.invalid" {
+  assert class_uid == 4003 and _source.query == query.hostname
+  assert answers[0].rdata == "198.18.0.2" and rcode_id == 0
+}
+if process?.cmd_line? == "ocsf-gen-needle --ioc" {
+  assert class_uid == 1007 and _source.command_line == process.cmd_line
+  assert process.file.hashes[1].value == hash_sha256(f"synthetic-binary-{process.file.path}")
+}
+summarize events=count(),
+  ip_needles=sum(1 if dst_endpoint?.ip? == 198.18.0.1 else 0),
+  dns_needles=sum(1 if query?.hostname? == "dns-needle.ocsf-gen.invalid" else 0),
+  command_needles=sum(1 if process?.cmd_line? == "ocsf-gen-needle --ioc" else 0)

@@ -1,0 +1,62 @@
+---
+description: Build one reusable seed batch and check generator arguments.
+args:
+  named:
+    - name: raw
+      type: string
+    - name: class_uid
+      type: int
+    - name: base_event_share
+      type: float
+    - name: needle_ip_count
+      type: int
+      default: 0
+    - name: needle_dns_count
+      type: int
+      default: 0
+    - name: needle_command_count
+      type: int
+      default: 0
+    - name: observables_probability
+      type: float
+      default: 1.0
+    - name: drift_probability
+      type: float
+      default: 0.0
+    - name: unknown_probability
+      type: float
+      default: 0.0
+    - name: vendor_probability
+      type: float
+      default: 0.0
+---
+
+// Bind package constants once; Nova 6.19.1 cannot evaluate module references per row.
+let $class_uids = ocsf_generate::$class_uids
+
+from {}
+assert $raw in ["native", "mixed", "json", "kv", "syslog", "none"],
+  message="raw must be native, mixed, json, kv, syslog, or none"
+assert $class_uid == null or $class_uid in $class_uids,
+  message="unsupported class_uid; see $class_uids"
+assert $base_event_share >= 0 and $base_event_share <= 1,
+  message="base_event_share must be between 0.0 and 1.0"
+assert $observables_probability >= 0.0 and $observables_probability <= 1.0,
+  message="observables_probability must be between 0.0 and 1.0"
+assert $drift_probability >= 0.0 and $drift_probability <= 1.0,
+  message="drift_probability must be between 0.0 and 1.0"
+assert $unknown_probability >= 0.0 and $unknown_probability <= 1.0,
+  message="unknown_probability must be between 0.0 and 1.0"
+assert $vendor_probability >= 0.0 and $vendor_probability <= 1.0,
+  message="vendor_probability must be between 0.0 and 1.0"
+assert $needle_ip_count >= 0 and $needle_dns_count >= 0 and $needle_command_count >= 0,
+  message="needle counts must be nonnegative"
+assert $needle_ip_count == 0 or $class_uid == null or $class_uid == 4001,
+  message="IP needles require class_uid=4001 or mixed classes"
+assert $needle_dns_count == 0 or $class_uid == null or $class_uid == 4003,
+  message="DNS needles require class_uid=4003 or mixed classes"
+assert $needle_command_count == 0 or $class_uid == null or $class_uid == 1007,
+  message="command needles require class_uid=1007 or mixed classes"
+// Replaying this batch avoids sending one event through every operator at a time.
+repeat 32768
+batch 32768

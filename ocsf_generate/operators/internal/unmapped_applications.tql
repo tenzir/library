@@ -1,0 +1,227 @@
+---
+description: Add unmapped fields for in-house applications and runtime logs.
+---
+
+// Source keys stay stable within a profile; values reuse the sampled entities.
+match _ctx.base.source {
+  0 => {
+    metadata.product = {name: "orders-service", vendor_name: "Acme", version: "4.12.3"}
+    metadata.log_name = "application.log"
+    metadata.log_provider = "logback"
+    device = _ctx.base.server
+    _ctx.base.user = _ctx.user.name
+    _ctx.base.order = f"ORD-{2026000000 + _ctx.base.n}"
+    unmapped = {
+      level: ["INFO", "INFO", "WARN", "ERROR"][_ctx.scenario],
+      logger: ["c.a.orders.CheckoutController", "c.a.orders.PaymentClient", "c.a.orders.InventoryClient", "c.a.orders.PaymentClient"][_ctx.scenario],
+      thread: f"http-nio-8080-exec-{1 + int(random() * 200)}",
+      mdc: {request_id: uuid(), tenant: _ctx.user.domain, user_id: _ctx.user.uid},
+      duration_ms: 12 + int(random() * 900),
+      http: {method: "POST", path: "/api/v2/orders", status: [201, 200, 202, 502][_ctx.scenario]},
+    }
+    message = [f"Order {_ctx.base.order} submitted by {_ctx.user.name}",
+      f"Payment authorization for {_ctx.base.order} took {unmapped.duration_ms} ms",
+      f"Retrying inventory reservation for {_ctx.base.order}, attempt 2",
+      f"Payment provider returned 502 for {_ctx.base.order}"][_ctx.scenario]
+    severity_id = [1, 1, 3, 4][_ctx.scenario]
+    metadata.log_level = unmapped.level
+    if _ctx.scenario == 3 {
+      unmapped.exception = {class: "java.net.SocketTimeoutException", message: "Read timed out", frames: 47}
+    }
+  }
+  1 => {
+    metadata.product = {name: "Kubernetes", vendor_name: "CNCF"}
+    metadata.log_name = "container.stdout"
+    metadata.log_provider = "fluent-bit"
+    device = {hostname: f"k8s-node-{1 + int(random() * 24)}.acme.example", type_id: 6}
+    _ctx.base.app = ["catalog", "search", "recommendations", "notifications"][int(random() * 4)]
+    unmapped = {
+      kubernetes: {
+        namespace_name: ["shop", "shop", "platform", "data"][_ctx.scenario],
+        pod_name: f"{_ctx.base.app}-7d9f{_ctx.base.n}-x{int(random() * 90) + 10}",
+        container_name: _ctx.base.app,
+        labels: {app: _ctx.base.app, "pod-template-hash": f"7d9f{_ctx.base.n}", team: "commerce"},
+        host: device.hostname,
+      },
+      stream: "stdout" if _ctx.scenario < 3 else "stderr",
+      logtag: "F",
+    }
+    message = [f"GET /healthz 200 {1 + int(random() * 9)}ms",
+      f"cache warmup finished for {_ctx.base.app} in {int(random() * 4000)}ms",
+      f"slow upstream call to {_ctx.service.hostname}",
+      f"panic: runtime error: index out of range [{int(random() * 8)}]"][_ctx.scenario]
+    unmapped.log = message
+    severity_id = 4 if _ctx.scenario == 3 else severity_id
+  }
+  2 => {
+    metadata.product = {name: "edge-api", vendor_name: "Acme", version: "2.31.0"}
+    metadata.log_name = "edge-api.log"
+    metadata.log_provider = "pino"
+    device = _ctx.base.server
+    _ctx.base.code = [200, 304, 429, 500][_ctx.scenario]
+    unmapped = {
+      level: [30, 30, 40, 50][_ctx.scenario],
+      pid: 1000 + int(random() * 30000),
+      hostname: _ctx.service.hostname,
+      reqId: f"req-{_ctx.base.n}",
+      req: {method: "GET", url: f"/v1/catalog/items?page={1 + int(random() * 40)}", remoteAddress: _ctx.host.ip, remotePort: 49152 + int(random() * 16384)},
+      res: {statusCode: _ctx.base.code},
+      responseTime: int(random() * 400000) / 1000,
+    }
+    message = "request completed" if _ctx.scenario < 2 else "request errored"
+    status_code = string(_ctx.base.code)
+    status_id = 1 if _ctx.scenario < 2 else 2
+  }
+  3 => {
+    metadata.product = {name: "billing-worker", vendor_name: "Acme", version: "1.8.0"}
+    metadata.log_name = "billing.jsonl"
+    metadata.log_provider = "structlog"
+    device = _ctx.base.server
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      event: ["invoice_created", "invoice_paid", "dunning_reminder_sent", "charge_failed"][_ctx.scenario],
+      logger: "billing.tasks",
+      level: "error" if _ctx.scenario == 3 else "info",
+      invoice_id: f"INV-{_ctx.base.n}",
+      amount: (500 + int(random() * 500000)) / 100,
+      currency: ["EUR", "CHF", "USD"][int(random() * 3)],
+      customer: {id: _ctx.user.uid, tier: ["standard", "premium"][int(random() * 2)]},
+      attempt: 1 + int(random() * 3),
+    }
+    // Older workers serialize decimals as strings.
+    if random() < 0.25 {
+      unmapped.amount = string(unmapped.amount)
+    }
+    message = f"{unmapped.event} {unmapped.invoice_id}"
+    severity_id = 4 if _ctx.scenario == 3 else severity_id
+  }
+  4 => {
+    metadata.product = {name: "Windows", vendor_name: "Microsoft"}
+    metadata.log_name = "Application"
+    _ctx.native = "winapp"
+    metadata.log_provider = ["MsiInstaller", "Office Software Protection Platform Service", "VSS", "Application Hang"][_ctx.scenario]
+    device = _ctx.base.workstation
+    _ctx.base.user = _ctx.user.name
+    metadata.event_code = ["11707", "1003", "8224", "1002"][_ctx.scenario]
+    unmapped = {
+      EventID: int(metadata.event_code),
+      Channel: "Application",
+      ProviderName: metadata.log_provider,
+      Level: [4, 4, 4, 2][_ctx.scenario],
+      Task: 0,
+      Keywords: "0x80000000000000",
+      Computer: _ctx.host.hostname,
+      EventRecordID: 100000 + _ctx.base.n,
+      EventData: {Data: [f"Product: Acme Client {_ctx.base.n}", "(NULL)", _ctx.user.name]},
+    }
+    message = ["Installation completed successfully.",
+      "The Software Protection service has completed licensing status check.",
+      "The VSS service is shutting down due to idle timeout.",
+      "The program outlook.exe stopped interacting with Windows and was closed."][_ctx.scenario]
+    severity_id = 99 if _ctx.scenario == 3 else severity_id
+    if severity_id == 99 {
+      severity = "Error"
+    }
+  }
+  5 => {
+    metadata.product = {name: "cron-reports", vendor_name: "Acme"}
+    metadata.log_name = "batch.log"
+    metadata.log_provider = "logger"
+    device = _ctx.base.server
+    unmapped = {
+      script: ["daily_sales.sh", "export_ledger.sh", "purge_tmp.sh", "sync_catalog.sh"][_ctx.scenario],
+      exit_status: 1 if _ctx.scenario == 3 else 0,
+      rows_processed: int(random() * 250000),
+      duration_s: int(random() * 360000) / 100,
+    }
+    // Shell wrappers sometimes quote every value.
+    if random() < 0.30 {
+      unmapped.exit_status = string(unmapped.exit_status)
+      unmapped.rows_processed = string(unmapped.rows_processed)
+    }
+    message = f"{unmapped.script} finished with status {unmapped.exit_status}"
+    status_id = 2 if _ctx.scenario == 3 else 1
+    status_code = string(unmapped.exit_status)
+  }
+  6 => {
+    metadata.product = {name: "Acme Mobile", vendor_name: "Acme", version: "5.4.1"}
+    metadata.log_name = "mobile-telemetry"
+    metadata.log_provider = "Firebase"
+    device = {uid: f"mobile-{_ctx.user.uid}", name: f"{_ctx.user.name} phone", type_id: 5}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      app_version: "5.4.1",
+      build: 5410 + int(random() * 4),
+      os: {name: ["iOS", "Android"][int(random() * 2)], version: ["18.1", "15", "17.6", "14"][int(random() * 4)]},
+      device_model: ["iPhone15,3", "Pixel 8", "SM-S911B", "iPhone14,7"][int(random() * 4)],
+      session_id: uuid(),
+      event_name: ["screen_view", "login", "sync", "crash"][_ctx.scenario],
+      props: {screen: ["Home", "Expenses", "Approvals", "Settings"][int(random() * 4)], network: ["wifi", "cellular"][int(random() * 2)]},
+    }
+    message = f"Mobile event {unmapped.event_name} on {unmapped.props.screen}"
+    if _ctx.scenario == 3 {
+      unmapped.crash = {signal: "SIGABRT", thread: "main", frames: [{module: "AcmeKit", offset: _ctx.base.n}, {module: "UIKitCore", offset: 4096}]}
+      severity_id = 4
+    }
+  }
+  7 => {
+    metadata.product = {name: "OpenJDK", vendor_name: "Eclipse Adoptium", version: "21.0.4"}
+    metadata.log_name = "gc.log"
+    metadata.log_provider = "unified-logging"
+    device = _ctx.base.server
+    unmapped = {
+      gc: {
+        collector: "G1",
+        cause: ["G1 Evacuation Pause", "G1 Evacuation Pause", "Metadata GC Threshold", "Allocation Failure"][_ctx.scenario],
+        pause_ms: int(random() * 40000) / 100,
+        heap_before_mb: 2048 + int(random() * 2048),
+        heap_after_mb: 512 + int(random() * 1024),
+      },
+      uptime_s: int(random() * 864000) / 10,
+      pid: 1000 + int(random() * 30000),
+    }
+    message = f"GC({_ctx.base.n}) Pause Young ({unmapped.gc.cause}) {unmapped.gc.heap_before_mb}M->{unmapped.gc.heap_after_mb}M {unmapped.gc.pause_ms}ms"
+  }
+  8 => {
+    metadata.product = {name: "OpenSearch", vendor_name: "OpenSearch Project", version: "2.17.1"}
+    metadata.log_name = "index_search_slowlog"
+    metadata.log_provider = "log4j2"
+    device = _ctx.base.server
+    unmapped = {
+      index: ["orders-2026.10", "catalog", "audit-2026.10", "logs-app"][_ctx.scenario],
+      shard: int(random() * 6),
+      node: f"os-data-{1 + int(random() * 6)}",
+      took_millis: 500 + int(random() * 9000),
+      total_hits: f"{int(random() * 100000)} hits",
+      search_type: "QUERY_THEN_FETCH",
+      total_shards: 6,
+      source: "{\"query\":{\"bool\":{\"filter\":[{\"term\":{\"status\":\"open\"}}]}}}",
+    }
+    message = f"[{unmapped.node}] [{unmapped.index}][{unmapped.shard}] took[{unmapped.took_millis}ms]"
+    severity_id = 3 if unmapped.took_millis > 5000 else 2
+  }
+  9 => {
+    metadata.product = {name: "LaunchDarkly", vendor_name: "LaunchDarkly"}
+    metadata.log_name = "audit-log"
+    metadata.log_provider = "webhook"
+    device = _ctx.base.server
+    _ctx.base.user = _ctx.user.name
+    activity_id = 99
+    type_name = "Base Event: Other"
+    activity_name = ["updateOn", "updateRules", "createFlag", "deleteFlag"][_ctx.scenario]
+    unmapped = {
+      kind: "flag",
+      flag_key: ["new-checkout", "dark-mode", "search-v2", "legacy-export"][int(random() * 4)],
+      variation: random() < 0.5,
+      environment: ["production", "staging"][int(random() * 2)],
+      member: {email: _ctx.user.email_addr, role: "writer"},
+      accesses: [{action: activity_name, resource: "proj/default:env/production:flag/*"}],
+    }
+    // The audit API emits boolean and multivariate flags under one key.
+    if _ctx.scenario == 1 {
+      unmapped.variation = int(random() * 4)
+    }
+    message = f"{_ctx.user.name} changed flag {unmapped.flag_key} in {unmapped.environment}"
+  }
+  _ => { discard }
+}

@@ -1,0 +1,38 @@
+---
+description: Generate a finite OCSF 1.6.0 workload across five common classes.
+args:
+  named:
+    - name: count
+      type: int
+      default: 1000000
+    - name: class_uid
+      type: int
+      default: null
+    - name: eps
+      type: int
+      default: null
+    - name: time_eps
+      type: int
+      default: 1000
+    - name: raw
+      type: string
+      default: json
+---
+
+let $end_time = now() - 10s
+from {}
+assert $count >= 0, message="count must be nonnegative"
+assert $class_uid == null or $class_uid in [1001, 1007, 3002, 4001, 4003],
+  message="legacy class_uid must be 1001, 1007, 3002, 4001, or 4003"
+assert $eps == null or $eps > 0, message="eps must be positive"
+assert $time_eps > 0, message="time_eps must be positive"
+assert $raw in ["json", "none"], message="legacy raw must be json or none"
+// Replay a bounded seed batch; enrich only after repetition to get fresh events.
+repeat 8192
+batch 8192
+repeat int($count / 8192) + 1
+head $count
+enumerate _sequence
+ocsf_generate::internal::legacy16::populate class_uid=$class_uid,
+  count=$count, time_eps=$time_eps, end_time=$end_time, raw=$raw
+throttle rate=($eps else 9223372036854775807)
