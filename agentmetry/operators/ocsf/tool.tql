@@ -15,10 +15,9 @@ description: |
   - A tool call that a policy denied is a Security Control that blocked it. The
     rule that matched becomes the policy.
   - An approval request is pending, so its status is Unknown.
-  - An approval response is a person's decision: Approved or Rejected. A
-    response that Agentmetry inferred, because the session ended with the
-    request still open, was denied without a decision, so its disposition is
-    Unknown.
+  - An observed approval response is Approved or Rejected. An inferred
+    response keeps its reason and has disposition Unknown, whether the tool
+    ran after the request or the session ended with the request still open.
 args:
   positional:
     - name: agentmetry
@@ -49,9 +48,19 @@ let $file_activities = {
   str_replace_editor: 3,
   notebookedit: 3,
 }
+// A decision on an approval request is not an execution, so an approval keeps
+// status Unknown. Agentmetry infers a response from a tool call after the
+// request or from a session that ended with the request still open. Neither is
+// a person's decision, so the disposition stays Unknown.
+let $approval_responses = {
+  approved: {status_id: 0, action_id: 1, disposition_id: 8},
+  rejected: {status_id: 2, action_id: 2, disposition_id: 25},
+  success: {status_id: 0, action_id: 0, disposition_id: 0},
+  inferred: {status_id: 2, action_id: 2, disposition_id: 0},
+}
 
-// An approval that Agentmetry inferred at the end of a session names the gated
-// tool in `gated_action` and carries no tool section.
+// An approval response that Agentmetry inferred names the gated tool in
+// `gated_action` and carries no tool section.
 if $agentmetry.tool? == null and $agentmetry.gated_action? != null {
   $agentmetry.tool = {
     name: move $agentmetry.gated_action.tool?,
@@ -60,6 +69,13 @@ if $agentmetry.tool? == null and $agentmetry.gated_action? != null {
   }
 }
 $ocsf._tool = $agentmetry.tool?.name?.to_lower()
+// A built-in tool can carry the harness as qualifier, such as
+// `codex.exec_command`. Strip it to select the class. A tool from another
+// server keeps its name, even if it ends with a known shell tool name.
+if $agentmetry.tool?.server? in [null, $agentmetry.agent?.name?] and
+   $ocsf._tool.starts_with(f"{$agentmetry.agent?.name?.to_lower()}.") {
+  $ocsf._tool = $ocsf._tool.split(".", max=1)[1]
+}
 $ocsf._path = $agentmetry.tool?.arguments?.file_path? else
               $agentmetry.tool?.arguments?.path? else
               $agentmetry.tool?.arguments?.target_file?
@@ -74,20 +90,13 @@ match $ocsf.metadata.event_code {
     $ocsf._result = "requested"
   }
   "approval_response" => {
-    // A decision is not an execution, so the status stays Unknown when the
-    // person approves.
-    if $ocsf._outcome == "success" {
-      $ocsf.status_id = 0
-      $ocsf.action_id = 1
-      $ocsf.disposition_id = 8
-      $ocsf._result = "approved"
+    if $ocsf._reason.starts_with("inferred:") {
+      $ocsf.status_detail = $ocsf._reason
+      $ocsf._result = "success" if $ocsf._outcome == "success" else "inferred"
     } else {
-      $ocsf.status_id = 2
-      $ocsf.action_id = 2
-      $ocsf.disposition_id = 0 if $ocsf._reason.starts_with("inferred:") else 25
-      $ocsf.status_detail = $ocsf._reason if $ocsf.disposition_id == 0 else null
-      $ocsf._result = "inferred" if $ocsf.disposition_id == 0 else "rejected"
+      $ocsf._result = "approved" if $ocsf._outcome == "success" else "rejected"
     }
+    $ocsf = {...$ocsf, ...$approval_responses[$ocsf._result]}
   }
   _ => {
     match $ocsf._outcome {
