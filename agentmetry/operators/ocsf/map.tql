@@ -37,7 +37,6 @@ args:
       description: The OCSF event to build.
 ---
 
-// Every event carries the product identity, whatever its class.
 $ocsf = {
   metadata: {
     version: "1.9.0",
@@ -50,7 +49,6 @@ $ocsf = {
   severity_id: 1,
 }
 
-// A trail line wraps the canonical event with its position in the hash chain.
 if $agentmetry.event? != null and $agentmetry.trail? != null {
   $agentmetry = {...move $agentmetry.event, trail: move $agentmetry.trail}
 }
@@ -73,9 +71,6 @@ match $ocsf.metadata.event_code? {
     agentmetry::ocsf::events::mcp_schema_changed $agentmetry, $ocsf
   }
   _ => {
-    // A session boundary, a configuration change, an unchanged MCP listing, or
-    // a record that is not an Agentmetry event: all that is left to say is that
-    // an event happened.
     @name = "ocsf.base_event"
     $ocsf.category_uid = 0
     $ocsf.class_uid = 0
@@ -84,14 +79,9 @@ match $ocsf.metadata.event_code? {
   }
 }
 
-// The correlation UID carries the session.
 drop $agentmetry.correlation_id?
-
-// --- Finalize ---------------------------------
-
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 if $ocsf.action_id? != null {
   $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
 }
-// What the mapping did not consume has no OCSF attribute.
 $ocsf = {...$ocsf, unmapped: move $agentmetry}

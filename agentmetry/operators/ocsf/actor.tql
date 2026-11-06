@@ -1,0 +1,26 @@
+---
+description: |
+  Builds the OCSF actor of an event from the person an agent acts for.
+
+  A system actor, such as the recorder itself, is not a user and stays in the
+  source event.
+args:
+  positional:
+    - name: agentmetry
+      type: field
+      description: The Agentmetry event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+if $agentmetry.actor?.type? == "user" and $agentmetry.actor.id? != null {
+  $ocsf.actor.user = {
+    uid: move $agentmetry.actor.id,
+  }
+  drop $agentmetry.actor.type
+  // The initiator repeats the operator for a run that a person started.
+  if $agentmetry.initiator?.operator_id? == $ocsf.actor.user.uid {
+    drop $agentmetry.initiator.operator_id
+  }
+}
