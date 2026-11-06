@@ -3,6 +3,8 @@ title: Preserve inferred Agentmetry approval outcomes
 type: bugfix
 authors:
   - blitzcrieg1
+prs:
+  - 222
 created: 2026-11-05T17:50:00.000000Z
 ---
 
