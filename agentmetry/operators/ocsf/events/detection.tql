@@ -67,15 +67,18 @@ $ocsf.finding_info = {
 }
 $ocsf.message = $ocsf.finding_info.desc
 agentmetry::ocsf::actor $agentmetry, $ocsf
-// OCSF 1.9 omits `ai_agent` from the evidence constraint, which
-// https://github.com/ocsf/ocsf-schema/pull/1796 fixes.
-$ocsf.evidences = [{
-  ai_agent: {
-    name: move $agentmetry.agent?.name?,
-    instance_uid: $agentmetry.correlation_id?,
-    type_id: 1,
-  },
-}] if $agentmetry.agent?.name? != null
+// OCSF 1.9 requires more than an AI agent to identify evidence. Without an
+// identified actor, keep the agent under `unmapped` instead.
+if $ocsf.actor? != null {
+  $ocsf.evidences = [{
+    actor: $ocsf.actor,
+    ai_agent: {
+      name: move $agentmetry.agent?.name?,
+      instance_uid: $agentmetry.correlation_id?,
+      type_id: 1,
+    } if $agentmetry.agent?.name? != null,
+  }]
+}
 // The summary is also the reason of the action, and the detection repeats the
 // session that the event already names.
 if $agentmetry.action.reason? == $ocsf.finding_info.desc {
