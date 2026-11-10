@@ -30,9 +30,7 @@ let $severities = {
 $ocsf.category_uid = 2
 $ocsf.class_uid = 2004
 $ocsf.activity_id = 1
-// A new finding that requires a closer look.
 $ocsf.status_id = 1
-// The recorder observed the sequence and detected it without intervening.
 $ocsf.is_alert = true
 $ocsf.action_id = 3
 $ocsf.disposition_id = 15
@@ -42,8 +40,6 @@ if $agentmetry.action.outcome? == $agentmetry.detection.severity? {
   drop $agentmetry.action.outcome
 }
 drop $agentmetry.detection.severity?
-// Rules reference sub-techniques (`T1552.004`) and techniques (`T1071`) in one
-// list and tactics (`TA0006`) in another.
 $ocsf.attacks = [
   ...(move $agentmetry.detection.technique_ids? else []).map(id => {
     technique: {uid: id.split(".")[0]},
@@ -61,7 +57,7 @@ $ocsf.finding_info = {
     uid: $agentmetry.detection.rule_id?,
     name: move $agentmetry.detection.rule_id?,
     type_id: 1,
-  },
+  } if $agentmetry.detection.rule_id? != null,
   first_seen_time: time(move $agentmetry.detection.first_seen_utc?),
   last_seen_time: time(move $agentmetry.detection.last_seen_utc?),
   related_events: (move $agentmetry.detection.event_ids? else []).map(id => {uid: id}),
@@ -70,24 +66,17 @@ $ocsf.finding_info = {
   attacks: $ocsf.attacks,
 }
 $ocsf.message = $ocsf.finding_info.desc
-// The agent whose calls matched is the evidence, and the person it acted for
-// is the actor.
-if $agentmetry.actor?.type? == "user" {
-  $ocsf.actor.user = {
-    uid: move $agentmetry.actor.id,
-  }
-  drop $agentmetry.actor.type
-  if $agentmetry.initiator?.operator_id? == $ocsf.actor.user.uid {
-    drop $agentmetry.initiator.operator_id
-  }
-}
-if $agentmetry.agent?.name? != null {
+agentmetry::ocsf::actor $agentmetry, $ocsf
+// OCSF 1.9 requires more than an AI agent to identify evidence. Without an
+// identified actor, keep the agent under `unmapped` instead.
+if $ocsf.actor? != null {
   $ocsf.evidences = [{
+    actor: $ocsf.actor,
     ai_agent: {
-      name: move $agentmetry.agent.name,
+      name: move $agentmetry.agent?.name?,
       instance_uid: $agentmetry.correlation_id?,
       type_id: 1,
-    },
+    } if $agentmetry.agent?.name? != null,
   }]
 }
 // The summary is also the reason of the action, and the detection repeats the
