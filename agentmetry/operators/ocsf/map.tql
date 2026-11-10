@@ -23,6 +23,8 @@ description: |
 
   A `null` event, a record without Agentmetry's `action` section, and every
   other action type, such as `session_start`, become an OCSF Base Event.
+  A supplied `timestamp_utc` becomes `time` even when the action is missing.
+  When the timestamp is absent, `time` remains null.
 
   The operator consumes the source event: what it maps becomes OCSF, and what it
   cannot map becomes `unmapped` inside the OCSF event. The operator does not
@@ -59,6 +61,10 @@ if $agentmetry.action?.type? != null {
   replace $agentmetry, what="", with=null
   agentmetry::ocsf::common $agentmetry, $ocsf
 }
+
+// Preserve source time even when the action is missing. Convert timestamps
+// from record literals as well as timestamps inferred by a JSON reader.
+$ocsf.time = time(move $agentmetry.timestamp_utc?)
 
 match $ocsf.metadata.event_code? {
   "tool_called" | "approval_request" | "approval_response" => {
