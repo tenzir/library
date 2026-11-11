@@ -3,10 +3,10 @@ description: |
   Agentmetry `detection` → OCSF Detection Finding (2004, Create).
 
   Agentmetry correlates tool calls within a session or across sessions on one
-  host and emits a detection
-  when a sequence rule matches, such as a credential read followed by network
-  egress. The rule becomes the analytic, the calls it matched become the
-  related events, and the ATT&CK tactics and techniques become `attacks`.
+  host and emits a detection when a sequence rule matches, such as a credential
+  read followed by network egress. The rule becomes the analytic, the calls it
+  matched become the related events, and the ATT&CK tactics and techniques
+  become `attacks`.
   MITRE ATLAS identifiers have no OCSF attribute and stay in the source event.
 args:
   positional:
@@ -80,50 +80,43 @@ if $ocsf.actor? != null {
     } if $agentmetry.agent?.name? != null,
   }]
 }
-// Version 1 snapshots describe reported tool-boundary observations, including
-// denied calls. Retain them verbatim under unmapped so outcomes, inference
-// markers, source sessions and omission counters stay attached to their IDs.
-// Never assign the triggering actor to every cited event across sessions.
-if $agentmetry.detection.artifacts?.version? == 1 and
-   type_kind($agentmetry.detection.artifacts?.items?) == "list" {
-  $ocsf._artifacts = $agentmetry.detection.artifacts.items.where(item => type_kind(item) == "record")
-  $ocsf._artifacts = $ocsf._artifacts.where(item => item.action?.type? == "tool_called" and
-                   type_kind(item.event_id?) == "string" and
-                   type_kind(item.tool?) == "record")
-  $ocsf._artifacts = $ocsf._artifacts.where(item => (type_kind(item.tool.name?) == "string" and item.tool.name != "") or
-                   (type_kind(item.tool.qualified?) == "string" and item.tool.qualified != ""))
-  $ocsf._artifacts = $ocsf._artifacts.map(item => {
-    uid: item.event_id,
-    operation: item.tool.name if type_kind(item.tool.name?) == "string" and item.tool.name != ""
-               else item.tool.qualified,
-    server: item.tool.server if type_kind(item.tool.server?) == "string" and
-                               item.tool.server != item.source?.app? else null,
-    path: item.tool.arguments?.file_path? else item.tool.arguments?.path? else
-          item.tool.arguments?.target_file?,
-    url: item.tool.arguments?.url?,
-  })
-  $ocsf._artifacts = $ocsf._artifacts.map(item => {
-    uid: item.uid,
-    api: {
-      operation: item.operation,
-      service: {name: item.server} if item.server != null,
-    },
-    file: {
-      name: file_name(item.path.replace("\\", "/")),
-      path: item.path,
-      type_id: 0,
-    } if type_kind(item.path) == "string" and item.path != "" and
-         item.operation.to_lower() in [
-           "read", "read_file", "view", "notebookread", "write", "write_file",
-           "create_file", "write_to_file", "edit", "multiedit", "edit_file",
-           "str_replace", "str_replace_editor", "notebookedit",
-         ],
-    url: {url_string: item.url} if type_kind(item.url) == "string" and item.url != "",
-  })
-  if $ocsf._artifacts.length() > 0 {
-    $ocsf.evidences = [...$ocsf.evidences?, ...$ocsf._artifacts]
-  }
-  drop $ocsf._artifacts
+// Version 1 artifacts snapshot the cited tool calls, including denied ones.
+// Each named call becomes API evidence, with file evidence for a captured path
+// on a file tool and URL evidence for a captured URL. The calls can stem from
+// other sessions, so they do not inherit the triggering actor. The full block
+// stays under `unmapped`, with outcomes, sessions, and omission counts.
+if $agentmetry.detection.artifacts?.version? == 1 {
+  $ocsf.evidences = [
+    ...$ocsf.evidences?,
+    ...$agentmetry.detection.artifacts.items?
+      .where(item => item.action?.type? == "tool_called")
+      .map(item => {
+        uid: item.event_id?,
+        operation: item.tool?.name? else item.tool?.qualified?,
+        server: item.tool?.server?,
+        app: item.source?.app?,
+        path: item.tool?.arguments?.file_path? else
+              item.tool?.arguments?.path? else
+              item.tool?.arguments?.target_file?,
+        url: item.tool?.arguments?.url?,
+      })
+      .where(call => call.uid != null and call.operation != null)
+      .map(call => {
+        uid: call.uid,
+        api: {
+          operation: call.operation,
+          // Built-in tools name their harness as server.
+          service: {name: call.server} if call.server not in [null, call.app],
+        },
+        file: {
+          name: file_name(call.path),
+          path: call.path,
+          type_id: 0,
+        } if call.path != null and
+             call.operation.to_lower() in agentmetry::$file_activities.keys(),
+        url: {url_string: call.url} if call.url != null,
+      }),
+  ]
 }
 // The summary is also the reason of the action, and the detection repeats the
 // session that the event already names.
