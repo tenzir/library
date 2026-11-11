@@ -2,10 +2,11 @@
 description: |
   Agentmetry `detection` → OCSF Detection Finding (2004, Create).
 
-  Agentmetry correlates the tool calls of one session and emits a detection
-  when a sequence rule matches, such as a credential read followed by network
-  egress. The rule becomes the analytic, the calls it matched become the
-  related events, and the ATT&CK tactics and techniques become `attacks`.
+  Agentmetry correlates tool calls within a session or across sessions on one
+  host and emits a detection when a sequence rule matches, such as a credential
+  read followed by network egress. The rule becomes the analytic, the calls it
+  matched become the related events, and the ATT&CK tactics and techniques
+  become `attacks`.
   MITRE ATLAS identifiers have no OCSF attribute and stay in the source event.
 args:
   positional:
@@ -78,6 +79,39 @@ if $ocsf.actor? != null {
       type_id: 1,
     } if $agentmetry.agent?.name? != null,
   }]
+}
+// Cited calls can stem from other sessions, so they don't inherit the actor.
+if $agentmetry.detection.artifacts? != null {
+  $ocsf.evidences = [
+    ...$ocsf.evidences?,
+    ...$agentmetry.detection.artifacts.items?
+      .where(item => item.action?.type? == "tool_called")
+      .map(item => {
+        uid: item.event_id,
+        operation: item.tool.name? else item.tool.qualified?,
+        server: item.tool.server?,
+        app: item.source?.app?,
+        path: item.tool.arguments?.file_path? else
+              item.tool.arguments?.path? else
+              item.tool.arguments?.target_file?,
+        url: item.tool.arguments?.url?,
+      })
+      .where(call => call.operation != null)
+      .map(call => {
+        uid: call.uid,
+        api: {
+          operation: call.operation,
+          // Built-in tools name their harness as server.
+          service: {name: call.server} if call.server not in [null, call.app],
+        },
+        file: {
+          name: file_name(call.path),
+          path: call.path,
+          type_id: 0,
+        } if call.path != null,
+        url: {url_string: call.url} if call.url != null,
+      }),
+  ]
 }
 // The summary is also the reason of the action, and the detection repeats the
 // session that the event already names.
