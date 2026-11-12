@@ -1,0 +1,25 @@
+---
+description: Maps Suricata DNS records while retaining records without RData.
+args:
+  positional:
+    - name: records
+      type: field
+      description: The source resource records to consume.
+    - name: mapped
+      type: field
+      description: The OCSF resource records to build.
+---
+
+$mapped = $records.map(record => {
+  hostname: record.rrname?,
+  rdata: record.rdata?.string() else (
+    f"{record.soa.mname} {record.soa.rname} {record.soa.serial} {record.soa.refresh} {record.soa.retry} {record.soa.expire} {record.soa.minimum}" if record.soa? != null
+    else (f"{record.srv.priority} {record.srv.weight} {record.srv.port} {record.srv.name}" if record.srv? != null else null)
+  ),
+  type: record.rrtype,
+  ttl: record.ttl?,
+}).where(record => record.rdata != null)
+$records = $records.where(record => record.rdata? == null and record.soa? == null and record.srv? == null)
+if $records.is_empty() {
+  drop $records
+}

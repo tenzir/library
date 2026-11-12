@@ -22,7 +22,13 @@ let $activity_id = {
   PATCH: 9,
 }
 
-$ocsf.activity_id = $activity_id[$event.http.http_method] else 99
+$ocsf.activity_id = 0
+if $event.http.http_method? != null {
+  $ocsf.activity_id = $activity_id[$event.http.http_method]? else 99
+  if $ocsf.activity_id == 99 {
+    $ocsf.activity_name = $event.http.http_method
+  }
+}
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4002
 $ocsf.severity_id = 1
@@ -42,7 +48,7 @@ if $event.http.has("fileinfo") {
 
 suricata::ocsf::map_http $event, $ocsf
 
-match $ocsf.http_response.code? {
+match $ocsf.http_response?.code? {
   199..400 => {
     $ocsf.status_id = 1
   }
