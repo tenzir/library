@@ -53,17 +53,19 @@ drop $event.outcome?
 // --- OCSF: target user from target[] ----------
 
 if $event.target? != null {
-  $ocsf.user = $event.target.where(t => t.type == "User").map(t => {
-    uid: t.id,
+  $ocsf.user = $event.target.where(t => t.type in ["User", "NewUser"]).map(t => {
+    uid: t.id?,
     name: t.alternateId?.split("@")[0]?,
     full_name: string(t.displayName?),
-    email_addr: t.alternateId,
+    email_addr: t.alternateId?,
     type_id: 1,
   })[0]?
-  $ocsf.user.groups = $event.target.where(t => t.type == "UserGroup").map(t => {
-    uid: t.id,
-    name: t.displayName,
-  })
+  if $ocsf.user?.uid? != null or $ocsf.user?.name? != null {
+    $ocsf.user.groups = $event.target.where(t => t.type == "UserGroup").map(t => {
+      uid: t.id?,
+      name: t.displayName?,
+    })
+  }
 }
 
 @name = "ocsf.account_change"
