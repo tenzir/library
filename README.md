@@ -3,22 +3,13 @@
 This repository hosts the official collection of content
 [packages](https://tenzir.com/docs/explanations/packages/) for Tenzir.
 
-Packages require Tenzir 6.20.0 or later, which uses Nova by default.
+Packages require Tenzir 7 or later.
 
 ## 🚀 Install packages
 
-Pick the workflow that fits your environment. For details, see our [installation
-guide](https://tenzir.com/docs/guides/package-management/install-a-package/):
-
-1. **Web UI**: browse to
-   [app.tenzir.com/library](https://app.tenzir.com/library) and click _Install_.
-2. **Interactive**: run
-   [`package_add`](https://tenzir.com/docs/reference/operators/package/add)
-   against a local directory, and remove it later with
-   [`package_remove`](https://tenzir.com/docs/reference/operators/package/remove).
-3. **As code**: place packages under `packages/` inside your
-   configuration directory (or another path listed in `tenzir.package-dirs`) and
-   include an optional `config.yaml` for inputs.
+Our [installation
+guide](https://tenzir.com/docs/guides/packages/install-a-package/) shows how to
+add a package to your configuration.
 
 ## 🧱 Package anatomy
 
@@ -28,8 +19,10 @@ A package lives in a directory with these building blocks:
 - `examples/`: runnable TQL snippets that demonstrate package UDOs.
 - `tests/`: deterministic [integration
   tests](https://tenzir.com/docs/reference/test-framework) that verify UDOs.
-- `package.yaml`: the package manifest with metadata and optional
-  enrichment contexts.
+- `package.yaml`: the package manifest with metadata and dependencies.
+
+Packages contain no pipelines or contexts. Your configuration declares the
+contexts that a package's operators use, as the package description shows.
 
 ## 🤝 Contribute a package
 
@@ -48,9 +41,7 @@ package up use cases. Then:
 Run the package tests with the latest Tenzir release:
 
 ```sh
-TENZIR_BINARY="uvx tenzir" \
-TENZIR_NODE_BINARY="uvx --from tenzir tenzir-node" \
-  uvx tenzir-test */
+TENZIR_BINARY="uvx tenzir" uvx tenzir-test */
 ```
 
 ## ⚖️ License

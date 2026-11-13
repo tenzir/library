@@ -95,7 +95,12 @@ def truepattern_taxii() -> FixtureHandle:
             if status in (500, 503):
                 self.send_header("Retry-After", "0")
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except ConnectionError:
+                # A client may retry an error from its headers and close the
+                # connection before reading the body.
+                pass
 
         def log_message(self, *args):
             pass

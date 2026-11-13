@@ -46,10 +46,7 @@ The `sigma` operator only accepts constant rules or a path, so rules can't flow
 from the feed into the operator as events. Instead, the walk writes a file,
 and the `sigma` operator reloads it within seconds of every change.
 
-The package requires the `stix` package and Tenzir 6.20.0 or later. The package
-tests pass with stable Tenzir 6.20.0, which includes the empty Sigma source and
-HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772). No minimum engine version
-is enforced by the package manifest.
+The package requires the `stix` package and Tenzir 7 or later.
 
 The package does not filter execution or onward routing by license metadata.
 Rules fetched through the authenticated API remain eligible when that metadata
@@ -156,7 +153,7 @@ to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
 ```
 
 Run the rule update first to populate the rule files and catalog. Adapt the
-example paths to files accessible to the executing node, with readable inputs
+example paths to files accessible to the executing deployment, with readable inputs
 and writable output directories. These file-based detection examples process
 an export once. To process new OCSF exports continuously, use
 `from_file "/var/log/ocsf/*.ndjson", watch=10s` with the same `read_ndjson`
@@ -238,7 +235,17 @@ A Sigma Detection Finding carries the Sigma rule ID in
 `finding_info.analytic.uid`. Every rule in the file is a single document, and
 no two rules share a Sigma rule ID, so `truepattern::update_context` stores
 exactly one entry per rule in the `truepattern-sigma-rules` lookup table, keyed
-by that ID. `truepattern::enrich` looks up the ID and adds:
+by that ID. Declare the table in your configuration:
+
+```yaml
+# contexts/truepattern-sigma-rules.yaml
+type: lookup-table
+persist-interval: 5min
+write-timeout: 30d
+```
+
+The `write-timeout` removes rules that leave the feed from the catalog 30 days
+after their last update. `truepattern::enrich` looks up the ID and adds:
 
 - The rule's OCSF `osint` object to `osint`, with the TruePattern ID in
   `external_uid`, the change analysis in `desc`, the upstream rule in
@@ -303,17 +310,15 @@ the STIX `id` and `modified` time.
 
 ## Test the package
 
-Use `tenzir-test` 2.3.1 or later. From the library root, select both the CLI
-and node from the validated stable Tenzir 6.20.0 distribution:
+Use `tenzir-test` 2.3.1 or later. From the library root, run:
 
 ```sh
-TENZIR_BINARY='uvx --from tenzir==6.20.0 tenzir' \
-TENZIR_NODE_BINARY='uvx --from tenzir==6.20.0 tenzir-node' \
-uvx --refresh 'tenzir-test>=2.3.1' truepattern stix
+uvx tenzir-test truepattern stix
 ```
 
-To test a different build containing the engine fixes listed earlier, set
-both variables to its CLI and node binaries.
+Set `TENZIR_BINARY` to test a different Tenzir build. The tests cover the
+feed, the rule files, and normalization. They don't cover the catalog and
+enrichment, which need the contexts of a deployment.
 
 The runner loads each test's enclosing package automatically, including for
 Python tests. Keep the `package-dirs` declaration in `tests/test.yaml`: it loads
@@ -349,5 +354,5 @@ other repository notices. Obtain and carry any additional notices or license
 texts that the actual terms require, including in custom deployment adapters.
 
 The incremental routing example does not retract previously exported or
-deployed rules. Existing catalog entries expire under `max_age`; the catalog
+deployed rules. Existing catalog entries expire under the table's `write-timeout`; the catalog
 is enrichment metadata, not an execution or permission allowlist.
