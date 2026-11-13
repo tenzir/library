@@ -1,0 +1,16 @@
+// Single-segment messages can reuse an ISE message id and must not be merged.
+from {
+  message: "CISE_Passed_Authentications 0001234567 1 0 2024-01-15 12:00:00.100 +00:00 0007654321 5239 NOTICE RADIUS: NAS problem was fixed, ConfigVersionId=1, NAS-IP-Address=192.0.2.10, MisconfiguredClientFixReason=Silent, Step=5239,",
+  timestamp: 2026-01-15T12:00:00Z,
+},
+{
+  message: "CISE_Passed_Authentications 0001234567 1 0 2024-01-15 12:00:00.200 +00:00 0007654322 5200 NOTICE Passed-Authentication: Authentication succeeded, ConfigVersionId=2, UserName=example-user, Protocol=Radius, NetworkDeviceName=example-vpn-gateway, User-Name=example-user, NAS-IP-Address=192.0.2.10, Calling-Station-ID=192.0.2.20, AcsSessionID=ise.example.com/123456789/42, SelectedAuthorizationProfiles=VPN access, AuthenticationStatus=AuthenticationPassed, NetworkDeviceGroups=Location#All Locations#Test Campus, CPMSessionID=abcdef1234567890, ISEPolicySetName=Remote Access Policy,",
+  timestamp: 2026-01-15T12:00:00Z,
+}
+cisco::ise::reassemble message=message, on=timestamp, span=30s
+cisco::ise::parse
+cisco::ise::ocsf::map
+ocsf::derive
+ocsf::cast
+select metadata.original_event_uid, metadata.event_code, type_name, message, user?.name?
+sort metadata.event_code

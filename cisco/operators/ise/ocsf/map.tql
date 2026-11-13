@@ -1,0 +1,108 @@
+---
+description: Cisco ISE → OCSF
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+      default: this
+---
+
+$event = {...$event, ise: $event, ocsf: {}}
+
+$event.ocsf.metadata = {
+  product: {
+    name: "Identity Services Engine",
+    vendor_name: "Cisco",
+  },
+  profiles: ["host"],
+  version: "1.8.0",
+}
+if $event.ise.message_id? != null {
+  $event.ocsf.metadata.original_event_uid = $event.ise.message_id.string()
+}
+if $event.ise.message_code? != null {
+  $event.ocsf.metadata.event_code = $event.ise.message_code.string()
+}
+if $event.ise.sequence_number? != null {
+  $event.ocsf.metadata.sequence = move $event.ise.sequence_number
+}
+
+logger_host = move $event.ise.hostname?
+if logger_host != null {
+  if logger_host.match_regex(r"^[0-9.]+$") or logger_host.match_regex(":") {
+    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {ip: ip(logger_host)}}]
+  } else {
+    $event.ocsf.metadata.loggers = [{name: "Cisco ISE", device: {hostname: logger_host}}]
+  }
+}
+drop logger_host
+
+if $event.ise.raw? != null {
+  $event.ocsf.raw_data = move $event.ise.raw
+  $event.ocsf.raw_data_size = $event.ocsf.raw_data.length_bytes()
+}
+
+if @name == "cisco.ise.incomplete" {
+  $event.ocsf.metadata.labels = ["cisco.ise.incomplete"]
+  $event.ocsf.metadata.is_truncated = true
+  if $event.ise.missing_segments? != null {
+    $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): missing " + $event.ise.missing_segments.string() + " segment(s) during reassembly"]
+  } else {
+    $event.ocsf.metadata.debug = ["Incomplete Cisco ISE message (id " + $event.ise.message_id.string() + " of " + $event.ise.segment_total.string() + " segments): header segment not reassembled"]
+  }
+}
+
+severity = move $event.ise.severity?
+match severity {
+  "DEBUG" | "INFO" | "NOTICE" => {
+    $event.ocsf.severity_id = 1
+  }
+  "WARN" | "WARNING" => {
+    $event.ocsf.severity_id = 3
+  }
+  "ERROR" => {
+    $event.ocsf.severity_id = 4
+  }
+  "CRITICAL" | "ALERT" => {
+    $event.ocsf.severity_id = 5
+  }
+  "EMERGENCY" | "FATAL" => {
+    $event.ocsf.severity_id = 6
+  }
+  _ => {
+    $event.ocsf.severity_id = 0
+  }
+}
+drop severity
+
+match @name {
+  "cisco.ise.passed_authentications" => {
+    cisco::ise::ocsf::events::authentication event=$event
+  }
+  "cisco.ise.failed_attempts" => {
+    cisco::ise::ocsf::events::authentication event=$event
+  }
+  "cisco.ise.radius_accounting" => {
+    cisco::ise::ocsf::events::radius_accounting event=$event
+  }
+  _ => {
+    cisco::ise::ocsf::base event=$event
+  }
+}
+
+// The parser preserves all `NetworkDeviceGroups` values because `parse_kv`
+// keeps only the last one.
+network_device_groups = move $event.ise.network_device_groups? else []
+if network_device_groups.length() > 0 {
+  $event.ocsf.device.groups = network_device_groups.map(name => {name: name})
+}
+drop network_device_groups, $event.ise.attributes.NetworkDeviceGroups?, $event.ise.attributes.Location?, $event.ise.attributes["Device Type"]?, $event.ise.attributes.IPSEC?, $event.ise.attributes["Wired-Guest"]?, $event.ise.attributes.Mode?
+
+drop $event.ise.message_id?, $event.ise.message_code?, $event.ise.segment_total?, $event.ise.segment_number?, $event.ise.missing_segments?
+drop $event.ise.app_name?, $event.ise.process_id?
+
+$event.ise = {...$event.ise, ...($event.ise.attributes? else {})}
+drop $event.ise.attributes?
+
+$event = {...$event.ocsf, unmapped: $event.ise}
