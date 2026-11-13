@@ -38,19 +38,28 @@ both collections takes over an hour.
 Combine two schedules, as the examples show:
 
 - `examples/update-osint-context.tql` walks both collections daily at 07:00 in
-  the node's local time zone and updates every indicator. The provider reload
-  starts at 02:00 UTC; check the schedule against when it actually completes.
+  the deployment's local time zone and updates every indicator. The provider
+  reload starts at 02:00 UTC; check the schedule against when it actually
+  completes.
 - `examples/poll-osint-updates.tql` polls between walks with `added_after`,
   which adds new indicators and delivers revocations. Each poll looks back a
   day, so a few failed polls lose nothing.
 
 Only walks with `added_after` deliver revocations, and isMalicious keeps them
-for 30 days. A revoked indicator leaves the table, and an indicator past its
-`valid_until` stops matching and leaves on the next update. Indicators that the
-feed no longer serves age out after `max_age`. The table updates page by page,
-so an interrupted walk leaves the pages it already applied.
+for 30 days. A revoked indicator and an indicator past its `valid_until` stop
+matching. Indicators that the feed no longer serves age out after the table's
+`write-timeout`. The table updates page by page, so an interrupted walk leaves
+the pages it already applied.
 
-The operator requires the `stix` package.
+The operator requires the `stix` package. Declare the lookup table in your
+configuration:
+
+```yaml
+# contexts/ocsf-osint.yaml
+type: lookup-table
+persist-interval: 5min
+write-timeout: 30d
+```
 
 ## Look up an indicator
 

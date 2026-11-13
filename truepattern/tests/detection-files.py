@@ -1,6 +1,6 @@
 # Exercise both detection examples' file sources, parsing, Sigma matching, and
-# file sinks. Enrichment needs a node and is covered by the catalog/enrichment
-# suites; omit only that operator here so the I/O regression test is node-free.
+# file sinks. Enrichment needs the contexts of a deployment, so omit only that
+# operator here.
 import json
 import os
 from pathlib import Path

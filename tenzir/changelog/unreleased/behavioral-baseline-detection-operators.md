@@ -27,7 +27,8 @@ Two records form the contract between them:
 Storage stays in the caller's pipeline. Whether a freshly modeled baseline
 replaces the stored row or accumulates into it is one line:
 `baseline.distribution = model_merge([previous?.distribution?, baseline.distribution])`.
-The package also provides the `process-name-baselines` lookup-table context.
+The examples store baselines in a `process-name-baselines` lookup table that
+you declare in your configuration.
 
 For an unbounded stream, score each window before you merge its observations
 into the context. Keeping both steps in one pipeline prevents the current window

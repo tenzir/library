@@ -19,6 +19,15 @@ cron "0 0 6 * * *" {
 }
 ```
 
+Declare the rule catalog in your configuration:
+
+```yaml
+# contexts/truepattern-sigma-rules.yaml
+type: lookup-table
+persist-interval: 5min
+write-timeout: 30d
+```
+
 After the rule update populates the rule file and catalog, read an OCSF NDJSON export and write enriched findings to files:
 
 ```tql
@@ -32,7 +41,7 @@ to_file "/var/lib/tenzir/truepattern/findings/ocsf-{uuid}.ndjson" {
 }
 ```
 
-Adapt the paths to your node. This detection pipeline processes the export once; the `{uuid}` filenames preserve findings across runs.
+Adapt the paths to your deployment. This detection pipeline processes the export once; the `{uuid}` filenames preserve findings across runs.
 
 Rules in other formats, such as Splunk, KQL, or YARA, map to OCSF OSINT Inventory Info with `truepattern::ocsf::normalize`. The routing example archives them as NDJSON files by format, preserving rule text and attribution without installing rules in the target engines.
 
@@ -42,4 +51,4 @@ Rule files preserve supplied attribution and notices, including YAML comments. E
 
 License metadata is provided where available. Its absence does not prevent execution, cataloging, or onward routing. Rules without a populated vendor-license reference retain a null license summary; the full supplied references remain intact. Evaluate and honor the applicable terms: API access does not override third-party licenses.
 
-A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. The package requires Tenzir 6.20.0 or later and is validated with stable Tenzir 6.20.0, which includes the empty Sigma source and strict HTTP retry fixes (tenzir/mono#771 and tenzir/mono#772). File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.
+A successful complete walk with no qualifying rules clears the corresponding rule file, including a Windows-only file after its last rule leaves the collection. Failed or incomplete walks retain the previous file. Transient HTTP failures are retried within the same walk. The package requires Tenzir 7 or later. File replacement remains non-atomic, so readers can briefly observe an empty or partially written file.
