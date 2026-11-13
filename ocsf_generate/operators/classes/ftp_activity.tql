@@ -1,0 +1,18 @@
+// OCSF 1.9.0: ftp_activity; independently sampled source scenarios.
+@name = "ocsf.ftp_activity"
+class_uid = 4008
+category_uid = 4
+ocsf_generate::internal::network_base
+metadata.log_name = "ftp.log"
+dst_endpoint = {ip: 10.20.0.61, hostname: "ftp.acme.example", port: 21}
+activity_id = [2, 1, 6, 2][_ctx.scenario]
+command = ["RETR", "STOR", "LIST", "RETR"][_ctx.scenario]
+codes = [226] if status_id == 1 else [550]
+file = {name: "report.csv", path: "/exports/report.csv", type_id: 1}
+ocsf_generate::internal::randomize_file
+message = f"FTP {command} {file.path} returned {codes[0]}"
+_ctx.source.ftp_command = command
+_ctx.source.ftp_code = codes[0]
+_ctx.source.target_file_path = file.path
+// Zeek connection IDs: "C" followed by 17 base62 characters.
+connection_info.uid = f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}"

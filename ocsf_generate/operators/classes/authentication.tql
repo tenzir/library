@@ -1,0 +1,64 @@
+// OpenSSH-like authentication, following openssh::ocsf_generate::events::authentication.
+@name = "ocsf.authentication"
+class_uid = 3002
+category_uid = 3
+metadata.log_name = "auth.log"
+metadata.product = {name: "OpenSSH", vendor_name: "OpenBSD", version: "9.6p1"}
+user = _ctx.user
+dst_endpoint = {ip: 10.20.0.10, hostname: "bastion-01.acme.example", port: 22}
+service.name = "sshd"
+auth_protocol_id = 99
+auth_protocol = "SSH"
+logon_type_id = 3
+is_remote = true
+is_cleartext = false
+activity_id = 1
+auth_factors = [{factor_type_id: 99, factor_type: "publickey"}]
+message = f"Accepted publickey for {_ctx.user.name} from {_ctx.host.ip} port {src_endpoint.port}"
+if _ctx.variant >= 75 and _ctx.variant < 85 {
+  auth_factors = [{factor_type_id: 11, factor_type: "Password"}]
+  message = f"Accepted password for {_ctx.user.name} from {_ctx.host.ip} port {src_endpoint.port}"
+} else if _ctx.variant >= 85 and _ctx.variant < 95 {
+  status_id = 2
+  status_detail = "Invalid password"
+  auth_factors = [{factor_type_id: 11, factor_type: "Password"}]
+  message = f"Failed password for {_ctx.user.name} from {_ctx.host.ip} port {src_endpoint.port}"
+} else if _ctx.variant >= 95 {
+  activity_id = 2
+  drop auth_factors
+  message = f"Session closed for {_ctx.user.name} from {_ctx.host.ip}"
+}
+if _ctx.detail < 0.3 {
+  drop user.email_addr
+}
+if _ctx.detail > 0.5 {
+  is_mfa = false
+}
+// Windows workstations mostly authenticate against the domain controller, which
+// writes logon (4624), failure (4625), and logoff (4634) events to its Security log.
+_ctx.native = "sshd"
+if activity_id == 1 and random() < 0.12 {
+  _ctx.native = "keycloak"
+  ocsf_generate::internal::federated_login
+} else if _ctx.windows and random() < 0.8 {
+  _ctx.native = "winsec"
+  metadata.product = {name: "Windows Security", vendor_name: "Microsoft", version: "10.0.26100"}
+  metadata.log_name = "Security"
+  dst_endpoint = {ip: 10.20.0.5, hostname: "dc-01.acme.example", port: 88}
+  drop service
+  auth_protocol_id = 2
+  auth_protocol = "Kerberos"
+  drop auth_factors?
+  // Windows SIDs share the domain prefix and end in the account's relative ID.
+  user.uid_alt = f"S-1-5-21-3623811015-3361044348-30300820-{1100 + _ctx.user_index}"
+  message = "An account was successfully logged on."
+  if status_id == 2 {
+    auth_protocol_id = 1
+    auth_protocol = "NTLM"
+    status_code = "0xC000006D"
+    status_detail = "Unknown user name or bad password."
+    message = "An account failed to log on."
+  } else if activity_id == 2 {
+    message = "An account was logged off."
+  }
+}

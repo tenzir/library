@@ -1,0 +1,12 @@
+let $start = 2026-10-01T07:59:59.500
+let $end = $start + 1d
+ocsf_generate::generate_historical eps_office_hours=2, eps_off=1, start=$start, days=1, raw="none"
+assert type_id(time) == type_id(now())
+assert time >= $start and time < $end
+_second = time.floor(1s)
+summarize second=_second, n=count()
+// Full wall-clock seconds have the configured rate, including 08:00 and 17:00.
+if second >= $start.ceil(1s) and second + 1s <= $end {
+  assert n == (2 if second.hour() >= 8 and second.hour() < 17 else 1)
+}
+summarize events=sum(n), seconds=count()
