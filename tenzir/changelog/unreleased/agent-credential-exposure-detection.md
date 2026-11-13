@@ -2,9 +2,9 @@
 title: Agent credential exposure detection
 type: feature
 authors:
-  - codex
+  - zedoraps
 prs:
-  - 0
+  - 188
 created: 2026-09-14T19:30:00.000000Z
 ---
 

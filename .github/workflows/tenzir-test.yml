@@ -2,12 +2,63 @@ name: Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      release-base:
+        description: >-
+          Commit on main before the releases to tag. Leave empty to run checks
+          only.
+        required: false
+        default: ""
   pull_request:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
+  changelogs:
+    name: Validate package releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+          python-version: "3.13"
+
+      - name: Validate package changelogs
+        shell: bash
+        run: |
+          for manifest in */package.yaml; do
+            package="${manifest%/package.yaml}"
+            if [[ -d "$package/changelog" ]]; then
+              uvx tenzir-ship --root "$package" validate
+            fi
+          done
+
+      - name: Check release history and tag conflicts
+        env:
+          PUSH_BASE: ${{ github.event.before }}
+          RELEASE_BASE: ${{ inputs.release-base }}
+        shell: bash
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            # The merge commit's first parent is the base the PR was tested on.
+            pull_request) base="$GITHUB_SHA^1" ;;
+            push) base="$PUSH_BASE" ;;
+            *) base="${RELEASE_BASE:-HEAD}" ;;
+          esac
+          python3 .github/scripts/package-release-tags.py \
+            --base "$base" --head "$GITHUB_SHA"
+
   tql-syntax:
     name: Validate TQL syntax
     runs-on: ubuntu-latest
@@ -81,3 +132,31 @@ jobs:
             read -r -a package_dirs <<< "$packages"
           fi
           uvx tenzir-test "${package_dirs[@]}"
+
+  release-tags:
+    name: Tag package releases
+    needs: [changelogs, tql-syntax, tenzir-test]
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release-base != ''))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Configure tag author
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Tag new package releases
+        env:
+          BASE_SHA: ${{ inputs.release-base || github.event.before }}
+        run: >-
+          python3 .github/scripts/package-release-tags.py
+          --base "$BASE_SHA" --head "$GITHUB_SHA" --publish
