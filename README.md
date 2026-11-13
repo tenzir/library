@@ -53,56 +53,6 @@ TENZIR_NODE_BINARY="uvx --from tenzir tenzir-node" \
   uvx tenzir-test */
 ```
 
-## 📦 Release packages
-
-Prepare releases on your PR branch with
-[`tenzir-ship`](https://tenzir.com/docs/guides/packages/maintain-a-changelog/).
-For example, to release the `tenzir` package:
-
-```sh
-uvx tenzir-ship==2.3.1 --root tenzir release create \
-  --title "Release title" \
-  --intro "Describe the release highlights." \
-  --yes
-uvx tenzir-ship==2.3.1 --root tenzir validate
-```
-
-Commit the generated `changelog/releases/<version>/` files and changes to
-`changelog/unreleased/` in the PR. Repeat for any other packages you want to
-release. One PR can contain multiple releases, including multiple versions of
-one package. Omit the version to let `tenzir-ship` infer the next release. The
-library supports only stable `vX.Y.Z` releases; CI rejects release candidates.
-
-After merge, the **Tests** workflow validates every package changelog and runs
-syntax checks and package tests on `main`. Only after all those jobs pass does
-it create annotated tags for every new release, such as `tenzir/v0.1.0` and
-`suricata/v0.3.0`. All tags point to the exact commit that passed CI, and CI
-pushes them atomically. No local `release publish` or manual tag creation is
-needed. CI does not create GitHub release pages.
-
-Release history is immutable. CI rejects changes to existing release snapshots
-and tags that already point to another commit. Removing a whole package also
-removes its release history; its existing tags remain. Each new release must be
-newer than the package's existing releases and tags. Some packages have older
-tags without corresponding changelog releases. Before their first `tenzir-ship`
-release, check `git ls-remote --tags origin 'refs/tags/<package>/*'` and choose
-an explicit version newer than those tags if automatic inference would pick an
-older one.
-
-If tagging fails, rerun the failed workflow jobs after resolving the cause.
-Tags already pointing to the tested commit are safe to retry; CI never moves
-existing tags. Releases introduced by a failed run are not picked up by a
-later push. If rerunning the original workflow is not possible, run the
-**Tests** workflow manually on `main` with `release-base` set to the commit
-before those releases. After all checks pass, CI tags the missing releases at
-the commit it tested. Without `release-base`, a manual run only performs checks.
-
-Repository maintainers should require **Validate package releases** alongside
-the existing test checks in the `main` ruleset. The tag job depends on all test
-and validation jobs regardless of that setting. It uses the built-in
-`GITHUB_TOKEN` with `contents: write`; tags created with that token do not
-trigger additional GitHub Actions workflows.
-
 ## ⚖️ License
 
 The Tenzir Library is licensed under the [Apache License 2.0](LICENSE).
