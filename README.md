@@ -7,15 +7,9 @@ Packages require Tenzir 7 or later.
 
 ## 🚀 Install packages
 
-A package becomes available to your pipelines once your configuration lists it
-under `dependencies` in its `package.yaml`. For details, see our [installation
-guide](https://tenzir.com/docs/guides/packages/install-a-package/):
-
-1. **Web UI**: open **Packages** in the
-   [app](https://app.tenzir.com), select a package, click _Install_, and
-   commit the draft.
-2. **Command line**: run `tenzir package add <package>` inside a working copy
-   of your configuration, then push it with `tenzir config apply`.
+Our [installation
+guide](https://tenzir.com/docs/guides/packages/install-a-package/) shows how to
+add a package to your configuration.
 
 ## 🧱 Package anatomy
 
