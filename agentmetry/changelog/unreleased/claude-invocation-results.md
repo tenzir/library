@@ -3,6 +3,8 @@ title: Reported results and invocation IDs for Agentmetry tool calls
 type: feature
 authors:
   - blitzcrieg1
+prs:
+  - 229
 created: 2026-11-13T00:00:00.000000Z
 ---
 
