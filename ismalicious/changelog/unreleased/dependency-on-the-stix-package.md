@@ -3,6 +3,8 @@ title: Dependency on the stix package
 type: bugfix
 authors:
   - mavam
+prs:
+  - 233
 created: 2026-11-13T11:32:39.221757Z
 ---
 

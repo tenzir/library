@@ -3,6 +3,8 @@ title: ThreatFox IOC counts without a chart
 type: change
 authors:
   - mavam
+prs:
+  - 233
 created: 2026-11-13T11:32:40.880471Z
 ---
 

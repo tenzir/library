@@ -3,6 +3,8 @@ title: Contexts declared in the configuration
 type: breaking
 authors:
   - mavam
+prs:
+  - 233
 created: 2026-11-13T11:28:40.375682Z
 ---
 
