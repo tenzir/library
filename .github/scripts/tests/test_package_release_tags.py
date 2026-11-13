@@ -193,6 +193,19 @@ class ReleaseTagsTest(unittest.TestCase):
             release_tags.remote_tags("origin"), {"tenzir/v0.1.0": self.base}
         )
 
+    def test_backfill_accepts_releases_tagged_by_later_runs(self):
+        self.release("tenzir", "v0.1.0")
+        self.commit()
+        self.release("tenzir", "v0.2.0")
+        later = self.commit()
+        release_tags.publish_tags(["tenzir/v0.2.0"], later, "origin")
+        self.write("README.md", "Later change\n")
+        head = self.commit()
+        tags = release_tags.release_tags(self.base, head)
+        self.assertEqual(
+            release_tags.check_tags(tags, head, "origin"), ["tenzir/v0.1.0"]
+        )
+
     def test_accepts_existing_lightweight_tag_at_same_commit(self):
         self.release()
         head = self.commit()

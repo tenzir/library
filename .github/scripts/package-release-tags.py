@@ -72,17 +72,39 @@ def remote_tags(remote: str) -> dict[str, str]:
     }
 
 
+def snapshot(commit: str, tag: str) -> str | None:
+    """Return the tree of a tag's release snapshot at a commit, if present."""
+    package, version = tag.split("/")
+    result = subprocess.run(
+        [
+            "git",
+            "rev-parse",
+            "--verify",
+            "-q",
+            f"{commit}:{package}/changelog/releases/{version}",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def check_tags(tags: list[str], head: str, remote: str) -> list[str]:
-    """Allow retries at the same commit, but never move an existing tag."""
+    """Allow retries and earlier runs' tags, but never move an existing tag."""
     existing = remote_tags(remote) if tags else {}
     pending = []
     for tag in tags:
         if tag not in existing:
             pending.append(tag)
-        elif existing[tag] != head:
+        elif existing[tag] != head and snapshot(existing[tag], tag) != snapshot(
+            head, tag
+        ):
+            # A different commit is fine only if it holds the same release, e.g.,
+            # when a backfill range includes releases a later run already tagged.
             raise ValueError(f"Tag {tag} already exists at {existing[tag]}, not {head}")
         else:
-            print(f"Already tagged: {tag} at {head}")
+            print(f"Already tagged: {tag} at {existing[tag]}")
     return pending
 
 
