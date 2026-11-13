@@ -1,0 +1,134 @@
+---
+description: >-
+  Parses a Cisco Secure Firewall ASA message into a normalized ASA event.
+
+  Reads the `%ASA-<severity>-<message_id>: <text>` frame from the `message`
+  field (default `content`, the message body that the built-in `read_syslog`
+  produces after stripping the syslog envelope) and parses the body of supported
+  message IDs into structured fields. Unsupported messages keep their free-form
+  `text`. The event time is taken from a sibling `timestamp` field if present.
+
+  The syslog envelope (priority, timestamp, hostname) is `read_syslog`'s job,
+  so `message` must already start at the `%ASA` frame. Point it at another
+  field for other delivery methods, e.g. the body field a log shipper provides.
+args:
+  named:
+    - name: message
+      description: The field that holds the ASA message body (starting at `%ASA`).
+      type: field
+      default: content
+---
+
+// ASA messages are framed as `%ASA-<severity>-<id>: <text>`, with an optional
+// subsystem context (e.g. `%ASA-session-6-...`). `HOST` matches an endpoint
+// address, which ASA logs as either an IP or a resolved hostname; we capture it
+// as a string and let the OCSF mapper decide whether it is an `ip` or a
+// `hostname`.
+let $patterns = {
+  DIRECTION: r#"(inbound|outbound)"#,
+  ENDPOINT_TAG: r#"(?:\([^)]*\))*"#,
+  HOST: r#"[^/ ]+"#,
+}
+let $header = r#"%ASA-(%{WORD:context}-)?%{INT:severity}-%{INT:message_id}: %{GREEDYDATA:text}"#
+
+// Built/Teardown share the `interface:host/port` endpoint shape. Built also
+// carries the post-NAT (translated) address in parentheses, which can be an IP
+// or a label (e.g. Umbrella SIG writes `(UMBRELLA-DOMAIN-BLOCK-HIT/443)`). The
+// trailing `.*` tolerates extra fields some platforms append after the line.
+let $built = r#"Built %{WORD:direction} %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} \(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port}\)%{ENDPOINT_TAG} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} \(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port}\)%{ENDPOINT_TAG}.*"#
+let $teardown = r#"Teardown %{WORD:protocol} connection %{INT:connection_id} for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port}%{ENDPOINT_TAG} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port}%{ENDPOINT_TAG} duration %{NOTSPACE:duration} bytes %{INT:bytes}( %{GREEDYDATA:reason})?"#
+// Deny covers both the port-based form (`Deny tcp src IF:host/port …`) and the
+// protocol-number form for protocols without ports (`Deny protocol 47 src
+// IF:host …`, e.g. GRE/ESP). Ports and the ICMP type/code are optional.
+// Unified `Deny [direction] <proto> src IF:host[/port] dst IF:host[/port]
+// [type/code] [by access-group "acl"]` form, covering 106023, 106010, and
+// 106014. The optional direction, ports, ICMP type/code (square brackets or
+// round parens), and access-group absorb the per-message-ID differences.
+let $deny = r#"Deny( %{DIRECTION:direction})? %{WORD:protocol}( %{INT:protocol_num})? src %{NOTSPACE:src_interface}:%{HOST:src_host:string}(/%{INT:src_port})?%{ENDPOINT_TAG} dst %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}(/%{INT:dst_port})?%{ENDPOINT_TAG}( (?:[\[(])?type %{INT:icmp_type}, code %{INT:icmp_code}(?:[\])])?,?)?(,? by access-group "%{DATA:acl_id}")?.*"#
+// 106017: `Deny IP due to Land Attack from ip to ip`.
+let $land_attack = r#"Deny %{WORD:protocol} due to %{DATA:reason} from %{HOST:src_host:string} to %{HOST:dst_host:string}"#
+// 106001: `<direction> <proto> connection denied from ip/port to ip/port
+// [flags F] on interface IF`.
+let $conn_denied = r#"%{WORD:direction} %{WORD:protocol} connection denied from %{HOST:src_host:string}/%{INT:src_port} to %{HOST:dst_host:string}/%{INT:dst_port}( flags %{DATA:tcp_flags})? +on interface %{NOTSPACE:src_interface}"#
+// 106006/106007: `Deny <direction> <proto> from ip/port to ip/port on interface IF`.
+let $deny_from = r#"Deny %{WORD:direction} %{WORD:protocol} from %{HOST:src_host:string}/%{INT:src_port} to %{HOST:dst_host:string}/%{INT:dst_port} on interface %{NOTSPACE:src_interface}.*"#
+// 106100: `access-list acl <permitted|denied> <proto> IF/host(port) -> IF/host(port) hit-cnt N …`.
+let $acl = r#"access-list %{NOTSPACE:acl_id} %{WORD:action} %{WORD:protocol:string} %{NOTSPACE:src_interface}/%{HOST:src_host:string}\(%{INT:src_port}\)%{ENDPOINT_TAG} -> %{NOTSPACE:dst_interface}/%{HOST:dst_host:string}\(%{INT:dst_port}\)%{ENDPOINT_TAG} hit-cnt %{INT:hit_count}.*"#
+let $acl_user = r#"access-list %{NOTSPACE:acl_id} %{WORD:action} %{WORD:protocol:string} for user '?%{DATA:user}'? %{NOTSPACE:src_interface}/%{HOST:src_host:string}\(%{INT:src_port}\)%{ENDPOINT_TAG} -> %{NOTSPACE:dst_interface}/%{HOST:dst_host:string}\(%{INT:dst_port}\)%{ENDPOINT_TAG} hit-cnt %{INT:hit_count}.*"#
+// 313004: `Denied ICMP type=N, from laddr ip on interface IF to ip: reason`.
+let $denied_icmp = r#"Denied %{NOTSPACE:protocol} type=%{INT:icmp_type}, from laddr %{HOST:src_host:string} on interface %{NOTSPACE:src_interface} to %{HOST:dst_host:string}: %{GREEDYDATA:reason}"#
+// 313008: `Denied IPv6-ICMP type=N, code=N from ip on interface IF` (source only).
+let $denied_icmp6 = r#"Denied %{NOTSPACE:protocol} type=%{INT:icmp_type}, code=%{INT:icmp_code} from %{HOST:src_host:string} on interface %{NOTSPACE:src_interface}"#
+// 313009: `Denied invalid ICMP code N, for IF:host/port (xlate/port) to ...`.
+let $denied_invalid_icmp = r#"Denied invalid %{WORD:protocol} code %{INT:icmp_code}, for %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} \(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port}\) to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port} \(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port}\), ICMP id %{INT:icmp_id}, ICMP type %{INT:icmp_type}"#
+// 419002: `Duplicate <proto> SYN from IF:host/port to IF:host/port …`.
+let $duplicate_syn = r#"Duplicate %{WORD:protocol} SYN from %{NOTSPACE:src_interface}:%{HOST:src_host:string}/%{INT:src_port} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port}.*"#
+// 710003/710005: to-the-box denies, `<proto> (access denied by ACL|request
+// discarded) from host/port to IF:host/port` (no source interface).
+let $denied_box = r#"%{WORD:protocol} (access denied by ACL|request discarded) from %{HOST:src_host:string}/%{INT:src_port} to %{NOTSPACE:dst_interface}:%{HOST:dst_host:string}/%{INT:dst_port}.*"#
+// 302021: `Teardown ICMP connection for faddr <foreign> gaddr <global> laddr
+// <local> …`. faddr is the remote peer (dst), laddr the local host (src), and
+// gaddr its post-NAT (global) address.
+let $teardown_icmp = r#"Teardown %{WORD:protocol} connection for faddr %{HOST:dst_host:string}/%{INT:faddr_id} gaddr %{HOST:src_xlate_host:string}/%{INT:gaddr_id} laddr %{HOST:src_host:string}/%{INT:laddr_id}.*"#
+// 722051: VPN address assigned to session (session logon).
+let $vpn_assigned = r#"Group <%{DATA:vpn_group}> User <%{DATA:vpn_user}> IP <%{IP:src_ip}> IPv4 Address <%{DATA:assigned_ipv4}> IPv6 address <%{DATA:assigned_ipv6}> assigned to session"#
+// 113019: VPN session disconnected (session logoff).
+let $vpn_disconnect = r#"Group = %{DATA:vpn_group}, Username = %{DATA:vpn_user}, IP = %{IP:src_ip}, Session disconnected. Session Type: %{DATA:session_type}, Duration: %{DATA:duration}, Bytes xmt: %{INT:bytes_out}, Bytes rcv: %{INT:bytes_in}, Reason: %{GREEDYDATA:reason}"#
+// 746013: user-identity IP↔user mapping deleted (e.g. on VPN logout).
+let $identity_delete = r#"user-identity: Delete IP-User mapping %{IP:src_ip} - %{DATA:domain}\\%{DATA:vpn_user} %{WORD:status} - %{GREEDYDATA:reason}"#
+
+// Parse the %ASA frame only on messages that carry one; this keeps the grok
+// parser from emitting a generic match-failure warning on unrelated input.
+if $message != null and $message.starts_with("%ASA-") {
+  this = {...this, ...$message.parse_grok($header, pattern_definitions=$patterns)}
+}
+
+// Warn on and drop anything without an ASA frame so the user notices misrouted
+// input (e.g. a wrong `message` field, or non-ASA logs) instead of losing it
+// silently.
+assert message_id? != null, message="cisco::asa::parse: no %ASA-<severity>-<id> frame in the message field"
+
+@name = "cisco.asa"
+
+// The syslog envelope timestamp stays in `timestamp` for the OCSF mapper to
+// resolve into the event time; parsing here is concerned only with the ASA
+// `%ASA-...` frame.
+
+// Parse the body of the matched message ID into structured fields. Each body
+// pattern is written against `text` alone, and merges into the event the same
+// way the frame does above.
+match message_id {
+  302013 | 302015 => { this = {...this, ...text.parse_grok($built, pattern_definitions=$patterns)} }
+  302014 | 302016 => { this = {...this, ...text.parse_grok($teardown, pattern_definitions=$patterns)} }
+  302021 => { this = {...this, ...text.parse_grok($teardown_icmp, pattern_definitions=$patterns)} }
+  106023 | 106010 | 106014 => { this = {...this, ...text.parse_grok($deny, pattern_definitions=$patterns)} }
+  106017 => { this = {...this, ...text.parse_grok($land_attack, pattern_definitions=$patterns)} }
+  106001 => { this = {...this, ...text.parse_grok($conn_denied, pattern_definitions=$patterns)} }
+  106006 | 106007 => { this = {...this, ...text.parse_grok($deny_from, pattern_definitions=$patterns)} }
+  106100 => { this = {...this, ...text.parse_grok($acl, pattern_definitions=$patterns)} }
+  106102 | 106103 => { this = {...this, ...text.parse_grok($acl_user, pattern_definitions=$patterns)} }
+  313004 => { this = {...this, ...text.parse_grok($denied_icmp, pattern_definitions=$patterns)} }
+  313008 => { this = {...this, ...text.parse_grok($denied_icmp6, pattern_definitions=$patterns)} }
+  313009 => { this = {...this, ...text.parse_grok($denied_invalid_icmp, pattern_definitions=$patterns)} }
+  419002 => { this = {...this, ...text.parse_grok($duplicate_syn, pattern_definitions=$patterns)} }
+  710003 | 710005 => { this = {...this, ...text.parse_grok($denied_box, pattern_definitions=$patterns)} }
+  722051 => { this = {...this, ...text.parse_grok($vpn_assigned, pattern_definitions=$patterns)} }
+  113019 => { this = {...this, ...text.parse_grok($vpn_disconnect, pattern_definitions=$patterns)} }
+  746013 => { this = {...this, ...text.parse_grok($identity_delete, pattern_definitions=$patterns)} }
+  _ => {}
+}
+
+// Normalize across the message formats: lower-case the connection direction
+// and fold a numeric protocol token into protocol_num.
+if direction? != null {
+  direction = direction.to_lower()
+}
+if protocol? != null {
+  protocol = protocol.string()
+  if protocol.match_regex(r"^[0-9]+$") {
+    protocol_num = int(protocol)
+    drop protocol
+  } else if protocol == "protocol" and protocol_num? != null {
+    drop protocol
+  }
+}
