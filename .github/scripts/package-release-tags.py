@@ -14,6 +14,10 @@ from pathlib import PurePosixPath
 # candidate snapshots, which would conflict with immutable release history.
 VERSION = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 CANDIDATE = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+")
+# The top-level version of a package manifest. Tenzir rejects unquoted versions
+# because YAML reads a value like `1.2` as a number.
+MANIFEST_VERSION = re.compile(r"^version:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+QUOTED = re.compile(r"""("|')([^"']*)\1""")
 
 
 def git(*args: str) -> str:
@@ -57,6 +61,59 @@ def release_tags(base: str, head: str) -> list[str]:
         git("check-ref-format", f"refs/tags/{tag}")
         tags.add(tag)
     return sorted(tags)
+
+
+def manifest_version(commit: str, package: str) -> str | None:
+    """Read the version from a package's manifest at a commit, if it has one."""
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{package}/package.yaml"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    match = MANIFEST_VERSION.search(result.stdout)
+    if match is None:
+        return None
+    quoted = QUOTED.fullmatch(match.group(1))
+    if quoted is None:
+        raise ValueError(f"Version in {package}/package.yaml must be quoted")
+    return quoted.group(2)
+
+
+def check_versions(tags: list[str], base: str, head: str) -> None:
+    """Require each package manifest to state the version of its new release.
+
+    tenzir-ship does not update `package.yaml`, so a release must bump the
+    version there as well, and a version may only change with a release.
+    """
+    latest: dict[str, str] = {}
+    for tag in tags:
+        package, version = tag.split("/")
+        if package not in latest or version_key(version) > version_key(
+            latest[package]
+        ):
+            latest[package] = version
+    for package, version in latest.items():
+        actual = manifest_version(head, package)
+        expected = version.removeprefix("v")
+        if actual != expected:
+            raise ValueError(
+                f"Release {package}/{version} needs version: \"{expected}\" "
+                f"in {package}/package.yaml, found {actual!r}"
+            )
+    changed = git("diff", "--name-only", "--no-renames", "-z", base, head).split("\0")
+    for path in changed:
+        parts = PurePosixPath(path).parts
+        if len(parts) != 2 or parts[1] != "package.yaml" or parts[0] in latest:
+            continue
+        before = manifest_version(base, parts[0])
+        after = manifest_version(head, parts[0])
+        if after is not None and after != before:
+            raise ValueError(
+                f"{path} changes its version to {after!r} without a release"
+            )
 
 
 def remote_tags(remote: str) -> dict[str, str]:
@@ -192,6 +249,7 @@ def main() -> None:
     base = git("rev-parse", "--verify", f"{args.base}^{{commit}}")
     head = git("rev-parse", "--verify", f"{args.head}^{{commit}}")
     tags = release_tags(base, head)
+    check_versions(tags, base, head)
     pending = check_tags(tags, base, head, args.remote)
     for tag in pending:
         print(f"Release tag: {tag} at {head}")
