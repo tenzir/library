@@ -50,16 +50,18 @@ let $rcode_names = {
   BADCOOKIE: "BADCOOKIE",
   BADSIG: "BADSIG",
 }
-$ocsf.answers = zip(move $event.answers, move $event.TTLs).map(x => {
-  rdata: x.left,
+$ocsf.answers = zip(move $event.answers?, move $event.TTLs?).map(x => {
+  rdata: x.left.string(),
   ttl: int(count_seconds(x.right) if type_kind(x.right) == "duration" else x.right),
 })
-$ocsf.query = {
-  class: move $event.qclass_name,
-  hostname: move $event.query,
-  // TODO: go deeper and extract the log semantics.
-  //opcode_id: 0,
-  type: move $event.qtype_name,
+if $event.query? != null {
+  $ocsf.query = {
+    class: move $event.qclass_name?,
+    hostname: move $event.query,
+    type: move $event.qtype_name?,
+  }
+  // qclass/qtype repeat the names already mapped above.
+  drop $event.qclass?, $event.qtype?
 }
 // OCSF 1.9 distinguishes the DNS transaction ID from a packet UID.
 $ocsf.transaction_id = move $event.trans_id?
@@ -72,21 +74,33 @@ $ocsf.flag_ids = [
   6 if $event.CD?,
 ].collect()
 drop $event.AA?, $event.TC?, $event.RD?, $event.RA?, $event.AD?, $event.CD?
-// qclass/qtype are numeric aliases of the names already mapped above.
-drop $event.qclass?, $event.qtype?
 
 $ocsf.query_time = $ocsf.time
 $ocsf.response_time = $ocsf.time
-$ocsf.rcode = $rcode_names[$event.rcode_name]? else $event.rcode_name
+$ocsf.rcode = $rcode_names[$event.rcode_name?]? else $event.rcode_name?
 if $event.rcode_name? == "BADSIG" {
   $ocsf.rcode_id = 99
   drop $event.rcode
+} else if (
+  $event.rcode? in [12, 13, 14, 15]
+  or ($event.rcode? >= 24 and $event.rcode? <= 3840)
+  or ($event.rcode? >= 4096 and $event.rcode? <= 65534)
+) {
+  $ocsf.rcode_id = 24
+  $ocsf.rcode = "Unassigned"
+} else if ($event.rcode? >= 3841 and $event.rcode? <= 4095) or $event.rcode? == 65535 {
+  $ocsf.rcode_id = 25
+  $ocsf.rcode = "Reserved"
 } else {
-  $ocsf.rcode_id = int(move $event.rcode)
+  $ocsf.rcode_id = int(move $event.rcode?)
 }
-drop $event.rcode_name
+// Keep the original wire code and name when OCSF uses a range identifier.
+if $ocsf.rcode_id not in [24, 25] {
+  drop $event.rcode_name?
+}
 
 $ocsf.connection_info = {
+  ...$ocsf.connection_info,
   direction: "Other",
   direction_id: 99,
 }

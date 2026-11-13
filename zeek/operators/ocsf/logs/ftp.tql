@@ -37,12 +37,16 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.metadata.log_name = "ftp.log"
 $ocsf.metadata.profiles = ["host"]
-$ocsf.actor.user.name = move $event.user?
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
+}
 
-$ocsf.file = {
-  name: move $event.arg,
-  size: move $event.file_size,
-  type_id: 0,
+if $event.arg? != null {
+  $ocsf.file = {
+    name: move $event.arg,
+    size: move $event.file_size?,
+    type_id: 0,
+  }
 }
 
 // --- OCSF: primary attributes -----------------
@@ -51,11 +55,15 @@ $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
 $ocsf.command = move $event.command
-$ocsf.codes = [move $event.reply_code]
-$ocsf.status_code = $ocsf.codes[0].string()
-$ocsf.status_detail = move $event.reply_msg
-$ocsf.type = "passive" if $event.data_channel.passive else "active"
-$ocsf.port = move $event.data_channel.resp_p
-drop $event.data_channel
+if $event.reply_code? != null {
+  $ocsf.codes = [move $event.reply_code]
+  $ocsf.status_code = $ocsf.codes[0].string()
+}
+$ocsf.status_detail = move $event.reply_msg?
+if $event.data_channel?.passive? != null {
+  $ocsf.type = "passive" if $event.data_channel.passive else "active"
+  drop $event.data_channel.passive
+}
+$ocsf.port = move $event.data_channel?.resp_p?
 
 @name = "ocsf.ftp_activity"
