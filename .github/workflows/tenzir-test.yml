@@ -7,7 +7,46 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
+  changelogs:
+    name: Validate package releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+          python-version: "3.13"
+
+      - name: Test release automation
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+
+      - name: Validate package changelogs
+        shell: bash
+        run: |
+          for manifest in */package.yaml; do
+            package="${manifest%/package.yaml}"
+            if [[ -d "$package/changelog" ]]; then
+              uvx tenzir-ship==2.3.1 --root "$package" validate
+            fi
+          done
+
+      - name: Check release history and tag conflicts
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: >-
+          python3 .github/scripts/package-release-tags.py
+          --base "${BASE_SHA:-HEAD}" --head "$GITHUB_SHA"
+
   tql-syntax:
     name: Validate TQL syntax
     runs-on: ubuntu-latest
@@ -81,3 +120,29 @@ jobs:
             read -r -a package_dirs <<< "$packages"
           fi
           uvx tenzir-test "${package_dirs[@]}"
+
+  release-tags:
+    name: Tag package releases
+    needs: [changelogs, tql-syntax, tenzir-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Configure tag author
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Tag new package releases
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: >-
+          python3 .github/scripts/package-release-tags.py
+          --base "$BASE_SHA" --head "$GITHUB_SHA" --publish
