@@ -5,7 +5,7 @@ authors:
   - zedoraps
 prs:
   - 188
-created: 2026-11-13T07:26:58.635012Z
+created: 2026-09-14T19:30:00.000000Z
 ---
 
 The `tenzir` package now flags credential or secret material appearing in an
