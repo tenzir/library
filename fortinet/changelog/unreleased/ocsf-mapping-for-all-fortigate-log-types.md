@@ -17,7 +17,7 @@ from_file "fortigate.log" {
   read_lines
 }
 fortinet::fortigate::ocsf::normalize
-ocsf_cast
+this = ocsf_cast(this)
 ```
 
 All major FortiGate log types are covered:
