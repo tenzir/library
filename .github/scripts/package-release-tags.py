@@ -90,12 +90,48 @@ def snapshot(commit: str, tag: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def check_tags(tags: list[str], head: str, remote: str) -> list[str]:
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.removeprefix("v").split("."))
+
+
+def prior_versions(tags: list[str], base: str, existing: dict[str, str]):
+    """Collect each package's releases and tags from before the checked range."""
+    versions: dict[str, set[str]] = {}
+    for path in files_at(base):
+        parts = PurePosixPath(path).parts
+        if (
+            len(parts) == 5
+            and parts[1:3] == ("changelog", "releases")
+            and parts[4] == "manifest.yaml"
+        ):
+            versions.setdefault(parts[0], set()).add(parts[3])
+    for tag in existing:
+        if tag not in tags and "/" in tag:
+            package, version = tag.split("/", 1)
+            versions.setdefault(package, set()).add(version)
+    return {
+        package: max(
+            (v for v in found if VERSION.fullmatch(v)), key=version_key, default=None
+        )
+        for package, found in versions.items()
+    }
+
+
+def check_tags(tags: list[str], base: str, head: str, remote: str) -> list[str]:
     """Allow retries and earlier runs' tags, but never move an existing tag."""
     existing = remote_tags(remote) if tags else {}
+    latest = prior_versions(tags, base, existing) if tags else {}
     pending = []
     for tag in tags:
         if tag not in existing:
+            package, version = tag.split("/")
+            # tenzir-ship accepts explicit versions below existing releases, and
+            # some packages have tags without release snapshots.
+            previous = latest.get(package)
+            if previous and version_key(version) <= version_key(previous):
+                raise ValueError(
+                    f"Release {tag} is not newer than {package}/{previous}"
+                )
             pending.append(tag)
         elif existing[tag] != head and snapshot(existing[tag], tag) != snapshot(
             head, tag
@@ -142,7 +178,7 @@ def main() -> None:
     base = git("rev-parse", "--verify", f"{args.base}^{{commit}}")
     head = git("rev-parse", "--verify", f"{args.head}^{{commit}}")
     tags = release_tags(base, head)
-    pending = check_tags(tags, head, args.remote)
+    pending = check_tags(tags, base, head, args.remote)
     for tag in pending:
         print(f"Release tag: {tag} at {head}")
     if not tags:

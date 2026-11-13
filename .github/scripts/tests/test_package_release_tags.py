@@ -71,13 +71,13 @@ class ReleaseTagsTest(unittest.TestCase):
         head = self.commit()
         tags = release_tags.release_tags(self.base, head)
         self.assertEqual(tags, ["suricata/v0.3.0", "tenzir/v0.1.0", "tenzir/v0.2.0"])
-        pending = release_tags.check_tags(tags, head, "origin")
+        pending = release_tags.check_tags(tags, self.base, head, "origin")
         release_tags.publish_tags(pending, head, "origin")
         self.assertEqual(release_tags.remote_tags("origin"), dict.fromkeys(tags, head))
         for tag in tags:
             self.assertEqual(self.git("cat-file", "-t", f"refs/tags/{tag}"), "tag")
         # A rerun is a no-op, including for annotated tags.
-        self.assertEqual(release_tags.check_tags(tags, head, "origin"), [])
+        self.assertEqual(release_tags.check_tags(tags, self.base, head, "origin"), [])
         release_tags.publish_tags([], head, "origin")
 
     def test_tags_the_tested_commit_not_current_head(self):
@@ -187,7 +187,7 @@ class ReleaseTagsTest(unittest.TestCase):
         head = self.commit()
         tags = release_tags.release_tags(self.base, head)
         with self.assertRaisesRegex(ValueError, "already exists"):
-            release_tags.check_tags(tags, head, "origin")
+            release_tags.check_tags(tags, self.base, head, "origin")
         self.assertEqual(self.git("tag", "--list"), "tenzir/v0.1.0")
         self.assertEqual(
             release_tags.remote_tags("origin"), {"tenzir/v0.1.0": self.base}
@@ -203,15 +203,26 @@ class ReleaseTagsTest(unittest.TestCase):
         head = self.commit()
         tags = release_tags.release_tags(self.base, head)
         self.assertEqual(
-            release_tags.check_tags(tags, head, "origin"), ["tenzir/v0.1.0"]
+            release_tags.check_tags(tags, self.base, head, "origin"), ["tenzir/v0.1.0"]
         )
+
+    def test_rejects_release_older_than_legacy_tag(self):
+        self.git("tag", "suricata/v0.2.0", self.base)
+        self.git("push", "origin", "refs/tags/suricata/v0.2.0")
+        self.release("suricata", "v0.1.5")
+        head = self.commit()
+        tags = release_tags.release_tags(self.base, head)
+        with self.assertRaisesRegex(ValueError, "not newer than suricata/v0.2.0"):
+            release_tags.check_tags(tags, self.base, head, "origin")
 
     def test_accepts_existing_lightweight_tag_at_same_commit(self):
         self.release()
         head = self.commit()
         self.git("tag", "tenzir/v0.1.0", head)
         self.git("push", "origin", "refs/tags/tenzir/v0.1.0")
-        self.assertEqual(release_tags.check_tags(["tenzir/v0.1.0"], head, "origin"), [])
+        self.assertEqual(
+            release_tags.check_tags(["tenzir/v0.1.0"], self.base, head, "origin"), []
+        )
 
     def test_recovers_from_local_tag_after_failed_push(self):
         self.release()

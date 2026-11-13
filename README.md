@@ -82,11 +82,12 @@ needed. CI does not create GitHub release pages.
 
 Release history is immutable. CI rejects changes to existing release snapshots
 and tags that already point to another commit. Removing a whole package also
-removes its release history; its existing tags remain. Some packages have older tags
-without corresponding changelog releases. Before their first `tenzir-ship`
+removes its release history; its existing tags remain. Each new release must be
+newer than the package's existing releases and tags. Some packages have older
+tags without corresponding changelog releases. Before their first `tenzir-ship`
 release, check `git ls-remote --tags origin 'refs/tags/<package>/*'` and choose
-an explicit version newer than those tags if automatic inference would reuse
-one.
+an explicit version newer than those tags if automatic inference would pick an
+older one.
 
 If tagging fails, rerun the failed workflow jobs after resolving the cause.
 Tags already pointing to the tested commit are safe to retry; CI never moves
