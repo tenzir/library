@@ -94,10 +94,10 @@ def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.removeprefix("v").split("."))
 
 
-def prior_versions(tags: list[str], base: str, existing: dict[str, str]):
-    """Collect each package's releases and tags from before the checked range."""
+def released_at(commit: str) -> dict[str, set[str]]:
+    """Collect each package's release snapshots at a commit."""
     versions: dict[str, set[str]] = {}
-    for path in files_at(base):
+    for path in files_at(commit):
         parts = PurePosixPath(path).parts
         if (
             len(parts) == 5
@@ -105,33 +105,47 @@ def prior_versions(tags: list[str], base: str, existing: dict[str, str]):
             and parts[4] == "manifest.yaml"
         ):
             versions.setdefault(parts[0], set()).add(parts[3])
-    for tag in existing:
-        if tag not in tags and "/" in tag:
-            package, version = tag.split("/", 1)
-            versions.setdefault(package, set()).add(version)
-    return {
-        package: max(
-            (v for v in found if VERSION.fullmatch(v)), key=version_key, default=None
-        )
-        for package, found in versions.items()
-    }
+    return versions
+
+
+def supersedes(commit: str, tag: str, head: str) -> bool:
+    """Check whether a later commit already contains this release unchanged."""
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", head, commit], check=False
+    )
+    return result.returncode == 0 and snapshot(commit, tag) == snapshot(head, tag)
+
+
+def check_order(tag, tags, head, released, existing) -> None:
+    """Reject releases that are not newer than the package's prior versions."""
+    package, version = tag.split("/")
+    # tenzir-ship accepts explicit versions below existing releases, and some
+    # packages have tags without release snapshots.
+    for other in released.get(package, ()):
+        if VERSION.fullmatch(other) and version_key(other) >= version_key(version):
+            raise ValueError(f"Release {tag} is not newer than {package}/{other}")
+    for other, commit in existing.items():
+        other_package, _, other_version = other.partition("/")
+        if (
+            other in tags
+            or other_package != package
+            or not VERSION.fullmatch(other_version)
+            or version_key(other_version) < version_key(version)
+        ):
+            continue
+        # A later push may finish CI first and tag its newer release before us.
+        if not supersedes(commit, tag, head):
+            raise ValueError(f"Release {tag} is not newer than {other}")
 
 
 def check_tags(tags: list[str], base: str, head: str, remote: str) -> list[str]:
     """Allow retries and earlier runs' tags, but never move an existing tag."""
     existing = remote_tags(remote) if tags else {}
-    latest = prior_versions(tags, base, existing) if tags else {}
+    released = released_at(base) if tags else {}
     pending = []
     for tag in tags:
         if tag not in existing:
-            package, version = tag.split("/")
-            # tenzir-ship accepts explicit versions below existing releases, and
-            # some packages have tags without release snapshots.
-            previous = latest.get(package)
-            if previous and version_key(version) <= version_key(previous):
-                raise ValueError(
-                    f"Release {tag} is not newer than {package}/{previous}"
-                )
+            check_order(tag, tags, head, released, existing)
             pending.append(tag)
         elif existing[tag] != head and snapshot(existing[tag], tag) != snapshot(
             head, tag
