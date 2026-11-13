@@ -155,8 +155,48 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
       - name: Tag new package releases
+        id: tag
         env:
           BASE_SHA: ${{ inputs.release-base || github.event.before }}
-        run: >-
-          python3 .github/scripts/package-release-tags.py
-          --base "$BASE_SHA" --head "$GITHUB_SHA" --publish
+        shell: bash
+        run: |
+          python3 .github/scripts/package-release-tags.py \
+            --base "$BASE_SHA" --head "$GITHUB_SHA" --publish \
+            | tee release-tags.log
+          if grep -q '^Release tag: ' release-tags.log; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate app token
+        id: app-token
+        if: steps.tag.outputs.released == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.TENZIR_GITHUB_APP_ID }}
+          private-key: ${{ secrets.TENZIR_GITHUB_APP_PRIVATE_KEY }}
+          owner: tenzir
+          repositories: content
+          permission-contents: write
+
+      - name: Dispatch website rebuild
+        if: steps.tag.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api repos/tenzir/content/dispatches \
+            --method POST \
+            --input - <<EOF
+          {
+            "event_type": "library-updated",
+            "client_payload": {
+              "repository": "${SOURCE_REPOSITORY}",
+              "ref": "${SOURCE_REF}",
+              "sha": "${SOURCE_SHA}",
+              "run_id": "${SOURCE_RUN_ID}"
+            }
+          }
+          EOF
