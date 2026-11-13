@@ -16,8 +16,7 @@ JSON-RPC operations, HTTP activity, authorization, and skill activation.
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
 openai::codex::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_cast(ocsf_derive(this))
 ```
 
 Shell decisions and confirmed completions use Process Activity Launch and

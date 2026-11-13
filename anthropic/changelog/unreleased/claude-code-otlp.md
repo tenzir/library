@@ -16,8 +16,7 @@ authorization, authentication, and application lifecycle events.
 accept_otlp "0.0.0.0:4318", transport="http", schema="record"
 where @name in ["otel.log", "otel.span"]
 anthropic::claude_code::ocsf::normalize
-ocsf_derive
-ocsf_cast
+this = ocsf_cast(ocsf_derive(this))
 ```
 
 Shell decisions and foreground results use Process Activity Launch and
