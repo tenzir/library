@@ -1,5 +1,6 @@
 id: agentmetry
 name: Agentmetry
+version: "0.1.0"
 author: Agentmetry
 package_icon: |
   https://raw.githubusercontent.com/tenzir/library/main/agentmetry/package.svg
@@ -71,14 +72,28 @@ description: |
     call without a captured path therefore has no file to report,
     and it becomes API Activity with the tool as the operation.
   - Shell calls preserve the recorded command in `process.cmd_line`, but
-    Agentmetry does not report the launched process's identity. OCSF validation
-    therefore warns that `process` lacks `pid`, `uid`, or `cpid`. Approval
-    requests and denied calls do not establish that a process ran.
+    Agentmetry does not report the launched process's identity. A Claude Code
+    call carries the harness's tool-use ID, which becomes `process.uid`. For
+    other shell calls, OCSF validation warns that `process` lacks `pid`, `uid`,
+    or `cpid`. Approval requests and denied calls do not establish that a
+    process ran.
   - A tool call that a policy denied gets the Security Control profile with
     action Denied and disposition Blocked. A person's decision on an approval
     request is Approved or Rejected. An inferred response, from a later tool
     call or a session ending with the request open, has Unknown disposition.
     The inference reason is the status detail.
+  - Claude Code reports a tool-use ID on the request and on the result of a
+    call. The ID becomes `process.uid` of a shell call and `api.request.uid`
+    of an API call, as in the `anthropic` package. A file call has no such
+    attribute and keeps the ID under `unmapped.tool.invocation`, where the
+    phase, hook event, and provenance of every observation stay. The ID
+    relates observations only within one session from one recorder, so join
+    on it together with `metadata.correlation_uid`. A result's reported status
+    becomes `status_code` and its reported execution time becomes `duration`.
+    Both are what the harness reported, not a verified process exit. A request
+    has neither. Claude Code reports failed calls only through the
+    `PostToolUseFailure` hook, which existing installations receive after they
+    refresh their Agentmetry hooks.
   - A detection is a sequence rule that matched across the calls of one
     session. The rule becomes the analytic, the matched calls become
     `finding_info.related_events`, and the ATT&CK identifiers become `attacks`.

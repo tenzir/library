@@ -18,6 +18,12 @@ description: |
   - An observed approval response is Approved or Rejected. An inferred
     response keeps its reason and has disposition Unknown, whether the tool
     ran after the request or the session ended with the request still open.
+
+  Claude Code reports a tool-use ID on the request and the result of a call.
+  It becomes the process UID of a shell call and the request UID of an API
+  call. A result also adds the status that the harness reported as the status
+  code and the reported execution time as the duration. Neither proves that
+  the tool ran or how it ended.
 args:
   positional:
     - name: agentmetry
@@ -133,6 +139,20 @@ match $ocsf.metadata.event_code {
         $ocsf._result = "failed"
       }
     }
+  }
+}
+
+// A result observation carries what the harness reported for the call. Its
+// status is that report, not a process exit code, so it becomes the
+// source-specific status code and leaves the normalized status to the outcome.
+// The duration excludes the time spent on approval and hooks, so it does not
+// span from a request to its result. The class operators map the invocation
+// ID; its phase, hook event, and provenance stay under `unmapped`.
+if $agentmetry.tool?.result? != null {
+  $ocsf.status_code = move $agentmetry.tool.result.status?
+  $ocsf.duration = move $agentmetry.tool.result.duration_ms?
+  if $agentmetry.tool.result == {} {
+    drop $agentmetry.tool.result
   }
 }
 
