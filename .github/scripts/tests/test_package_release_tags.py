@@ -65,14 +65,12 @@ class ReleaseTagsTest(unittest.TestCase):
         self.assertEqual(release_tags.release_tags(self.base, head), [])
 
     def test_multiple_packages_and_versions(self):
-        self.release("tenzir", "v0.1.0-rc.1")
         self.release("tenzir", "v0.1.0")
+        self.release("tenzir", "v0.2.0")
         self.release("suricata", "v0.3.0")
         head = self.commit()
         tags = release_tags.release_tags(self.base, head)
-        self.assertEqual(
-            tags, ["suricata/v0.3.0", "tenzir/v0.1.0", "tenzir/v0.1.0-rc.1"]
-        )
+        self.assertEqual(tags, ["suricata/v0.3.0", "tenzir/v0.1.0", "tenzir/v0.2.0"])
         pending = release_tags.check_tags(tags, head, "origin")
         release_tags.publish_tags(pending, head, "origin")
         self.assertEqual(release_tags.remote_tags("origin"), dict.fromkeys(tags, head))
@@ -131,6 +129,28 @@ class ReleaseTagsTest(unittest.TestCase):
         head = self.commit()
         with self.assertRaisesRegex(ValueError, "immutable"):
             release_tags.release_tags(base, head)
+
+    def test_allows_removing_released_package(self):
+        self.release("tenzir")
+        self.release("suricata")
+        base = self.commit()
+        self.git("rm", "-r", "-q", "tenzir")
+        head = self.commit()
+        self.assertEqual(release_tags.release_tags(base, head), [])
+
+    def test_rejects_removing_releases_of_kept_package(self):
+        root = self.release()
+        base = self.commit()
+        self.git("rm", "-r", "-q", root)
+        head = self.commit()
+        with self.assertRaisesRegex(ValueError, "immutable"):
+            release_tags.release_tags(base, head)
+
+    def test_rejects_release_candidates(self):
+        self.release(version="v0.1.0-rc.1")
+        head = self.commit()
+        with self.assertRaisesRegex(ValueError, "Release candidates are not supported"):
+            release_tags.release_tags(self.base, head)
 
     def test_rejects_missing_notes(self):
         root = self.release()

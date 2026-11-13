@@ -10,9 +10,10 @@ import subprocess
 import sys
 from pathlib import PurePosixPath
 
-VERSION = re.compile(
-    r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-rc\.[1-9][0-9]*)?"
-)
+# Only stable releases are supported: tenzir-ship deletes superseded release
+# candidate snapshots, which would conflict with immutable release history.
+VERSION = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+CANDIDATE = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+")
 
 
 def git(*args: str) -> str:
@@ -39,11 +40,17 @@ def release_tags(base: str, head: str) -> list[str]:
         root = f"{package}/changelog/releases/{version}"
         manifest = f"{root}/manifest.yaml"
         if manifest in before:
+            # Removing a whole package also removes its release history; its
+            # existing tags stay untouched.
+            if f"{package}/package.yaml" not in after and path not in after:
+                continue
             raise ValueError(f"Released history is immutable: {path}")
         if f"{package}/package.yaml" not in after:
             raise ValueError(f"Release has no package.yaml: {root}")
         if manifest not in after or f"{root}/notes.md" not in after:
             raise ValueError(f"Release needs manifest.yaml and notes.md: {root}")
+        if CANDIDATE.fullmatch(version):
+            raise ValueError(f"Release candidates are not supported: {root}")
         if not VERSION.fullmatch(version):
             raise ValueError(f"Invalid release version: {version}")
         tag = f"{package}/{version}"

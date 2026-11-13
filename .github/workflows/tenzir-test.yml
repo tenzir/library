@@ -2,6 +2,13 @@ name: Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      release-base:
+        description: >-
+          Commit on main before the releases to tag. Leave empty to run checks
+          only.
+        required: false
+        default: ""
   pull_request:
   push:
     branches:
@@ -42,10 +49,18 @@ jobs:
 
       - name: Check release history and tag conflicts
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: >-
-          python3 .github/scripts/package-release-tags.py
-          --base "${BASE_SHA:-HEAD}" --head "$GITHUB_SHA"
+          PUSH_BASE: ${{ github.event.before }}
+          RELEASE_BASE: ${{ inputs.release-base }}
+        shell: bash
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            # The merge commit's first parent is the base the PR was tested on.
+            pull_request) base="$GITHUB_SHA^1" ;;
+            push) base="$PUSH_BASE" ;;
+            *) base="${RELEASE_BASE:-HEAD}" ;;
+          esac
+          python3 .github/scripts/package-release-tags.py \
+            --base "$base" --head "$GITHUB_SHA"
 
   tql-syntax:
     name: Validate TQL syntax
@@ -124,7 +139,9 @@ jobs:
   release-tags:
     name: Tag package releases
     needs: [changelogs, tql-syntax, tenzir-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.release-base != ''))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -142,7 +159,7 @@ jobs:
 
       - name: Tag new package releases
         env:
-          BASE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ inputs.release-base || github.event.before }}
         run: >-
           python3 .github/scripts/package-release-tags.py
           --base "$BASE_SHA" --head "$GITHUB_SHA" --publish
