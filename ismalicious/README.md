@@ -51,8 +51,10 @@ matching. Indicators that the feed no longer serves age out after the table's
 `write-timeout`. The table updates page by page, so an interrupted walk leaves
 the pages it already applied.
 
-The operator requires the `stix` package. Declare the lookup table in your
-configuration:
+The operator requires the `stix` package, which installing `ismalicious` brings
+along. The update pipelines also call `tenzir::osint::update_context`, and
+pipelines can only call packages that your configuration lists itself, so add
+`tenzir` to its dependencies. Then declare the lookup table:
 
 ```yaml
 # contexts/ocsf-osint.yaml
