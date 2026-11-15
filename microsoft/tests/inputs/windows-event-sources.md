@@ -33,9 +33,12 @@ public Windows event records:
   `SigmaHQ/sigma` under `regression_data/rules/windows/builtin/`, with
   synthetic values. Defender EID 1011 reuses the EID 1009 schema.
 - Microsoft Defender EIDs 1013, 5010, 5013, and 5101, Windows Firewall EIDs
-  2003, 2009, 2033, and 2052, AppXDeployment-Server EIDs 441 and 603, and
+  2003, 2009, 2033, and 2052, AppXDeployment-Server EID 603, and
   CodeIntegrity EIDs 3001 and 3037: adapted from the provider event schemas
   and the fields that the matching `SigmaHQ/sigma` rules reference.
+- AppXDeployment-Server EID 441: the Microsoft-Windows-AppXDeployment-Server
+  manifest from `nasbench/EVTX-ETW-Resources`, whose message for the event has
+  no parameters, so the fixture has an empty `EventData`.
 - Security EIDs 4706, 4741, and 4743 and Service Control Manager EID 7023:
   Microsoft Learn event references at
   `https://learn.microsoft.com/windows/security/threat-protection/auditing/event-<id>`

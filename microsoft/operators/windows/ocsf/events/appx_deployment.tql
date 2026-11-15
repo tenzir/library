@@ -24,30 +24,34 @@ $ocsf.class_uid = 6002
 $ocsf.activity_id = 1  // Install
 $ocsf.type_uid = 600201
 $ocsf.status_id = $status_id
-$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
-$ocsf.application = {
-  uid: $windows.EventData.PackageFullName?,
-  // Queued deployments (EID 854) only list the package URIs in Path, separated
-  // by whitespace. The file name of the first URI or path names the package.
-  name: move $windows.EventData.PackageDisplayName?
-    else $windows.EventData.PackageFullName?
-    else $windows.EventData.Path?.trim().split_regex(r"\s+")[0]?.split("/")[-1]?.split("\\")[-1]?,
-  // OCSF requires a URL string in a url object, so events without a source URI
-  // have no url.
-  url: {url_string: move $windows.EventData.PackageSourceUri} if $windows.EventData.PackageSourceUri? != null else null,
-  data: {
-    package_full_name: move $windows.EventData.PackageFullName?,
-    path: move $windows.EventData.Path?,
-    file_path: move $windows.EventData.FilePath?,
-    deployment_operation: move $windows.EventData.DeploymentOperation?,
-    has_full_trust: move $windows.EventData.HasFullTrust?,
-    flags: move $windows.EventData.Flags?,
-  },
+$ocsf.status_code = (move $windows.EventData?.ErrorCode?).string()
+// Policy blocks without a payload, such as EID 441, identify no package, so
+// they have no application rather than one with only null attributes.
+if ($windows.EventData?.PackageFullName? else $windows.EventData?.PackageDisplayName? else $windows.EventData?.Path?) != null {
+  $ocsf.application = {
+    uid: $windows.EventData?.PackageFullName?,
+    // Queued deployments (EID 854) only list the package URIs in Path, separated
+    // by whitespace. The file name of the first URI or path names the package.
+    name: move $windows.EventData?.PackageDisplayName?
+      else $windows.EventData?.PackageFullName?
+      else $windows.EventData?.Path?.trim().split_regex(r"\s+")[0]?.split("/")[-1]?.split("\\")[-1]?,
+    // OCSF requires a URL string in a url object, so events without a source URI
+    // have no url.
+    url: {url_string: move $windows.EventData?.PackageSourceUri} if $windows.EventData?.PackageSourceUri? != null else null,
+    data: {
+      package_full_name: move $windows.EventData?.PackageFullName?,
+      path: move $windows.EventData?.Path?,
+      file_path: move $windows.EventData?.FilePath?,
+      deployment_operation: move $windows.EventData?.DeploymentOperation?,
+      has_full_trust: move $windows.EventData?.HasFullTrust?,
+      flags: move $windows.EventData?.Flags?,
+    },
+  }
 }
-if $windows.EventData.CallingProcess? != null {
+if $windows.EventData?.CallingProcess? != null {
   $ocsf.actor = {
     process: {
-      path: move $windows.EventData.CallingProcess,
+      path: move $windows.EventData?.CallingProcess,
       file: {type_id: 8},
     },
   }

@@ -59,7 +59,19 @@ if $windows.System.Correlation?.ActivityID? != null and $windows.System.Correlat
   $ocsf.metadata.correlation_uid = move $windows.System.Correlation.ActivityID
 }
 
-match $windows.System.Provider.Name if $windows.EventData? != null or $windows.UserData? != null else "" {
+// Event mappings read EventData or UserData, so an event without either becomes
+// a base event. Events whose manifest defines no payload still dispatch,
+// because collectors such as Winlogbeat omit their empty event data.
+let $payload_free_events = {
+  "Microsoft-Windows-AppXDeployment-Server": [441],
+}
+match (
+  $windows.System.Provider.Name
+    if $windows.EventData? != null
+      or $windows.UserData? != null
+      or $windows.System.EventID in ($payload_free_events[$windows.System.Provider.Name]? else [])
+    else ""
+) {
   "Microsoft-Windows-TaskScheduler" => {
     match $windows.System.EventID {
       100 | 129 | 200 => {
