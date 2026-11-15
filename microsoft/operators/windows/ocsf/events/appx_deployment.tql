@@ -1,5 +1,8 @@
 ---
-description: AppXDeployment-Server 400/401/404 (package deployment) → OCSF Application Lifecycle (6002, Install)
+description: >
+  AppXDeployment-Server package deployments (EIDs 400 succeeded, 401/404
+  failed, 412/441/442/453/454 blocked by policy, 603 started, 854 queued)
+  → OCSF Application Lifecycle (6002, Install)
 args:
   positional:
     - name: windows
@@ -10,8 +13,9 @@ args:
       type: field
   named:
     - name: status_id
-      description: The OCSF status (1 success, 2 failure).
+      description: The OCSF status (1 success, 2 failure); null while the deployment is still in progress.
       type: int
+      default: null
 ---
 
 @name = "ocsf.application_lifecycle"
@@ -23,8 +27,14 @@ $ocsf.status_id = $status_id
 $ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
 $ocsf.application = {
   uid: $windows.EventData.PackageFullName?,
-  name: move $windows.EventData.PackageDisplayName? else $windows.EventData.PackageFullName?,
-  url: {url_string: move $windows.EventData.PackageSourceUri?},
+  // Queued deployments (EID 854) only list the package URIs in Path, separated
+  // by whitespace. The file name of the first URI or path names the package.
+  name: move $windows.EventData.PackageDisplayName?
+    else $windows.EventData.PackageFullName?
+    else $windows.EventData.Path?.trim().split_regex(r"\s+")[0]?.split("/")[-1]?.split("\\")[-1]?,
+  // OCSF requires a URL string in a url object, so events without a source URI
+  // have no url.
+  url: {url_string: move $windows.EventData.PackageSourceUri} if $windows.EventData.PackageSourceUri? != null else null,
   data: {
     package_full_name: move $windows.EventData.PackageFullName?,
     path: move $windows.EventData.Path?,

@@ -30,12 +30,18 @@ if $windows.EventData.OpCorrelationID? != null and $windows.EventData.OpCorrelat
   $ocsf.metadata.correlation_uid = move $windows.EventData.OpCorrelationID
 }
 
+// The ladders move only the chosen candidate into the entity. A fallback chain
+// such as `move a? else move b?` evaluates every operand and would consume the
+// unchosen candidates, removing them from unmapped.
 if $windows.EventData.ObjectGUID? != null {
   $ocsf.entity.uid = move $windows.EventData.ObjectGUID
 } else if $windows.EventData.EventSourceId? != null {
   $ocsf.entity.uid = move $windows.EventData.EventSourceId
 } else if $windows.EventData.RequestId? != null {
   $ocsf.entity.uid = (move $windows.EventData.RequestId).string()
+} else if $windows.EventData.DomainSid? != null {
+  // Trusted domain events (4706/4707/4716) identify the trusted domain.
+  $ocsf.entity.uid = move $windows.EventData.DomainSid
 }
 if $windows.EventData.ObjectName? != null {
   $ocsf.entity.name = move $windows.EventData.ObjectName
@@ -53,6 +59,8 @@ if $windows.EventData.ObjectName? != null {
   $ocsf.entity.name = move $windows.EventData.KeyName
 } else if $windows.EventData.TransactionId? != null {
   $ocsf.entity.name = move $windows.EventData.TransactionId
+} else if $windows.EventData.DomainName? != null {
+  $ocsf.entity.name = move $windows.EventData.DomainName
 }
 if $windows.EventData.ObjectServer? != null {
   $ocsf.entity.data.object_server = move $windows.EventData.ObjectServer

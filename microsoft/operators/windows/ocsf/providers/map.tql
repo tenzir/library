@@ -116,6 +116,15 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
   "Microsoft-Windows-Windows Defender" => {
     match $windows.System.EventID {
       1005..1008 => { microsoft::windows::ocsf::events::defender_threat $windows, $ocsf }
+      1009 => {
+        microsoft::windows::ocsf::events::defender_quarantine $windows, $ocsf, title="Windows Defender Restored an Item from Quarantine", disposition_id=9
+      }
+      1011 => {
+        microsoft::windows::ocsf::events::defender_quarantine $windows, $ocsf, title="Windows Defender Deleted an Item from Quarantine", disposition_id=5
+      }
+      1013 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Malware History Deleted", severity_id=3
+      }
       1115..1118 => { microsoft::windows::ocsf::events::defender_detection $windows, $ocsf }
       1121 => { microsoft::windows::ocsf::events::defender_asr $windows, $ocsf }
       2000 => { microsoft::windows::ocsf::events::defender_signature_update $windows, $ocsf }
@@ -124,6 +133,18 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       }
       5007 => {
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Configuration Changed"
+      }
+      5010 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Malware Scanning Disabled"
+      }
+      5012 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Virus Scanning Disabled"
+      }
+      5013 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Tamper Protection Blocked a Change"
+      }
+      5101 => {
+        microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Antimalware Platform Expired", severity_id=3
       }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
@@ -202,6 +223,8 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       4702 => { microsoft::windows::ocsf::events::scheduled_task_create $windows, $ocsf, activity_id=2 }
       4704 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
       4705 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
+      4706 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Trusted Domain" }
+      4707 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Trusted Domain" }
       4716 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Trusted Domain Policy" }
       4717 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=14 }
       4718 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=15 }
@@ -224,6 +247,9 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
       4738 | 4742 | 4781 => { microsoft::windows::ocsf::events::user_management $windows, $ocsf, activity_id=2 }
       4739 => { microsoft::windows::ocsf::events::domain_policy_change $windows, $ocsf }
       4740 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=9 }
+      // Computer accounts follow the same lifecycle as user accounts.
+      4741 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=1 }
+      4743 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=6 }
       4767 => { microsoft::windows::ocsf::events::account_change $windows, $ocsf, activity_id=12 }
       4768 => { microsoft::windows::ocsf::events::kerberos_tgt $windows, $ocsf }
       4769 => { microsoft::windows::ocsf::events::kerberos_service_ticket $windows, $ocsf }
@@ -303,19 +329,56 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
   }
   "Microsoft-Windows-Windows Firewall With Advanced Security" => {
     match $windows.System.EventID {
-      2004 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=1 }
-      2005 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=3 }
-      2006 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=4 }
+      2002 | 2083 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=3, entity_type="Firewall Setting"
+      }
+      2003 | 2082 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=3, entity_type="Firewall Profile Setting"
+      }
+      // Windows 11 reports rule changes with new event IDs (2071/2097 added,
+      // 2073 modified, 2052 deleted) and additional rule attributes.
+      2004 | 2071 | 2097 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=1 }
+      2005 | 2073 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=3 }
+      2006 | 2052 => { microsoft::windows::ocsf::events::firewall_rule $windows, $ocsf, activity_id=4 }
+      2008 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=3, entity_type="Firewall Group Policy"
+      }
+      2009 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=3, entity_type="Firewall Group Policy", status_id=2
+      }
+      2032 | 2060 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=3, entity_type="Firewall Default Configuration"
+      }
+      2033 | 2059 => {
+        microsoft::windows::ocsf::events::firewall_config $windows, $ocsf, activity_id=4, entity_type="Firewall Rule Set"
+      }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
   "Microsoft-Windows-CodeIntegrity" => {
     match $windows.System.EventID {
-      3023 | 3032 | 3033 | 3036 | 3077 | 3104 => {
+      3023 | 3033 | 3036 | 3077 | 3104 => {
         microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=2
       }
       3034 | 3076 | 3082 => {
         microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1
+      }
+      // Windows loaded an image that fails signature requirements without an
+      // App Control policy decision.
+      3001 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1, status_detail="Unsigned kernel module loaded", severity_id=3
+      }
+      3021 | 3022 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1, status_detail="Revoked kernel module loaded", severity_id=3
+      }
+      3032 | 3035 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1, status_detail="Revoked image loaded", severity_id=3
+      }
+      3037 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1, status_detail="Unsigned image loaded", severity_id=3
+      }
+      3083 => {
+        microsoft::windows::ocsf::events::code_integrity $windows, $ocsf, status_id=1, status_detail="Kernel module without WHQL compliance loaded", severity_id=3
       }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
@@ -336,6 +399,10 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
     match $windows.System.EventID {
       400 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf, status_id=1 }
       401 | 404 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf, status_id=2 }
+      // AppLocker (412) and deployment policies (441/442/453/454) blocked it.
+      412 | 441 | 442 | 453 | 454 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf, status_id=2 }
+      // The deployment started (603) or its package URIs were queued (854).
+      603 | 854 => { microsoft::windows::ocsf::events::appx_deployment $windows, $ocsf }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
@@ -354,6 +421,7 @@ match $windows.System.Provider.Name if $windows.EventData? != null or $windows.U
   }
   "Service Control Manager" => {
     match $windows.System.EventID {
+      7023 => { microsoft::windows::ocsf::events::service_terminated_error $windows, $ocsf }
       7034 => { microsoft::windows::ocsf::events::service_crashed $windows, $ocsf }
       7036 => { microsoft::windows::ocsf::events::service_state $windows, $ocsf }
       7040 => { microsoft::windows::ocsf::events::service_reconfigure $windows, $ocsf }
