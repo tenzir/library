@@ -229,7 +229,8 @@ Every rule gets one of these statuses:
   the Windows event log channel. The rule can still run on native events.
 - `rejected`: The operator rejects the rule for every input, for example
   because it uses the `expand` placeholder modifier.
-- `invalid`: The document doesn't parse as a Sigma rule.
+- `invalid`: The document doesn't parse as a Sigma rule, or its `detection` or
+  `logsource` isn't a record. The report keeps the valid rules next to it.
 
 Both formats keep the upstream `rule-source` reference of each rule. The JSON
 report also summarizes the statuses per logsource and the most frequent

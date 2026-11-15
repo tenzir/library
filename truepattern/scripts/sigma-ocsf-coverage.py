@@ -12,7 +12,8 @@ operator emits while it plans the rules for that schema:
   events.
 - `rejected`: the operator rejects the rule for every input, for example
   because it uses an unsupported modifier such as `expand`.
-- `invalid`: the document does not parse as a Sigma rule.
+- `invalid`: the document does not parse as a Sigma rule, or its `detection`
+  or `logsource` is not a record.
 
 A `translated` rule loads, but that alone does not prove that it can match:
 the normalized events must carry the OCSF attributes that the translation
@@ -178,6 +179,22 @@ def parse_diagnostics(stderr: str) -> dict[str, dict]:
     return result
 
 
+def shape_problem(rule) -> str | None:
+    """Describes why a parsed document cannot be a Sigma rule, if it can't."""
+    if not isinstance(rule, dict):
+        return "the document is not a YAML mapping"
+    if not isinstance(rule.get("detection"), dict):
+        return "`detection` is not a record"
+    if "logsource" in rule and not isinstance(rule["logsource"], dict):
+        return "`logsource` is not a record"
+    return None
+
+
+def text_attribute(rule, name: str) -> str | None:
+    value = rule.get(name) if isinstance(rule, dict) else None
+    return value if isinstance(value, str) else None
+
+
 def unresolved_fields(notes: list[str]) -> list[str]:
     fields: list[str] = []
     for note in notes:
@@ -249,19 +266,21 @@ def analyze(rules: Path, tenzir: list[str]) -> dict:
             (ref.get("url") for ref in refs if ref.get("source_name") == "rule-source"),
             None,
         )
-        if isinstance(rule, dict) and isinstance(rule.get("detection"), dict):
-            fields = detection_fields(rule["detection"])
-            diagnostic = diagnostics.get(f"{index:06d}.yml")
+        diagnostic = diagnostics.get(f"{index:06d}.yml")
+        entry.update(id=text_attribute(rule, "id"), title=text_attribute(rule, "title"))
+        if problem := shape_problem(rule):
+            # Prefer the operator's own reason, which names the offending
+            # attribute; it rejects these documents as well.
+            entry["reasons"] = diagnostic["notes"] if diagnostic else [problem]
+        else:
             entry.update(
-                id=rule.get("id"),
-                title=rule.get("title"),
                 logsource=rule.get("logsource"),
                 status=diagnostic["status"] if diagnostic else "translated",
                 reasons=diagnostic["notes"] if diagnostic else [],
                 unresolved_fields=unresolved_fields(diagnostic["notes"])
                 if diagnostic
                 else [],
-                keywords_only=not fields,
+                keywords_only=not detection_fields(rule["detection"]),
             )
         report_rules.append(entry)
     statuses = collections.Counter(entry["status"] for entry in report_rules)

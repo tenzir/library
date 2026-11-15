@@ -66,6 +66,27 @@ records = [
 ]
 source = "from " + ", ".join(json.dumps(record) for record in records) + "\n"
 executor = Executor.from_env(os.environ)
+
+
+def coverage(rules: Path, output_format: str) -> str:
+    report = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(rules),
+            "--tenzir",
+            shlex.join(executor.binary),
+            "--format",
+            output_format,
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert report.returncode == 0, report.stderr
+    return report.stdout
+
+
 with TemporaryDirectory(prefix="truepattern-coverage-") as directory:
     rules = Path(directory) / "sigma.yaml"
     result = executor.run(
@@ -73,46 +94,87 @@ with TemporaryDirectory(prefix="truepattern-coverage-") as directory:
         + f"truepattern::sigma::update_rules path={json.dumps(str(rules))}\ndiscard"
     )
     assert result.returncode == 0, result.stderr.decode()
-    for output_format in ("json", "csv"):
-        report = subprocess.run(
-            [
-                sys.executable,
-                str(script),
-                str(rules),
-                "--tenzir",
-                shlex.join(executor.binary),
-                "--format",
-                output_format,
-            ],
-            capture_output=True,
-            check=False,
-            text=True,
-        )
-        assert report.returncode == 0, report.stderr
-        if output_format == "json":
-            data = json.loads(report.stdout)
-            assert data["rules"] == len(records), data
-            assert data["statuses"] == {
-                "translated": 2,
-                "skipped": 1,
-                "rejected": 1,
-                "invalid": 0,
-            }, data["statuses"]
-            assert data["keywords_only"] == 1, data
-            for entry in data["details"]:
-                fields = ", ".join(entry["unresolved_fields"]) or "none"
-                keywords = " (keywords only)" if entry["keywords_only"] else ""
-                print(f"{entry['title']}: {entry['status']}{keywords}")
-                print(f"  unresolved fields: {fields}")
-                print(f"  rule source: {entry['rule_source']}")
-            print(f"unresolved fields: {data['unresolved_fields']}")
-        else:
-            rows = list(csv.DictReader(io.StringIO(report.stdout)))
-            assert [row["status"] for row in rows] == [
-                "translated",
-                "skipped",
-                "rejected",
-                "translated",
-            ], rows
-            assert rows[1]["unresolved_fields"] == "Channel NewProcessName", rows[1]
-            print("csv: one row per rule")
+    data = json.loads(coverage(rules, "json"))
+    assert data["rules"] == len(records), data
+    assert data["statuses"] == {
+        "translated": 2,
+        "skipped": 1,
+        "rejected": 1,
+        "invalid": 0,
+    }, data["statuses"]
+    assert data["keywords_only"] == 1, data
+    for entry in data["details"]:
+        fields = ", ".join(entry["unresolved_fields"]) or "none"
+        keywords = " (keywords only)" if entry["keywords_only"] else ""
+        print(f"{entry['title']}: {entry['status']}{keywords}")
+        print(f"  unresolved fields: {fields}")
+        print(f"  rule source: {entry['rule_source']}")
+    print(f"unresolved fields: {data['unresolved_fields']}")
+    rows = list(csv.DictReader(io.StringIO(coverage(rules, "csv"))))
+    assert [row["status"] for row in rows] == [
+        "translated",
+        "skipped",
+        "rejected",
+        "translated",
+    ], rows
+    assert rows[1]["unresolved_fields"] == "Channel NewProcessName", rows[1]
+    print("csv: one row per rule")
+
+# Documents that are not Sigma rules become invalid with a reason, and the
+# report still covers the valid rules next to them.
+valid = (
+    "title: Valid\n"
+    + process_creation
+    + "detection:\n  selection:\n    Image|endswith: '\\whoami.exe'\n"
+    "  condition: selection\n"
+)
+selection = "detection:\n  selection:\n    Image: x\n  condition: selection\n"
+malformed = [
+    ("Valid", valid, None),
+    (
+        "Scalar logsource",
+        "title: Scalar logsource\nlogsource: windows\n" + selection,
+        "logsource",
+    ),
+    (
+        "List logsource",
+        "title: List logsource\nlogsource: [windows]\n" + selection,
+        "logsource",
+    ),
+    (
+        "Scalar detection",
+        "title: Scalar detection\nlogsource:\n  product: windows\ndetection: x\n",
+        "detection",
+    ),
+    (None, "- not\n- a rule\n", None),
+]
+with TemporaryDirectory(prefix="truepattern-coverage-") as directory:
+    rules = Path(directory) / "malformed.yaml"
+    rules.write_text("---\n".join(document for _, document, _ in malformed))
+    data = json.loads(coverage(rules, "json"))
+    assert data["statuses"] == {
+        "translated": 1,
+        "skipped": 0,
+        "rejected": 0,
+        "invalid": 4,
+    }, data["statuses"]
+    for (title, _, attribute), entry in zip(malformed, data["details"], strict=True):
+        assert entry["title"] == title, entry
+        assert entry["status"] == "translated" or entry["reasons"], entry
+        if attribute:
+            assert any(attribute in reason for reason in entry["reasons"]), entry
+        print(f"{entry['title']}: {entry['status']}")
+    assert data["logsources"] == {
+        "-/-/-": {"invalid": 4},
+        "windows/process_creation/-": {"translated": 1},
+    }, data["logsources"]
+    rows = list(csv.DictReader(io.StringIO(coverage(rules, "csv"))))
+    assert [row["status"] for row in rows] == [
+        "translated",
+        "invalid",
+        "invalid",
+        "invalid",
+        "invalid",
+    ], rows
+    assert all(row["product"] == "" for row in rows[1:]), rows
+    print("malformed documents: invalid, valid rules still reported")
