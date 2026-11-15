@@ -1,0 +1,59 @@
+---
+description: >
+  Windows Firewall configuration changes (EIDs 2002/2083 setting changed,
+  2003/2082 profile setting changed, 2008 Group Policy applied, 2009 Group
+  Policy failed to load, 2032/2060 reset to defaults, 2033/2059 all rules
+  deleted) → OCSF Entity Management (3004)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The Entity Management activity (3 Update, 4 Delete).
+      type: int
+    - name: entity_type
+      description: The changed part of the firewall configuration.
+      type: string
+    - name: status_id
+      description: The OCSF status (1 Success, 2 Failure).
+      type: int
+      default: 1
+---
+
+@name = "ocsf.entity_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = $status_id
+$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+$ocsf.metadata.profiles = ["host", "security_control"]
+// The events describe the firewall policy of the host, not a single rule.
+$ocsf.entity = {
+  name: "Windows Defender Firewall",
+  type_id: 5,  // Policy
+  policy: {
+    name: "Windows Defender Firewall",
+    type: $entity_type,
+  },
+}
+// Some events, such as Group Policy load failures (2009), name neither a
+// modifying user nor an application. Assigning a null user or an empty process
+// would create an actor that violates OCSF, so these guards keep it absent.
+if $windows.EventData.ModifyingUser? != null {
+  $ocsf.actor.user = {uid: move $windows.EventData.ModifyingUser}
+}
+if $windows.EventData.ModifyingApplication? != null {
+  $ocsf.actor.process = {
+    path: move $windows.EventData.ModifyingApplication,
+    file: {type_id: 8},
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
+  $ocsf.actor.process.file.name = $ocsf.actor.process.name
+  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+}

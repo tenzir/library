@@ -1,0 +1,80 @@
+---
+description: >
+  Windows Defender quarantine actions (EID 1009 Item Restored, 1011 Item
+  Deleted) → OCSF Detection Finding (2004)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: title
+      description: The finding title for this quarantine action.
+      type: string
+    - name: disposition_id
+      description: The OCSF disposition of the quarantined item (9 Restored, 5 Deleted).
+      type: int
+---
+
+@name = "ocsf.detection_finding"
+
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+$ocsf.activity_id = 1  // Create
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.metadata.profiles = ["host", "security_control"]
+$ocsf.disposition_id = $disposition_id
+
+// The OCSF severity at the index of the Defender severity ID: 1 Low, 2
+// Moderate, 4 High, 5 Severe. Defender defines no 3.
+let $severities = [0, 2, 3, null, 4, 5]
+$ocsf.severity_id = $severities[(move $windows.EventData["Severity ID"]?).int()]? else 0
+
+$ocsf.finding_info = {
+  title: $title,
+  uid: $ocsf.metadata.original_event_uid,
+  types: ["Software: Antivirus"],
+}
+$ocsf.malware = [{
+  name: move $windows.EventData["Threat Name"]?,
+  uid: (move $windows.EventData["Threat ID"]?).string(),
+}]
+
+// Path lists the affected resources as `type:_value`, separated by `; `, such
+// as `file:_C:\x.exe; service:_cmd`. Files become evidence; the complete list
+// stays in unmapped.
+$ocsf.evidences = (
+  $windows.EventData.Path?.split("; ")
+    .where(x => x.starts_with("file:_"))
+    .map(x => x.slice(begin=6))
+    .map(path => {file: {path: path, name: path.split("\\")[-1], type_id: 1}})
+)
+
+$ocsf.actor = {
+  user: {
+    name: move $windows.EventData.User?,
+    domain: move $windows.EventData.Domain?,
+    uid: move $windows.EventData.SID?,
+  },
+}
+
+// Drop sentinel and redundant fields.
+drop $windows.EventData["Product Name"]?,
+  $windows.EventData["Severity Name"]?,
+  $windows.EventData["Category Name"]?,
+  $windows.EventData.Unused?,
+  $windows.EventData.Unused2?,
+  $windows.EventData.Unused3?,
+  $windows.EventData.Unused4?,
+  $windows.EventData.Unused5?,
+  $windows.EventData.Unused6?,
+  $windows.EventData.Unused7?,
+  $windows.EventData.Unused8?,
+  $windows.EventData.Unused9?,
+  $windows.EventData.Unused10?,
+  $windows.EventData.Unused11?,
+  $windows.EventData.Unused12?,
+  $windows.EventData.Unused13?

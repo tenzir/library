@@ -1,5 +1,8 @@
 ---
-description: CodeIntegrity 3033/3034/3076/3077 and related (App Control blocked or audited a file) → OCSF Application Lifecycle (6002, Start)
+description: >
+  CodeIntegrity events (App Control blocked or audited a file, or Windows
+  loaded an unsigned, revoked, or non-WHQL image) → OCSF Application
+  Lifecycle (6002, Start)
 args:
   positional:
     - name: windows
@@ -10,8 +13,18 @@ args:
       type: field
   named:
     - name: status_id
-      description: The OCSF status (1 when the policy audited, 2 when it blocked).
+      description: The OCSF status (1 when the image loaded, 2 when it was blocked).
       type: int
+    - name: status_detail
+      description: |
+        Describes the outcome. Defaults to the App Control policy decision:
+        audited for status 1 and blocked for status 2.
+      type: string
+      default: null
+    - name: severity_id
+      description: The OCSF severity. Defaults to 2 (Low) for status 1 and 3 (Medium) for status 2.
+      type: int
+      default: null
 ---
 
 @name = "ocsf.application_lifecycle"
@@ -31,12 +44,15 @@ let $outcomes = {
     status_detail: "Blocked by App Control policy",
   },
 }
-$ocsf = {...$ocsf, ...$outcomes[$status_id.string()]}
+let $outcome = $outcomes[$status_id.string()]
+$ocsf.severity_id = $severity_id else $outcome.severity_id
+$ocsf.status_detail = $status_detail else $outcome.status_detail
 // Code Integrity reports file names as device paths.
 $ocsf.application = {
   desc: move $windows.EventData.FileDescription?,
   version: (move $windows.EventData.FileVersion?).string(),
-  product: {name: move $windows.EventData.ProductName?},
+  // OCSF requires a name in a product object.
+  product: {name: move $windows.EventData.ProductName} if $windows.EventData.ProductName? != null else null,
   data: {
     file_path: move $windows.EventData.FileNameBuffer?,
     requested_policy: move $windows.EventData.RequestedPolicy?,
@@ -45,10 +61,16 @@ $ocsf.application = {
     validated_signing_level: move $windows.EventData.ValidatedSigningLevel?,
   },
 }
-$ocsf.policy = {
-  name: move $windows.EventData.PolicyName?,
-  uid: move $windows.EventData.PolicyGUID?,
-  data: {hash: move $windows.EventData.PolicyHash?},
+// Events without an App Control policy decision, such as unsigned image loads
+// (3001/3037), name no policy, and an empty policy object would violate OCSF.
+// This stays a statement: a `move` in an untaken inline `if … else` branch
+// still consumes its field, which would drop a lone PolicyHash from unmapped.
+if ($windows.EventData.PolicyName? else $windows.EventData.PolicyGUID?) != null {
+  $ocsf.policy = {
+    name: move $windows.EventData.PolicyName?,
+    uid: move $windows.EventData.PolicyGUID?,
+    data: {hash: move $windows.EventData.PolicyHash?},
+  }
 }
 $ocsf.status_code = (move $windows.EventData.Status?).string()
 $ocsf.application.name = $ocsf.application.data.file_path?.split("\\")[-1]?

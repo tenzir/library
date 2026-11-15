@@ -1,7 +1,9 @@
 ---
 description: >
-  Windows Defender Tamper Events (EID 5001 Real-Time Protection Disabled,
-  5007 Configuration Changed) → OCSF Detection Finding (2004)
+  Windows Defender protection-state events (EID 1013 Malware History Deleted,
+  5001 Real-Time Protection Disabled, 5007 Configuration Changed, 5010 Malware
+  Scanning Disabled, 5012 Virus Scanning Disabled, 5013 Tamper Protection
+  Blocked a Change, 5101 Platform Expired) → OCSF Detection Finding (2004)
 args:
   positional:
     - name: windows
@@ -14,6 +16,10 @@ args:
     - name: title
       description: The finding title for this tamper event.
       type: string
+    - name: severity_id
+      description: The OCSF severity of the finding.
+      type: int
+      default: 4
 ---
 
 @name = "ocsf.detection_finding"
@@ -23,8 +29,8 @@ $ocsf.class_uid = 2004
 $ocsf.activity_id = 1  // Create
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-// AV tamper events are always high-severity.
-$ocsf.severity_id = 4  // High
+// Weakened protection defaults to high severity.
+$ocsf.severity_id = $severity_id
 
 $ocsf.finding_info = {
   title: $title,
@@ -32,5 +38,19 @@ $ocsf.finding_info = {
   types: ["Software: Antivirus"],
 }
 
+// Only some events, such as malware history deletion (EID 1013), name the
+// account that triggered the change; the others have no actor. This stays a
+// statement: a `move` in an untaken inline `if … else` branch still consumes
+// its field, which would drop a lone Domain or SID from unmapped.
+if $windows.EventData.User? != null {
+  $ocsf.actor = {
+    user: {
+      name: move $windows.EventData.User,
+      domain: move $windows.EventData.Domain?,
+      uid: move $windows.EventData.SID?,
+    },
+  }
+}
+
 // "Product Name" is redundant with metadata.product.name.
-drop $windows.EventData["Product Name"]
+drop $windows.EventData["Product Name"]?
