@@ -206,44 +206,6 @@ logsource and event filters aligned. To support other services or categories,
 create separate rule files and event pipelines that enforce their complete
 logsource constraints; don't feed mixed Windows events to a product-only file.
 
-### Measure OCSF coverage
-
-`scripts/sigma-ocsf-coverage.py` reports how the `sigma` operator of your
-Tenzir build treats every rule in a rule file on OCSF input. It asks the engine
-instead of estimating: it loads the rules, plans them for an OCSF-shaped probe
-event, and classifies each rule from the operator's diagnostics. The script
-needs Python 3.10 or later and a Tenzir binary, but no other dependencies.
-
-Run it on the file that `truepattern::sigma::update_rules` writes:
-
-```sh
-python3 truepattern/scripts/sigma-ocsf-coverage.py \
-  /var/lib/tenzir/truepattern/sigma.yaml --format csv --output coverage.csv
-```
-
-Every rule gets one of these statuses:
-
-- `translated`: The operator plans the rule for OCSF input.
-- `skipped`: The operator skips the rule for OCSF input. The report lists the
-  fields without an OCSF translation, such as `Channel` in rule sets that pin
-  the Windows event log channel. The rule can still run on native events.
-- `rejected`: The operator rejects the rule for every input, for example
-  because it uses the `expand` placeholder modifier.
-- `invalid`: The document doesn't parse as a Sigma rule, or its `detection` or
-  `logsource` isn't a record. The report keeps the valid rules next to it.
-
-Both formats keep the upstream `rule-source` reference of each rule. The JSON
-report also summarizes the statuses per logsource and the most frequent
-unresolved fields.
-Pass `--tenzir` to select a Tenzir command other than `tenzir run`.
-
-A translated rule loads, which doesn't yet prove that it fires: the normalized
-events must carry the OCSF attributes that the translation reads. For Windows
-events, the `microsoft` package tests run stock-shaped rules against its
-normalized fixtures to show that they match. The report flags translated
-keyword-only rules separately, because their keywords match any string in an
-event.
-
 ### Keep the rule file complete
 
 The walk replaces the file with the rules of its input, so only run
@@ -355,8 +317,8 @@ uvx tenzir-test truepattern stix
 ```
 
 Set `TENZIR_BINARY` to test a different Tenzir build. The tests cover the
-feed, the rule files, normalization, and the coverage report. They don't cover
-the catalog and enrichment, which need the contexts of a deployment.
+feed, the rule files, and normalization. They don't cover the catalog and
+enrichment, which need the contexts of a deployment.
 
 The runner loads each test's enclosing package automatically, including for
 Python tests. Keep the `package-dirs` declaration in `tests/test.yaml`: it loads

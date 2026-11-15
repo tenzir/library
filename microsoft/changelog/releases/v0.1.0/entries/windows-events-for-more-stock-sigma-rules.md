@@ -3,7 +3,9 @@ title: Windows events for more stock Sigma rules
 type: feature
 authors:
   - mavam
-created: 2026-11-15T10:26:04.531848Z
+prs:
+  - 234
+created: 2026-11-15T18:35:37.086952Z
 ---
 
 The `microsoft::windows::ocsf::normalize` operator now maps more Windows events
@@ -27,9 +29,10 @@ and the deletion of all rules (EIDs 2033 and 2059) map to Entity Management
 events for the firewall policy, with the modifying user and application.
 
 **AppX deployment**: Deployments that AppLocker or a deployment policy blocked
-(EIDs 412, 441, 442, 453, 454) map to failed installs. Started deployments
+(EIDs 412, 441, 442, 453, 454) map to failed installs, including EID 441 from
+collectors such as Winlogbeat that omit its empty payload. Started deployments
 (EID 603) and queued package URIs (EID 854) map to installs without a final
-status, keeping the deployment flags and the queued URIs.
+status.
 
 **Code Integrity**: Loads of unsigned, revoked, or non-WHQL images and kernel
 modules (EIDs 3001, 3021, 3022, 3032, 3035, 3037, 3083) map to Application
@@ -43,7 +46,5 @@ services that terminate with an error (EID 7023) map to Windows Service
 Activity. Trusted domain policy changes (EID 4716) now also name the trusted
 domain.
 
-AppX deployment and Code Integrity events no longer carry empty
-`application.url`, `application.product`, or `policy` objects, which violate
-OCSF. When the source event lacks these values, `application.url` and
-`application.product` are null and `policy` is absent.
+AppX deployment and Code Integrity events no longer contain empty
+`application.url`, `application.product`, or `policy` objects.
