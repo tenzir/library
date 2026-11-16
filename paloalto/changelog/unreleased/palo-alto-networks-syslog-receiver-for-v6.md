@@ -18,7 +18,7 @@ parsed families become OCSF Base Events and retain their structured fields in
 Normalize a Syslog record in one call:
 
 ```tql
-accept_udp "udp://0.0.0.0:514"
+accept_udp "0.0.0.0:514"
 this = data.parse_syslog()
 paloalto::ocsf::normalize
 ```
