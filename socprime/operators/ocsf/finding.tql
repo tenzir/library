@@ -1,0 +1,68 @@
+---
+description: |
+  Models the verdicts of `socprime::correlate` as OCSF Detection Findings.
+
+  The first verdict of a chain produces `activity_id` 1 (Create), later ones
+  `activity_id` 2 (Update) with the same `finding_info.uid`, which derives from
+  the analytic and the chain. `confidence_score` holds the stage coverage in
+  percent, `finding_info.traits` the covered stages,
+  `finding_info.related_events` the contributing Detection Findings, and
+  `evidences` the source events of all records.
+args:
+  named:
+    - name: uid
+      type: string
+      description: The unique ID of the analytic, such as a Sigma rule ID.
+    - name: name
+      type: string
+      description: The name of the analytic.
+    - name: level
+      type: string
+      default: high
+      description: The Sigma level of the chain, such as `high`.
+    - name: tags
+      default: []
+      description: Sigma tags of the analytic, such as `attack.t1059.001`.
+---
+
+let $severities = {informational: 1, low: 2, medium: 3, high: 4, critical: 5}
+_findings = records.where(record => record.finding? != null).map(record => record.finding)
+this = {
+  time: time,
+  start_time: chain.start,
+  end_time: time,
+  class_uid: 2004,
+  category_uid: 2,
+  activity_id: 1 if new else 2,
+  severity_id: $severities[$level],
+  status_id: 1,
+  is_alert: new,
+  confidence_score: (coverage * 100).round(),
+  metadata: {
+    version: "1.9.0",
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+  },
+  device: event?.device?,
+  finding_info: {
+    uid: f"{$uid}:{hash_sha256(chain.print_ndjson())}",
+    title: $name,
+    analytic: {uid: $uid, name: $name, type_id: 1, type: "Rule"},
+    attacks: $tags.where(tag => tag.starts_with("attack.t")).map(tag => {
+      technique: {uid: tag.slice(begin=7).to_upper()},
+    }),
+    first_seen_time: chain.start,
+    last_seen_time: time,
+    traits: stages.map(stage => {name: stage, type: "socprime:stage"}),
+    related_events: _findings.map(finding => {
+      uid: finding.uid,
+      type_uid: finding.type_uid,
+      title: finding.title,
+      severity_id: finding.severity_id,
+      attacks: finding.attacks?,
+      observables: finding.observables?,
+    }),
+    related_events_count: _findings.length(),
+  },
+  evidences: records.map(record => {data: record.event}),
+}
+type_uid = class_uid * 100 + activity_id

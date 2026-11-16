@@ -1,0 +1,56 @@
+---
+description: |
+  Correlates stage records into attack chains per entity.
+
+  The operator expects stage records with the event time in `time`, the stage
+  name in `stage`, and the correlation keys in `entity`, such as
+  `{host: "ws-17"}`. Records may carry the source event in `event` and a
+  Detection Finding summary in `finding`, as `socprime::hos::stages` produces
+  them. Any pipeline can produce stage records, so a chain can combine Sigma
+  findings, raw events, and aggregates.
+
+  A chain is a session of stage records of one entity that are at most
+  `within` apart. Whenever a record covers a new stage and the share of
+  covered stages reaches `threshold`, the operator emits a verdict:
+
+  - `chain`: The entity and the time of the first record of the session,
+    which identify the chain.
+  - `stages`: The covered stages.
+  - `coverage`: The share of covered stages.
+  - `new`: Whether the verdict is the first of the chain.
+  - `records`: The stage records of the chain so far.
+  - `time`, `stage`, `entity`, `event`, `finding`: The record that produced
+    the verdict.
+args:
+  named:
+    - name: stages
+      description: The names of all stages of the chain.
+    - name: within
+      type: duration
+      description: The maximum time between two records of a chain.
+    - name: threshold
+      type: float
+      default: 0.6
+      description: The share of stages a chain must cover, between 0 and 1.
+    - name: tolerance
+      type: duration
+      default: 1min
+      description: How far records of an entity may arrive out of time order.
+---
+
+let $stage_count = $stages.length()
+where stage in $stages
+// Each entity runs its own sessions, so a quiet entity never waits for a busy one.
+group entity {
+  window gap=$within, on=time, tolerance=$tolerance {
+    summarize stages=distinct(stage),
+      records=collect(this),
+      options={mode: "cumulative"}
+    coverage = stages.length() / $stage_count
+    where coverage >= $threshold
+    // Only a record that covers a new stage advances the chain.
+    deduplicate stages.length()
+    chain = {entity: entity, start: $window.start}
+    new = (stages.length() - 1) / $stage_count < $threshold
+  }
+}

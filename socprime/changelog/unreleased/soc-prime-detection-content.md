@@ -20,10 +20,12 @@ microsoft::windows::ocsf::normalize data
 socprime::detect
 ```
 
-Every HoS rule is an operator under `socprime::hos` that runs its attack chain in a single pipeline: it matches the stage rules, correlates the findings per host within the timeframe of the rule, and emits an OCSF Detection Finding once the host covers enough stages. The finding links the contributing findings and source events, and reports the stage coverage as `confidence_score`:
+`socprime::hos::detect` runs the attack chain of a HoS rule in a single pipeline: it matches the stage rules, correlates the findings per host, and emits an OCSF Detection Finding once the host covers enough stages. Later stages update the finding. It links the contributing findings and source events, and reports the stage coverage as `confidence_score`:
 
 ```tql
-socprime::hos::kimsuky_diplomats threshold=1.0
+socprime::hos::detect "kimsuky_diplomats", threshold=1.0
 ```
+
+The building blocks work for your own chains, too: `socprime::correlate` correlates stage records from any source, such as Sigma findings, raw events, or aggregates, and `socprime::ocsf::finding` turns the chains into Detection Findings. `socprime::native::php2shell` shows a TQL-native chain that follows the exploited process instead of the host, so unrelated activity on a busy web server cannot complete it.
 
 `socprime::enrich` attaches the Active Threats of a rule as OCSF `osint` objects to its findings. The lookup table `socprime-active-threats` holds them; fill it once with `socprime::active_threats`, `socprime::ocsf::map`, and `socprime::update_context`.
