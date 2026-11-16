@@ -24,4 +24,4 @@ publish "ocsf-tagged"
 
 The operator keeps existing tags, leaves clean events untouched, and never drops events.
 
-*By @mavam and @claude in #236.*
+*By @mavam in #236.*

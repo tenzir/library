@@ -3,7 +3,6 @@ title: OCSF data quality tags
 type: feature
 authors:
   - mavam
-  - claude
 prs:
   - 236
 created: 2026-11-16T12:00:00Z
