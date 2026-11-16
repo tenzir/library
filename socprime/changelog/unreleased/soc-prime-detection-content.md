@@ -3,7 +3,9 @@ title: SOC Prime detection content
 type: feature
 authors:
   - mavam
-created: 2026-11-16T09:00:00Z
+prs:
+  - 235
+created: 2026-11-16T09:18:22.571697Z
 ---
 
 The new `socprime` package brings the detection content of [SOC Prime](https://socprime.com) to Tenzir. It bundles a snapshot of the behavior rules, High-Order Sigma (HoS) rules, and Active Threats that SOC Prime ships with DetectFlow.
