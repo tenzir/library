@@ -1,0 +1,25 @@
+---
+name: Tag OCSF data quality per class
+description: |
+  Receives Palo Alto Networks syslog, normalizes it to OCSF, tags data quality
+  problems with class-specific completeness requirements, and sends the events
+  to Splunk.
+---
+
+let $auth = ocsf_class_uid("Authentication")
+let $net = ocsf_class_uid("Network Activity")
+accept_udp "0.0.0.0:514"
+this = data.parse_syslog()
+paloalto::ocsf::normalize
+match class_uid {
+  $auth => {
+    tenzir::ocsf::quality required="user.name, src_endpoint.ip, status_id"
+  }
+  $net => {
+    tenzir::ocsf::quality required="src_endpoint.ip, dst_endpoint.ip, dst_endpoint.port"
+  }
+  _ => {
+    tenzir::ocsf::quality
+  }
+}
+to_splunk "https://splunk.example.com:8088", hec_token=secret("splunk-hec-token")

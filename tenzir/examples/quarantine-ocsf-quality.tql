@@ -1,0 +1,20 @@
+---
+name: Quarantine OCSF events with quality problems
+description: |
+  Polls the Okta System Log, normalizes it to OCSF, and tags data quality
+  problems. Tagged events go to an S3 quarantine bucket, clean events to
+  Splunk.
+---
+
+every 30s {
+  okta::fetch "example.okta.com", bearer_token=secret("OKTA_BEARER_TOKEN")
+}
+okta::ocsf::normalize
+tenzir::ocsf::quality required="user.name, src_endpoint.ip"
+if metadata?.tags?.map(t => t.name.starts_with("quality.")).any() == true {
+  to_s3 "s3://example-quarantine/ocsf/" {
+    write_ndjson
+  }
+} else {
+  to_splunk "https://splunk.example.com:8088", hec_token=secret("splunk-hec-token")
+}

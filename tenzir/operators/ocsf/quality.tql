@@ -1,0 +1,48 @@
+---
+description: |
+  Tags data quality problems of OCSF events in `metadata.tags`.
+
+  Each problem becomes a `{name, value}` entry whose name is the quality
+  dimension and whose value is the affected attribute:
+
+  - `quality.completeness`: `truncated` if `metadata.is_truncated` is true,
+    or a path from `required` whose attribute is missing or null.
+  - `quality.validity`: `activity_id` if it is missing, Unknown (0), or Other
+    (99); `status_id` if present and Unknown (0) or Other (99).
+  - `quality.consistency`: `type_uid` if it differs from
+    `class_uid * 100 + activity_id`.
+  - `quality.timeliness`: `time` if it lies more than `tolerance` in the
+    future.
+
+  The operator appends to existing tags, leaves `metadata.tags` untouched for
+  clean events, and never drops events.
+args:
+  named:
+    - name: required
+      type: string
+      default: ""
+      description: |
+        Comma-separated attribute paths that must be present and non-null,
+        such as `"user.name,src_endpoint.ip"`. Paths address nested record
+        fields with dots; list elements are not addressable.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: |
+        How far `time` may lie in the future before it counts as untimely.
+---
+
+let $paths = $required.split(",").map(path => path.trim()).where(path => path != "")
+
+_quality = [
+  {name: "quality.completeness", value: "truncated"} if metadata?.is_truncated?,
+  ...$paths.map(path => {name: "quality.completeness", value: path} if this.flatten()[path]? == null),
+  {name: "quality.validity", value: "activity_id"} if activity_id? in [null, 0, 99],
+  {name: "quality.validity", value: "status_id"} if status_id? in [0, 99],
+  {name: "quality.consistency", value: "type_uid"} if type_uid? != null and type_uid != class_uid? * 100 + activity_id?,
+  {name: "quality.timeliness", value: "time"} if time? > now() + $tolerance,
+].collect()
+if not _quality.is_empty() {
+  metadata.tags = [...metadata?.tags?, ..._quality]
+}
+drop _quality
