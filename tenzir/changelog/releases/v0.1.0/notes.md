@@ -16,10 +16,11 @@ The new `tenzir::ocsf::quality` operator tags data quality problems of OCSF even
 Pass class-specific completeness requirements as comma-separated paths:
 
 ```tql
-subscribe "ocsf"
-where class_uid == ocsf_class_uid("Authentication")
-tenzir::ocsf::quality required="user.name, src_endpoint.ip"
-publish "ocsf-tagged"
+accept_udp "0.0.0.0:514"
+this = data.parse_syslog()
+paloalto::ocsf::normalize
+tenzir::ocsf::quality required="src_endpoint.ip, dst_endpoint.ip, dst_endpoint.port"
+to_splunk "https://splunk.example.com:8088", hec_token=secret("splunk-hec-token")
 ```
 
 The operator keeps existing tags, leaves clean events untouched, and never drops events.
