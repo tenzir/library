@@ -1,0 +1,108 @@
+---
+description: |
+  Correlates Sigma detection findings into the attack chain of a SOC Prime
+  High-Order Sigma (HoS) rule.
+
+  A HoS rule groups behavior rules into stages and chains them by host: it
+  fires when the stages that a host covers within `timeframe` reach the
+  `threshold` share of all stages. The operator expects the Detection
+  Findings of the stage rules, as the `sigma` operator produces them, and
+  takes host and time from the source event in `evidences[0].data`.
+
+  Whenever a finding covers a new stage of a chain at or above the threshold,
+  the operator emits an OCSF Detection Finding for the chain. The finding that
+  first crosses the threshold produces `activity_id` 1 (Create), later stages
+  produce `activity_id` 2 (Update). `confidence_score` holds the stage
+  coverage in percent, `finding_info.related_events` the contributing
+  findings, and `evidences` their source events.
+args:
+  named:
+    - name: uid
+      type: string
+      description: The Sigma rule ID of the HoS rule.
+    - name: name
+      type: string
+      description: The title of the HoS rule.
+    - name: stages
+      description: |
+        The stages of the chain as a record from stage name to the list of
+        Sigma rule IDs that cover the stage.
+    - name: level
+      type: string
+      description: The Sigma level of the HoS rule, such as `high`.
+    - name: tags
+      default: []
+      description: The Sigma tags of the HoS rule, such as `attack.t1059.001`.
+    - name: timeframe
+      type: duration
+      description: The time span that a chain must fit into.
+    - name: threshold
+      type: float
+      default: 0.6
+      description: The share of stages a host must cover, between 0 and 1.
+    - name: tolerance
+      type: duration
+      default: 1min
+      description: How far findings of a host may arrive out of time order.
+---
+
+let $stage_count = $stages.keys().length()
+let $severities = {informational: 1, low: 2, medium: 3, high: 4, critical: 5}
+_stage = $stages.entries().where(stage => finding_info.analytic.uid in stage.value)[0].key
+_host = evidences[0].data.device?.hostname?
+_time = evidences[0].data.time? else time
+where _stage != null and _host != null
+// Every host advances its own clock, so a quiet host never delays a busy one.
+group _host.to_lower() {
+  window size=$timeframe, trailing=true, on=_time, tolerance=$tolerance {
+    summarize stages=distinct(_stage),
+      // A finding advances the chain only if it covers a new stage.
+      repeats=_stage.count_if(stage => stage == $window.event._stage),
+      first_seen=min(_time),
+      last_seen=max(_time),
+      findings=collect(this)
+    coverage = stages.length() / $stage_count
+    where repeats == 1 and coverage >= $threshold
+    device = $window.event.evidences[0].data.device
+  }
+}
+this = {
+  time: last_seen,
+  start_time: first_seen,
+  end_time: last_seen,
+  class_uid: 2004,
+  category_uid: 2,
+  activity_id: 1 if (stages.length() - 1) / $stage_count < $threshold else 2,
+  severity_id: $severities[$level],
+  status_id: 1,
+  is_alert: true,
+  confidence_score: (coverage * 100).round(),
+  metadata: {
+    version: "1.9.0",
+    product: {name: "Tenzir", vendor_name: "Tenzir"},
+  },
+  device: device,
+  finding_info: {
+    uid: f"{$uid}:{device.hostname}:{first_seen}",
+    title: $name,
+    analytic: {uid: $uid, name: $name, type_id: 1, type: "Rule"},
+    attacks: $tags.where(tag => tag.starts_with("attack.t")).map(tag => {
+      technique: {uid: tag.slice(begin=7).to_upper()},
+    }),
+    first_seen_time: first_seen,
+    last_seen_time: last_seen,
+    traits: stages.map(stage => {name: stage, type: "socprime:hos:stage"}),
+    related_events: findings.map(finding => {
+      uid: finding.finding_info.uid,
+      type_uid: finding.type_uid,
+      title: finding.finding_info.title,
+      severity_id: finding.severity_id,
+      attacks: finding.finding_info.attacks?,
+      observables: finding.observables?,
+      first_seen_time: finding._time,
+    }),
+    related_events_count: findings.length(),
+  },
+  evidences: findings.map(finding => finding.evidences[0]),
+}
+type_uid = class_uid * 100 + activity_id

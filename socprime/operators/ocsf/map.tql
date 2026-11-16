@@ -1,0 +1,60 @@
+---
+description: |
+  Maps SOC Prime Active Threats to OCSF 1.9 OSINT Inventory Info events.
+
+  Each event carries one `osint` object that describes the threat as a
+  campaign: `value` and `campaign.name` hold the threat name, `uid` the TDM
+  ID, `desc` the summary, and `comment` the investigation, response, and
+  mitigation guidance. The threat actors become `intrusion_sets`, the ATT&CK
+  techniques `attacks`, and the threat types, industries, and geographies
+  `labels`. `related_analytics` lists the HoS and behavior rules of the
+  threat with their Sigma rule IDs, which detection findings carry in
+  `finding_info.analytic.uid`.
+---
+
+let $severities = {low: 2, medium: 3, high: 4, critical: 5}
+_guidance = [
+  {title: "Investigation", text: investigation?},
+  {title: "Response", text: response?},
+  {title: "Mitigation", text: mitigation?},
+].where(section => section.text != null)
+_analytics = [...high_order_sigma_rules, ...rules].map(rule => {
+  uid: rule.uid,
+  name: rule.name,
+  type: "Rule",
+  type_id: 1,
+})
+this = {
+  time: updated,
+  class_uid: 5021,
+  category_uid: 5,
+  // Collect
+  activity_id: 2,
+  severity_id: $severities[severity.to_lower()]? else 0,
+  metadata: {
+    version: "1.9.0",
+    uid: id,
+    product: {name: "Threat Detection Marketplace", vendor_name: "SOC Prime"},
+  },
+  osint: [{
+    // Other
+    type_id: 99,
+    type: "Active Threat",
+    value: name,
+    uid: id,
+    campaign: {name: name},
+    desc: summary,
+    comment: _guidance.map(section => f"{section.title}: {section.text}").join("\n\n"),
+    severity: severity,
+    severity_id: $severities[severity.to_lower()]? else 0,
+    intrusion_sets: threat_actors,
+    attacks: techniques.map(technique => {technique: {uid: technique}}),
+    labels: [...threat_types, ...industries, ...geographies],
+    related_analytics: _analytics,
+    src_url: f"https://tdm.socprime.com/active-threats/{id}",
+    vendor_name: "SOC Prime",
+    created_time: created,
+    modified_time: updated,
+  }],
+}
+type_uid = class_uid * 100 + activity_id

@@ -1,0 +1,26 @@
+---
+description: |
+  Enriches detection findings with SOC Prime Active Threats.
+
+  The operator looks up `finding_info.analytic.uid` in the catalog that
+  `socprime::update_context` maintains and appends the OCSF `osint` objects
+  of all matching Active Threats to `osint`. This works for the findings of
+  the SOC Prime Sigma rules and of the High-Order Sigma operators alike.
+args:
+  named:
+    - name: context_name
+      type: string
+      default: socprime-active-threats
+      description: Lookup-table context to query.
+---
+
+if class_uid == 2004 {
+  context_enrich $context_name,
+    key=finding_info?.analytic?.uid?,
+    into=_socprime
+}
+if _socprime? != null {
+  osint = [...osint?, ..._socprime]
+  metadata.profiles = (metadata.profiles? else []).add("osint")
+}
+drop _socprime
