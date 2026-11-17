@@ -20,4 +20,4 @@ Several Zeek mappings put source fields into OCSF attributes with a different me
 
 Zeek logs without a dedicated mapping keep their log name, such as `files.log`, when a Zeek reader provides it. Standalone X.509 records become Base Events that retain the complete certificate record. SMTP negotiation without any message becomes Network Activity traffic tagged with the SMTP application protocol.
 
-Records from native Zeek JSON can omit optional fields. Text values that JSON parsing infers as IP addresses stay strings, and Unix-second timestamps and durations become time values.
+Records from native Zeek JSON can omit optional fields. Text values that JSON parsing infers as IP addresses stay strings, and Unix-second timestamps and durations become time values. Source fields that Zeek left unset no longer appear as null values under `unmapped`.
