@@ -2,6 +2,12 @@ This release corrects how the Microsoft package maps Windows Security, Task Sche
 
 ## 🔧 Changes
 
+### PowerShell engine errors as Application Error events
+
+PowerShell engine errors (4100) are now Application Error events instead of Script Activity, because they report an error message rather than a script. The error lands in `message`, and the event reports the host command line and the user instead of treating the context block as the script.
+
+*By @zedoraps in #209.*
+
 ### Task Scheduler actors and launch activities
 
 Task Scheduler events take the actor from the user context, from the user that changed a registration (140–142), or from the scheduler account. The PIDs of launched task processes stay in `unmapped` instead of appearing as the actor.
@@ -25,7 +31,7 @@ WMI permanent subscription bindings (5861) and Sysmon WMI events (19–21) are n
 - Account lockouts (4740) report the caller computer in `src_endpoint` instead of `user.domain`.
 - NTLM validation (4776) names the validating domain controller and the package of unknown protocols.
 - Share access (5140) no longer reports a file without a name, and Remote Desktop sessions are inbound connections.
-- Security package events (4610, 4611, 4614, 4622) identify the LSA process by its PID and the account that registered a trusted logon process.
+- Security package events (4610, 4611, 4614, 4622) identify the LSA process by its PID and the account that registered a trusted logon process, and report an unknown load type for the package.
 - Registry value changes (4657) no longer report Windows message tokens as value types.
 - Account lifecycle events keep real display names and principal names, while Windows message tokens stay in `unmapped`.
 
@@ -36,12 +42,6 @@ WMI permanent subscription bindings (5861) and Sysmon WMI events (19–21) are n
 Logons report the System logon type of Windows (`0`) as OCSF `1`, logoffs report the logon type of the ended session, and failed logons report the failure reason in `status_detail`. Logon process names lose the padding that Windows adds.
 
 Logons without an address or workstation, logoffs, and explicit credential logons from local callers no longer carry empty endpoints or actors. The all-zero logon GUID no longer becomes a session ID that links unrelated sessions.
-
-*By @zedoraps in #209.*
-
-### Context of PowerShell engine errors
-
-PowerShell engine errors (4100) report the error message, the host command line, and the user, instead of treating the context block as the script.
 
 *By @zedoraps in #209.*
 

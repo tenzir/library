@@ -1,5 +1,5 @@
 ---
-description: PowerShell Engine Error (EID 4100) → OCSF Script Activity (1009, Execute/Failure)
+description: PowerShell Engine Error (EID 4100) → OCSF Application Error (6008, General Error)
 args:
   positional:
     - name: windows
@@ -10,21 +10,20 @@ args:
       type: field
 ---
 
-@name = "ocsf.script_activity"
+@name = "ocsf.application_error"
 
-$ocsf.category_uid = 1
-$ocsf.class_uid = 1009
-$ocsf.activity_id = 1  // Execute
+// The engine reports an error message, not a script execution, so the event
+// carries no script text.
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6008
+$ocsf.activity_id = 1  // General Error
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$ocsf.status_id = 2  // Failure — this event fires on PS engine errors
+$ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 2  // Low — Windows Level 3 (Warning)
 // Payload renders the error, such as "Error Message = System error.".
-$ocsf.status_detail = (move $windows.EventData.Payload?).trim()
+$ocsf.message = (move $windows.EventData.Payload?).trim()
 
-$ocsf.script = {
-  type_id: 2,  // PowerShell
-}
 $ocsf.actor = {
   process: {
     pid: move $windows.System.Execution.ProcessID?,
@@ -32,6 +31,7 @@ $ocsf.actor = {
   },
 }
 drop $windows.System.Execution?
-// The event reports the failing command in ContextInfo, but not the script
-// text, which the script object requires.
 microsoft::windows::ocsf::events::powershell_context $windows, $ocsf
+// Application Error has no script object. The command and script names stay
+// in the ContextInfo block under unmapped.
+drop $ocsf.script?
