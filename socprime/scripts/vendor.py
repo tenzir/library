@@ -11,7 +11,9 @@ https://github.com/socprime/detectflow-backend. Run from the package root:
     scripts/vendor.py /path/to/detectflow-backend/detection_content
 
 The script writes `constants.tql` with the Sigma rules, the High-Order Sigma
-(HoS) rules, and the Active Threats. Name new HoS rules in `HOS_NAMES` below.
+(HoS) rules, and the Active Threats. Name new HoS rules in `HOS_NAMES` below,
+and list rules that the `sigma` operator cannot evaluate on OCSF in
+`UNSUPPORTED`.
 """
 
 import datetime
@@ -35,6 +37,15 @@ HOS_NAMES = {
     "UfhULfdvVPtu": "n8n_abuse",
     "JVLEu7LOwbcg": "dragon_boss",
     "knjkfvZHX16t": "windows_privesc_persistence",
+}
+
+# Rules that cannot run on OCSF, with the reason. The HoS rules leave them out,
+# so that their stages only count rules that can fire.
+UNSUPPORTED = {
+    "a8d99db6-5f54-4b53-a600-0bca8bec3884": "Uses the non-standard field `dns_query_name` instead of `query`.",
+    "63f2ae8a-6912-4ea9-ad2c-369f4555a549": "Uses `DestinationHostname`, which DNS queries do not have, instead of `QueryName`.",
+    "ac652c9a-dd0b-11ec-9d64-0242ac120002": "Uses raw auditd fields that OCSF Process Activity does not preserve.",
+    "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a": "Uses the scheduled task XML in `TaskContent`, which OCSF does not preserve.",
 }
 
 
@@ -64,7 +75,10 @@ def tql(value, indent=0):
     if isinstance(value, dict):
         if not value:
             return "{}"
-        items = [f"{pad}  {k}: {tql(v, indent + 1)}," for k, v in value.items()]
+        items = [
+            f"{pad}  {k if k.isidentifier() else json.dumps(k)}: {tql(v, indent + 1)},"
+            for k, v in value.items()
+        ]
         return "{\n" + "\n".join(items) + f"\n{pad}}}"
     raise TypeError(f"unsupported value: {value!r}")
 
@@ -90,21 +104,35 @@ def hos_constant(name, rule, by_uid):
         "    stages: {",
     ]
     rules = []
+    unsupported = []
+    skipped = []
     for key, stage in rule["detection"].items():
         if not key.startswith("seq"):
             continue
-        lines.append(f"      {key}: [")
+        stage_lines = []
         for uid in stage["ruleid|contains"]:
-            if uid in by_uid:
-                lines.append(f'        "{uid}", // {by_uid[uid]["name"]}')
-                rules.append(uid)
-            else:
+            if uid not in by_uid:
                 warn(f"HoS {rule['id']} references missing rule {uid}")
-                lines.append(f'        // "{uid}", // Missing from the snapshot.')
-        lines.append("      ],")
+                stage_lines.append(f'        // "{uid}", // Missing from the snapshot.')
+            elif uid in UNSUPPORTED:
+                stage_lines.append(f'        // "{uid}", // {by_uid[uid]["name"]}: Cannot run on OCSF.')
+                unsupported.append(uid)
+            else:
+                stage_lines.append(f'        "{uid}", // {by_uid[uid]["name"]}')
+                rules.append(uid)
+        if any(not line.lstrip().startswith("//") for line in stage_lines):
+            lines += [f"      {key}: [", *stage_lines, "      ],"]
+        else:
+            # A stage without runnable rules can never be covered.
+            skipped.append(key)
+            lines += [f"      // {key}: No rule of this stage can run on OCSF.", *[
+                f"      {line.strip()}" for line in stage_lines
+            ]]
     lines += [
         "    },",
         f"    rules: {tql(list(dict.fromkeys(rules)), 2)},",
+        f"    unsupported: {tql(list(dict.fromkeys(unsupported)), 2)},",
+        f"    skipped_stages: {tql(skipped, 2)},",
         "  },",
     ]
     return lines, rules
@@ -186,9 +214,14 @@ def main(snapshot):
     out += [
         "}",
         "",
+        "// The Sigma rules that cannot run on OCSF, with the reason.",
+        f"let $unsupported = {tql(UNSUPPORTED)}",
+        "",
         "// The SOC Prime High-Order Sigma rules, keyed by name. `stages` maps",
-        "// every stage to the Sigma rule IDs that cover it, `rules` lists all of",
-        "// them.",
+        "// every stage to the Sigma rule IDs that cover it on OCSF, and `rules`",
+        "// lists all of them. `unsupported` lists the stage rules that cannot",
+        "// run on OCSF, and `skipped_stages` the stages without runnable rules,",
+        "// which the HoS rule leaves out.",
         "let $hos = {",
     ]
     for _, lines in sorted(hos_lines):

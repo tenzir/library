@@ -10923,9 +10923,19 @@ level: high
 "#,
 }
 
+// The Sigma rules that cannot run on OCSF, with the reason.
+let $unsupported = {
+  "a8d99db6-5f54-4b53-a600-0bca8bec3884": "Uses the non-standard field `dns_query_name` instead of `query`.",
+  "63f2ae8a-6912-4ea9-ad2c-369f4555a549": "Uses `DestinationHostname`, which DNS queries do not have, instead of `QueryName`.",
+  "ac652c9a-dd0b-11ec-9d64-0242ac120002": "Uses raw auditd fields that OCSF Process Activity does not preserve.",
+  "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a": "Uses the scheduled task XML in `TaskContent`, which OCSF does not preserve.",
+}
+
 // The SOC Prime High-Order Sigma rules, keyed by name. `stages` maps
-// every stage to the Sigma rule IDs that cover it, `rules` lists all of
-// them.
+// every stage to the Sigma rule IDs that cover it on OCSF, and `rules`
+// lists all of them. `unsupported` lists the stage rules that cannot
+// run on OCSF, and `skipped_stages` the stages without runnable rules,
+// which the HoS rule leaves out.
 let $hos = {
   dragon_boss: {
     uid: "f4624456-64f9-4344-a259-1054c4cedbe4",
@@ -10962,7 +10972,7 @@ let $hos = {
         "b6712d1a-1630-4626-9965-5ce22b73986d", // Possible Microsoft Defender Suspending / Abusing Attempt (via cmdline)
       ],
       seq5: [
-        "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a", // Suspicious Scheduled Task (via audit)
+        // "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a", // Suspicious Scheduled Task (via audit): Cannot run on OCSF.
         "f2c64357-b1d2-41b7-849f-34d2682c0fad", // Suspicious Command Patterns In Scheduled Task Creation
         "4d8473ff-1998-4d2b-ba4b-3709c0cfcc5d", // LOLBAS Schtasks (via cmdline)
         "ca5427f8-ede3-48df-b98c-5fa254010b2a", // Possible Scheduled Task Creation Using Powershell (via powershell)
@@ -10982,12 +10992,15 @@ let $hos = {
       "017ffc83-da26-4abc-b419-df6f9801cc2c",
       "f9e8820a-f863-4766-9b2b-761cf3702424",
       "b6712d1a-1630-4626-9965-5ce22b73986d",
-      "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a",
       "f2c64357-b1d2-41b7-849f-34d2682c0fad",
       "4d8473ff-1998-4d2b-ba4b-3709c0cfcc5d",
       "ca5427f8-ede3-48df-b98c-5fa254010b2a",
       "4790466e-9bfa-4fe2-9823-1663ca19123e",
     ],
+    unsupported: [
+      "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a",
+    ],
+    skipped_stages: [],
   },
   gamaredon: {
     uid: "5b2823dd-1701-415f-a5cf-bd974d46d319",
@@ -11029,6 +11042,8 @@ let $hos = {
       "4586d131-5d2a-4582-b028-a5841eea1d35",
       "e0ee9a7b-fed3-4467-a012-0b04338e1334",
     ],
+    unsupported: [],
+    skipped_stages: [],
   },
   janaware: {
     uid: "c697b33c-f02e-482d-a455-ff27eadc5aef",
@@ -11077,7 +11092,7 @@ let $hos = {
       seq5: [
         "42e2973c-cf5e-47fa-b0e6-e73792578684", // Possible TOR Domain in Powershell Script (via powershell)
         "7534171a-de69-43e4-b85b-e2f77b3ce0a7", // Possible TOR Domain in Command Line (via cmdline)
-        "a8d99db6-5f54-4b53-a600-0bca8bec3884", // Possible Data Infiltration / Exfiltration / C2 via Third Party Services / Tools (via dns)
+        // "a8d99db6-5f54-4b53-a600-0bca8bec3884", // Possible Data Infiltration / Exfiltration / C2 via Third Party Services / Tools (via dns): Cannot run on OCSF.
         "2e025289-ae4b-4eab-a00a-58bc4a5623d7", // Possible Data Infiltration / Exfiltration / C2 via Third Party Services / Tools (via dns_query)
         "6917c744-03bc-4abe-92c9-7f87a175c8e6", // Possible Data Infiltration / Exfiltration / C2 via Third Party Services / Tools (via cmdline)
       ],
@@ -11101,10 +11116,13 @@ let $hos = {
       "e2d4f42e-83a4-4008-ba26-38cf59b7dfeb",
       "42e2973c-cf5e-47fa-b0e6-e73792578684",
       "7534171a-de69-43e4-b85b-e2f77b3ce0a7",
-      "a8d99db6-5f54-4b53-a600-0bca8bec3884",
       "2e025289-ae4b-4eab-a00a-58bc4a5623d7",
       "6917c744-03bc-4abe-92c9-7f87a175c8e6",
     ],
+    unsupported: [
+      "a8d99db6-5f54-4b53-a600-0bca8bec3884",
+    ],
+    skipped_stages: [],
   },
   kimsuky_diplomats: {
     uid: "bc64829a-a6c0-44ec-aa9a-2ffc5b773dfe",
@@ -11122,7 +11140,7 @@ let $hos = {
         "c4d9d7cc-6f1e-45ae-bd7b-0c83e8029fef", // Suspicious Files in Public User Profile (via file_event)
         "44daab1f-109a-4c20-9f64-5401c1a9ab47", // Suspicious Execution from Public User Profile (via process_creation)
         "bc139ef2-0c05-4cf7-b7af-3261d2cb2d68", // LOLBAS WScript / CScript (via process_creation)
-        "63f2ae8a-6912-4ea9-ad2c-369f4555a549", // Suspicious Windows DNS Query by Windows Script Host [wscript.exe] (via dns_query)
+        // "63f2ae8a-6912-4ea9-ad2c-369f4555a549", // Suspicious Windows DNS Query by Windows Script Host [wscript.exe] (via dns_query): Cannot run on OCSF.
       ],
       seq3: [
         "4ab60adc-7117-4f20-80de-77ecf2a1ef99", // Call Suspicious .NET Methods from Powershell (via powershell)
@@ -11139,13 +11157,16 @@ let $hos = {
       "c4d9d7cc-6f1e-45ae-bd7b-0c83e8029fef",
       "44daab1f-109a-4c20-9f64-5401c1a9ab47",
       "bc139ef2-0c05-4cf7-b7af-3261d2cb2d68",
-      "63f2ae8a-6912-4ea9-ad2c-369f4555a549",
       "4ab60adc-7117-4f20-80de-77ecf2a1ef99",
       "ecedd60a-3de3-420c-adc5-f35bd3871365",
       "8a701e5f-a0a6-4f58-9a35-1f29a08e4f79",
       "0c5583a2-c83a-4c56-9304-f7c394cbbada",
       "a5cdc145-e4d3-4b0f-8a56-ddc2850f3cdf",
     ],
+    unsupported: [
+      "63f2ae8a-6912-4ea9-ad2c-369f4555a549",
+    ],
+    skipped_stages: [],
   },
   n8n_abuse: {
     uid: "9420e91b-1447-41aa-8cf2-072ec03818d6",
@@ -11196,6 +11217,8 @@ let $hos = {
       "93ec52aa-776a-4976-8209-bc68321c75b7",
       "1f21ec3f-810d-4b0e-8045-322202e22b4b",
     ],
+    unsupported: [],
+    skipped_stages: [],
   },
   node2shell: {
     uid: "bf5678b6-74a3-428c-8c23-623fc4f03214",
@@ -11224,6 +11247,8 @@ let $hos = {
       "e24cf77d-ff3b-492c-9942-0507b45f7ffb",
       "878fb007-972d-46a7-8ce3-d050642cf7d0",
     ],
+    unsupported: [],
+    skipped_stages: [],
   },
   php2shell: {
     uid: "a1b2c3d4-e5f6-7a8b-9c0d-123456789abc",
@@ -11247,7 +11272,7 @@ let $hos = {
       ],
       seq2: [
         "0524fca5-8a89-4d38-9a75-fe7dcba39271", // Possible PHP Worker Spawning Unusual Process (via cmdline)
-        "ac652c9a-dd0b-11ec-9d64-0242ac120002", // Suspicious Persistence Activity by Execution Of Shell Commands From Web Service Users And Groups (via auditd)
+        // "ac652c9a-dd0b-11ec-9d64-0242ac120002", // Suspicious Persistence Activity by Execution Of Shell Commands From Web Service Users And Groups (via auditd): Cannot run on OCSF.
         "be5f785a-0a7f-438e-be60-0a4fb15adcec", // Possible Web Server or WebApp Exploitation [Windows] (via cmdline)
         "d0372d6b-b7c8-411f-8f20-4861d49494c4", // Possible Web Shell Drop - PHP Script or Web Config File Written by PHP Web Worker [Linux] (via file_event)
         "e7e64200-04ba-479a-9a51-c614bd74c4fb", // Possible Web Shell Drop - PHP Script or Web Config File Written by PHP Web Worker [Windows] (via file_event)
@@ -11264,7 +11289,6 @@ let $hos = {
       "42cd03f3-6b9f-49ea-9bf4-ce0caed6f772",
       "0b13c412-f141-490d-a99a-4579ae614795",
       "0524fca5-8a89-4d38-9a75-fe7dcba39271",
-      "ac652c9a-dd0b-11ec-9d64-0242ac120002",
       "be5f785a-0a7f-438e-be60-0a4fb15adcec",
       "d0372d6b-b7c8-411f-8f20-4861d49494c4",
       "e7e64200-04ba-479a-9a51-c614bd74c4fb",
@@ -11274,6 +11298,10 @@ let $hos = {
       "66b6f425-42f0-484d-b242-64211239f5d0",
       "12c98d5b-1e6f-457f-a82e-b1240373d14b",
     ],
+    unsupported: [
+      "ac652c9a-dd0b-11ec-9d64-0242ac120002",
+    ],
+    skipped_stages: [],
   },
   remcos_purchase_order: {
     uid: "2e8021dc-fe27-40f3-85ae-c37784bf48ad",
@@ -11341,6 +11369,8 @@ let $hos = {
       "ebeae962-2bc6-437b-adaa-dca7f3aed43d",
       "49264ff6-a958-4f11-a364-ea0ca02bb68f",
     ],
+    unsupported: [],
+    skipped_stages: [],
   },
   uac_0247: {
     uid: "9438df10-05d4-424a-81b0-9646ec6497eb",
@@ -11402,6 +11432,8 @@ let $hos = {
       "1f21ec3f-810d-4b0e-8045-322202e22b4b",
       "91e49443-653e-481f-b32d-50be218cca34",
     ],
+    unsupported: [],
+    skipped_stages: [],
   },
   windows_privesc_persistence: {
     uid: "63c56a0f-afbe-44e8-b83e-814a8daaaf93",
@@ -11422,9 +11454,8 @@ let $hos = {
         // "0dcdcfa-1709-40fa-bb10-2da285bfe52b", // Missing from the snapshot.
         "780e6396-d9f4-42b2-8d73-89918e2dab16", // Suspicious Service Binary Path (via system)
       ],
-      seq2: [
-        "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a", // Suspicious Scheduled Task (via audit)
-      ],
+      // seq2: No rule of this stage can run on OCSF.
+      // "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a", // Suspicious Scheduled Task (via audit): Cannot run on OCSF.
       seq3: [
         "c170f431-47bc-471f-b539-e73d1135bbf3", // A User was Added to a Admins Local Group (via audit)
       ],
@@ -11438,10 +11469,15 @@ let $hos = {
     rules: [
       "b479ee8f-e292-4466-95b3-fa000ba3f724",
       "780e6396-d9f4-42b2-8d73-89918e2dab16",
-      "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a",
       "c170f431-47bc-471f-b539-e73d1135bbf3",
       "a961fbe5-1acd-49cc-8233-413b46653f52",
       "59a4dcb2-102d-4d23-b6ac-93ffcdba070c",
+    ],
+    unsupported: [
+      "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a",
+    ],
+    skipped_stages: [
+      "seq2",
     ],
   },
 }
@@ -12028,10 +12064,6 @@ let $active_threats = [
       {
         uid: "b6712d1a-1630-4626-9965-5ce22b73986d",
         name: "Possible Microsoft Defender Suspending / Abusing Attempt (via cmdline)",
-      },
-      {
-        uid: "c135e89f-a9e5-4cbe-a86c-a25ffa674f1a",
-        name: "Suspicious Scheduled Task (via audit)",
       },
       {
         uid: "f2c64357-b1d2-41b7-849f-34d2682c0fad",

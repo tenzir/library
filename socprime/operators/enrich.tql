@@ -4,8 +4,11 @@ description: |
 
   The operator looks up `finding_info.analytic.uid` in the catalog that
   `socprime::update_context` maintains and appends the OCSF `osint` objects
-  of all matching Active Threats to `osint`. This works for the findings of
-  the SOC Prime Sigma rules and of the High-Order Sigma operators alike.
+  of all matching Active Threats to `osint`. Chain findings get the complete
+  threats, findings of single behavior rules only references to them. When
+  the analytic is not in the catalog, the operator tries the first entry of
+  `finding_info.related_analytics`, so that a custom detection can attribute
+  its findings to the threats of a SOC Prime rule.
 args:
   named:
     - name: context_name
@@ -17,6 +20,11 @@ args:
 if class_uid == 2004 {
   context_enrich $context_name,
     key=finding_info?.analytic?.uid?,
+    into=_socprime
+}
+if class_uid == 2004 and _socprime? == null and finding_info?.related_analytics? != null {
+  context_enrich $context_name,
+    key=finding_info.related_analytics[0].uid,
     into=_socprime
 }
 if _socprime? != null {

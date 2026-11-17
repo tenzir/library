@@ -5,12 +5,24 @@ description: |
   The operator expects OSINT Inventory Info events from `socprime::ocsf::map`
   and emits one event per Sigma rule ID in `uid`, the ID that detection
   findings carry in `finding_info.analytic.uid`. `threats` lists the OCSF
-  `osint` objects of all Active Threats that the rule belongs to, either as a
-  High-Order Sigma rule or as one of its behavior rules.
+  `osint` objects of all Active Threats that the rule belongs to.
+
+  A High-Order Sigma rule describes the attack chain of its threat, so its
+  entry holds the complete `osint` object. A behavior rule often belongs to
+  several threats and its findings alone do not attribute an attack, so its
+  entry only references the threats by `uid`, `value`, and `src_url`.
 ---
 
 where class_uid == 5021
 unroll osint
 _analytic = osint.related_analytics
 unroll _analytic
-summarize uid=_analytic.uid, threats=collect(osint)
+_threat = osint if _analytic.category == "High-Order Sigma" else {
+  type_id: osint.type_id,
+  type: osint.type,
+  uid: osint.uid,
+  value: osint.value,
+  src_url: osint.src_url,
+  vendor_name: osint.vendor_name,
+}
+summarize uid=_analytic.uid, threats=collect(_threat)
