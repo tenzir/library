@@ -16,9 +16,10 @@ Two new operators detect credential stuffing and report each attacking source as
 Both operators group IPv6 sources by `/64`, so an attacker who rotates addresses within one prefix stays one source. Successful logins from a reported source raise the severity to high, because they indicate credentials that worked:
 
 ```tql
-subscribe "ocsf"
-tenzir::detect::http::credential_stuffing paths=["/login", "/api/login"]
-publish "findings"
+okta::fetch "example.okta.com", bearer_token=secret("okta-bearer-token")
+okta::ocsf::normalize
+tenzir::detect::authentication::credential_stuffing
+to_splunk "https://splunk.example.com:8088", hec_token=secret("splunk-hec-token")
 ```
 
 The operator descriptions list the known false negatives and false positives and how to tune the thresholds for your traffic.
