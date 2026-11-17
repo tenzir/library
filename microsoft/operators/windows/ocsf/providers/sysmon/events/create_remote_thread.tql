@@ -20,60 +20,52 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.injection_type_id = 1  // Remote Thread
 
 // The process that injected the thread is the actor.
-$ocsf._src_user = (move $windows.EventData.SourceUser).split("\\")
 $ocsf.actor = {
   process: {
-    uid:  move $windows.EventData.SourceProcessGuid,
-    pid:  (move $windows.EventData.SourceProcessId).int(),
-    path: move $windows.EventData.SourceImage,
-    file: { type_id: 8 },
-  },
-  user: {
-    name:   $ocsf._src_user[-1],
-    domain: $ocsf._src_user[0] if $ocsf._src_user.length() > 1,
+    uid: move $windows.EventData.SourceProcessGuid,
+    pid: (move $windows.EventData.SourceProcessId).int(),
+    path: $windows.EventData.SourceImage,
+    file: {
+      type_id: 8,
+      name: $windows.EventData.SourceImage.split("\\")[-1],
+      path: $windows.EventData.SourceImage,
+    },
+    name: $windows.EventData.SourceImage.split("\\")[-1],
   },
 }
-drop $ocsf._src_user
-
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+microsoft::windows::ocsf::account $windows.EventData.SourceUser, $ocsf.actor.user
 
 // The target process that received the injected thread.
-$ocsf._tgt_user = (move $windows.EventData.TargetUser).split("\\")
 $ocsf.process = {
-  uid:  move $windows.EventData.TargetProcessGuid,
-  pid:  (move $windows.EventData.TargetProcessId).int(),
-  path: move $windows.EventData.TargetImage,
-  file: { type_id: 8 },
-  user: {
-    name:   $ocsf._tgt_user[-1],
-    domain: $ocsf._tgt_user[0] if $ocsf._tgt_user.length() > 1,
+  uid: move $windows.EventData.TargetProcessGuid,
+  pid: (move $windows.EventData.TargetProcessId).int(),
+  path: $windows.EventData.TargetImage,
+  file: {
+    type_id: 8,
+    name: $windows.EventData.TargetImage.split("\\")[-1],
+    path: $windows.EventData.TargetImage,
   },
 }
-drop $ocsf._tgt_user
-
+microsoft::windows::ocsf::account $windows.EventData.TargetUser, $ocsf.process.user
 $ocsf.process.name = $ocsf.process.path.split("\\")[-1]
-$ocsf.process.file.name = $ocsf.process.name
-$ocsf.process.file.path = $ocsf.process.path
+drop $windows.EventData.SourceImage, $windows.EventData.TargetImage
 
-
-// The injected module carries the thread's start address and optional module/function.
-// Replace "-" sentinels so absent fields can be handled without branching on strings.
-replace $windows.EventData.StartModule,   what="-", with=null
-replace $windows.EventData.StartFunction, what="-", with=null
-
+// The injected module carries the thread's start address and optional
+// module or function. The sysmon map replaces "-" sentinels with null.
 $ocsf.module = {
   base_address: move $windows.EventData.StartAddress,
+  function_name: move $windows.EventData.StartFunction,
 }
+// StartModule is the path of the image that contains the start address. The
+// file object requires a type, so it exists only for a known module.
 if $windows.EventData.StartModule != null {
-  $ocsf.module.file = { name: move $windows.EventData.StartModule }
-}
-if $windows.EventData.StartFunction != null {
-  $ocsf.module.function_name = move $windows.EventData.StartFunction
+  $ocsf.module.file = {
+    name: $windows.EventData.StartModule.split("\\")[-1],
+    path: $windows.EventData.StartModule,
+    type_id: 8,  // Executable File (modules are PE images)
+  }
 }
 drop $windows.EventData.StartModule
-drop $windows.EventData.StartFunction
 
 // Map the new thread's ID to process.ptid (the canonical OCSF thread identifier).
 $ocsf.process.ptid = (move $windows.EventData.NewThreadId).int()

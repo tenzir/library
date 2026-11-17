@@ -30,12 +30,10 @@ let $integrity_ids = {
   Protected: 6,
 }
 
-$ocsf._user = (move $windows.EventData.User).split("\\")
-$ocsf._parent_user = (move $windows.EventData.ParentUser).split("\\")
 $ocsf.process = {
   pid: (move $windows.EventData.ProcessId).int(),
   uid: move $windows.EventData.ProcessGuid,
-  path: move $windows.EventData.Image,
+  path: $windows.EventData.Image,
   cmd_line: move $windows.EventData.CommandLine,
   created_time: $ocsf.time,
   working_directory: move $windows.EventData.CurrentDirectory,
@@ -49,10 +47,16 @@ $ocsf.process = {
     product: {
       name: move $windows.EventData.Product,
     },
-  },
-  user: {
-    name: $ocsf._user[-1],
-    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
+    name: $windows.EventData.Image.split("\\")[-1],
+    path: $windows.EventData.Image,
+    // Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
+    hashes: (move $windows.EventData.Hashes)
+      .split(",")
+      .map(h => h.split("=", max=1))
+      .map(kv => {
+        algorithm_id: microsoft::$sysmon_algorithms[kv[0]?]? else 99,
+        value: kv[1]?,
+      }),
   },
   session: {
     uid: move $windows.EventData.LogonGuid,
@@ -61,32 +65,19 @@ $ocsf.process = {
   parent_process: {
     pid: (move $windows.EventData.ParentProcessId).int(),
     uid: move $windows.EventData.ParentProcessGuid,
-    path: move $windows.EventData.ParentImage,
+    path: $windows.EventData.ParentImage,
     cmd_line: move $windows.EventData.ParentCommandLine,
     file: {
       type_id: 8,
-    },
-    user: {
-      name: $ocsf._parent_user[-1],
-      domain: $ocsf._parent_user[0] if $ocsf._parent_user.length() > 1,
+      name: $windows.EventData.ParentImage.split("\\")[-1],
+      path: $windows.EventData.ParentImage,
     },
   },
+  name: $windows.EventData.Image.split("\\")[-1],
 }
-drop $ocsf._user, $ocsf._parent_user
-$ocsf.process.name = $ocsf.process.path.split("\\")[-1]
-$ocsf.process.file.name = $ocsf.process.name
-$ocsf.process.file.path = $ocsf.process.path
-$ocsf.process.parent_process.file.name = $ocsf.process.parent_process.path.split("\\")[-1]
-$ocsf.process.parent_process.file.path = $ocsf.process.parent_process.path
-
-// Parse "SHA1=abc,MD5=def,..." into fingerprint objects.
-$ocsf.process.file.hashes = ((move $windows.EventData.Hashes)
-  .split(",")
-  .map(h => h.split("=", max=1))
-  .map(kv => {
-    algorithm_id: microsoft::$sysmon_algorithms[kv[0]?]? else 99,
-    value: kv[1]?,
-  }))
+drop $windows.EventData.Image, $windows.EventData.ParentImage
+microsoft::windows::ocsf::account $windows.EventData.User, $ocsf.process.user
+microsoft::windows::ocsf::account $windows.EventData.ParentUser, $ocsf.process.parent_process.user
 
 // The actor.process object duplicates process.parent_process per OCSF guidance:
 // for Launch events both actor.process (creator) and process.parent_process (OS

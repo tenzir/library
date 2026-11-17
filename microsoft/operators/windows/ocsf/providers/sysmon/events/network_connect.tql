@@ -20,11 +20,6 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // Sysmon always knows which side initiated the connection.
 $ocsf.is_src_dst_assignment_known = true
 
-replace $windows.EventData.SourceHostname,      what="-", with=null
-replace $windows.EventData.SourcePortName,      what="-", with=null
-replace $windows.EventData.DestinationHostname, what="-", with=null
-replace $windows.EventData.DestinationPortName, what="-", with=null
-
 $ocsf.connection_info = {
   direction_id:    2 if (move $windows.EventData.Initiated) else 1,
   protocol_name:   move $windows.EventData.Protocol,
@@ -51,21 +46,4 @@ $ocsf.dst_endpoint = {
 
 // The Host profile (applied globally in map.tql) adds actor to Network Activity.
 // Map the process that opened the connection accordingly.
-$ocsf._user = (move $windows.EventData.User).split("\\")
-$ocsf.actor = {
-  process: {
-    uid:  move $windows.EventData.ProcessGuid,
-    pid:  (move $windows.EventData.ProcessId).int(),
-    path: move $windows.EventData.Image,
-    file: { type_id: 8 },
-  },
-  user: {
-    name:   $ocsf._user[-1],
-    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
-  },
-}
-drop $ocsf._user
-
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+microsoft::windows::ocsf::providers::sysmon::actor $windows, $ocsf.actor

@@ -1,0 +1,19 @@
+// Events from the demo dataset, one Windows Event Log XML record per line as
+// the demo replays them, with the fields whose meaning the mapping fixes:
+// - 4625 reports the failure reason, 4634 the logon type of the ended session,
+// - 4648 has no source endpoint for a local call and no all-zero logon GUID,
+// - 4688 names the creator as the acting process,
+// - 4717/4718 list the granted or removed rights as privileges,
+// - Task Scheduler events take the actor from the user that changed the task
+//   or from the scheduler account, and keep the PIDs of launched processes,
+// - Sysmon reports an unresolved account as its SID, and pipes are named pipes.
+from_file f"{env("TENZIR_INPUTS")}/demo-xml-events.lines" {
+  read_lines
+}
+microsoft::windows::ocsf::normalize line
+this = ocsf_cast(ocsf_derive(this))
+select event_code=metadata.event_code, status_detail?, logon_type_id?,
+  src_endpoint?, actor?, privileges?, process_user=process?.user?,
+  win_resource?, task_pid=unmapped.EventData?.ProcessID?,
+  engine_pid=unmapped.EventData?.EnginePID?
+drop_null_fields

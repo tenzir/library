@@ -19,10 +19,10 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.status_id = 1  // Success
 
-// Windows LogonType integers map directly to OCSF logon_type_id values
-// (Interactive=2, Network=3, Batch=4, Service=5, Unlock=7, NetworkCleartext=8,
-//  NewCredentials=9, RemoteInteractive=10, CachedInteractive=11, …).
+// Windows logon types share the OCSF numbering, except that OCSF numbers the
+// System logon type 1 instead of 0.
 $ocsf.logon_type_id = (move $windows.EventData.LogonType).int()
+$ocsf.logon_type_id = 1 if $ocsf.logon_type_id == 0 else $ocsf.logon_type_id
 
 $ocsf.user = {
   uid: move $windows.EventData.TargetUserSid,
@@ -41,32 +41,41 @@ $ocsf.actor = {
   },
 }
 
-$ocsf.src_endpoint = {
-  ip: (move $windows.EventData.IpAddress).ip(),
-  port: (move $windows.EventData.IpPort).int(),
-  hostname: move $windows.EventData.WorkstationName,
-}
 $ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
 
-$ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName?
-if $windows.EventData.LogonProcessName? != null {
-  $ocsf.logon_process = {name: move $windows.EventData.LogonProcessName}
+// Local logons report neither an address nor a workstation.
+if $windows.EventData.IpAddress? != null or $windows.EventData.WorkstationName? != null {
+  $ocsf.src_endpoint = {
+    ip: (move $windows.EventData.IpAddress).ip(),
+    port: (move $windows.EventData.IpPort).int(),
+    hostname: move $windows.EventData.WorkstationName,
+  }
 }
+
+$ocsf.auth_protocol = move $windows.EventData.AuthenticationPackageName?
+$ocsf.auth_protocol_id = microsoft::$windows_auth_protocol_ids[$ocsf.auth_protocol]? else (
+  99 if $ocsf.auth_protocol != null else null
+)
+
+// Windows pads the registered logon process name with spaces.
+if $windows.EventData.LogonProcessName? != null {
+  $ocsf.logon_process = {name: (move $windows.EventData.LogonProcessName).trim()}
+}
+
+// The process object needs a PID, and Windows reports the caller's PID only
+// alongside its image.
 if $windows.EventData.ProcessName? != null {
   $ocsf.actor.process = {
     pid: int(move $windows.EventData.ProcessId?, base=16),
-    path: move $windows.EventData.ProcessName,
-    file: {type_id: 8},
+    path: $windows.EventData.ProcessName,
+    file: {
+      type_id: 8,
+      name: $windows.EventData.ProcessName.split("\\")[-1],
+      path: $windows.EventData.ProcessName,
+    },
+    name: $windows.EventData.ProcessName.split("\\")[-1],
   }
-  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-  $ocsf.actor.process.file.name = $ocsf.actor.process.name
-  $ocsf.actor.process.file.path = $ocsf.actor.process.path
-}
-match $ocsf.auth_protocol {
-  "NTLM" => { $ocsf.auth_protocol_id = 1 }
-  "Kerberos" => { $ocsf.auth_protocol_id = 2 }
-  null => {}
-  _ => { $ocsf.auth_protocol_id = 99 }
+  drop $windows.EventData.ProcessName
 }
 
 $ocsf.session = {

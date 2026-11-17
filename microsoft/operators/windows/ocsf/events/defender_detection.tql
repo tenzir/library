@@ -31,9 +31,13 @@ let $dispositions = {
   "9": 16,  // No Action → No Action
   "10": 2,  // Block → Blocked
 }
-if $windows.EventData.has("Action ID") {
-  $ocsf.disposition_id = $dispositions[(move $windows.EventData["Action ID"]).string()]? else 99
-}
+// Collectors that fill every template field report an absent action as null.
+$ocsf.disposition_id = $dispositions[$windows.EventData["Action ID"]?.string()]? else (
+  99 if $windows.EventData["Action ID"]? != null else null
+)
+// Other carries the Defender action as its caption.
+$ocsf.disposition = $windows.EventData["Action Name"]? if $ocsf.disposition_id == 99 else null
+drop $windows.EventData["Action ID"]?
 
 // Threat name is copied into finding_info.title then moved into malware.name.
 $ocsf.finding_info = {
@@ -41,8 +45,15 @@ $ocsf.finding_info = {
   uid: move $windows.EventData["Detection ID"],
   types: [move $windows.EventData["Category Name"]],
 }
+// OCSF requires a classification; Defender reports the threat category.
 $ocsf.malware = [{
   name: move $windows.EventData["Threat Name"],
+  classification_ids: [
+    microsoft::$defender_malware_classes[$ocsf.finding_info.types[0]?]?
+      else (99 if $ocsf.finding_info.types[0]? != null else 0),
+  ],
+  // The category is the caption, which also names an Other classification.
+  classifications: [$ocsf.finding_info.types[0]?] if $ocsf.finding_info.types[0]? != null else null,
 }]
 
 // Detected file; wrap in evidences as required by Detection Finding.

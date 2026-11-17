@@ -38,9 +38,16 @@ $ocsf.finding_info = {
   uid: $ocsf.metadata.original_event_uid,
   types: ["Software: Antivirus"],
 }
+// OCSF requires a classification; Defender reports the threat category.
 $ocsf.malware = [{
   name: move $windows.EventData["Threat Name"]?,
   uid: (move $windows.EventData["Threat ID"]?).string(),
+  classification_ids: [
+    microsoft::$defender_malware_classes[$windows.EventData["Category Name"]?]?
+      else (99 if $windows.EventData["Category Name"]? != null else 0),
+  ],
+  // The category is the caption, which also names an Other classification.
+  classifications: [$windows.EventData["Category Name"]?] if $windows.EventData["Category Name"]? != null else null,
 }]
 
 // Path lists the affected resources as `type:_value`, separated by `; `, such

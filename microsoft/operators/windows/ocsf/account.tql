@@ -1,0 +1,23 @@
+---
+description: |
+  Maps a Windows account reference to an OCSF user. Accepts `DOMAIN\name`,
+  a bare account name, or the SID that Windows renders when it cannot resolve
+  the account, and consumes the reference.
+args:
+  positional:
+    - name: account
+      type: field
+      description: The account reference to map.
+    - name: user
+      type: field
+      description: The field that receives the OCSF user.
+---
+
+// An unresolved account renders as its SID, which identifies the user but
+// does not name it.
+$user = {
+  name: $account.split("\\")[-1]? if not $account.starts_with("S-1-") else null,
+  domain: $account.split("\\")[0]? if $account.search("\\") else null,
+  uid: $account if $account.starts_with("S-1-") else null,
+}
+drop $account

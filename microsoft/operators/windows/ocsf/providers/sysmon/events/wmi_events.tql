@@ -1,7 +1,7 @@
 ---
 description: >
-  Sysmon WMI subscription events (EIDs 19/20/21) → OCSF Base Event (0).
-  WMI filter/consumer/binding fields are preserved in unmapped for downstream use.
+  Sysmon WMI subscription events (EIDs 19/20/21)
+  → OCSF Entity Management (3004).
 args:
   positional:
     - name: windows
@@ -12,8 +12,62 @@ args:
       type: field
 ---
 
-// Preserve WMI subscription context on the generic Base Event.
-$ocsf.category_uid = 0
-$ocsf.class_uid = 0
-$ocsf.activity_id = 0
-$ocsf.type_uid = 0
+@name = "ocsf.entity_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+
+let $activity_ids = {Created: 1, Modified: 3, Deleted: 4}
+$ocsf.activity_id = $activity_ids[$windows.EventData.Operation?]? else (
+  99 if $windows.EventData.Operation? != null else 0
+)
+// Other carries the Sysmon operation as its caption.
+$ocsf.activity_name = $windows.EventData.Operation? if $ocsf.activity_id == 99 else null
+drop $windows.EventData.Operation?
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+match $ocsf.metadata.event_code {
+  "19" => {
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Event Filter",
+      name: move $windows.EventData.Name?,
+      data: {
+        namespace: move $windows.EventData.EventNamespace?,
+        query: move $windows.EventData.Query?,
+      },
+    }
+  }
+  "20" => {
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Event Consumer",
+      name: move $windows.EventData.Name?,
+      data: {
+        consumer_type: move $windows.EventData.Type?,
+        destination: move $windows.EventData.Destination?,
+      },
+    }
+  }
+  "21" => {
+    // The filter and consumer references identify the binding together.
+    $ocsf.entity = {
+      type_id: 99,
+      type: "WMI Filter-to-Consumer Binding",
+      name: $windows.EventData.Filter? + " -> " + $windows.EventData.Consumer?,
+      data: {
+        consumer: move $windows.EventData.Consumer?,
+        filter: move $windows.EventData.Filter?,
+      },
+    }
+  }
+  // The sysmon map dispatches only EIDs 19–21 here.
+  _ => {}
+}
+
+// The user object needs a name, so the actor exists only for a known user.
+if $windows.EventData.User? != null {
+  microsoft::windows::ocsf::account $windows.EventData.User, $ocsf.actor.user
+}
+
+drop $windows.EventData.EventType?

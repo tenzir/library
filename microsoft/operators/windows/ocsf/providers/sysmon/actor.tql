@@ -1,0 +1,29 @@
+---
+description: |
+  Maps the process that a Sysmon event reports in `ProcessGuid`, `ProcessId`,
+  `Image`, and `User` to the OCSF actor.
+args:
+  positional:
+    - name: windows
+      description: The Sysmon event to map.
+      type: field
+    - name: actor
+      description: The field that receives the OCSF actor.
+      type: field
+---
+
+$actor = {
+  process: {
+    uid: move $windows.EventData.ProcessGuid,
+    pid: (move $windows.EventData.ProcessId).int(),
+    path: $windows.EventData.Image,
+    file: {
+      type_id: 8,  // Executable File
+      name: $windows.EventData.Image.split("\\")[-1],
+      path: $windows.EventData.Image,
+    },
+    name: $windows.EventData.Image.split("\\")[-1],
+  },
+}
+drop $windows.EventData.Image
+microsoft::windows::ocsf::account $windows.EventData.User, $actor.user

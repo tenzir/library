@@ -1,0 +1,40 @@
+---
+description: >
+  Maps the ContextInfo block of PowerShell engine events (EIDs 4100, 4103) to
+  the script and the acting PowerShell host.
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+// ContextInfo is a rendered "Key = Value" block describing the host. Line
+// breaks do not survive every collector, so runs of whitespace separate the
+// entries. The complete block stays in unmapped because it contains
+// additional host, engine, runspace, pipeline, and shell details.
+if $windows.EventData.ContextInfo? != null {
+  _context = $windows.EventData.ContextInfo.trim().parse_kv(
+    field_split=r"\s{2,}|\n",
+    value_split=r"\s*=\s*",
+  )
+  $ocsf.script.name = _context["Command Name"]?
+  // A file needs a path.
+  if _context["Script Name"]? != null {
+    $ocsf.script.file = {
+      path: _context["Script Name"],
+      name: _context["Script Name"].split("\\")[-1],
+      type_id: 1,
+    }
+    $ocsf.script.name = $ocsf.script.file.name
+  }
+  $ocsf.actor.process.cmd_line = _context["Host Application"]?
+  // The user object needs a name.
+  if _context.User? != null {
+    microsoft::windows::ocsf::account _context.User, $ocsf.actor.user
+  }
+  drop _context
+}

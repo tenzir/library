@@ -10,12 +10,11 @@ args:
       description: The field that receives the OCSF event.
 ---
 
-
 $ocsf = {}
 
 $ocsf.metadata = {
   event_code: $windows.System.EventID.string(),
-  extensions: [{name: "win"}],
+  extensions: [{name: "win", uid: "2", version: "1.9.0"}],
   log_name: $windows.System.Channel,
   log_level: (move $windows.System.Level).string(),
   log_version: (move $windows.System.Version).string(),
@@ -37,22 +36,19 @@ drop $windows.System.EventRecordID
 
 $ocsf.severity_id = 1
 
-if $windows.RenderingInfo?.Message? != null {
-  $ocsf.message = move $windows.RenderingInfo.Message
-}
-drop $windows.RenderingInfo?.Message?
+$ocsf.message = move $windows.RenderingInfo?.Message?
 if $windows.RenderingInfo?.is_empty() == true {
   drop $windows.RenderingInfo
 }
-if $windows.RawData? != null {
-  $ocsf.raw_data = move $windows.RawData
-  $ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
-}
+$ocsf.raw_data = move $windows.RawData?
+$ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
 
-$ocsf.time = move $windows.EventData.UtcTime
+$ocsf.time = time(move $windows.EventData.UtcTime)
 
+// Windows events do not tell whether the device is a desktop or a server.
 $ocsf.device = {
   hostname: move $windows.System.Computer,
+  type_id: 0,  // Unknown
 }
 
 // ProcessID and ThreadID identify the Sysmon service itself, not the target event.
@@ -73,6 +69,10 @@ drop $windows.System.Correlation?
 // property of any observed object, so it is dropped centrally here rather
 // than in every individual mapping operator.
 drop $windows.EventData.RuleName?
+
+// Sysmon renders absent values, such as file metadata of unversioned images,
+// unsigned modules, or unresolved hostnames, as "-".
+replace $windows.EventData, what="-", with=null
 
 match $ocsf.metadata.event_code {
   "1" => {
