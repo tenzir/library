@@ -12,72 +12,50 @@ args:
 
 /*
  * Map MQTT message types to OCSF Network Activity activities:
- * - connect/connack (success): Network connection opened = activity_id 1
  * - connack (failure): Connection failed = activity_id 4
+ * - connect/connack (success): Network connection opened = activity_id 1
  * - disconnect: Network connection closed = activity_id 2
- * - publish/subscribe/suback/etc: Traffic = activity_id 6
+ * - any other message, such as publish or subscribe: Traffic = activity_id 6
  */
-if $event.mqtt.has("connect") or ($event.mqtt.has("connack") and $event.mqtt.connack.return_code == 0) {
-  $ocsf.activity_id = 1
-} else if $event.mqtt.has("connack") and $event.mqtt.connack.return_code != 0 {
+if $event.mqtt.connack?.return_code? not in [null, 0] {
   $ocsf.activity_id = 4
-} else if $event.mqtt.has("disconnect") {
+} else if $event.mqtt.connect? != null or $event.mqtt.connack? != null {
+  $ocsf.activity_id = 1
+} else if $event.mqtt.disconnect? != null {
   $ocsf.activity_id = 2
-} else if $event.mqtt.has("publish") or $event.mqtt.has("subscribe") or $event.mqtt.has("suback") {
+} else if $event.mqtt.values().map(x => x != null).any() {
   $ocsf.activity_id = 6
 } else {
-  $ocsf.activity_id = 99
+  $ocsf.activity_id = 0
 }
 
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4001
-
-// Severity: informational for normal operations
 $ocsf.severity_id = 1
-
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-// Protocol details for MQTT
-if $event.mqtt.has("connect") {
-  $ocsf.app_protocol_name = "mqtt"
-  $ocsf.connection_info.session.uid = move $event.mqtt.connect.client_id?
-}
+$ocsf.app_protocol_name = "mqtt"
+$ocsf.connection_info.session.uid = move $event.mqtt.connect?.client_id?
 
 // --- OCSF: primary attributes -----------------
 
-if $event.mqtt.has("connack") {
-  $event.mqtt.connack._return_code = $event.mqtt.connack.return_code
-  $ocsf.status_code = string(move $event.mqtt.connack.return_code)
-  $ocsf.status_id = 1 if $event.mqtt.connack._return_code == 0 else 2
-  drop $event.mqtt.connack._return_code
-}
+$ocsf.message = move $event.mqtt.publish?.topic?
+// The payload is binary.
+drop $event.mqtt.publish?.message?
 
-if $event.mqtt.has("disconnect") {
-  if $event.mqtt.disconnect.has("reason_code") {
-    $ocsf.status_code = string(move $event.mqtt.disconnect.reason_code)
-  }
+// CONNACK return codes other than 0 and MQTT 5 disconnect reason codes from
+// 0x80 on report failures. MQTT 3 disconnects carry no reason and always
+// close the connection normally.
+$ocsf.status_code = (move $event.mqtt.connack?.return_code? else move $event.mqtt.disconnect?.reason_code?).string()
+if $ocsf.status_code == null {
+  $ocsf.status_id = 1 if $event.mqtt.disconnect? != null else 0
+} else if $event.mqtt.disconnect? != null {
+  $ocsf.status_id = 1 if int($ocsf.status_code) < 128 else 2
+} else {
+  $ocsf.status_id = 1 if $ocsf.status_code == "0" else 2
 }
-
-if $event.mqtt.has("publish") {
-  $ocsf.message = move $event.mqtt.publish.topic
-  drop $event.mqtt.publish.message_id?
-  drop $event.mqtt.publish.qos?
-  drop $event.mqtt.publish.message // binary
-}
-
-if $event.mqtt.has("subscribe") {
-  drop $event.mqtt.subscribe.message_id?
-  drop $event.mqtt.subscribe.qos?
-}
-
-if $event.mqtt.has("suback") {
-  drop $event.mqtt.suback.message_id?
-  drop $event.mqtt.suback.qos_granted?
-}
-
-$ocsf.status_id = $ocsf.status_id? else 1
 
 // --- Finalize ---------------------------------
 

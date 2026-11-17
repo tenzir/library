@@ -10,7 +10,7 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-let $activity_id = {
+let $activity_ids = {
   discover: 1,
   offer: 2,
   request: 3,
@@ -22,46 +22,37 @@ let $activity_id = {
 }
 
 $ocsf.class_uid = 4004
-$ocsf.activity_id = $activity_id[$event.dhcp.dhcp_type.string()] else 0
+$ocsf.activity_id = $activity_ids[$event.dhcp.dhcp_type?]? else 0
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
+// OCSF describes the client as source and the server as destination.
 if $event.dhcp.type? == "reply" {
-  $event._server_endpoint = $ocsf.src_endpoint
-  $ocsf.src_endpoint = $ocsf.dst_endpoint
-  $ocsf.dst_endpoint = $event._server_endpoint
-  drop $event._server_endpoint
+  $ocsf = {
+    ...$ocsf,
+    src_endpoint: $ocsf.dst_endpoint?,
+    dst_endpoint: $ocsf.src_endpoint?,
+  }
 }
 
-if $event.dhcp.has("hostname") {
-  $ocsf.src_endpoint.hostname = move $event.dhcp.hostname
-}
-
-if $event.dhcp.has("client_mac") {
-  $ocsf.src_endpoint.mac = move $event.dhcp.client_mac
-}
-
-if $event.dhcp.has("assigned_ip") {
+$ocsf.src_endpoint.hostname = move $event.dhcp.hostname?
+$ocsf.src_endpoint.mac = move $event.dhcp.client_mac?
+// The assigned address replaces broadcast and unspecified packet addresses.
+// Suricata logs 0.0.0.0 when the server assigned none.
+if $event.dhcp.assigned_ip? not in [null, 0.0.0.0] {
   $ocsf.src_endpoint.ip = move $event.dhcp.assigned_ip
 }
+$ocsf.lease_dur = move $event.dhcp.lease_time?
 
-if $event.dhcp.has("lease_time") {
-  $ocsf.lease_dur = move $event.dhcp.lease_time
+let $status_ids = {
+  offer: 1,
+  ack: 1,
+  decline: 2,
+  nak: 2,
 }
-
-match $event.dhcp.dhcp_type {
-  "offer" | "ack" => {
-    $ocsf.status_id = 1
-  }
-  "decline" | "nak" => {
-    $ocsf.status_id = 2
-  }
-  _ => {
-    $ocsf.status_id = 0
-  }
-}
+$ocsf.status_id = $status_ids[$event.dhcp.dhcp_type?]? else 0
 
 $ocsf.transaction_uid = (move $event.dhcp.id).string()
 

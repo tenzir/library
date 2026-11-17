@@ -8,37 +8,35 @@ args:
       description: The OCSF output field.
       type: field
 ---
-assert $event.has("http")
-
-$event.http._hostname = move $event.http.hostname
-$event.http._url = move $event.http.url
-$event.http._url_parts = $event.http._url.split("?", max=1)
-
-$ocsf.http_request.url = {
-  hostname: $event.http._hostname.string(),
-  path: $event.http._url_parts[0],
-  scheme: "http",
-  url_string: f"http://{$event.http._hostname.string()}{$event.http._url}",
+// A URL needs a path. Suricata's `url` also carries the query string.
+if $event.http.url? != null {
+  $ocsf.http_request.url = {
+    // JSON readers infer IP values; the host is always a string.
+    hostname: (move $event.http.hostname?).string(),
+    path: $event.http.url.split("?", max=1)[0],
+    query_string: $event.http.url.split("?", max=1)[1]?,
+    scheme: "http",
+  }
+  $ocsf.http_request.url.url_string = "http://" + $ocsf.http_request.url.hostname + $event.http.url
+  drop $event.http.url
 }
-$ocsf.http_request.http_method = move $event.http.http_method?
-$ocsf.http_request.referrer = move $event.http.http_refer?
-$ocsf.http_request.user_agent = move $event.http.http_user_agent?
-$ocsf.http_request.version = move $event.http.protocol?
-if $event.http._url_parts.length() == 2 {
-  $ocsf.http_request.url.query_string = $event.http._url_parts[1]
+if $event.http.http_method? != null or $ocsf.http_request? != null {
+  $ocsf.http_request = {
+    ...$ocsf.http_request?,
+    // OCSF uses the case-sensitive method token, just like Suricata.
+    http_method: move $event.http.http_method?,
+    referrer: move $event.http.http_refer?,
+    user_agent: (move $event.http.http_user_agent?).string(),
+    version: move $event.http.protocol?,
+    http_headers: move $event.http.request_headers?,
+  }
 }
-drop $event.http._hostname
-drop $event.http._url
-drop $event.http._url_parts
-if $event.http.has("request_headers") {
-  $ocsf.http_request.http_headers = move $event.http.request_headers
-}
-
-$ocsf.http_response.body_length = move $event.http.length?
-$ocsf.http_response.content_type = move $event.http.http_content_type?
-if $event.http.has("status") {
-  $ocsf.http_response.code = move $event.http.status
-}
-if $event.http.has("response_headers") {
-  $ocsf.http_response.http_headers = move $event.http.response_headers
+// A response needs a status code.
+if $event.http.status? != null {
+  $ocsf.http_response = {
+    code: move $event.http.status,
+    body_length: move $event.http.length?,
+    content_type: move $event.http.http_content_type?,
+    http_headers: move $event.http.response_headers?,
+  }
 }

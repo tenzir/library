@@ -40,38 +40,60 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-if $event.smb.client_dialects? != null {
-  $ocsf.client_dialects = move $event.smb.client_dialects
-}
+$ocsf.client_dialects = move $event.smb.client_dialects?
 $ocsf.dialect = move $event.smb.dialect?
+
+// NTLMSSP session setups name the authenticating account and client host.
+if $event.smb.ntlmssp?.user? not in [null, ""] {
+  $ocsf.metadata.profiles = ["host"]
+  $ocsf.actor.user = {
+    name: move $event.smb.ntlmssp.user,
+    domain: move $event.smb.ntlmssp.domain? if $event.smb.ntlmssp.domain? != "" else null,
+  }
+}
+$ocsf.src_endpoint.hostname = move $event.smb.ntlmssp?.host?
+// Session setups report the operating systems of client and server.
+if $event.smb.request?.native_os? not in [null, ""] {
+  $ocsf.src_endpoint.os = {name: move $event.smb.request.native_os, type_id: 0}
+}
+if $event.smb.response?.native_os? not in [null, ""] {
+  $ocsf.dst_endpoint.os = {name: move $event.smb.response.native_os, type_id: 0}
+}
 
 // --- OCSF: primary attributes -----------------
 
 $ocsf.command = move $event.smb.command?
-
-if $event.smb.has("session_id") {
-  $ocsf.connection_info.session = {
-    uid: string(move $event.smb.session_id),
-  }
+$ocsf.connection_info.session.uid = (move $event.smb.session_id?).string()
+$ocsf.tree_uid = (move $event.smb.tree_id?).string()
+// Tree connects to IPC$ log the share as `named_pipe`.
+$ocsf.share = $event.smb.share? else move $event.smb.named_pipe?
+let $share_type_ids = {
+  FILE: 1,
+  PIPE: 2,
+  PRINT: 3,
 }
+$ocsf.share_type_id = $share_type_ids[move $event.smb.share_type?]?
+$ocsf.open_type = move $event.smb.access?
 
-// Map server (device) information from response
-if $event.smb.has("response") {
-  if $event.smb.response.has("native_os") {
-    $ocsf.device.os.name = move $event.smb.response.native_os?
-    $ocsf.metadata.profiles = $ocsf.metadata?.profiles?.add("host")
-  }
-}
-
-if $event.smb.has("filename") {
+if $event.smb.filename? != null or $event.smb.directory? != null {
   suricata::ocsf::map_smb_file $event, $ocsf
 }
+drop $event.smb.share?
 
-$ocsf.status_code = move $event.smb.status_code
-$ocsf.status_detail = move $event.smb.status
-$ocsf.status_id = 1 if $ocsf.status_code? == "0x0" else 2
-
-$ocsf.tree_uid = string(move $event.smb.tree_id?)
+$ocsf.status_code = move $event.smb.status_code?
+$ocsf.status_detail = move $event.smb.status?
+// STATUS_MORE_PROCESSING_REQUIRED asks the client to continue a session setup.
+match $ocsf.status_detail {
+  "STATUS_SUCCESS" => {
+    $ocsf.status_id = 1
+  }
+  "STATUS_MORE_PROCESSING_REQUIRED" | null => {
+    $ocsf.status_id = 0
+  }
+  _ => {
+    $ocsf.status_id = 2
+  }
+}
 
 // --- Finalize ---------------------------------
 
