@@ -19,7 +19,7 @@ The library now includes a `cloudflare` package that maps Cloudflare Logpush dat
 Tenzir reads Logpush's newline-delimited JSON natively, so you only need the normalizer between your source and your destination:
 
 ```tql
-from_file "s3://example-logpush/http_requests/**/*.log.gz", watch=true {
+from_file "s3://example-logpush/http_requests/**/*.log.gz", watch=1min {
   decompress_gzip
   read_ndjson
 }

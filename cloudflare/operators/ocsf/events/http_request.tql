@@ -18,20 +18,11 @@ args:
 
 // --- OCSF: occurrence attributes --------------
 
-// Logpush writes timestamps as Unix nanoseconds (API default), Unix seconds,
-// or RFC 3339 strings (dashboard default), depending on the job.
-$ocsf.time = (
-  from_epoch($cloudflare.EdgeStartTimestamp * (1ns if $cloudflare.EdgeStartTimestamp > 100000000000 else 1s))
-  if $cloudflare.EdgeStartTimestamp?.type_kind() == "int"
-  else time($cloudflare.EdgeStartTimestamp?)
-)
+cloudflare::ocsf::timestamp $cloudflare.EdgeStartTimestamp?
+cloudflare::ocsf::timestamp $cloudflare.EdgeEndTimestamp?
+$ocsf.time = move $cloudflare.EdgeStartTimestamp?
 $ocsf.start_time = $ocsf.time
-$ocsf.end_time = (
-  from_epoch($cloudflare.EdgeEndTimestamp * (1ns if $cloudflare.EdgeEndTimestamp > 100000000000 else 1s))
-  if $cloudflare.EdgeEndTimestamp?.type_kind() == "int"
-  else time($cloudflare.EdgeEndTimestamp?)
-)
-drop $cloudflare.EdgeStartTimestamp?, $cloudflare.EdgeEndTimestamp?
+$ocsf.end_time = move $cloudflare.EdgeEndTimestamp?
 $ocsf.duration = int(($ocsf.end_time - $ocsf.start_time) / 1ms)
 
 // --- OCSF: dataset-specific request parts -----
