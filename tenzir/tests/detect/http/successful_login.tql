@@ -1,0 +1,18 @@
+// An attacker cycles through IPv6 addresses of one /64 against a custom API
+// endpoint that answers failed logins with 400. Two logins succeed, which
+// raises the severity to high.
+from {}
+repeat 40
+enumerate n
+this = {
+  time: 2024-01-01T10:00:00Z + n * 5s,
+  class_uid: 4002,
+  http_request: {http_method: "POST", url: {path: "/api/v1/session"}, user_agent: "Mozilla/5.0"},
+  http_response: {code: 200 if n in [17, 33] else 400},
+  src_endpoint: {ip: f"2001:db8:0:1::{n + 1}".ip()},
+}
+tenzir::detect::http::credential_stuffing paths=["/api/v1/session"],
+  failure_codes=[400, 401], min_failures=30
+this = ocsf_cast(this)
+select severity_id, finding_info.title, finding_info.desc,
+  evidence_count=evidences.length(), first_evidence=evidences[0]
