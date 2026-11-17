@@ -8,12 +8,29 @@ args:
       description: The OCSF output field.
       type: field
 ---
-assert $event.smb.has("filename")
-
-$ocsf.file = {
-  accessed_time: move $event.smb.accessed?.milliseconds().from_epoch(),
-  created_time: move $event.smb.created?.milliseconds().from_epoch(),
-  modified_time: move $event.smb.modified?.milliseconds().from_epoch(),
-  name: move $event.smb.filename,
-  type_id: 0,
+// Suricata logs the path within the share as `filename`, or as `directory`
+// for folders. The UNC share path is known only when Suricata logs `share`.
+$event.smb._path = $event.smb.filename? else $event.smb.directory?
+// The pseudo name `<share_root>` denotes the share folder itself, which has
+// no name to report without a share path.
+if $event.smb._path != "<share_root>" or $event.smb.share? != null {
+  $ocsf.file = {
+    name: $event.smb._path.file_name(),
+    // EVE does not tell regular from executable files.
+    type_id: 2 if $event.smb.directory? != null else 1,
+    path: $event.smb.share? + "\\" + $event.smb._path,
+    size: move $event.smb.size?,
+    uid: move $event.smb.fuid?,
+    // Suricata logs Unix seconds and 0 for unknown times.
+    accessed_time: (move $event.smb.accessed?).seconds().from_epoch() if $event.smb.accessed? != 0 else null,
+    created_time: (move $event.smb.created?).seconds().from_epoch() if $event.smb.created? != 0 else null,
+    modified_time: (move $event.smb.modified?).seconds().from_epoch() if $event.smb.modified? != 0 else null,
+  }
+  if $event.smb._path == "<share_root>" {
+    $ocsf.file.name = $event.smb.share.file_name()
+    $ocsf.file.type_id = 2
+    $ocsf.file.path = $event.smb.share
+  }
+  drop $event.smb.filename?, $event.smb.directory?
 }
+drop $event.smb._path

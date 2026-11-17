@@ -8,37 +8,73 @@ args:
       description: The OCSF output field.
       type: field
 ---
-// --- OCSF: classification attributes ----------
+// Suricata logs envelope and message fields only after a client started a
+// message. Without them, the record describes the SMTP negotiation alone.
+if $event.smtp.mail_from? != null or $event.smtp.rcpt_to? not in [null, []] or $event.email? != null {
+  // --- OCSF: classification attributes ----------
 
-$ocsf.activity_id = 5
+  $ocsf.activity_id = 1
+  $ocsf.category_uid = 4
+  $ocsf.class_uid = 4009
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$ocsf.category_uid = 4
-$ocsf.class_uid = 4009
+  // --- OCSF: context attributes -----------------
 
-// Severity: informational for normal operations
-$ocsf.severity_id = 1
+  $ocsf.direction_id = 0
 
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  // --- OCSF: primary attributes -----------------
 
-// --- OCSF: context attributes -----------------
+  $ocsf.protocol_name = "SMTP"
+  // HELO/EHLO carries the client's self-reported host name.
+  $ocsf.smtp_hello = move $event.smtp.helo?
+  // OCSF separates the SMTP envelope from the message headers. The header
+  // fields hold human-readable mailboxes such as `Name <user@example.org>`,
+  // from which the machine-readable fields take the address.
+  let $address = "^.*<([^>]*)>.*$"
+  $ocsf.email = {
+    smtp_from: (move $event.smtp.mail_from?).trim("<>"),
+    smtp_to: (move $event.smtp.rcpt_to?).map(x => x.trim("<>")),
+    from: $event.email?.from?.replace_regex($address, "\\1").trim(),
+    from_mailbox: move $event.email?.from?,
+    to: $event.email?.to?.map(x => x.replace_regex($address, "\\1").trim()),
+    to_mailboxes: move $event.email?.to?,
+    cc: $event.email?.cc?.map(x => x.replace_regex($address, "\\1").trim()),
+    cc_mailboxes: move $event.email?.cc?,
+    subject: move $event.email?.subject?,
+    message_uid: move $event.email?.message_id?,
+    files: (move $event.email?.attachment?).map(x => {name: x, type_id: 1}),
+    // Suricata logs URLs without their scheme.
+    urls: (move $event.email?.url?).map(x => {url_string: x}),
+  }
+  // Suricata reports no SMTP reply codes. The email `status` describes the
+  // parser state, not the outcome of the transaction.
+  $ocsf.status_id = 0
 
-$ocsf.direction_id = 0
+  @name = "ocsf.email_activity"
+} else {
+  let $ip_versions = {
+    "true": 6,
+    "false": 4,
+  }
+  // HELO/STARTTLS can finish without an email envelope. Report the observed
+  // SMTP traffic and retain negotiation details under their original keys.
+  $ocsf.activity_id = 6
+  $ocsf.category_uid = 4
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.app_protocol_name = "smtp"
+  $ocsf.connection_info = {
+    protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint?.ip?.is_v6().string()]?,
+    uid: $ocsf.metadata.correlation_uid?,
+    protocol_name: "tcp",
+    protocol_num: 6,
+    community_uid: move $event.community_id?,
+    direction_id: 0,
+  }
+  drop $event.proto?
+  $ocsf.status_id = 0
 
-// --- OCSF: primary attributes -----------------
-
-$ocsf.protocol_name = "SMTP"
-$ocsf.smtp_hello = move $event.smtp.helo?
-$ocsf.email = {
-  smtp_from: move $event.smtp?.mail_from?,
-  smtp_to: move $event.smtp?.rcpt_to?,
-  from_mailbox: move $event.email?.from?,
-  to_mailboxes: move $event.email?.to?,
+  @name = "ocsf.network_activity"
 }
-$ocsf.status_id = 1 if $event.email?.status? == "PARSE_DONE" else 0
-$ocsf.status_detail = move $event.email?.status?
-
-drop_null_fields
-
-// --- Finalize ---------------------------------
-
-@name = "ocsf.email_activity"

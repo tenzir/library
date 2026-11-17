@@ -10,24 +10,28 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-// TODO: coudl be more precise
+// TODO: Derive Open and Close from the flow state.
 $ocsf.activity_id = 6
-
 $ocsf.class_uid = 4001
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: primary attributes -----------------
 
-suricata::ocsf::map_flow $event, $ocsf
-$ocsf.traffic.start_time = move $event.flow.start?
-$ocsf.traffic.end_time = move $event.flow.end?
-
-if $event.flow.state? != null {
-  $ocsf.status_detail = move $event.flow.state
-}
-if $event.flow.reason? != null {
-  $ocsf.status_code = move $event.flow.reason
+if $event.flow? != null {
+  suricata::ocsf::map_flow $event, $ocsf
+  $ocsf.traffic.start_time = move $event.flow.start?
+  $ocsf.traffic.end_time = move $event.flow.end?
+  $ocsf.status_detail = move $event.flow.state?
+  $ocsf.status_code = move $event.flow.reason?
+} else {
+  // NetFlow records count one direction only.
+  $ocsf.traffic = {
+    bytes: move $event.netflow.bytes?,
+    packets: move $event.netflow.pkts?,
+    start_time: move $event.netflow.start?,
+    end_time: move $event.netflow.end?,
+  }
 }
 $ocsf.status_id = 1 if $ocsf.status_detail? == "established" else 0
 

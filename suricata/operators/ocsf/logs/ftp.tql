@@ -10,6 +10,7 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
+// Session and connection commands, such as USER or PASV, have no activity.
 let $commands = {
   // 1 - Put (Upload)
   STOR: 1,
@@ -37,30 +38,6 @@ let $commands = {
   NLST: 6,
   LIST: 6,
   MLSD: 6,
-  // 0 - Unknown (Session/connection commands)
-  USER: 0,
-  PASS: 0,
-  ACCT: 0,
-  QUIT: 0,
-  REIN: 0,
-  ABOR: 0,
-  PORT: 0,
-  PASV: 0,
-  EPRT: 0,
-  EPSV: 0,
-  TYPE: 0,
-  MODE: 0,
-  STRU: 0,
-  REST: 0,
-  ALLO: 0,
-  SYST: 0,
-  HELP: 0,
-  NOOP: 0,
-  SITE: 0,
-  FEAT: 0,
-  OPTS: 0,
-  MKD: 0,
-  XMKD: 0,
 }
 
 $ocsf.activity_id = $commands[$event.ftp.command?]? else 0
@@ -68,36 +45,61 @@ $ocsf.class_uid = 4008
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
+// --- OCSF: context attributes -----------------
+
+if $event.ftp.command? == "USER" and $event.ftp.command_data? != null {
+  $ocsf.metadata.profiles = ["host"]
+  $ocsf.actor.user.name = move $event.ftp.command_data
+}
+
+// Only these commands take a file or folder argument. OCSF prefers Regular
+// File when the source does not distinguish file types.
+let $file_types = {
+  APPE: 1,
+  DELE: 1,
+  MDTM: 1,
+  RETR: 1,
+  RNFR: 1,
+  RNTO: 1,
+  SIZE: 1,
+  STOR: 1,
+  STOU: 1,
+  MKD: 2,
+  XMKD: 2,
+  RMD: 2,
+  XRMD: 2,
+}
+if $file_types[$event.ftp.command?]? != null and $event.ftp.command_data? != null {
+  $ocsf.file = {
+    name: $event.ftp.command_data.file_name(),
+    path: move $event.ftp.command_data,
+    type_id: $file_types[$event.ftp.command],
+  }
+}
+
 // --- OCSF: primary attributes -----------------
 
-if $event.ftp.completion_code? != null {
-  $ocsf.codes = $event.ftp.completion_code.map(code => int(code))
-  match $ocsf.codes[0] {
-    199..400 => {
-      $ocsf.status_id = 1
-    }
-    399..600 => {
-      $ocsf.status_id = 2
-    }
-    _ => {
-      $ocsf.status_id = 0
-    }
-  }
-  drop $event.ftp.completion_code
-} else {
-  $ocsf.status_id = 0
-}
 $ocsf.command = move $event.ftp.command?
-if $event.ftp.reply? != null {
-  $ocsf.command_responses = move $event.ftp.reply
-}
-$ocsf.name = move $event.ftp.command_data?
+$ocsf.command_responses = move $event.ftp.reply?
+$ocsf.codes = (move $event.ftp.completion_code?).map(code => int(code))
+$ocsf.port = move $event.ftp.dynamic_port?
+$ocsf.type = move $event.ftp.mode?
 
-if $event.ftp.has("dynamic_port") {
-  $ocsf.port = move $event.ftp.dynamic_port
-}
-if $event.ftp.has("mode") {
-  $ocsf.type = move $event.ftp.mode
+// The last reply tells the outcome of the command.
+$ocsf.status_code = $ocsf.codes[-1]?.string()
+// Range bounds are exclusive.
+match $ocsf.codes[-1]? {
+  // Preliminary, completion, and intermediate replies
+  99..400 => {
+    $ocsf.status_id = 1
+  }
+  // Transient and permanent negative replies
+  399..600 => {
+    $ocsf.status_id = 2
+  }
+  _ => {
+    $ocsf.status_id = 0
+  }
 }
 
 // --- Finalize ---------------------------------

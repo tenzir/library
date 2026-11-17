@@ -1,0 +1,31 @@
+// The grouped answer format lists record data per type without names.
+from {
+  timestamp: 2025-01-01,
+  event_type: "dns",
+  src_ip: 192.0.2.1,
+  dest_ip: 192.0.2.53,
+  proto: "UDP",
+  dns: {
+    version: 2,
+    type: "answer",
+    id: 42,
+    flags: "8180",
+    qr: true,
+    rd: true,
+    ra: true,
+    opcode: 0,
+    rrname: "www.example.test",
+    rrtype: "A",
+    rcode: "NOERROR",
+    grouped: {
+      CNAME: ["example.test"],
+      A: ["192.0.2.10", "192.0.2.11"],
+      SRV: [{priority: 0, weight: 100, port: 389, name: "dc.example.test"}],
+      HINFO: ["unlisted"],
+    },
+  },
+}
+this = {source: this, ocsf: {}}
+suricata::ocsf::map source, ocsf
+this = ocsf_cast(ocsf)
+select activity_id, query, answers, unmapped.dns

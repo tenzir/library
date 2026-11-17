@@ -15,39 +15,23 @@ args:
  * - INVITE: Network connection opened = activity_id 1
  * - BYE: Network connection closed = activity_id 2
  * - Response codes 4xx/5xx/6xx: Connection failed = activity_id 4
+ * - Other requests and responses: Traffic = activity_id 6
  */
-match $event.sip.method? {
-  "INVITE" => {
-    $ocsf.activity_id = 1
-  }
-  "BYE" => {
-    $ocsf.activity_id = 2
-  }
-  null => {
-    if $event.sip.code? != null {
-      match int($event.sip.code) {
-        399..700 => {
-          $ocsf.activity_id = 4
-        }
-        _ => {
-          $ocsf.activity_id = 6
-        }
-      }
-    } else {
-      $ocsf.activity_id = 0
-    }
-  }
-  _ => {
-    $ocsf.activity_id = 6
-  }
+let $methods = {
+  INVITE: 1,
+  BYE: 2,
+}
+if $event.sip.method? != null {
+  $ocsf.activity_id = $methods[$event.sip.method]? else 6
+} else if $event.sip.code? != null {
+  $ocsf.activity_id = 4 if int($event.sip.code) >= 400 else 6
+} else {
+  $ocsf.activity_id = 0
 }
 
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4001
-
-// Severity: informational for normal operations
 $ocsf.severity_id = 1
-
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
@@ -56,20 +40,11 @@ $ocsf.app_protocol_name = "sip"
 
 // --- OCSF: primary attributes -----------------
 
-if $event.sip.has("request_line") {
-  $ocsf.message = move $event.sip.request_line
-} else if $event.sip.has("response_line") {
-  $ocsf.message = move $event.sip.response_line
-}
-
+$ocsf.message = move $event.sip.request_line? else move $event.sip.response_line?
 $ocsf.status_detail = move $event.sip.reason?
-
-if $event.sip.has("code") {
-  $ocsf.status_code = move $event.sip.code?
-  $ocsf.status_id = 2 if int($ocsf.status_code) >= 400 else 1
-} else {
-  $ocsf.status_id = 0
-}
+$ocsf.status_code = move $event.sip.code?
+// Requests have no outcome.
+$ocsf.status_id = (2 if int($ocsf.status_code) >= 400 else 1) if $ocsf.status_code != null else 0
 
 // --- Finalize ---------------------------------
 

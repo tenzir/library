@@ -14,95 +14,78 @@ args:
 // Helpful information for mappers:
 // - https://github.com/OISF/suricata/blob/main/etc/schema.json
 
-$ocsf = {}
+// Event types with a dedicated mapping below. Others become base events and
+// retain their connection fields under the original keys.
+let $mapped_types = [
+  "alert", "anomaly", "dhcp", "dns", "fileinfo", "flow", "netflow", "ftp", "http",
+  "krb5", "mqtt", "sip", "smb", "smtp", "snmp", "ssh", "tls",
+]
+// Authentication and Email Activity have no `connection_info`.
+let $types_without_connection_info = ["krb5", "smtp"]
+// Alerts and these classes describe the application protocol elsewhere.
+let $types_without_app_proto = ["alert", "krb5", "smtp"]
+let $proto_nums = {
+  TCP: 6,
+  UDP: 17,
+  ICMP: 1,
+  "IPv6-ICMP": 58,
+  SCTP: 132,
+}
+let $ip_versions = {
+  "true": 6,
+  "false": 4,
+}
 
-// --- OCSF: classification attributes ----------
-
-$ocsf.category_uid = 4
-$ocsf.severity_id = 1
-
-// --- OCSF: occurrence attributes --------------
-
-$ocsf.time = move $event.timestamp
-
-// --- OCSF: context attributes -----------------
-
-$ocsf.metadata = {
-  log_format: "json",
-  log_name: $event.event_type,
-  product: {
-    name: "Suricata",
-    vendor_name: "Open Information Security Foundation",
-    cpe_name: "cpe:2.3:a:oisf:suricata",
+$ocsf = {
+  category_uid: 4,
+  severity_id: 1,
+  time: move $event.timestamp,
+  metadata: {
+    log_format: "json",
+    log_name: $event.event_type,
+    product: {
+      name: "Suricata",
+      vendor_name: "Open Information Security Foundation",
+      cpe_name: "cpe:2.3:a:oisf:suricata",
+    },
+    version: "1.9.0",
+    sequence: move $event.pcap_cnt?,
+    original_event_uid: $event.flow_id?.string(),
+    correlation_uid: $event.flow_id?.string(),
   },
-  version: "1.9.0",
-}
-if $event.pcap_cnt? != null {
-  $ocsf.metadata.sequence = move $event.pcap_cnt
-}
-if $event.flow_id? != null {
-  $ocsf.metadata.original_event_uid = $event.flow_id.string()
-  $ocsf.metadata.correlation_uid = $event.flow_id.string()
 }
 
-// Prefer flow initiator/responder fields when Suricata provides them. Alert
-// packets can point in the opposite direction of the flow that triggered them.
-if $event.flow?.src_ip? != null {
-  $ocsf.src_endpoint.ip = move $event.flow.src_ip
-} else if $event.src_ip? != null {
-  $ocsf.src_endpoint.ip = move $event.src_ip
-}
-if $event.flow?.dest_ip? != null {
-  $ocsf.dst_endpoint.ip = move $event.flow.dest_ip
-} else if $event.dest_ip? != null {
-  $ocsf.dst_endpoint.ip = move $event.dest_ip
-}
-if $event.flow?.src_port? != null {
-  $ocsf.src_endpoint.port = move $event.flow.src_port
-} else if $event.src_port? != null {
-  $ocsf.src_endpoint.port = move $event.src_port
-}
-if $event.flow?.dest_port? != null {
-  $ocsf.dst_endpoint.port = move $event.flow.dest_port
-} else if $event.dest_port? != null {
-  $ocsf.dst_endpoint.port = move $event.dest_port
-}
-
-if $event.event_type != "krb5" and $event.event_type != "smtp" {
-  if $event.ip_v? != null {
-    $ocsf.connection_info.protocol_ver_id = move $event.ip_v
-  } else if $ocsf.src_endpoint?.ip? != null {
-    $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() else 4
-  } else if $ocsf.dst_endpoint?.ip? != null {
-    $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.dst_endpoint.ip.is_v6() else 4
+if $event.event_type in $mapped_types {
+  // An endpoint needs an address. Alert packets can point in the opposite
+  // direction of the flow that triggered them, so prefer the flow initiator
+  // and responder when Suricata logs them.
+  if $event.flow?.src_ip? != null {
+    $ocsf.src_endpoint = {ip: move $event.flow.src_ip, port: move $event.flow.src_port?}
+    $ocsf.dst_endpoint = {ip: move $event.flow.dest_ip?, port: move $event.flow.dest_port?}
+  } else if $event.src_ip? != null {
+    $ocsf.src_endpoint = {ip: move $event.src_ip, port: move $event.src_port?}
+    $ocsf.dst_endpoint = {ip: move $event.dest_ip?, port: move $event.dest_port?}
   }
-
-  if $event.flow_id? != null {
-    $ocsf.connection_info.uid = $event.flow_id.string()
-  }
-
-  if $event.proto? != null {
-    let $proto_nums = {
-      TCP: 6,
-      UDP: 17,
-      ICMP: 1,
-      ICMPV6: 58,
+  // Events without addresses, such as non-IP packet alerts, have no connection.
+  if $ocsf.src_endpoint? != null and not ($event.event_type in $types_without_connection_info) {
+    $ocsf.connection_info = {
+      protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint?.ip?.is_v6().string()]?,
+      uid: $event.flow_id?.string(),
+      protocol_name: $event.proto?.to_lower(),
+      // Unknown protocols have no number.
+      protocol_num: $proto_nums[$event.proto?]?,
+      community_uid: move $event.community_id?,
+      // Suricata's `direction` describes packet flow, not the network
+      // perimeter crossing that OCSF means.
+      direction_id: 0,
     }
-    $ocsf.connection_info.protocol_name = $event.proto.to_lower()
-    $ocsf.connection_info.protocol_num = $proto_nums[$event.proto]? else 0
-    drop $event.proto
+    drop $event.proto?
   }
-
-  if $event.community_id? != null {
-    $ocsf.connection_info.community_uid = move $event.community_id
+  if $event.app_proto? != "failed" and not ($event.event_type in $types_without_app_proto) {
+    $ocsf.app_protocol_name = move $event.app_proto?
   }
+  drop $event.flow_id?
 }
-
-let $event_types_without_app_proto = ["alert", "krb5", "smtp"]
-if $event.app_proto? != null and $event.app_proto != "failed" and not ($event.event_type in $event_types_without_app_proto) {
-  $ocsf.app_protocol_name = move $event.app_proto
-}
-drop $event.flow_id?
 
 // --- Event-specific mapping -------------------
 
@@ -160,15 +143,12 @@ match $event.event_type {
   }
 }
 
-// Map connection control bits on network classes only. SMTP and Kerberos
-// have different schemas and retain their connection context as source residue.
-if $ocsf.category_uid == 4 and $ocsf.class_uid != 4009 {
+// Map connection control bits on network classes only.
+if $ocsf.category_uid == 4 and $ocsf.connection_info? != null {
   $ocsf.connection_info.tcp_flags = int(move $event.tcp?.tcp_flags?, base=16)
 }
 
 // --- Epilogue ---------------------------------
 
 drop $event.event_type
-
-
 $ocsf.unmapped = move $event

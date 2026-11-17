@@ -10,7 +10,7 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-let $activity_id = {
+let $activity_ids = {
   CONNECT: 1,
   DELETE: 2,
   GET: 3,
@@ -20,32 +20,59 @@ let $activity_id = {
   PUT: 7,
   TRACE: 8,
   PATCH: 9,
+  ACL: 10,
+  "BASELINE-CONTROL": 11,
+  BIND: 12,
+  CHECKIN: 13,
+  CHECKOUT: 14,
+  COPY: 15,
+  LABEL: 16,
+  LINK: 17,
+  LOCK: 18,
+  MERGE: 19,
+  MKACTIVITY: 20,
+  MKCALENDAR: 21,
+  MKCOL: 22,
+  MKREDIRECTREF: 23,
+  MKWORKSPACE: 24,
+  MOVE: 25,
+  ORDERPATCH: 26,
+  PRI: 27,
+  PROPFIND: 28,
+  PROPPATCH: 29,
+  QUERY: 30,
+  REBIND: 31,
+  REPORT: 32,
+  SEARCH: 33,
+  UNBIND: 34,
+  UNCHECKOUT: 35,
+  UNLINK: 36,
+  UNLOCK: 37,
+  UPDATE: 38,
+  UPDATEREDIRECTREF: 39,
+  "VERSION-CONTROL": 40,
 }
 
-$ocsf.activity_id = $activity_id[$event.http.http_method] else 99
+$ocsf.activity_id = $activity_ids[$event.http.http_method?]? else (99 if $event.http.http_method? != null else 0)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event.http.http_method
+}
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4002
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-// --- OCSF: context attributes -----------------
-
-if $event.http.has("fileinfo") {
-  $ocsf.file = {
-    type_id: 0,
-    name: move $event.fileinfo.filename,
-    size: move $event.fileinfo.size,
-  }
-}
-
 // --- OCSF: primary attributes -----------------
 
 suricata::ocsf::map_http $event, $ocsf
 
-match $ocsf.http_response.code? {
+// Range bounds are exclusive.
+match $ocsf.http_response?.code? {
+  // 2xx and 3xx
   199..400 => {
     $ocsf.status_id = 1
   }
+  // 4xx and 5xx
   399..600 => {
     $ocsf.status_id = 2
   }

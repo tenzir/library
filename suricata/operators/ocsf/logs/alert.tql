@@ -18,41 +18,37 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.metadata.profiles = ["security_control"]
 
+// Suricata severity 1 is the most severe.
 let $severities = [0, 4, 3, 2, 1]
-$ocsf.severity_id = $severities[$event.alert.severity]? else 0
-drop $event.alert.severity
+$ocsf.severity_id = $severities[move $event.alert.severity]? else 0
 
 // --- OCSF: primary attributes -----------------
 
 $ocsf.is_alert = true
 
+let $actions = {
+  allowed: {action_id: 1, disposition_id: 1},
+  blocked: {action_id: 2, disposition_id: 2},
+}
 if $event.alert.action? != null {
-  match $event.alert.action {
-    "allowed" => {
-      $ocsf.action_id = 1
-      $ocsf.disposition_id = 1
-      drop $event.alert.action
-    }
-    "blocked" => {
-      $ocsf.action_id = 2
-      $ocsf.disposition_id = 2
-      drop $event.alert.action
-    }
-    _ => {
-      $ocsf.action = move $event.alert.action
-      $ocsf.action_id = 99
-      $ocsf.disposition = $ocsf.action
-      $ocsf.disposition_id = 99
-    }
+  $ocsf = {
+    ...$ocsf,
+    ...($actions[$event.alert.action]? else {
+      action: $event.alert.action,
+      action_id: 99,
+      disposition: $event.alert.action,
+      disposition_id: 99,
+    }),
   }
+  drop $event.alert.action
 }
 
+let $confidence_ids = {
+  low: 1,
+  medium: 2,
+  high: 3,
+}
 if $event.alert.metadata?.confidence? != null {
-  let $confidence_ids = {
-    low: 1,
-    medium: 2,
-    high: 3,
-  }
   $ocsf.confidence_id = $confidence_ids[$event.alert.metadata.confidence[0].to_lower()]? else 99
   if $ocsf.confidence_id == 99 {
     $ocsf.confidence = $event.alert.metadata.confidence[0]
@@ -62,54 +58,42 @@ if $event.alert.metadata?.confidence? != null {
 
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
-if $ocsf.has("src_endpoint") {
-  $ocsf.evidence.src_endpoint = move $ocsf.src_endpoint
-}
-if $ocsf.has("dst_endpoint") {
-  $ocsf.evidence.dst_endpoint = move $ocsf.dst_endpoint
-}
-if $ocsf.has("connection_info") {
-  $ocsf.evidence.connection_info = move $ocsf.connection_info
+$ocsf.evidence = {
+  src_endpoint: move $ocsf.src_endpoint?,
+  dst_endpoint: move $ocsf.dst_endpoint?,
+  connection_info: move $ocsf.connection_info?,
 }
 if $event.dns?.queries? != null {
   suricata::ocsf::map_dns_query $event, $ocsf
   $ocsf.evidence.query = move $ocsf.query
 }
-if $event.has("http") {
+if $event.http? != null {
   suricata::ocsf::map_http $event, $ocsf
-  if $ocsf.has("http_request") {
-    $ocsf.evidence.http_request = move $ocsf.http_request
-  }
-  if $ocsf.has("http_response") {
-    $ocsf.evidence.http_response = move $ocsf.http_response
-  }
+  $ocsf.evidence.http_request = move $ocsf.http_request?
+  $ocsf.evidence.http_response = move $ocsf.http_response?
 }
 if $event.smb?.filename? != null {
   suricata::ocsf::map_smb_file $event, $ocsf
   $ocsf.evidence.file = move $ocsf.file
 }
-if $ocsf.has("evidence") {
-  $ocsf.evidences = [$ocsf.evidence]
-  drop $ocsf.evidence
-}
+// Evidence needs at least one attribute. Non-IP packet alerts have none.
+$ocsf.evidences = [move $ocsf.evidence].where(x => x.values().map(v => v != null).any())
 
 $ocsf.finding_info = {
+  uid: $event.alert.signature_id.string(),
+  title: $event.alert.signature,
   analytic: {
     type: "Rule",
     type_id: 1,
+    // The generator ID is a reasonable field for algorithm.
+    algorithm: (move $event.alert.gid).string(),
+    category: move $event.alert.category,
+    name: $event.alert.signature,
+    uid: $event.alert.signature_id.string(),
+    version: (move $event.alert.rev).string(),
   },
 }
-// The generator ID is a reasonable field for algorithm.
-$ocsf.finding_info.analytic.algorithm = $event.alert.gid.string()
-$ocsf.finding_info.analytic.category = move $event.alert.category
-$ocsf.finding_info.analytic.name = move $event.alert.signature
-$ocsf.finding_info.analytic.uid = $event.alert.signature_id.string()
-$ocsf.finding_info.analytic.version = $event.alert.rev.string()
-drop $event.alert.gid
-drop $event.alert.signature_id
-drop $event.alert.rev
-$ocsf.finding_info.uid = $ocsf.finding_info.analytic.uid
-$ocsf.finding_info.title = $ocsf.finding_info.analytic.name
+drop $event.alert.signature, $event.alert.signature_id
 
 // --- Finalize ---------------------------------
 
