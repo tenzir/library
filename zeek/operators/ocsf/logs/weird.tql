@@ -1,0 +1,37 @@
+---
+description: |
+  Zeek weird.log → OCSF Network Activity, or Base Event without a connection.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// Network Activity needs an endpoint, and Zeek also reports weirds that
+// belong to no connection.
+if $event.id?.orig_h? == null {
+  zeek::ocsf::base $event, $ocsf
+} else {
+  zeek::ocsf::map_network $event, $ocsf
+
+  // --- OCSF: classification attributes ----------
+
+  // A protocol anomaly within a connection is none of the connection
+  // activities, such as Open or Traffic.
+  $ocsf.activity_id = 0
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.status_id = 0
+  @name = "ocsf.network_activity"
+}
+$ocsf.metadata.log_name = "weird.log"
+
+// --- OCSF: primary attributes -----------------
+
+// The weird name, such as `bad_HTTP_request`, describes the anomaly.
+$ocsf.message = move $event.name

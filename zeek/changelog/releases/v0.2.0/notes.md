@@ -1,4 +1,14 @@
-This release corrects how the Zeek package maps SMTP, SMB, HTTP, FTP, DNS, TLS, and RDP fields to OCSF 1.9.0, keeps observed facts when native JSON omits optional fields, and records standalone certificates as Base Events.
+This release corrects how the Zeek package maps SMTP, SMB, HTTP, FTP, DNS, TLS, and RDP fields to OCSF 1.9.0, keeps observed facts when native JSON omits optional fields, and records standalone certificates as Base Events. Zeek notices, weirds, and analyzer violations now map to Detection Finding and Network Activity.
+
+## 🚀 Features
+
+### OCSF mappings for Zeek notices, weirds, and analyzer violations
+
+Zeek's own detections from `notice.log` become OCSF Detection Findings. Each finding carries the notice type as its title and analytic, the message as its description, the endpoints and transferred files as evidence, and the MITRE ATT&CK techniques that ATT&CK notices list.
+
+Protocol anomalies from `weird.log` and analyzer violations from `analyzer.log` become Network Activity events with their endpoints and the anomaly or violation text as `message`, so you can find them by IP address and port like other connection events. Records without a connection stay Base Events.
+
+*By @zedoraps.*
 
 ## 🐞 Bug fixes
 
