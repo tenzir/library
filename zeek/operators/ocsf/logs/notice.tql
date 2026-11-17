@@ -1,0 +1,90 @@
+---
+description: |
+  Zeek notice.log → OCSF Detection Finding.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+$ocsf.activity_id = 1
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+// Zeek notices carry no severity.
+$ocsf.severity_id = 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "notice.log"
+drop $event._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Notices have no identifier of their own, so the finding UID derives from
+// the facts that tell notices apart.
+$ocsf.finding_info = {
+  uid: hash_sha256(f"{$ocsf.time}|{$event.note}|{$ocsf.metadata.original_event_uid?}|{$event.msg?}"),
+  title: $event.note,
+  desc: move $event.msg?,
+  // Zeek doesn't tell whether a notice script matches rules, statistics, or
+  // behavior.
+  analytic: {
+    name: move $event.note,
+    type_id: 0,
+  },
+}
+// The meaning of `sub` depends on the notice. ATT&CK notices list techniques,
+// such as `T1021.002 Remote Services: SMB/Windows Admin Shares + T1570 Lateral
+// Tool Transfer`, and hash registry matches link to their source.
+if $event.sub?.match_regex("^T[0-9]{4}") {
+  $ocsf.finding_info.attacks = (move $event.sub).split(" + ").map(x => {
+    id: x.split(" ", max=1)[0],
+    name: x.split(" ", max=1)[1]?,
+  }).map(a => {
+    technique: {
+      uid: a.id.split(".")[0],
+      name: a.name?.split(": ", max=1)[0],
+    },
+    sub_technique: [{uid: a.id, name: a.name?.split(": ", max=1)[1]?}]
+      .where(s => s.uid.split(".").length() > 1)
+      .first(),
+  })
+} else if $event.sub?.starts_with("https://") {
+  $ocsf.finding_info.src_url = move $event.sub
+}
+$ocsf.status_id = 1
+
+// Zeek fills `src`, `dst`, and `p` from the connection of a notice. Some
+// notices name only a source, such as `Traceroute::Detected`.
+if $event.src? != null {
+  $event._evidence.src_endpoint = {ip: move $event.src, port: $event.id?.orig_p?}
+}
+if $event.dst? != null {
+  $event._evidence.dst_endpoint = {ip: move $event.dst, port: move $event.p?}
+}
+// A file needs a name, which only the file description provides.
+if $event.file_desc? != null {
+  $event._evidence.file = {
+    name: $event.file_desc.file_name(),
+    path: $event.file_desc if not $event.file_desc.starts_with("http") else null,
+    mime_type: move $event.file_mime_type?,
+    uid: move $event.fuid?,
+    type_id: 1,
+  }
+  if $event.file_desc.starts_with("http") {
+    $event._evidence.url.url_string = $event.file_desc
+  }
+  drop $event.file_desc
+}
+$ocsf.evidences = [move $event._evidence?].collect()
+// The connection tuple repeats `src`, `dst`, and `p`.
+drop $event.id?
+
+@name = "ocsf.detection_finding"

@@ -22,6 +22,7 @@ if $event.action.ends_with("_OPEN") {
   $ocsf.activity_id = 2
 } else {
   $ocsf.activity_id = 99
+  $ocsf.activity_name = $event.action
 }
 $ocsf.class_uid = 4006
 $ocsf.severity_id = 1
@@ -36,32 +37,45 @@ $ocsf.metadata.log_name = "smb_files.log"
 $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
-$ocsf.file = {
-  path: move $event.path,
-  accessed_time: move $event.times?.accessed?,
-  created_time: move $event.times?.created?,
-  modified_time: move $event.times?.modified?,
-  size: move $event.size?,
-  uid: move $event.fuid?,
+// Native JSON stores Zeek times as Unix seconds instead of time values.
+if type_kind($event.times?.modified?) in ["int", "uint", "float"] {
+  $event.times = {
+    accessed: $event.times.accessed?.seconds().from_epoch(),
+    changed: $event.times.changed?.seconds().from_epoch(),
+    created: $event.times.created?.seconds().from_epoch(),
+    modified: $event.times.modified.seconds().from_epoch(),
+  }
 }
-$ocsf.share = move $event.name
-match $event.action.split("::")[1].split("_")[0] {
-  "FILE" => {
-    $ocsf.share_type_id = 1
-    $ocsf.share_type = "File"
+// Zeek's `path` names the UNC share, and `name` the file within it.
+$ocsf.share = move $event.path?
+// Without a share path, the share root has no name to report.
+if $event.name? != null and ($event.name != "<share_root>" or $ocsf.share != null) {
+  $ocsf.file = {
+    name: $event.name.file_name(),
+    type_id: 6 if $event.action.starts_with("SMB::PIPE_") else 1,
+    path: $ocsf.share + "\\" + $event.name,
+    accessed_time: move $event.times?.accessed?,
+    created_time: move $event.times?.created?,
+    modified_time: move $event.times?.modified?,
+    size: move $event.size?,
+    uid: move $event.fuid?,
   }
-  "PIPE" => {
-    $ocsf.share_type_id = 2
-    $ocsf.share_type = "Pipe"
+  // The pseudo name `<share_root>` denotes the share folder itself.
+  if $event.name == "<share_root>" {
+    $ocsf.file.name = $ocsf.share?.file_name()
+    $ocsf.file.type_id = 2
+    $ocsf.file.path = $ocsf.share
   }
-  "PRINT" => {
-    $ocsf.share_type_id = 3
-    $ocsf.share_type = "Print"
-  }
-  _ => {
-    $ocsf.share_type_id = 0
-    $ocsf.share_type = "Unknown"
-  }
+  drop $event.name
+}
+let $share_types = {
+  FILE: {share_type_id: 1, share_type: "File"},
+  PIPE: {share_type_id: 2, share_type: "Pipe"},
+  PRINT: {share_type_id: 3, share_type: "Print"},
+}
+$ocsf = {
+  ...$ocsf,
+  ...($share_types[$event.action.split("::")[1].split("_")[0]]? else {share_type_id: 0, share_type: "Unknown"}),
 }
 drop $event.action
 

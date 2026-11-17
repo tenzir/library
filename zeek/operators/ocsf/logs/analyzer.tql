@@ -1,0 +1,44 @@
+---
+description: |
+  Zeek analyzer.log → OCSF Network Activity, or Base Event without a
+  connection.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// Network Activity needs an endpoint, and file analyzers can report
+// violations without a connection.
+if $event.id?.orig_h? == null {
+  zeek::ocsf::base $event, $ocsf
+} else {
+  zeek::ocsf::map_network $event, $ocsf
+
+  // --- OCSF: classification attributes ----------
+
+  // An analyzer violation within a connection is none of the connection
+  // activities, such as Open or Traffic.
+  $ocsf.activity_id = 0
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.status_id = 0
+  @name = "ocsf.network_activity"
+
+  // Only protocol analyzers name the application protocol of the connection.
+  if $event.analyzer_kind? == "protocol" {
+    $ocsf.app_protocol_name = (move $event.analyzer_name).to_lower()
+  }
+}
+$ocsf.metadata.log_name = "analyzer.log"
+
+// --- OCSF: primary attributes -----------------
+
+// The failure reason, such as `Invalid version in TLS connection`, describes
+// the violation.
+$ocsf.message = move $event.failure_reason?

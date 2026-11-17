@@ -50,16 +50,18 @@ let $rcode_names = {
   BADCOOKIE: "BADCOOKIE",
   BADSIG: "BADSIG",
 }
-$ocsf.answers = zip(move $event.answers, move $event.TTLs).map(x => {
-  rdata: x.left,
+$ocsf.answers = zip(move $event.answers?, move $event.TTLs?).map(x => {
+  rdata: x.left.string(),
   ttl: int(count_seconds(x.right) if type_kind(x.right) == "duration" else x.right),
 })
-$ocsf.query = {
-  class: move $event.qclass_name,
-  hostname: move $event.query,
-  // TODO: go deeper and extract the log semantics.
-  //opcode_id: 0,
-  type: move $event.qtype_name,
+if $event.query? != null {
+  $ocsf.query = {
+    class: move $event.qclass_name?,
+    hostname: move $event.query,
+    type: move $event.qtype_name?,
+  }
+  // qclass/qtype repeat the names already mapped above.
+  drop $event.qclass?, $event.qtype?
 }
 // OCSF 1.9 distinguishes the DNS transaction ID from a packet UID.
 $ocsf.transaction_id = move $event.trans_id?
@@ -72,23 +74,33 @@ $ocsf.flag_ids = [
   6 if $event.CD?,
 ].collect()
 drop $event.AA?, $event.TC?, $event.RD?, $event.RA?, $event.AD?, $event.CD?
-// qclass/qtype are numeric aliases of the names already mapped above.
-drop $event.qclass?, $event.qtype?
 
 $ocsf.query_time = $ocsf.time
-$ocsf.response_time = $ocsf.time
-$ocsf.rcode = $rcode_names[$event.rcode_name]? else $event.rcode_name
-if $event.rcode_name? == "BADSIG" {
-  $ocsf.rcode_id = 99
-  drop $event.rcode
-} else {
-  $ocsf.rcode_id = int(move $event.rcode)
+// Zeek measures a round-trip time only when it saw a response. Native JSON
+// stores it as seconds instead of a duration.
+if type_kind($event.rtt?) in ["int", "uint", "float"] {
+  $event.rtt = $event.rtt.seconds()
 }
-drop $event.rcode_name
-
-$ocsf.connection_info = {
-  direction: "Other",
-  direction_id: 99,
+$ocsf.response_time = $ocsf.time + (move $event.rtt?)
+// Range bounds are exclusive. OCSF collapses the IANA unassigned and reserved
+// ranges into one identifier each, so the source keeps the original wire code.
+match $event.rcode? {
+  // 12–15, 24–3840, and 4096–65534
+  11..16 | 23..3841 | 4095..65535 => {
+    $ocsf.rcode = "Unassigned"
+    $ocsf.rcode_id = 24
+  }
+  // 3841–4095 and 65535
+  3840..4096 | 65535 => {
+    $ocsf.rcode = "Reserved"
+    $ocsf.rcode_id = 25
+  }
+  _ => {
+    $ocsf.rcode = $rcode_names[$event.rcode_name?]? else $event.rcode_name?
+    // BADSIG shares code 16 with BADVERS, which OCSF defines.
+    $ocsf.rcode_id = 99 if $event.rcode_name? == "BADSIG" else int($event.rcode?)
+    drop $event.rcode?, $event.rcode_name?
+  }
 }
 $ocsf.status = "Unknown"
 $ocsf.status_id = 0

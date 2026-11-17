@@ -14,70 +14,60 @@ args:
 // --- OCSF: classification attributes ----------
 
 $ocsf.category_uid = 4
+$ocsf.connection_info.direction_id = 0
 
 // --- OCSF: occurence & context attributes------
 
-if $ocsf.metadata.original_event_uid? != null {
-  $ocsf.connection_info.uid = $ocsf.metadata.original_event_uid
-}
+$ocsf.connection_info.uid = $ocsf.metadata.original_event_uid?
 
 // Implied in metadata.log_name.
 drop $event._path?
 
 // --- OCSF: primary attributes -----------------
 
-// Map source/destination endpoints.
-if $event.has("id") {
+// An endpoint needs an address, so the link-layer address only accompanies
+// the connection 4-tuple.
+if $event.id? != null {
   $ocsf.src_endpoint = {
     ip: $event.id.orig_h,
     port: $event.id.orig_p,
+    mac: move $event.orig_l2_addr?,
   }
   $ocsf.dst_endpoint = {
     ip: $event.id.resp_h,
     port: $event.id.resp_p,
+    mac: move $event.resp_l2_addr?,
   }
   drop $event.id
-  // Fill protocol version based on endpoints.
   // This could at some point go into `ocsf_derive`.
-  if $ocsf.src_endpoint.ip.is_v6() or $ocsf.dst_endpoint.ip.is_v6() {
-    $ocsf.connection_info.protocol_ver_id = 6
-  } else {
-    $ocsf.connection_info.protocol_ver_id = 4
-  }
+  $ocsf.connection_info.protocol_ver_id = 6 if $ocsf.src_endpoint.ip.is_v6() or $ocsf.dst_endpoint.ip.is_v6() else 4
 }
-if $event.has("orig_l2_addr") {
-  $ocsf.src_endpoint.mac = move $event.orig_l2_addr
-}
-if $event.has("resp_l2_addr") {
-  $ocsf.dst_endpoint.mac = move $event.resp_l2_addr
-}
-if $event.has("orig_cc") {
+// A location needs at least one of its attributes.
+if $event.orig_cc? != null {
   $ocsf.src_endpoint.location = {
     country: move $event.orig_cc,
   }
 }
-if $event.has("resp_cc") {
+if $event.resp_cc? != null {
   $ocsf.dst_endpoint.location = {
     country: move $event.resp_cc,
   }
 }
-
 if $event.remote_location? != null {
   $ocsf.dst_endpoint.location = {
-    city: move $event.remote_location.city?,
-    country: move $event.remote_location.country_code?,
-    lat: move $event.remote_location.latitude?,
-    long: move $event.remote_location.longitude?,
-    region: move $event.remote_location.region?,
+    city: $event.remote_location.city?,
+    country: $event.remote_location.country_code?,
+    lat: $event.remote_location.latitude?,
+    long: $event.remote_location.longitude?,
+    region: $event.remote_location.region?,
   }
+  drop $event.remote_location
 }
 
-// Map Community ID.
-if $event.has("community_id") {
-  $ocsf.connection_info.community_uid = move $event.community_id
-}
+$ocsf.connection_info.community_uid = move $event.community_id?
 
-// Map transport-layer protocol details.
+// Map transport-layer protocol details. Zeek's `unknown_transport` has no
+// IANA protocol number.
 let $proto_nums = {
   tcp: 6,
   udp: 17,
@@ -85,7 +75,5 @@ let $proto_nums = {
   icmpv6: 58,
   ipv6: 41,
 }
-if $event.has("proto") {
-  $ocsf.connection_info.protocol_num = $proto_nums[$event.proto]? else -1
-  $ocsf.connection_info.protocol_name = move $event.proto
-}
+$ocsf.connection_info.protocol_num = $proto_nums[$event.proto?]?
+$ocsf.connection_info.protocol_name = move $event.proto?
