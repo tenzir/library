@@ -1,0 +1,25 @@
+// Every input of the package tests, normalized and checked with both OCSF
+// functions. The snapshot lists the events per class and every warning that
+// remains, which must only be the accepted data-quality signals.
+from_file f"{env("TENZIR_INPUTS")}/*.log" {
+  read_json
+  this = this.unflatten(".")
+  // Inputs without `_path` name their log type in the file name.
+  _path = _path? else $file.path.file_name().split(".")[0]
+}
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/*.tsv" {
+    read_zeek_tsv
+  }
+}
+// The edge cases of the focused tests.
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/../ocsf/*.input" {
+    read_ndjson
+    this = this.unflatten(".")
+  }
+}
+zeek::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+summarize log=metadata.log_name, class_uid, events=count()
+sort log, class_uid
