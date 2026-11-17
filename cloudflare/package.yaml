@@ -1,0 +1,117 @@
+id: cloudflare
+name: Cloudflare
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: |
+  https://raw.githubusercontent.com/tenzir/library/main/cloudflare/package.svg
+description: |
+  [Cloudflare](https://www.cloudflare.com/) is a connectivity cloud whose
+  reverse proxy, CDN, and web application firewall sit in front of websites
+  and APIs. Cloudflare [Logpush](https://developers.cloudflare.com/logs/logpush/)
+  delivers its logs as newline-delimited JSON to storage, SIEMs, and HTTP
+  endpoints.
+
+  This package maps three Logpush datasets to OCSF 1.9.0 and fetches account
+  audit logs from the Cloudflare API.
+
+  Operators:
+
+  - `cloudflare::ocsf::normalize` normalizes a Cloudflare Logpush record to
+    OCSF.
+  - `cloudflare::ocsf::map` maps a structured Cloudflare Logpush record to
+    OCSF. It takes the field that it reads and the field that it writes, in
+    that order.
+  - `cloudflare::audit_logs::fetch` fetches account audit logs from the
+    Cloudflare API in the field layout of the Logpush `audit_logs_v2` dataset.
+  - `cloudflare::audit_logs::to_logpush` reshapes an audit log record of the
+    API into the Logpush layout.
+
+  Tenzir reads Logpush's newline-delimited JSON natively, so the package needs
+  no parser. Normalize the records of a Logpush job that writes to an S3 or R2
+  bucket and send them to Hydrolix:
+
+  ```tql
+  from_file "s3://example-logpush/http_requests/**/*.log.gz", watch=true {
+    decompress_gzip
+    read_ndjson
+  }
+  cloudflare::ocsf::normalize dataset="http_requests"
+  to_hydrolix "https://hydrolix.example.com",
+    table="security.ocsf",
+    token=secret("HYDROLIX_TOKEN")
+  ```
+
+  Or receive the batches of a Logpush job with an HTTP destination and send
+  them to Splunk:
+
+  ```tql
+  accept_http "0.0.0.0:8443",
+    tls={certfile: "/etc/tenzir/tls/cert.pem", keyfile: "/etc/tenzir/tls/key.pem"} {
+    decompress_gzip
+    read_ndjson
+  }
+  // Logpush validates a new destination with a test record.
+  where content? != "tests"
+  cloudflare::ocsf::normalize
+  to_splunk "https://splunk.example.com:8088",
+    hec_token=secret("SPLUNK_HEC_TOKEN"),
+    index="cloudflare"
+  ```
+
+  Records that arrive as JSON strings, for example from Kafka, need
+  `this = message.parse_json()` before the normalizer.
+
+  ## Event mapping
+
+  | Logpush dataset   | OCSF class           | Profiles                                                   |
+  | ----------------- | -------------------- | ---------------------------------------------------------- |
+  | `http_requests`   | HTTP Activity (4002) | Network Proxy; Security Control with a terminating action  |
+  | `firewall_events` | HTTP Activity (4002) | Network Proxy, Security Control                            |
+  | `audit_logs_v2`   | API Activity (6003)  | Cloud                                                      |
+
+  Logpush records carry no dataset name, so the operators recognize the
+  dataset by its fields. Pass `dataset="http_requests"`, `"firewall_events"`,
+  or `"audit_logs_v2"` when a job selects so few fields that the shape is
+  ambiguous. Records of other datasets become OCSF Base Events.
+
+  ## Semantics worth knowing
+
+  - The client is `src_endpoint`, the Cloudflare data center is
+    `proxy_endpoint`, and the origin server, when Cloudflare contacted one, is
+    `dst_endpoint`. `http_response.code` is the status that Cloudflare returned
+    to the client (`EdgeResponseStatus`), whether it came from the origin, the
+    cache, or a security product. The origin's own status
+    (`OriginResponseStatus`) is `proxy_http_response.code`.
+  - `status_id` follows the status returned to the client: 1xx–3xx are
+    Success, 4xx and 5xx are Failure. A failed login and a blocked request are
+    both Failure, so detections that need the reason read
+    `http_response.code` or `disposition_id`.
+  - `http_request.url.path` is the path without the query string, which is
+    `url.query_string`. Both stay null when the job does not log them.
+  - Logpush timestamps can be Unix nanoseconds, Unix seconds, or RFC 3339
+    strings, depending on the job's `timestamp_format`. The mapping accepts all
+    of them.
+  - The Ray ID is `http_request.uid` and `metadata.correlation_uid`, so the
+    HTTP request and the firewall events of one request share a correlation
+    ID. Both datasets map to HTTP Activity, and a firewall event exists for
+    every rule that matched, so one request can yield several events. Count
+    requests on `metadata.log_name == "http_requests"` only, for example in
+    `tenzir::detect::http::credential_stuffing`.
+  - Security actions map to `action_id` and `disposition_id`: `block` is
+    Denied/Blocked, `log` is Observed/Logged, an interactive `challenge` is
+    Modified/Captcha, a JavaScript or managed challenge is Modified/Challenge,
+    and a solved or bypassed challenge is Allowed. In `http_requests`, only the
+    terminating `SecurityAction` maps; the lists of all matching products,
+    actions, and rules stay under `unmapped`.
+  - Bot Management and WAF attack scores have no OCSF attribute and stay under
+    `unmapped` with their Cloudflare names, such as `unmapped.BotScore` and
+    `unmapped.WAFAttackScore`, as do cache, Workers, and timing details.
+  - Audit log actions map to Create, Read, Update, and Delete. Actions by
+    Cloudflare itself (`system` and `delegated_service` actors) carry no actor
+    IP address, so these API Activity events lack the required
+    `src_endpoint`, and OCSF validation warns about them.
+
+  The test fixtures are synthetic.
+categories:
+- sources
+- mappings

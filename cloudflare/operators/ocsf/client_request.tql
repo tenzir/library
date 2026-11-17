@@ -1,0 +1,149 @@
+---
+description: |
+  Maps the client request fields that the Cloudflare HTTP requests and
+  firewall events datasets share to OCSF HTTP Activity.
+
+  The dataset operators call it after they set the dataset-specific parts of
+  `http_request`, the query string and the referrer.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured Cloudflare Logpush record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: classification attributes ----------
+
+@name = "ocsf.http_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
+$ocsf.activity_id = (
+  cloudflare::$http_activity_ids[$cloudflare.ClientRequestMethod?]?
+  else 99 if $cloudflare.ClientRequestMethod? != null else 0
+)
+$ocsf.activity_name = $cloudflare.ClientRequestMethod if $ocsf.activity_id == 99
+
+// --- OCSF: primary attributes -----------------
+
+// Cloudflare reports an unknown AS number, data center, port, or status as 0.
+replace $cloudflare.ClientASN?, $cloudflare.ClientSrcPort?, $cloudflare.EdgeColoID?,
+  $cloudflare.OriginResponseStatus?, $cloudflare.EdgeResponseStatus?, what=0, with=null
+
+$ocsf.http_request = {
+  http_method: move $cloudflare.ClientRequestMethod?,
+  user_agent: move $cloudflare.ClientRequestUserAgent?,
+  version: move $cloudflare.ClientRequestProtocol?,
+  uid: $cloudflare.RayID?,
+  referrer: $ocsf.http_request?.referrer?,
+  url: {
+    scheme: move $cloudflare.ClientRequestScheme?,
+    hostname: move $cloudflare.ClientRequestHost?,
+    path: move $cloudflare.ClientRequestPath?,
+    query_string: $ocsf.http_request?.url?.query_string?,
+  },
+}
+
+// The zone is the registered domain of the requested host, unless the host
+// is a custom hostname of another domain. A `move` in an inline conditional
+// consumes the field even when the condition fails, so this needs a statement.
+if $cloudflare.ZoneName? != null and (
+  $ocsf.http_request.url.hostname == $cloudflare.ZoneName
+  or $ocsf.http_request.url.hostname.ends_with(f".{$cloudflare.ZoneName}")
+) {
+  $ocsf.http_request.url.domain = move $cloudflare.ZoneName
+}
+$ocsf.http_request.url.url_string = (
+  f"{$ocsf.http_request.url.scheme}://{$ocsf.http_request.url.hostname}"
+  + ($ocsf.http_request.url.path else "")
+  + (f"?{$ocsf.http_request.url.query_string}" if $ocsf.http_request.url.query_string != null else "")
+  if $ocsf.http_request.url.scheme != null and $ocsf.http_request.url.hostname != null
+)
+// OCSF requires a URL to have a path or a URL string.
+$ocsf.http_request.url = $ocsf.http_request.url if (
+  $ocsf.http_request.url.path != null or $ocsf.http_request.url.url_string != null
+)
+
+// The status that Cloudflare returned to the client, whether it came from the
+// origin, the cache, or a security product, and the status that the origin
+// returned to Cloudflare.
+$ocsf.http_response = {code: move $cloudflare.EdgeResponseStatus} if $cloudflare.EdgeResponseStatus? != null
+$ocsf.proxy_http_response = {code: move $cloudflare.OriginResponseStatus} if $cloudflare.OriginResponseStatus? != null
+
+// Range patterns exclude both bounds.
+match $ocsf.http_response.code? {
+  99..400 => {
+    $ocsf.status_id = 1
+  }
+  399..600 => {
+    $ocsf.status_id = 2
+  }
+  _ => {
+    $ocsf.status_id = 0
+  }
+}
+
+// --- OCSF: source endpoint (the client) -------
+
+// An endpoint needs an identity, so client details without an IP address
+// stay under `unmapped`.
+if $cloudflare.ClientIP? != null {
+  $ocsf.src_endpoint = {
+    ip: ip(move $cloudflare.ClientIP),
+    port: move $cloudflare.ClientSrcPort?,
+    type_id: cloudflare::$device_type_ids[$cloudflare.ClientDeviceType?]?,
+    autonomous_system: {
+      number: move $cloudflare.ClientASN?,
+      name: move $cloudflare.ClientASNDescription?,
+    } if $cloudflare.ClientASN? != null or $cloudflare.ClientASNDescription? != null,
+  }
+  // Cloudflare reports `XX` for an unknown country and `T1` for Tor exit
+  // nodes, neither of which is an ISO 3166-1 country code.
+  if $cloudflare.ClientCountry?.to_upper() not in [null, "XX", "T1"] {
+    $ocsf.src_endpoint.location = {
+      country: (move $cloudflare.ClientCountry).to_upper(),
+      region: move $cloudflare.ClientRegionCode?,
+      city: move $cloudflare.ClientCity?,
+      lat: float(move $cloudflare.ClientLatitude?),
+      long: float(move $cloudflare.ClientLongitude?),
+    }
+  }
+  if $ocsf.src_endpoint.type_id != null {
+    drop $cloudflare.ClientDeviceType
+  }
+}
+
+// --- OCSF: network proxy profile --------------
+
+// Cloudflare is the reverse proxy between the client and the origin. The
+// data center that received the request is the proxy endpoint.
+if $cloudflare.EdgeColoCode? != null {
+  $ocsf.proxy_endpoint = {
+    name: move $cloudflare.EdgeColoCode,
+    uid: string(move $cloudflare.EdgeColoID?),
+    ip: ip(move $cloudflare.EdgeServerIP?),
+  }
+}
+
+$ocsf.connection_info = {
+  direction_id: 1,
+  // HTTP/3 runs over QUIC, which runs over UDP.
+  protocol_name: (
+    "udp" if $ocsf.http_request.version == "HTTP/3"
+    else "tcp" if $ocsf.http_request.version != null
+  ),
+  protocol_ver_id: (
+    4 if $ocsf.src_endpoint?.ip?.is_v4()
+    else 6 if $ocsf.src_endpoint?.ip?.is_v6()
+  ),
+}
+// Every request passes through Cloudflare's reverse proxy.
+$ocsf.metadata.profiles = ["network_proxy"]
+
+// --- OCSF: context attributes -----------------
+
+// The Ray ID identifies the request across the HTTP requests and firewall
+// events datasets.
+$ocsf.metadata.correlation_uid = move $cloudflare.RayID?

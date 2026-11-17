@@ -1,0 +1,131 @@
+---
+description: |
+  Cloudflare Logpush `http_requests` → OCSF HTTP Activity (4002).
+
+  The client is the source endpoint, the Cloudflare data center is the proxy
+  endpoint, and the origin server, when Cloudflare contacted one, is the
+  destination endpoint. `http_response` describes the response that the client
+  received, and `proxy_http_response` the response of the origin.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured HTTP request record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: occurrence attributes --------------
+
+// Logpush writes timestamps as Unix nanoseconds (API default), Unix seconds,
+// or RFC 3339 strings (dashboard default), depending on the job.
+$ocsf.time = (
+  from_epoch($cloudflare.EdgeStartTimestamp * (1ns if $cloudflare.EdgeStartTimestamp > 100000000000 else 1s))
+  if $cloudflare.EdgeStartTimestamp?.type_kind() == "int"
+  else time($cloudflare.EdgeStartTimestamp?)
+)
+$ocsf.start_time = $ocsf.time
+$ocsf.end_time = (
+  from_epoch($cloudflare.EdgeEndTimestamp * (1ns if $cloudflare.EdgeEndTimestamp > 100000000000 else 1s))
+  if $cloudflare.EdgeEndTimestamp?.type_kind() == "int"
+  else time($cloudflare.EdgeEndTimestamp?)
+)
+drop $cloudflare.EdgeStartTimestamp?, $cloudflare.EdgeEndTimestamp?
+$ocsf.duration = int(($ocsf.end_time - $ocsf.start_time) / 1ms)
+
+// --- OCSF: dataset-specific request parts -----
+
+$ocsf.http_request = {
+  // `ClientRequestURI` carries the path and the query string.
+  url: {
+    query_string: (move $cloudflare.ClientRequestURI?).split("?", max=1)[1]?,
+  },
+  referrer: move $cloudflare.ClientRequestReferer?,
+}
+
+cloudflare::ocsf::client_request $cloudflare, $ocsf
+
+// --- OCSF: request and response details -------
+
+// Custom fields log selected headers and cookies as records.
+$ocsf.http_request.length = move $cloudflare.ClientRequestBytes?
+$ocsf.http_request.http_headers = [
+  ...$cloudflare.RequestHeaders?.keys().map(name => {
+    name: name,
+    value: $cloudflare.RequestHeaders[name],
+  }),
+  ...([{name: "X-Requested-With", value: move $cloudflare.ClientXRequestedWith}]
+    if $cloudflare.ClientXRequestedWith? != null),
+]
+$ocsf.http_cookies = $cloudflare.Cookies?.keys().map(name => {
+  name: name,
+  value: $cloudflare.Cookies[name],
+})
+drop $cloudflare.RequestHeaders?, $cloudflare.Cookies?
+
+// OCSF requires a response to have a status code.
+if $ocsf.http_response != null {
+  $ocsf.http_response = {
+    ...$ocsf.http_response,
+    content_type: move $cloudflare.EdgeResponseContentType?,
+    length: move $cloudflare.EdgeResponseBytes?,
+    body_length: move $cloudflare.EdgeResponseBodyBytes?,
+    latency: move $cloudflare.EdgeTimeToFirstByteMs?,
+    http_headers: $cloudflare.ResponseHeaders?.keys().map(name => {
+      name: name,
+      value: $cloudflare.ResponseHeaders[name],
+    }),
+  }
+  drop $cloudflare.ResponseHeaders?
+}
+
+// Bytes in flow from the destination to the source, bytes out the reverse.
+$ocsf.traffic = {
+  bytes_out: $ocsf.http_request.length,
+  bytes_in: $ocsf.http_response.length?,
+}
+
+// --- OCSF: client TLS -------------------------
+
+// A `move` in an inline conditional consumes the field even when the
+// condition fails, so `none` stays under `unmapped` through a statement.
+if $cloudflare.ClientSSLProtocol? not in [null, "none", "unknown", "UNK"] {
+  $ocsf.tls = {
+    version: move $cloudflare.ClientSSLProtocol,
+    cipher: move $cloudflare.ClientSSLCipher?,
+    ja3_hash: {
+      algorithm_id: 1,
+      value: move $cloudflare.JA3Hash,
+    } if $cloudflare.JA3Hash? != null,
+  }
+}
+$ocsf.ja4_fingerprint_list = [{type_id: 1, value: move $cloudflare.JA4}] if $cloudflare.JA4? != null
+
+// --- OCSF: origin (destination) ---------------
+
+$ocsf.dst_endpoint = {ip: ip(move $cloudflare.OriginIP)} if $cloudflare.OriginIP? != null
+if $ocsf.proxy_http_response != null {
+  $ocsf.proxy_http_response.latency = move $cloudflare.OriginResponseDurationMs?
+}
+if $cloudflare.OriginSSLProtocol? not in [null, "none", "unknown", "UNK"] {
+  $ocsf.proxy_tls.version = move $cloudflare.OriginSSLProtocol
+}
+
+// --- OCSF: security control profile -----------
+
+// `SecurityAction` is the action of the rule that terminated the request.
+// The `Security*` lists of all products that matched remain under `unmapped`.
+if $cloudflare.SecurityAction? not in [null, "unknown"] {
+  cloudflare::ocsf::security_action $cloudflare.SecurityAction, $ocsf
+  drop $cloudflare.SecurityAction
+  // The dashboard calls the description of a rule its name. The product that
+  // matched the rule sits at the same position in `SecuritySources` as the
+  // rule in `SecurityRuleIDs`.
+  $ocsf.firewall_rule = {
+    type: zip($cloudflare.SecurityRuleIDs? else [], $cloudflare.SecuritySources? else [])
+      .where(x => x.left == $cloudflare.SecurityRuleID?)[0]?.right?,
+    uid: move $cloudflare.SecurityRuleID?,
+    name: move $cloudflare.SecurityRuleDescription?,
+  } if $cloudflare.SecurityRuleID? != null or $cloudflare.SecurityRuleDescription? != null
+}

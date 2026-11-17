@@ -1,0 +1,42 @@
+---
+description: |
+  Normalizes a Cloudflare Logpush record to OCSF.
+
+  ```tql
+  from_file "s3://example-logpush/http_requests/**/*.log.gz" {
+    decompress_gzip
+    read_ndjson
+  }
+  cloudflare::ocsf::normalize
+  ```
+
+  Logpush delivers newline-delimited JSON, which Tenzir reads natively, so the
+  package starts at the mapper. The operator maps HTTP requests and firewall
+  events to OCSF HTTP Activity and audit logs to OCSF API Activity. Whatever
+  has no OCSF attribute remains under `unmapped`.
+
+  Callers who already hold a structured Logpush record under another field, or
+  who want to inspect and enrich the record before mapping, use
+  `cloudflare::ocsf::map`.
+args:
+  positional:
+    - name: cloudflare
+      description: The structured Cloudflare Logpush record.
+      type: field
+      default: this
+  named:
+    - name: dataset
+      type: string
+      default: null
+      description: |
+        The Logpush dataset of the record: `http_requests`, `firewall_events`,
+        or `audit_logs_v2`. Defaults to recognizing the dataset by its fields.
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+$into.cloudflare = $cloudflare
+cloudflare::ocsf::map $into.cloudflare, $into.ocsf, dataset=$dataset
+$into = $into.ocsf

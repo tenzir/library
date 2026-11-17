@@ -1,0 +1,47 @@
+---
+description: |
+  Reshapes an audit log record of the Cloudflare API (Audit Logs v2) into the
+  field layout of the Logpush `audit_logs_v2` dataset, so that both sources
+  feed the same mapping.
+
+  ```tql
+  from_file "audit-logs.json" {
+    read_json
+  }
+  unroll result
+  this = result
+  cloudflare::audit_logs::to_logpush
+  cloudflare::ocsf::normalize
+  ```
+
+  `cloudflare::audit_logs::fetch` calls it for every record it fetches.
+---
+
+this = {
+  AccountID: account?.id?,
+  AccountName: account?.name?,
+  ActionDescription: action?.description?,
+  ActionResult: action?.result?,
+  ActionTimestamp: action?.time?,
+  ActionType: action?.type?,
+  ActorContext: actor?.context?,
+  ActorEmail: actor?.email?,
+  ActorID: actor?.id?,
+  ActorIPAddress: actor?.ip_address?,
+  // Older API responses carry `token_id` and `token_name` instead of `token`.
+  ActorTokenDetails: actor?.token? else (
+    {id: actor.token_id, name: actor?.token_name?} if actor?.token_id? != null
+  ),
+  ActorType: actor?.type?,
+  AuditLogID: id?,
+  Raw: raw?,
+  ResourceID: resource?.id?,
+  ResourceProduct: resource?.product?,
+  ResourceRequest: resource?.request?,
+  ResourceResponse: resource?.response?,
+  ResourceScope: resource?.scope?,
+  ResourceType: resource?.type?,
+  ResourceValue: resource?.value?,
+  ZoneID: zone?.id?,
+  ZoneName: zone?.name?,
+}

@@ -1,0 +1,22 @@
+---
+name: "Cloudflare Audit Logs API → OCSF → ClickHouse"
+description: |
+  Polls the Cloudflare API for account audit logs every five minutes,
+  normalizes them to OCSF API Activity, and appends them to a ClickHouse
+  table. Each poll looks back 15 minutes to pick up late records, and
+  deduplication drops the ones that an earlier poll already delivered.
+---
+
+let $account_id = "023e105f4ecef8ad9ca31a8372d0c353"
+
+every 5min {
+  cloudflare::audit_logs::fetch $account_id,
+    api_token=secret("CLOUDFLARE_API_TOKEN"),
+    since=now() - 15min
+}
+deduplicate AuditLogID, create_timeout=1h
+cloudflare::ocsf::normalize
+to_clickhouse table="ocsf_api_activity",
+  host="clickhouse.example.com",
+  password=secret("CLICKHOUSE_PASSWORD"),
+  mode="create_append"

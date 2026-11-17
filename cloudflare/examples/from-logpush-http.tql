@@ -1,0 +1,21 @@
+---
+name: "Cloudflare Logpush over HTTPS → OCSF → Splunk"
+description: |
+  Receives Cloudflare Logpush batches on an HTTPS endpoint, normalizes the
+  records to OCSF, and sends them to Splunk. Point a Logpush job with an HTTP
+  destination at this endpoint, such as `https://tenzir.example.com:8443`.
+  Logpush sends gzip-compressed, newline-delimited JSON and requires a
+  trusted certificate.
+---
+
+accept_http "0.0.0.0:8443",
+  tls={certfile: "/etc/tenzir/tls/cert.pem", keyfile: "/etc/tenzir/tls/key.pem"} {
+  decompress_gzip
+  read_ndjson
+}
+// Logpush validates a new destination with a test record.
+where content? != "tests"
+cloudflare::ocsf::normalize
+to_splunk "https://splunk.example.com:8088",
+  hec_token=secret("SPLUNK_HEC_TOKEN"),
+  index="cloudflare"

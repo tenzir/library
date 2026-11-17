@@ -1,0 +1,23 @@
+---
+description: |
+  Maps the action of a Cloudflare security product to the OCSF `action_id`
+  and `disposition_id` of the Security Control profile and adds the profile.
+
+  An action without an OCSF counterpart becomes `action_id` 99 (Other) with the
+  Cloudflare action as `action`.
+args:
+  positional:
+    - name: action
+      type: field
+      description: The Cloudflare security action, such as `block` or `managedChallenge`.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+$ocsf = {
+  ...$ocsf,
+  ...cloudflare::$security_actions[$action.to_lower()]?
+    else {action_id: 99, action: $action, disposition_id: 0},
+}
+$ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]

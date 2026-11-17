@@ -1,0 +1,88 @@
+---
+description: |
+  Cloudflare Logpush events → OCSF.
+
+  Reads a structured Cloudflare Logpush record and builds the corresponding
+  OCSF event in the second field:
+
+  ```tql
+  cloudflare::ocsf::map cloudflare, ocsf
+  ```
+
+  | Logpush dataset   | OCSF class                                 |
+  | ----------------- | ------------------------------------------ |
+  | `http_requests`   | HTTP Activity (4002)                       |
+  | `firewall_events` | HTTP Activity (4002), Security Control     |
+  | `audit_logs_v2`   | API Activity (6003)                        |
+
+  Logpush records carry no dataset name, so the operator recognizes the
+  dataset by its fields: `Datetime` or `Kind` for firewall events,
+  `AuditLogID` or `ActionTimestamp` for audit logs, and `EdgeStartTimestamp`,
+  `RayID`, or `ClientRequestHost` for HTTP requests. Pass `dataset` when a
+  Logpush job selects so few fields that the shape is ambiguous. A record of
+  no supported dataset becomes an OCSF Base Event.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what
+  it cannot map becomes `unmapped` inside the OCSF event.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured Cloudflare Logpush record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+  named:
+    - name: dataset
+      type: string
+      default: null
+      description: |
+        The Logpush dataset of the record: `http_requests`, `firewall_events`,
+        or `audit_logs_v2`. Defaults to recognizing the dataset by its fields.
+---
+
+$ocsf = {
+  metadata: {
+    version: "1.9.0",
+    product: {
+      name: "Cloudflare",
+      vendor_name: "Cloudflare",
+    },
+  },
+  severity_id: 1,
+}
+
+// Logpush writes empty strings and objects for fields that do not apply to a
+// request, such as `OriginIP` for a cache hit, and `00` for a missing Ray ID.
+replace $cloudflare, what="", with=null
+replace $cloudflare, what={}, with=null
+replace $cloudflare.ParentRayID?, $cloudflare.OriginatorRayID?, what="00", with=null
+
+$ocsf.metadata.log_name = $dataset else (
+  "firewall_events" if $cloudflare.Datetime? != null or $cloudflare.Kind? == "firewall"
+  else "audit_logs_v2" if $cloudflare.AuditLogID? != null or $cloudflare.ActionTimestamp? != null
+  else "http_requests" if $cloudflare.EdgeStartTimestamp? != null or $cloudflare.RayID? != null or $cloudflare.ClientRequestHost? != null
+)
+
+match $ocsf.metadata.log_name {
+  "http_requests" => {
+    cloudflare::ocsf::events::http_request $cloudflare, $ocsf
+  }
+  "firewall_events" => {
+    cloudflare::ocsf::events::firewall_event $cloudflare, $ocsf
+  }
+  "audit_logs_v2" => {
+    cloudflare::ocsf::events::audit_log $cloudflare, $ocsf
+  }
+  _ => {
+    @name = "ocsf.base_event"
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
+  }
+}
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// Containers whose fields all moved into the OCSF event are empty now.
+replace $cloudflare, what={}, with=null
+$ocsf = {...$ocsf, unmapped: move $cloudflare}

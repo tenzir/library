@@ -1,0 +1,62 @@
+---
+description: |
+  Cloudflare Logpush `firewall_events` → OCSF HTTP Activity (4002) with the
+  Security Control profile.
+
+  Each firewall event reports one security rule that matched a request. The
+  rule becomes `firewall_rule`, the security product that owns it becomes
+  `firewall_rule.type`, and the rule's action becomes `action_id` and
+  `disposition_id`. A request that matched several rules yields several
+  events with the same Ray ID in `metadata.correlation_uid`.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured firewall event record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: occurrence attributes --------------
+
+// Logpush writes timestamps as Unix nanoseconds (API default), Unix seconds,
+// or RFC 3339 strings (dashboard default), depending on the job.
+$ocsf.time = (
+  from_epoch($cloudflare.Datetime * (1ns if $cloudflare.Datetime > 100000000000 else 1s))
+  if $cloudflare.Datetime?.type_kind() == "int"
+  else time($cloudflare.Datetime?)
+)
+drop $cloudflare.Datetime?, $cloudflare.Kind?
+
+// --- OCSF: dataset-specific request parts -----
+
+// Firewall events split the query string and the referrer into parts. Query
+// strings start with `?`.
+$ocsf.http_request.url.query_string = (move $cloudflare.ClientRequestQuery?).trim_start("?")
+if $cloudflare.ClientRefererScheme? != null and $cloudflare.ClientRefererHost? != null {
+  $ocsf.http_request.referrer = (
+    f"{move $cloudflare.ClientRefererScheme}://{move $cloudflare.ClientRefererHost}"
+    + (move $cloudflare.ClientRefererPath? else "")
+    + (move $cloudflare.ClientRefererQuery? else "")
+  )
+}
+replace $ocsf.http_request.url.query_string, what="", with=null
+
+cloudflare::ocsf::client_request $cloudflare, $ocsf
+
+// --- OCSF: security control profile -----------
+
+if $cloudflare.Action? != null {
+  cloudflare::ocsf::security_action $cloudflare.Action, $ocsf
+  drop $cloudflare.Action
+}
+// The dashboard calls the description of a rule its name. `Ref` is the
+// rule's user-defined reference and stays under `unmapped`.
+if $cloudflare.RuleID? != null or $cloudflare.Description? != null {
+  $ocsf.firewall_rule = {
+    uid: move $cloudflare.RuleID?,
+    name: move $cloudflare.Description?,
+    type: move $cloudflare.Source?,
+  }
+}

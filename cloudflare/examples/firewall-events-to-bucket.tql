@@ -1,0 +1,21 @@
+---
+name: "Cloudflare Firewall Events → OCSF → Parquet in S3"
+description: |
+  Reads the firewall events that a Logpush job writes to a bucket,
+  normalizes them to OCSF HTTP Activity with the Security Control profile,
+  and archives them as Parquet files partitioned by day.
+---
+
+let $source = "s3://example-logpush/firewall_events/**/*.log.gz?region=us-east-1"
+let $archive = "s3://example-archive/ocsf/cloudflare/**/part_{uuid}.parquet?region=us-east-1"
+
+from_file $source, watch=true {
+  decompress_gzip
+  read_ndjson
+}
+cloudflare::ocsf::normalize dataset="firewall_events"
+day = time.format_time("%Y-%m-%d")
+to_s3 $archive, partition_by=[day] {
+  drop day
+  write_parquet
+}
