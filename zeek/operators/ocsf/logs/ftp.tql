@@ -37,12 +37,39 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.metadata.log_name = "ftp.log"
 $ocsf.metadata.profiles = ["host"]
-$ocsf.actor.user.name = move $event.user?
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
+}
 
-$ocsf.file = {
-  name: move $event.arg,
-  size: move $event.file_size,
-  type_id: 0,
+// Only these commands take a file or folder argument. OCSF prefers Regular
+// File when the source does not distinguish file types.
+let $file_types = {
+  APPE: 1,
+  DELE: 1,
+  MDTM: 1,
+  RETR: 1,
+  RNFR: 1,
+  RNTO: 1,
+  SIZE: 1,
+  STOR: 1,
+  STOU: 1,
+  MKD: 2,
+  RMD: 2,
+}
+if $file_types[$event.command]? != null and $event.arg? != null {
+  // Zeek logs transferred files as absolute `ftp://` URLs.
+  $ocsf.file = {
+    name: $event.arg.file_name(),
+    path: $event.arg.replace_regex("^ftp://[^/]*", ""),
+    size: move $event.file_size?,
+    mime_type: move $event.mime_type?,
+    uid: move $event.fuid?,
+    type_id: $file_types[$event.command],
+  }
+  if $event.arg.starts_with("ftp://") {
+    $ocsf.file.url.url_string = $event.arg
+  }
+  drop $event.arg
 }
 
 // --- OCSF: primary attributes -----------------
@@ -51,11 +78,29 @@ $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
 $ocsf.command = move $event.command
-$ocsf.codes = [move $event.reply_code]
-$ocsf.status_code = $ocsf.codes[0].string()
-$ocsf.status_detail = move $event.reply_msg
-$ocsf.type = "passive" if $event.data_channel.passive else "active"
-$ocsf.port = move $event.data_channel.resp_p
-drop $event.data_channel
+$ocsf.status_code = $event.reply_code?.string()
+$ocsf.status_detail = move $event.reply_msg?
+// Range bounds are exclusive.
+match $event.reply_code? {
+  // Preliminary, completion, and intermediate replies
+  99..400 => {
+    $ocsf.status = "Success"
+    $ocsf.status_id = 1
+  }
+  // Transient and permanent negative replies
+  399..600 => {
+    $ocsf.status = "Failure"
+    $ocsf.status_id = 2
+  }
+  _ => {}
+}
+$ocsf.codes = [move $event.reply_code?].collect()
+
+let $channel_types = {
+  "true": "passive",
+  "false": "active",
+}
+$ocsf.type = $channel_types[(move $event.data_channel?.passive?).string()]?
+$ocsf.port = move $event.data_channel?.resp_p?
 
 @name = "ocsf.ftp_activity"

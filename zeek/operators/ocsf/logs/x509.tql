@@ -1,6 +1,6 @@
 ---
 description: |
-  Zeek x509.log → OCSF Network Activity.
+  Zeek x509.log → OCSF Base Event with the certificate fields retained.
 args:
   positional:
     - name: event
@@ -11,39 +11,6 @@ args:
       type: field
 ---
 
-zeek::ocsf::map_network $event, $ocsf
-
-// --- OCSF: classification attributes ----------
-
-$ocsf.activity_id = 6
-$ocsf.class_uid = 4001
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-// --- OCSF: context attributes -----------------
-
+// A certificate log describes a certificate, not an observed connection.
+zeek::ocsf::base $event, $ocsf
 $ocsf.metadata.log_name = "x509.log"
-
-$ocsf.tls = {
-  certificate: {
-    serial_number: move $event.certificate.serial,
-    created_time: move $event.certificate.not_valid_before,
-    expiration_time: move $event.certificate.not_valid_after,
-    issuer: move $event.certificate.issuer,
-    subject: move $event.certificate.subject,
-    version: (move $event.certificate.version).string(),
-  },
-  sans: (move $event.san.dns).map(name => {
-    name: name,
-    type: "DNSName",
-  }),
-  version: null,
-}
-if $event.fingerprint? != null {
-  $ocsf.tls.certificate.fingerprints = [{
-    algorithm_id: 3,
-    value: move $event.fingerprint,
-  }]
-}
-
-@name = "ocsf.network_activity"

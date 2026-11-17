@@ -63,35 +63,33 @@ let $alert_codes = {
   ech_required: 121, // draft-ietf-tls-esni-17
 }
 
+// Zeek logs no version when the handshake did not finish. The TLS facts that
+// were observed still belong here, even though OCSF requires the version.
 $ocsf.tls = {
-  certificate: {
-    issuer: move $event.issuer,
-    subject: move $event.subject,
-  },
-  cipher: move $event.cipher,
-  ja3_hash: {
-    algorithm_id: 1,
-    value: move $event.ja3?,
-  },
-  ja3s_hash: {
-    algorithm_id: 1,
-    value: move $event.ja3s?,
-  },
-  sni: move $event.server_name,
-  version: move $event.version,
+  cipher: move $event.cipher?,
+  // JSON readers infer IP values; the SNI is always a string.
+  sni: (move $event.server_name?).string(),
+  version: move $event.version?,
+  // NB: If we have an alert, `ssl_history` also contains [lL].
+  alert: $alert_codes[$event.last_alert?]?,
 }
-// NB: If we have an alert, `ssl_history` also contains [lL].
-$ocsf.tls.alert = $alert_codes[$event.last_alert?]?
+// A fingerprint requires its value.
+if $event.ja3? != null {
+  $ocsf.tls.ja3_hash = {algorithm_id: 1, value: move $event.ja3}
+}
+if $event.ja3s? != null {
+  $ocsf.tls.ja3s_hash = {algorithm_id: 1, value: move $event.ja3s}
+}
 
 // --- OCSF: primary attributes -----------------
 
 $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
-if not $event.established or $event.last_alert != null {
+if not $event.established or $event.last_alert? != null {
   $ocsf.status_id = 2
   $ocsf.status = "Failure"
-  $ocsf.status_detail = move $event.last_alert
+  $ocsf.status_detail = move $event.last_alert?
 } else if $event.validation_status? == "ok" {
   // There could be more `validation_status` values that mean success,
   // but it's difficult to find them. In Zeek, we'd need to grep through
@@ -100,11 +98,11 @@ if not $event.established or $event.last_alert != null {
   // Going with just "ok" here is simply going off empirical data.
   $ocsf.status_id = 1
   $ocsf.status = "Success"
-  $ocsf.status_detail = move $event.validation_status
+  $ocsf.status_detail = move $event.validation_status?
 } else {
   $ocsf.status_id = 0
   $ocsf.status = "Unknown"
-  $ocsf.status_detail = move $event.validation_status
+  $ocsf.status_detail = move $event.validation_status?
 }
 drop $event.established
 

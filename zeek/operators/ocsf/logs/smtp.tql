@@ -1,6 +1,6 @@
 ---
 description: |
-  Zeek smtp.log → OCSF Email Activity.
+  Zeek smtp.log → OCSF Email Activity or SMTP network traffic.
 args:
   positional:
     - name: event
@@ -18,38 +18,92 @@ args:
 //   events when possible.
 
 zeek::ocsf::map_network $event, $ocsf
-drop $ocsf.connection_info?
-
-// --- OCSF: classification attributes ----------
-
-$ocsf.activity_id = 1
-$ocsf.class_uid = 4009
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-// --- OCSF: context attributes -----------------
-
 $ocsf.metadata.log_name = "smtp.log"
 
-// --- OCSF: primary attributes -----------------
-
-$ocsf.dst_endpoint.intermediate_ips = move $event.path
-
-$ocsf.email = {
-  from_mailbox: move $event.from,
-  from: move $event.mailfrom,
-  cc: move $event.cc?,
-  reply_to: move $event.reply_to?,
-  message_uid: move $event.msg_id,
-  to: move $event.rcptto,
-  to_mailboxes: move $event.to,
-  subject: move $event.subject,
-  urls: (move $event.urls?).map(url => {
-    url_string: url,
-  }),
+// Zeek logs these fields only after a client started a message. Without any of
+// them, the record describes the SMTP negotiation alone.
+let $message_fields = [
+  "mailfrom",
+  "rcptto",
+  "date",
+  "from",
+  "to",
+  "cc",
+  "reply_to",
+  "msg_id",
+  "in_reply_to",
+  "subject",
+  "x_originating_ip",
+  "first_received",
+  "second_received",
+  "user_agent",
+  "urls",
+  "fuids",
+]
+if $message_fields.map(key => $event[key]? not in [null, []]).any() {
+  // Keep observed email activity even when its envelope is incomplete.
+  drop $ocsf.connection_info?
+  $ocsf.activity_id = 1
+  $ocsf.class_uid = 4009
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.dst_endpoint.intermediate_ips = move $event.path?
+  // OCSF separates the SMTP envelope from the message headers. The header
+  // fields hold human-readable mailboxes such as `Name <user@example.org>`,
+  // from which the machine-readable fields take the address.
+  let $address = "^.*<([^>]*)>.*$"
+  $ocsf.email = {
+    smtp_from: move $event.mailfrom?,
+    smtp_to: move $event.rcptto?,
+    from: $event.from?.replace_regex($address, "\\1").trim(),
+    from_mailbox: move $event.from?,
+    to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()),
+    to_mailboxes: move $event.to?,
+    cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()),
+    cc_mailboxes: move $event.cc?,
+    reply_to: $event.reply_to?.replace_regex($address, "\\1").trim(),
+    reply_to_mailboxes: [move $event.reply_to?].collect(),
+    message_uid: move $event.msg_id?,
+    subject: move $event.subject?,
+    x_originating_ip: move $event.x_originating_ip?,
+    urls: (move $event.urls?).map(url => {
+      url_string: url,
+    }),
+  }
+  // HELO/EHLO carries the client's self-reported host name.
+  $ocsf.smtp_hello = move $event.helo?
+  $ocsf.protocol_name = "SMTP"
+  $ocsf.direction_id = 0
+  $ocsf.status_detail = move $event.last_reply?
+  // The last reply code tells whether the server accepted the transaction.
+  $ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
+  // Range bounds are exclusive.
+  match int($ocsf.status_code?) {
+    // 2xx and 3xx
+    199..400 => {
+      $ocsf.status = "Success"
+      $ocsf.status_id = 1
+    }
+    // 4xx and 5xx
+    399..600 => {
+      $ocsf.status = "Failure"
+      $ocsf.status_id = 2
+    }
+    _ => {
+      $ocsf.status = "Unknown"
+      $ocsf.status_id = 0
+    }
+  }
+  @name = "ocsf.email_activity"
+} else {
+  // HELO/STARTTLS can finish without an email envelope. Report the observed
+  // SMTP traffic and retain negotiation details under their original keys.
+  $ocsf.activity_id = 6
+  $ocsf.class_uid = 4001
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  $ocsf.app_protocol_name = "smtp"
+  $ocsf.connection_info.protocol_name = "tcp"
+  $ocsf.connection_info.protocol_num = 6
+  @name = "ocsf.network_activity"
 }
-$ocsf.command = move $event.helo
-$ocsf.protocol_name = "SMTP"
-$ocsf.status_detail = move $event.last_reply
-
-@name = "ocsf.email_activity"
