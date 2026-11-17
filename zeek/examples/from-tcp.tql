@@ -1,0 +1,16 @@
+---
+name: Normalize Zeek JSON logs from TCP to OCSF
+description: |
+  Accepts Zeek JSON logs as newline-delimited JSON over TCP and normalizes
+  them to OCSF. Each record needs Zeek's `_path` field, which the
+  `json-streaming-logs` Zeek package writes. Forward its `json_streaming_*.log`
+  files with a log shipper, such as Fluent Bit or Vector.
+---
+
+accept_tcp "0.0.0.0:5555" {
+  read_ndjson
+  // Zeek writes nested fields with dotted keys, such as `id.orig_h`.
+  this = this.unflatten(".")
+}
+zeek::ocsf::normalize
+this = ocsf_cast(this)
