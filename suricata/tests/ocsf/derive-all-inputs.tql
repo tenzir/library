@@ -1,0 +1,17 @@
+// Every input of the package tests, read the way users read EVE JSON,
+// normalized, and checked with both OCSF functions. The snapshot lists the
+// events per class and every warning that remains, which must only be the
+// accepted data-quality signals.
+from_file f"{env("TENZIR_INPUTS")}/*.json" {
+  read_suricata
+}
+// The edge cases of the focused tests.
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/../ocsf/*.input" {
+    read_suricata
+  }
+}
+suricata::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+summarize log=metadata.log_name, class_uid, events=count()
+sort log, class_uid
