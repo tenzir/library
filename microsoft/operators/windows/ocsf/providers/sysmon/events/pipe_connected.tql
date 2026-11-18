@@ -17,34 +17,16 @@ $ocsf.class_uid = 201003
 $ocsf.activity_id = 1  // Access
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-
-// Named pipes have no dedicated type_id in OCSF; Other (99) is the correct
-// choice. type must be the enum caption "Other". The operation and resource kind
-// go into details so the create/connect distinction and "Named Pipe" are not lost.
+// Named pipes have no dedicated type_id in OCSF, so the resource is Other (99)
+// with the resource kind as its caption. The operation goes into details so
+// the create/connect distinction is not lost.
 $ocsf.win_resource = {
   name:    move $windows.EventData.PipeName,
-  type_id: 99,  // Other — no dedicated enum value for named pipes
-  type:    "Other",
+  type_id: 99,
+  type:    "Named Pipe",
   details: "Named Pipe; EventType=ConnectPipe",
 }
 drop $windows.EventData.EventType
 
-$ocsf._user = (move $windows.EventData.User).split("\\")
-$ocsf.actor = {
-  process: {
-    uid:  move $windows.EventData.ProcessGuid,
-    pid:  (move $windows.EventData.ProcessId).int(),
-    path: move $windows.EventData.Image,
-    file: { type_id: 8 },
-  },
-  user: {
-    name:   $ocsf._user[-1],
-    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
-  },
-}
-drop $ocsf._user
-
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+microsoft::windows::ocsf::providers::sysmon::actor $windows, $ocsf.actor
 

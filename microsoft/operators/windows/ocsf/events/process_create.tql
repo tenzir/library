@@ -30,16 +30,35 @@ $ocsf.actor = {
   },
 }
 
+// The creator process is the parent of the new process.
 $ocsf.process = {
   pid: int(move $windows.EventData.NewProcessId, base=16),
-  path: move $windows.EventData.NewProcessName,
+  path: $windows.EventData.NewProcessName,
   cmd_line: move $windows.EventData.CommandLine,
-  file: { type_id: 8 },
+  file: {
+    type_id: 8,
+    name: $windows.EventData.NewProcessName.split("\\")[-1],
+    path: $windows.EventData.NewProcessName,
+  },
   parent_process: {
     pid: int(move $windows.EventData.ProcessId, base=16),
-    path: move $windows.EventData.ParentProcessName?,
+    path: $windows.EventData.ParentProcessName?,
+    name: $windows.EventData.ParentProcessName?.split("\\")[-1]?,
   },
+  name: $windows.EventData.NewProcessName.split("\\")[-1],
 }
+drop $windows.EventData.NewProcessName
+// Version 1 of the event omits the creator's image, and a file needs a path.
+if $windows.EventData.ParentProcessName? != null {
+  $ocsf.process.parent_process.file = {
+    name: $ocsf.process.parent_process.name,
+    path: move $windows.EventData.ParentProcessName,
+    type_id: 8,
+  }
+}
+// The creator is the acting process.
+$ocsf.actor.process = $ocsf.process.parent_process
+
 // The mandatory label SID encodes the integrity level of the new process.
 let $integrity_ids = {
   "S-1-16-0": 1,
@@ -49,14 +68,14 @@ let $integrity_ids = {
   "S-1-16-16384": 5,
   "S-1-16-20480": 6,
 }
-if $windows.EventData.MandatoryLabel? != null {
-  $ocsf.process.integrity_id = $integrity_ids[$windows.EventData.MandatoryLabel]? else 99
-  if $ocsf.process.integrity_id == 99 {
-    $ocsf.process.integrity = $windows.EventData.MandatoryLabel
-  }
-  drop $windows.EventData.MandatoryLabel
-}
-// Version 2 of the event names the account the new process runs as.
+$ocsf.process.integrity_id = $integrity_ids[$windows.EventData.MandatoryLabel?]? else (
+  99 if $windows.EventData.MandatoryLabel? != null else null
+)
+$ocsf.process.integrity = $windows.EventData.MandatoryLabel? if $ocsf.process.integrity_id == 99 else null
+drop $windows.EventData.MandatoryLabel?
+
+// Version 2 of the event names the account the new process runs as. Without
+// a name, the target fields hold the NULL SID.
 if $windows.EventData.TargetUserName? != null {
   $ocsf.process.user = {
     uid: move $windows.EventData.TargetUserSid?,
@@ -64,17 +83,6 @@ if $windows.EventData.TargetUserName? != null {
     domain: move $windows.EventData.TargetDomainName?,
   }
   $ocsf.process.session = {uid_alt: move $windows.EventData.TargetLogonId?}
-}
-$ocsf.process.name = $ocsf.process.path.split("\\")[-1]
-$ocsf.process.file.name = $ocsf.process.name
-$ocsf.process.file.path = $ocsf.process.path
-if $ocsf.process.parent_process.path? != null {
-  $ocsf.process.parent_process.name = $ocsf.process.parent_process.path.split("\\")[-1]?
-  $ocsf.process.parent_process.file = {
-    name: $ocsf.process.parent_process.name,
-    path: $ocsf.process.parent_process.path,
-    type_id: 8,
-  }
 }
 
 // EID 4688 only fires on success.

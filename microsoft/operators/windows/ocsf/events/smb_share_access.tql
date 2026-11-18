@@ -19,12 +19,16 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.status_id = 1
 $ocsf.share = move $windows.EventData.ShareName
 $ocsf.share_type_id = 1
-$ocsf.file = {
-  path: move $windows.EventData.RelativeTargetName?,
-  type_id: 0,
-}
-if $ocsf.file.path != null {
-  $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
+// Share access (5140) names no file, while detailed file share access (5145)
+// names the file relative to the share. Its type is not known, which OCSF
+// represents as a regular file.
+if $windows.EventData.RelativeTargetName? != null {
+  $ocsf.file = {
+    path: $windows.EventData.RelativeTargetName,
+    name: $windows.EventData.RelativeTargetName.split("\\")[-1],
+    type_id: 1,  // Regular File
+  }
+  drop $windows.EventData.RelativeTargetName
 }
 $ocsf.src_endpoint = {
   ip: move $windows.EventData.IpAddress?,

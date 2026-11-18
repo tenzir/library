@@ -32,9 +32,12 @@ $ocsf.actor = {
   },
   session: {uid_alt: move $windows.EventData.SubjectLogonId?},
 }
-if $windows.EventData.PrivilegeList? != null {
-  $ocsf.privileges = (move $windows.EventData.PrivilegeList).split_regex(r"\s+")
-}
-if $windows.EventData.AccessList? != null {
-  $ocsf.privileges = (move $windows.EventData.AccessList).split_regex(r"\s+")
-}
+// User rights events (4704/4705) list privileges, system access events
+// (4717/4718) the granted or removed logon rights, and each event carries
+// exactly one of these fields.
+$ocsf.privileges = (
+  move $windows.EventData.PrivilegeList?
+    else move $windows.EventData.AccessList?
+    else move $windows.EventData.AccessGranted?
+    else move $windows.EventData.AccessRemoved?
+).split_regex(r"\s+")

@@ -20,24 +20,36 @@ $ocsf.class_uid = 1005
 $ocsf.activity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.status_id = 1
+// Each event names the package or logon process in exactly one field.
 $ocsf.module = {
   file: {
-    name: move $windows.EventData.PackageName?,
+    name: move $windows.EventData.PackageName?
+      else move $windows.EventData.AuthenticationPackageName?
+      else move $windows.EventData.NotificationPackageName?
+      else move $windows.EventData.SecurityPackageName?
+      else move $windows.EventData.LogonProcessName?,
     path: move $windows.EventData.PackageFileName?,
     type_id: 8,
   },
+  // Windows doesn't say how the Local Security Authority loaded the package.
+  load_type_id: 0,
   type: $module_type,
 }
-if $ocsf.module.file.name == null {
-  $ocsf.module.file.name = move $windows.EventData.AuthenticationPackageName?
+
+// The Local Security Authority writes the Security log and loads the
+// packages, so the event's process is the acting LSA process.
+$ocsf.actor = {
+  process: {
+    pid: move $windows.System.Execution.ProcessID,
+    name: "Local Security Authority",
+  },
 }
-if $ocsf.module.file.name == null {
-  $ocsf.module.file.name = move $windows.EventData.NotificationPackageName?
+// Only trusted logon process registrations (4611) name a subject.
+if $windows.EventData.SubjectUserSid? != null {
+  $ocsf.actor.user = {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  }
+  $ocsf.actor.session = {uid_alt: move $windows.EventData.SubjectLogonId?}
 }
-if $ocsf.module.file.name == null {
-  $ocsf.module.file.name = move $windows.EventData.SecurityPackageName?
-}
-if $ocsf.module.file.name == null {
-  $ocsf.module.file.name = move $windows.EventData.LogonProcessName?
-}
-$ocsf.actor = {process: {name: "Local Security Authority"}}

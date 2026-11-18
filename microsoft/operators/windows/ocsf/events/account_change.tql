@@ -43,13 +43,17 @@ $ocsf.user = {
   domain: move $windows.EventData.TargetDomainName,
 }
 
+// A lockout (4740) names the computer the failed logons came from, the caller
+// computer, in TargetDomainName.
+if $windows.System.EventID == 4740 {
+  $ocsf.src_endpoint = {hostname: move $ocsf.user.domain}
+}
+
 // Do not interpret Windows message-resource tokens as real account values.
-if not $windows.EventData.DisplayName?.starts_with("%%") and
-   $windows.EventData.DisplayName? != "-" {
+if not $windows.EventData.DisplayName?.starts_with("%%") {
   $ocsf.user.display_name = move $windows.EventData.DisplayName?
 }
-if not $windows.EventData.UserPrincipalName?.starts_with("%%") and
-   $windows.EventData.UserPrincipalName? != "-" {
+if not $windows.EventData.UserPrincipalName?.starts_with("%%") {
   $ocsf.user.uid_alt = move $windows.EventData.UserPrincipalName?
 }
 

@@ -89,12 +89,16 @@ if $windows.EventData.AccessMask? != null {
 if $windows.EventData.AccessList? != null {
   $ocsf.access_list = (move $windows.EventData.AccessList).split_regex(r"\s+")
 }
-$ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid?,
-    name: move $windows.EventData.SubjectUserName?,
-    domain: move $windows.EventData.SubjectDomainName?,
-  },
-  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+// Some events, such as workstation locks (4800–4803) or certificate requests
+// (4886–4888), name no subject.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+  }
 }
 $ocsf.status_code = (move $windows.EventData.ErrorCode?).string()

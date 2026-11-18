@@ -15,7 +15,7 @@ $ocsf = {}
 
 $ocsf.metadata = {
   event_code: $windows.System.EventID.string(),
-  extensions: [{name: "win"}],
+  extensions: [{name: "win", uid: "2", version: "1.9.0"}],
   log_name: $windows.System.Channel,
   log_level: (move $windows.System.Level).string(),
   log_version: (move $windows.System.Version).string(),
@@ -34,30 +34,30 @@ $ocsf.metadata = {
 $windows.System.EventID = $windows.System.EventID.int()
 
 $ocsf.severity_id = 1
-if $windows.RenderingInfo?.Message? != null {
-  $ocsf.message = move $windows.RenderingInfo.Message
-}
-drop $windows.RenderingInfo?.Message?
+$ocsf.message = move $windows.RenderingInfo?.Message?
 if $windows.RenderingInfo?.is_empty() == true {
   drop $windows.RenderingInfo
 }
-if $windows.RawData? != null {
-  $ocsf.raw_data = move $windows.RawData
-  $ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
-}
+$ocsf.raw_data = move $windows.RawData?
+$ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
 $ocsf.time = move $windows.System.TimeCreated.SystemTime
 drop $windows.System.TimeCreated
 
+// Windows events do not tell whether the device is a desktop or a server.
 $ocsf.device = {
   hostname: move $windows.System.Computer,
+  type_id: 0,  // Unknown
 }
 
-// "-" is the universal Windows sentinel for "not applicable/empty".
+// "-" is the universal Windows sentinel for "not applicable/empty". Logon and
+// session GUIDs use the all-zero GUID for the same purpose, and treating it as
+// an identifier would link unrelated sessions.
 replace $windows, what="-", with=null
+replace $windows, what="{00000000-0000-0000-0000-000000000000}", with=null
+// Collectors such as Fluent Bit render absent values as empty strings.
+replace $windows, what="", with=null
 
-if $windows.System.Correlation?.ActivityID? != null and $windows.System.Correlation.ActivityID != "" {
-  $ocsf.metadata.correlation_uid = move $windows.System.Correlation.ActivityID
-}
+$ocsf.metadata.correlation_uid = move $windows.System.Correlation?.ActivityID?
 
 // Event mappings read EventData or UserData, so an event without either becomes
 // a base event. Events whose manifest defines no payload still dispatch,
@@ -81,12 +81,15 @@ match (
         microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
       }
-      102 | 201 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+      102 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Task Complete"
       }
       103 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Execution Failure"
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
+      }
+      110 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=6
       }
       106 => {
         microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=1
@@ -100,9 +103,15 @@ match (
       142 => {
         microsoft::windows::ocsf::events::task_lifecycle $windows, $ocsf, activity_id=5
       }
+      201 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Action Complete"
+      }
       202 => {
-        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Action Failure"
         microsoft::windows::ocsf::events::task_run_failed $windows, $ocsf
+      }
+      325 => {
+        microsoft::windows::ocsf::events::task_run $windows, $ocsf, activity_id=99, activity_name="Queue"
       }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
@@ -138,7 +147,13 @@ match (
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Malware History Deleted", severity_id=3
       }
       1115..1118 => { microsoft::windows::ocsf::events::defender_detection $windows, $ocsf }
-      1121 => { microsoft::windows::ocsf::events::defender_asr $windows, $ocsf }
+      // Block mode prevents the operation, while audit mode only reports it.
+      1121 => {
+        microsoft::windows::ocsf::events::defender_asr $windows, $ocsf, title="Microsoft Defender ASR Block", action_id=2, disposition_id=2, severity_id=4
+      }
+      1122 => {
+        microsoft::windows::ocsf::events::defender_asr $windows, $ocsf, title="Microsoft Defender ASR Audit", action_id=3, disposition_id=15, severity_id=1
+      }
       2000 => { microsoft::windows::ocsf::events::defender_signature_update $windows, $ocsf }
       5001 => {
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Real-Time Protection Disabled"
@@ -158,6 +173,12 @@ match (
       5101 => {
         microsoft::windows::ocsf::events::defender_tamper $windows, $ocsf, title="Windows Defender Antimalware Platform Expired", severity_id=3
       }
+      _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+    }
+  }
+  "Microsoft-Windows-WMI-Activity" => {
+    match $windows.System.EventID {
+      5861 => { microsoft::windows::ocsf::events::wmi_subscription $windows, $ocsf }
       _ => { microsoft::windows::ocsf::base $windows, $ocsf }
     }
   }
@@ -304,6 +325,7 @@ match (
       5059 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Cryptographic Key" }
       5136 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Directory Object" }
       5137 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=1, entity_type="Directory Object" }
+      5141 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=4, entity_type="Directory Object" }
       5140 | 5145 => { microsoft::windows::ocsf::events::smb_share_access $windows, $ocsf }
       5632 => { microsoft::windows::ocsf::events::wireless_authentication $windows, $ocsf }
       6144 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Group Policy Security Settings" }

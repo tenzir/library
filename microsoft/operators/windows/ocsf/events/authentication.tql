@@ -34,23 +34,27 @@ $ocsf.user = {
   domain: move $windows.EventData.TargetDomainName?,
 }
 $ocsf.session = {uid_alt: move $windows.EventData.TargetLogonId?}
-$ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid?,
-    name: move $windows.EventData.SubjectUserName?,
-    domain: move $windows.EventData.SubjectDomainName?,
-  },
-  session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+// Logoffs (4634, 4647) report the logon type of the session they end.
+$ocsf.logon_type_id = (move $windows.EventData.LogonType?).int()
+$ocsf.logon_type_id = 1 if $ocsf.logon_type_id == 0 else $ocsf.logon_type_id
+// Logoffs name only the account whose session ends, not an acting subject.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+  }
 }
 $ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
-if $windows.EventData.IpAddress? != null {
-  $ocsf.src_endpoint.ip = move $windows.EventData.IpAddress
-}
-if $windows.EventData.IpPort? != null {
-  $ocsf.src_endpoint.port = int(move $windows.EventData.IpPort)
-}
-if $windows.EventData.WorkstationName? != null {
-  $ocsf.src_endpoint.hostname = move $windows.EventData.WorkstationName
+if $windows.EventData.IpAddress? != null or $windows.EventData.WorkstationName? != null {
+  $ocsf.src_endpoint = {
+    ip: (move $windows.EventData.IpAddress?).ip(),
+    port: (move $windows.EventData.IpPort?).int(),
+    hostname: move $windows.EventData.WorkstationName?,
+  }
 }
 $ocsf.status_code = move $windows.EventData.Status?
 $ocsf.status_detail = move $windows.EventData.FailureReason?

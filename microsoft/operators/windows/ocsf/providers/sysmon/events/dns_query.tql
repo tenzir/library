@@ -34,24 +34,7 @@ $ocsf.status_id = 1 if $windows.EventData.QueryStatus.int() == 0 else 2
 $ocsf.status_code = (move $windows.EventData.QueryStatus).string()
 
 // The process and user that issued the query — mapped via the Host profile actor.
-$ocsf.user_parts = (move $windows.EventData.User).split("\\")
-$ocsf.actor = {
-  process: {
-    uid:  move $windows.EventData.ProcessGuid,
-    pid:  (move $windows.EventData.ProcessId).int(),
-    path: move $windows.EventData.Image,
-    file: { type_id: 8 },
-  },
-  user: {
-    name:   $ocsf.user_parts[-1],
-    domain: $ocsf.user_parts[0] if $ocsf.user_parts.length() > 1,
-  },
-}
-drop $ocsf.user_parts
-
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+microsoft::windows::ocsf::providers::sysmon::actor $windows, $ocsf.actor
 
 drop $windows.EventData.Initiated?  // always "true" for Sysmon DNS events
 // QueryResults renders answers as a semicolon-separated list. Aliases appear

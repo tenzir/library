@@ -22,44 +22,18 @@ $ocsf.activity_id = 4  // Inject
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // injection_type_id 99 (Other) because hollowing/herpaderping are not
-// Remote Thread, Load Library, or Queue APC.
-// injection_type must be the enum caption "Other" when id=99; the Sysmon-specific
-// string (e.g. "Image is replaced") is preserved in unmapped for analysts.
+// Remote Thread, Load Library, or Queue APC. The sibling of Other carries the
+// Sysmon tampering type, such as "Image is replaced".
 $ocsf.injection_type_id = 99
-$ocsf.injection_type = "Other"
-$windows.EventData.TamperingType = move $windows.EventData.Type
+$ocsf.injection_type = move $windows.EventData.Type
 
 // The tampered process is both the actor and the target (Sysmon only reports it).
-$ocsf._user = (move $windows.EventData.User).split("\\")
+microsoft::windows::ocsf::providers::sysmon::actor $windows, $ocsf.actor
 $ocsf.process = {
-  uid: move $windows.EventData.ProcessGuid,
-  pid: (move $windows.EventData.ProcessId).int(),
-  path: move $windows.EventData.Image,
-  file: { type_id: 8 },
-  user: {
-    name: $ocsf._user[-1],
-    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
-  },
+  uid: $ocsf.actor.process.uid,
+  pid: $ocsf.actor.process.pid,
+  path: $ocsf.actor.process.path,
+  file: $ocsf.actor.process.file,
+  user: $ocsf.actor.user,
+  name: $ocsf.actor.process.name,
 }
-$ocsf.process.name = $ocsf.process.path.split("\\")[-1]
-$ocsf.process.file.name = $ocsf.process.name
-$ocsf.process.file.path = $ocsf.process.path
-
-$ocsf.actor = {
-  process: {
-    uid: $ocsf.process.uid,
-    pid: $ocsf.process.pid,
-    path: $ocsf.process.path,
-    name: $ocsf.process.name,
-    file: {
-      type_id: 8,
-      name: $ocsf.process.file.name,
-      path: $ocsf.process.file.path,
-    },
-  },
-  user: {
-    name: $ocsf._user[-1],
-    domain: $ocsf._user[0] if $ocsf._user.length() > 1,
-  },
-}
-drop $ocsf._user

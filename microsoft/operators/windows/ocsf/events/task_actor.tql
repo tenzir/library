@@ -1,0 +1,24 @@
+---
+description: >
+  Maps the account of a Task Scheduler event to the OCSF actor: the user
+  context (EIDs 100–110) or the user that changed the registration (EIDs
+  140–142), and otherwise the scheduler account in the event header.
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+// Only the chosen account moves, so the header account stays in unmapped
+// when the payload names one.
+if $windows.EventData.UserContext? != null {
+  microsoft::windows::ocsf::account $windows.EventData.UserContext, $ocsf.actor.user
+} else if $windows.EventData.UserName? != null {
+  microsoft::windows::ocsf::account $windows.EventData.UserName, $ocsf.actor.user
+} else if $windows.System.Security?.UserID? != null {
+  microsoft::windows::ocsf::account $windows.System.Security.UserID, $ocsf.actor.user
+}
