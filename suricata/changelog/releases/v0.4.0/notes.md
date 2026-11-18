@@ -51,6 +51,12 @@ where metadata.correlation_uid == "1349859816939076"
 
 ## 🔧 Changes
 
+### Decoded MIME attachment names
+
+Email Activity events from Suricata SMTP and `fileinfo` events now decode attachment names that the message encodes as a single Base64-encoded UTF-8 word (RFC 2047). For example, `email.files[].name` holds `66787196844.zip` instead of `=?UTF-8?B?NjY3ODcxOTY4NDQuemlw?=`. Names in other encodings or charsets, such as `=?UTF-8?Q?…?=` or `=?ISO-8859-1?B?…?=`, and names that consist of several encoded words stay as Suricata logged them.
+
+*By @zedoraps.*
+
 ### Host header ports in HTTP URLs
 
 HTTP, file, and alert events now map the port that the client wrote in the Host header, Suricata's `http.http_port`, to `http_request.url.port`, and include it in `http_request.url.url_string`. For example, a request with `Host: 203.176.135.102:8082` has the URL `http://203.176.135.102:8082/ono32/…` instead of `http://203.176.135.102/ono32/…`. Without a port in the Host header, the URL has no port, even when the connection uses a non-standard one. Suricata logs port 0 for requests without a host, which stays in `unmapped.http.http_port`.

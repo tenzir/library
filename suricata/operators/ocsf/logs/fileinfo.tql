@@ -163,8 +163,13 @@ if $ocsf.class_uid in [4006, 4009] or ($ocsf.class_uid == 4002 and not $event.fi
   }
 }
 // Email Activity holds files as attachments. Suricata names all attachments
-// of the message, including the observed one.
+// of the message, including the observed one. As for the attachments of SMTP
+// events, a name that is one Base64-encoded UTF-8 word (RFC 2047) decodes.
 if $ocsf.class_uid == 4009 {
+  let $utf8_b = "^=\\?(?i:utf-8)\\?[Bb]\\?([A-Za-z0-9+/=]*)\\?=$"
+  if $ocsf.file.name.match_regex($utf8_b) {
+    $ocsf.file.name = $ocsf.file.name.replace_regex($utf8_b, "\\1").decode_base64().string()
+  }
   $ocsf.email.files = [
     $ocsf.file,
     ...($ocsf.email.files? else []).where(x => x.name != $ocsf.file.name),
