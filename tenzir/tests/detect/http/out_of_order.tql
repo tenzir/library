@@ -1,0 +1,18 @@
+// Every other event arrives 50 seconds after its successor, within the
+// default tolerance of one minute, so the window counts all of them. After an
+// event at 10:07 closes the first window, a straggler from 10:04 arrives too
+// late and doesn't count.
+from {}
+repeat 62
+enumerate n
+let $times = [2024-01-01T10:07:00Z, 2024-01-01T10:04:30Z]
+this = {
+  time: 2024-01-01T10:00:00Z + n * 4s + (0s if bit_and(n, 1) == 0 else 50s)
+        if n < 60 else $times[n - 60],
+  class_uid: 4002,
+  http_request: {http_method: "POST", url: {path: "/login"}},
+  http_response: {code: 403},
+  src_endpoint: {ip: 203.0.113.7},
+}
+tenzir::detect::http::credential_stuffing
+select start_time, end_time, finding_info.desc

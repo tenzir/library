@@ -1,0 +1,17 @@
+// One source fails 19 logons across 19 accounts, one short of min_failures.
+// Another fails 40 logons across 8 accounts, below min_users. A third
+// fails 24 logons across 24 accounts but also logs 7 accounts in, a failure
+// share of 77%.
+from {}
+repeat 90
+enumerate n
+this = {
+  time: 2024-01-01T10:00:00Z + n * 5s,
+  class_uid: 3002,
+  activity_id: 1,
+  status_id: 1 if n >= 83 else 2,
+  user: {uid: f"{n if n < 19 or n >= 59 else bit_and(n, 7)}"},
+  src_endpoint: {ip: 198.51.100.1 if n < 19 else 198.51.100.2 if n < 59 else 198.51.100.3},
+}
+tenzir::detect::authentication::credential_stuffing
+summarize findings=count()

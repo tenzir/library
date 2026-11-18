@@ -1,0 +1,15 @@
+// A corporate NAT address sends 400 logins in five minutes. Its 60 failures
+// exceed min_failures, but the successes keep the failure share at 15%.
+// Rate-limited and erroring responses count neither way.
+from {}
+repeat 420
+enumerate n
+this = {
+  time: 2024-01-01T10:00:00Z + n * 700ms,
+  class_uid: 4002,
+  http_request: {http_method: "POST", url: {path: "/login"}},
+  http_response: {code: 401 if n < 60 else 429 if n >= 400 else 302},
+  src_endpoint: {ip: 192.0.2.10},
+}
+tenzir::detect::http::credential_stuffing
+summarize findings=count()
