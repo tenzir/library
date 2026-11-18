@@ -20,38 +20,88 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // --- OCSF: context attributes -----------------
 
 $ocsf.app_protocol_name = "tls"
-// Suricata logs no version when it saw no handshake. The TLS facts that
-// were observed still belong here, even though OCSF requires the version.
-$ocsf.tls = {
-  sni: move $event.tls.sni?,
-  version: move $event.tls.version?,
+// A TLS object models a negotiated session and requires its version. The event
+// stays Network Activity without a TLS object when Suricata logged none:
+// - No version or `UNDETERMINED`, when it saw none, e.g., for a lone
+//   ClientHello.
+// - A hex number, which Suricata logs for version bytes that name no TLS
+//   version, e.g., `0x6874` ("ht") when the server answered in plain HTTP.
+// - `SSLv2` without a certificate, which is only the SSLv2-compatible
+//   ClientHello of a client, e.g., a scanner.
+if (
+  $event.tls.version? not in [null, "UNDETERMINED"]
+  and not $event.tls.version.to_lower().starts_with("0x")
+  and (
+    $event.tls.version != "SSLv2"
+    or $event.tls.subject? != null
+    or $event.tls.issuerdn? != null
+    or $event.tls.fingerprint? != null
+    or $event.tls.serial? != null
+  )
+) {
+  $ocsf.tls = {
+    sni: $event.tls.sni?,
+    version: move $event.tls.version,
+  }
+  // A fingerprint requires its value.
+  if $event.tls.ja3?.hash? != null {
+    $ocsf.tls.ja3_hash = {algorithm_id: 1, value: $event.tls.ja3.hash}
+  }
+  if $event.tls.ja3s?.hash? != null {
+    $ocsf.tls.ja3s_hash = {algorithm_id: 1, value: $event.tls.ja3s.hash}
+  }
+  // A certificate requires its issuer and serial number.
+  if $event.tls.issuerdn? != null and $event.tls.serial? != null {
+    $ocsf.tls.certificate = {
+      created_time: move $event.tls.notbefore?,
+      expiration_time: move $event.tls.notafter?,
+      issuer: move $event.tls.issuerdn,
+      serial_number: move $event.tls.serial,
+      subject: move $event.tls.subject?,
+      // Suricata logs the SHA-1 fingerprint with colons.
+      fingerprints: [move $event.tls.fingerprint?].collect().map(x => {
+        algorithm_id: 2,
+        value: x.replace(":", ""),
+      }),
+    }
+    if $event.tls.subjectaltname? != null {
+      $ocsf.tls.certificate.sans = (move $event.tls.subjectaltname).map(name => {
+        name: name,
+        type: "DNSName",
+      })
+    }
+  }
 }
-// A fingerprint requires its value.
+// JA3 and JA3S identify the client and server implementations, even when the
+// handshake failed. OCSF has no algorithm ID for them.
 if $event.tls.ja3?.hash? != null {
-  $ocsf.tls.ja3_hash = {algorithm_id: 1, value: move $event.tls.ja3.hash}
+  $ocsf.src_endpoint.fingerprints = [{
+    algorithm_id: 99,
+    algorithm: "JA3",
+    value: move $event.tls.ja3.hash,
+  }]
 }
 if $event.tls.ja3s?.hash? != null {
-  $ocsf.tls.ja3s_hash = {algorithm_id: 1, value: move $event.tls.ja3s.hash}
+  $ocsf.dst_endpoint.fingerprints = [{
+    algorithm_id: 99,
+    algorithm: "JA3S",
+    value: move $event.tls.ja3s.hash,
+  }]
 }
-
-// A certificate requires its issuer and serial number.
-if $event.tls.issuerdn? != null and $event.tls.serial? != null {
-  $ocsf.tls.certificate = {
-    created_time: move $event.tls.notbefore?,
-    expiration_time: move $event.tls.notafter?,
-    issuer: move $event.tls.issuerdn,
-    serial_number: move $event.tls.serial,
-    subject: move $event.tls.subject?,
-    // Suricata logs the SHA-1 fingerprint with colons.
-    fingerprints: [move $event.tls.fingerprint?].collect().map(x => {
-      algorithm_id: 2,
-      value: x.replace(":", ""),
-    }),
-    sans: (move $event.tls.subjectaltname?).map(name => {
-      name: name,
-      type: "DNSName",
-    }),
-  }
+// The SNI names the server, unless the client sent an IP literal, optionally
+// with a port. It never replaces a different host name.
+if (
+  $event.tls.sni? != null
+  and ip($event.tls.sni) == null
+  and ":" not in $event.tls.sni
+  and ($ocsf.dst_endpoint.hostname? else $event.tls.sni) == $event.tls.sni
+) {
+  $ocsf.dst_endpoint.hostname = move $event.tls.sni
+}
+// The TLS object already holds the SNI. Otherwise, an SNI that names no host
+// stays unmapped.
+if $ocsf.tls? != null {
+  drop $event.tls.sni?
 }
 
 if $event.tls.ja4? != null {
@@ -66,5 +116,16 @@ if $event.tls.ja4? != null {
 $ocsf.status_id = 0
 
 // --- Finalize ---------------------------------
+
+drop_null_fields $event.tls
+if $event.tls.ja3? == {} {
+  drop $event.tls.ja3
+}
+if $event.tls.ja3s? == {} {
+  drop $event.tls.ja3s
+}
+if $event.tls == {} {
+  drop $event.tls
+}
 
 @name = "ocsf.network_activity"

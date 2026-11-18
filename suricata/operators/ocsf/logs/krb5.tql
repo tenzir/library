@@ -24,24 +24,35 @@ let $krb5_activity_map = {
   KRB_TGS_REP: 4,
 }
 
-match $event.krb5.msg_type {
-  "KRB_ERROR" if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
-    $ocsf.activity_id = 6
+// Authentication requires the authenticated user. Kerberos names the client
+// in AS requests and in KDC replies. TGS requests carry the client only in
+// encrypted material, and errors may omit it (RFC 4120). Suricata logs
+// `<empty>` for an absent name. Without a client, the record shows Kerberos
+// traffic rather than an identifiable authentication.
+if $event.krb5.cname? not in [null, "<empty>"] {
+  match $event.krb5.msg_type {
+    "KRB_ERROR" if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" => {
+      $ocsf.activity_id = 6
+    }
+    "KRB_ERROR" => {
+      // For other errors, map based on the failed_request field.
+      $ocsf.activity_id = $krb5_activity_map[$event.krb5.failed_request?]? else 99
+    }
+    _ => {
+      $ocsf.activity_id = $krb5_activity_map[$event.krb5.msg_type]? else 99
+    }
   }
-  "KRB_ERROR" => {
-    // For other errors, map based on the failed_request field.
-    $ocsf.activity_id = $krb5_activity_map[$event.krb5.failed_request?]? else 99
-  }
-  _ => {
-    $ocsf.activity_id = $krb5_activity_map[$event.krb5.msg_type]? else 99
-  }
-}
 
-if $ocsf.activity_id == 99 {
-  $ocsf.activity_name = $event.krb5.failed_request? else $event.krb5.msg_type
+  if $ocsf.activity_id == 99 {
+    $ocsf.activity_name = $event.krb5.failed_request? else $event.krb5.msg_type
+  }
+  $ocsf.category_uid = 3
+  $ocsf.class_uid = 3002
+} else {
+  $ocsf.activity_id = 6
+  $ocsf.category_uid = 4
+  $ocsf.class_uid = 4001
 }
-$ocsf.category_uid = 3
-$ocsf.class_uid = 3002
 
 // Kerberos replies grant a ticket and errors deny one. A request alone has
 // no outcome yet.
@@ -53,6 +64,11 @@ let $outcomes = {
 $ocsf = {
   ...$ocsf,
   ...($outcomes[$event.krb5.msg_type]? else {severity_id: 1, status_id: 0}),
+}
+// The KDC asks for preauthentication at the start of every regular logon, so
+// this error carries no risk of its own.
+if $event.krb5.error_code? == "KDC_ERR_PREAUTH_REQUIRED" {
+  $ocsf.severity_id = 1
 }
 
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
@@ -69,90 +85,105 @@ if $ocsf.src_endpoint?.port? == 88 and $ocsf.dst_endpoint?.port? != 88 {
   }
 }
 
-$ocsf.auth_protocol = "Kerberos"
-$ocsf.auth_protocol_id = 2
+if $ocsf.class_uid == 3002 {
+  $ocsf.auth_protocol = "Kerberos"
+  $ocsf.auth_protocol_id = 2
 
-// Map Kerberos encryption types to OCSF algorithm names
-let $krb5_to_algo = {
-  "des-cbc-crc": "DES",
-  "des-cbc-md4": "DES",
-  "des-cbc-md5": "DES",
-  "des-plain": "DES",
-  "des3-cbc-md5": "TripleDES",
-  "des3-cbc-sha1": "TripleDES",
-  "des3-cbc-sha1-kd": "TripleDES",
-  "des-ede3-cbc-Env-OID": "TripleDES",
-  "aes128-cts-hmac-sha1-96": "AES",
-  "aes256-cts-hmac-sha1-96": "AES",
-  "aes128-cts-hmac-sha256-128": "AES",
-  "aes256-cts-hmac-sha384-192": "AES",
-  "rc4-hmac": "Other",
-  "rc4-hmac-exp": "Other",
-  "rc4-md4": "Other",
-  "rc4-plain": "Other",
-  "rc4-plain2": "Other",
-  "rc4-lm": "Other",
-  "rc4-sha": "Other",
-  "rc4-hmac-OLD": "Other",
-  "rc4-plain-OLD": "Other",
-  "rc4-hmac-OLD-exp": "Other",
-  "rc4-plain-OLD-exp": "Other",
-  "rc4-plain-exp": "Other",
-  "camellia128-cts-cmac": "Other",
-  "camellia256-cts-cmac": "Other",
-  "dsaWithSHA1-CmsOID": "Other",
-  "md5WithRSAEncryption-CmsOID": "RSA",
-  "sha1WithRSAEncryption-CmsOID": "RSA",
-  "rsaEncryption-EnvOID": "RSA",
-  "rsaES-OAEP-ENV-OID": "RSA",
-  "rc2CBC-EnvOID": "Other",
-  "subkey-keymaterial": "Other",
-}
-
-// Map algorithm names to OCSF algorithm IDs
-let $algo_to_id = {
-  DES: 1,
-  TripleDES: 2,
-  AES: 3,
-  RSA: 4,
-  Other: 99,
-}
-
-// For successful authentications, create an authentication_token object to
-// represent the Kerberos ticket. Suricata's `weak_encryption` flags weak
-// encryption types, not cleartext credentials, so it stays unmapped.
-if $event.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] {
-  $ocsf.authentication_token = {
-    type: "Ticket Granting Ticket" if $event.krb5.msg_type == "KRB_AS_REP" else "Service Ticket",
-    type_id: 1 if $event.krb5.msg_type == "KRB_AS_REP" else 2,
+  // Map Kerberos encryption types to OCSF algorithm names
+  let $krb5_to_algo = {
+    "des-cbc-crc": "DES",
+    "des-cbc-md4": "DES",
+    "des-cbc-md5": "DES",
+    "des-plain": "DES",
+    "des3-cbc-md5": "TripleDES",
+    "des3-cbc-sha1": "TripleDES",
+    "des3-cbc-sha1-kd": "TripleDES",
+    "des-ede3-cbc-Env-OID": "TripleDES",
+    "aes128-cts-hmac-sha1-96": "AES",
+    "aes256-cts-hmac-sha1-96": "AES",
+    "aes128-cts-hmac-sha256-128": "AES",
+    "aes256-cts-hmac-sha384-192": "AES",
+    "rc4-hmac": "Other",
+    "rc4-hmac-exp": "Other",
+    "rc4-md4": "Other",
+    "rc4-plain": "Other",
+    "rc4-plain2": "Other",
+    "rc4-lm": "Other",
+    "rc4-sha": "Other",
+    "rc4-hmac-OLD": "Other",
+    "rc4-plain-OLD": "Other",
+    "rc4-hmac-OLD-exp": "Other",
+    "rc4-plain-OLD-exp": "Other",
+    "rc4-plain-exp": "Other",
+    "camellia128-cts-cmac": "Other",
+    "camellia256-cts-cmac": "Other",
+    "dsaWithSHA1-CmsOID": "Other",
+    "md5WithRSAEncryption-CmsOID": "RSA",
+    "sha1WithRSAEncryption-CmsOID": "RSA",
+    "rsaEncryption-EnvOID": "RSA",
+    "rsaES-OAEP-ENV-OID": "RSA",
+    "rc2CBC-EnvOID": "Other",
+    "subkey-keymaterial": "Other",
   }
-  if $event.krb5.encryption? not in [null, "<none>"] {
-    $ocsf.authentication_token.encryption_details = {
-      algorithm: $krb5_to_algo[$event.krb5.encryption]? else "Other",
-      algorithm_id: $algo_to_id[$krb5_to_algo[$event.krb5.encryption]? else "Other"],
-      type: move $event.krb5.encryption,
+
+  // Map algorithm names to OCSF algorithm IDs
+  let $algo_to_id = {
+    DES: 1,
+    TripleDES: 2,
+    AES: 3,
+    RSA: 4,
+    Other: 99,
+  }
+
+  // For successful authentications, create an authentication_token object to
+  // represent the Kerberos ticket. Suricata's `weak_encryption` flags weak
+  // encryption types, not cleartext credentials, so it stays unmapped.
+  if $event.krb5.msg_type in ["KRB_AS_REP", "KRB_TGS_REP"] {
+    $ocsf.authentication_token = {
+      type: "Ticket Granting Ticket" if $event.krb5.msg_type == "KRB_AS_REP" else "Service Ticket",
+      type_id: 1 if $event.krb5.msg_type == "KRB_AS_REP" else 2,
+    }
+    if $event.krb5.encryption? not in [null, "<none>"] {
+      $ocsf.authentication_token.encryption_details = {
+        algorithm: $krb5_to_algo[$event.krb5.encryption]? else "Other",
+        algorithm_id: $algo_to_id[$krb5_to_algo[$event.krb5.encryption]? else "Other"],
+        type: move $event.krb5.encryption,
+      }
     }
   }
-}
 
-// Service (target) information - the service principal being accessed
-$ocsf.service = {
-  name: move $event.krb5.sname,
-}
+  // Service (target) information - the service principal being accessed
+  $ocsf.service = {
+    name: move $event.krb5.sname,
+  }
 
-// Suricata logs the error name, such as KDC_ERR_PREAUTH_FAILED.
-$ocsf.status_code = move $event.krb5.error_code?
+  // Suricata logs the error name, such as KDC_ERR_PREAUTH_FAILED.
+  $ocsf.status_code = move $event.krb5.error_code?
 
-// A user needs a name; the realm alone does not identify one.
-if $event.krb5.cname? not in [null, "<empty>"] {
   $ocsf.user = {
     name: move $event.krb5.cname,
     domain: move $event.krb5.realm if $event.krb5.realm? != "<empty>" else null,
   }
+  drop $event.krb5.msg_type
+
+  // --- Finalize -------------------------------
+
+  @name = "ocsf.authentication"
+} else {
+  suricata::ocsf::map_connection_info $event, $ocsf
+  $ocsf.app_protocol_name = "krb5"
+  $ocsf.status_code = move $event.krb5.error_code?
+  // Network Activity has no attributes for the message type, the requested
+  // service, or the realm, so they keep their original keys.
+
+  // --- Finalize -------------------------------
+
+  @name = "ocsf.network_activity"
 }
 
-drop $event.krb5.msg_type
+// --- Cleanup ----------------------------------
 
-// --- Finalize ---------------------------------
-
-@name = "ocsf.authentication"
+drop_null_fields $event.krb5
+if $event.krb5 == {} {
+  drop $event.krb5
+}

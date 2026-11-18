@@ -8,9 +8,19 @@ args:
       description: The OCSF output field.
       type: field
 ---
-// Suricata logs envelope and message fields only after a client started a
-// message. Without them, the record describes the SMTP negotiation alone.
-if $event.smtp.mail_from? != null or $event.smtp.rcpt_to? not in [null, []] or $event.email? != null {
+// Email Activity identifies a message by its sender and recipients. Suricata
+// logs the SMTP envelope (RFC 5321) once the client sends MAIL FROM and
+// RCPT TO, and the header addresses (RFC 5322) only when its MIME parser found
+// them. Plain HELO/STARTTLS sessions lack both, so these records describe SMTP
+// traffic instead. Suricata logs no SMTP reply codes, so neither class tells
+// the outcome. The email `status` describes the parser state, not the outcome
+// of the transaction.
+if (
+  $event.smtp?.mail_from? != null
+  or $event.smtp?.rcpt_to? not in [null, []]
+  or $event.email?.from? != null
+  or $event.email?.to? not in [null, []]
+) {
   // --- OCSF: classification attributes ----------
 
   $ocsf.activity_id = 1
@@ -26,55 +36,65 @@ if $event.smtp.mail_from? != null or $event.smtp.rcpt_to? not in [null, []] or $
   // --- OCSF: primary attributes -----------------
 
   $ocsf.protocol_name = "SMTP"
-  // HELO/EHLO carries the client's self-reported host name.
-  $ocsf.smtp_hello = move $event.smtp.helo?
-  // OCSF separates the SMTP envelope from the message headers. The header
-  // fields hold human-readable mailboxes such as `Name <user@example.org>`,
-  // from which the machine-readable fields take the address.
+  // The HELO/EHLO argument carries the client's self-reported host name.
+  // Suricata doesn't log which of the two verbs the client sent.
+  $ocsf.command = move $event.smtp.helo?
+  // The header fields hold human-readable mailboxes such as
+  // `Name <user@example.org>`, from which the machine-readable fields take the
+  // address. Without header addresses, such as for a rejected envelope or an
+  // unparsed message, `from` and `to` fall back to the envelope, and the
+  // mailbox fields stay empty. The envelope sender is the reverse-path that
+  // the receiving server records as `Return-Path` (RFC 5321, section 4.4), and
+  // the envelope recipients are the addresses that a `Delivered-To` header
+  // records (RFC 9228).
   let $address = "^.*<([^>]*)>.*$"
+  // Suricata logs attachment names as the message encodes them. Names that
+  // are one Base64-encoded UTF-8 word (RFC 2047), such as
+  // `=?UTF-8?B?NjY3ODcxOTY4NDQuemlw?=`, decode to `66787196844.zip`. Other
+  // encodings and charsets, and names with several encoded words, stay as
+  // logged.
+  let $utf8_b = "^=\\?(?i:utf-8)\\?[Bb]\\?([A-Za-z0-9+/=]*)\\?=$"
   $ocsf.email = {
-    smtp_from: (move $event.smtp.mail_from?).trim("<>"),
-    smtp_to: (move $event.smtp.rcpt_to?).map(x => x.trim("<>")),
-    from: $event.email?.from?.replace_regex($address, "\\1").trim(),
+    from: $event.email?.from?.replace_regex($address, "\\1").trim() else $event.smtp?.mail_from?.trim("<>"),
     from_mailbox: move $event.email?.from?,
-    to: $event.email?.to?.map(x => x.replace_regex($address, "\\1").trim()),
+    to: $event.email?.to?.map(x => x.replace_regex($address, "\\1").trim()) else $event.smtp?.rcpt_to?.map(x => x.trim("<>")),
     to_mailboxes: move $event.email?.to?,
+    return_path: (move $event.smtp.mail_from?).trim("<>"),
+    delivered_to_list: (move $event.smtp.rcpt_to?).map(x => x.trim("<>")),
     cc: $event.email?.cc?.map(x => x.replace_regex($address, "\\1").trim()),
     cc_mailboxes: move $event.email?.cc?,
     subject: move $event.email?.subject?,
     message_uid: move $event.email?.message_id?,
-    files: (move $event.email?.attachment?).map(x => {name: x, type_id: 1}),
+    files: (move $event.email?.attachment?).map(x => {
+      name: x.replace_regex($utf8_b, "\\1").decode_base64().string() if x.match_regex($utf8_b) else x,
+      type_id: 1,
+    }),
     // Suricata logs URLs without their scheme.
     urls: (move $event.email?.url?).map(x => {url_string: x}),
   }
-  // Suricata reports no SMTP reply codes. The email `status` describes the
-  // parser state, not the outcome of the transaction.
-  $ocsf.status_id = 0
 
   @name = "ocsf.email_activity"
 } else {
-  let $ip_versions = {
-    "true": 6,
-    "false": 4,
-  }
-  // HELO/STARTTLS can finish without an email envelope. Report the observed
-  // SMTP traffic and retain negotiation details under their original keys.
+  // The envelope and any partial message details keep their original keys,
+  // because Network Activity has no attributes for them.
   $ocsf.activity_id = 6
   $ocsf.category_uid = 4
   $ocsf.class_uid = 4001
   $ocsf.severity_id = 1
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  suricata::ocsf::map_connection_info $event, $ocsf
   $ocsf.app_protocol_name = "smtp"
-  $ocsf.connection_info = {
-    protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint?.ip?.is_v6().string()]?,
-    uid: $ocsf.metadata.correlation_uid?,
-    protocol_name: "tcp",
-    protocol_num: 6,
-    community_uid: move $event.community_id?,
-    direction_id: 0,
-  }
-  drop $event.proto?
-  $ocsf.status_id = 0
 
   @name = "ocsf.network_activity"
+}
+
+// --- Cleanup ----------------------------------
+
+drop_null_fields $event.smtp?
+if $event.smtp? == {} {
+  drop $event.smtp
+}
+drop_null_fields $event.email?
+if $event.email? == {} {
+  drop $event.email
 }
