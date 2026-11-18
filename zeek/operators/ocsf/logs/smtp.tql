@@ -20,37 +20,21 @@ args:
 zeek::ocsf::map_network $event, $ocsf
 $ocsf.metadata.log_name = "smtp.log"
 
-// Zeek logs these fields only after a client started a message. Without any of
-// them, the record describes the SMTP negotiation alone.
-let $message_fields = [
-  "mailfrom",
-  "rcptto",
-  "date",
-  "from",
-  "to",
-  "cc",
-  "reply_to",
-  "msg_id",
-  "in_reply_to",
-  "subject",
-  "x_originating_ip",
-  "first_received",
-  "second_received",
-  "user_agent",
-  "urls",
-  "fuids",
-]
-if $message_fields.map(key => $event[key]? not in [null, []]).any() {
-  // Keep observed email activity even when its envelope is incomplete.
+// OCSF identifies an email by its header addresses (RFC 5322), not by the SMTP
+// envelope. Zeek logs the headers only after the server accepted the message
+// data. Without them, such as after a rejected envelope or a negotiation alone,
+// the record describes SMTP traffic and retains the envelope and any partial
+// message details under their original keys.
+if $event.from? != null or $event.to? not in [null, []] {
   drop $ocsf.connection_info?
   $ocsf.activity_id = 1
   $ocsf.class_uid = 4009
   $ocsf.severity_id = 1
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
   $ocsf.dst_endpoint.intermediate_ips = move $event.path?
-  // OCSF separates the SMTP envelope from the message headers. The header
-  // fields hold human-readable mailboxes such as `Name <user@example.org>`,
-  // from which the machine-readable fields take the address.
+  // The header fields hold human-readable mailboxes such as
+  // `Name <user@example.org>`, from which the machine-readable fields take the
+  // address.
   let $address = "^.*<([^>]*)>.*$"
   $ocsf.email = {
     smtp_from: move $event.mailfrom?,
@@ -74,30 +58,8 @@ if $message_fields.map(key => $event[key]? not in [null, []]).any() {
   $ocsf.smtp_hello = move $event.helo?
   $ocsf.protocol_name = "SMTP"
   $ocsf.direction_id = 0
-  $ocsf.status_detail = move $event.last_reply?
-  // The last reply code tells whether the server accepted the transaction.
-  $ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
-  // Range bounds are exclusive.
-  match int($ocsf.status_code?) {
-    // 2xx and 3xx
-    199..400 => {
-      $ocsf.status = "Success"
-      $ocsf.status_id = 1
-    }
-    // 4xx and 5xx
-    399..600 => {
-      $ocsf.status = "Failure"
-      $ocsf.status_id = 2
-    }
-    _ => {
-      $ocsf.status = "Unknown"
-      $ocsf.status_id = 0
-    }
-  }
   @name = "ocsf.email_activity"
 } else {
-  // HELO/STARTTLS can finish without an email envelope. Report the observed
-  // SMTP traffic and retain negotiation details under their original keys.
   $ocsf.activity_id = 6
   $ocsf.class_uid = 4001
   $ocsf.severity_id = 1
@@ -106,4 +68,25 @@ if $message_fields.map(key => $event[key]? not in [null, []]).any() {
   $ocsf.connection_info.protocol_name = "tcp"
   $ocsf.connection_info.protocol_num = 6
   @name = "ocsf.network_activity"
+}
+
+// The last reply code tells whether the server accepted the transaction.
+$ocsf.status_detail = move $event.last_reply?
+$ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
+// Range bounds are exclusive.
+match int($ocsf.status_code?) {
+  // 2xx and 3xx
+  199..400 => {
+    $ocsf.status = "Success"
+    $ocsf.status_id = 1
+  }
+  // 4xx and 5xx
+  399..600 => {
+    $ocsf.status = "Failure"
+    $ocsf.status_id = 2
+  }
+  _ => {
+    $ocsf.status = "Unknown"
+    $ocsf.status_id = 0
+  }
 }
