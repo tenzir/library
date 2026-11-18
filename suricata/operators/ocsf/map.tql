@@ -128,14 +128,15 @@ match $event.event_type {
 }
 
 // Map connection control bits on network classes only.
-if $ocsf.category_uid == 4 and $ocsf.connection_info? != null {
-  $ocsf.connection_info.tcp_flags = int(move $event.tcp?.tcp_flags?, base=16)
+if $ocsf.category_uid == 4 and $ocsf.connection_info? != null and $event.tcp?.tcp_flags? != null {
+  $ocsf.connection_info.tcp_flags = int(move $event.tcp.tcp_flags, base=16)
 }
 
 // --- Epilogue ---------------------------------
 
 drop $event.event_type
 $ocsf.unmapped = move $event
-if $ocsf.unmapped.is_empty() {
-  drop $ocsf.unmapped
-}
+// `read_suricata` fills every field of the EVE schema that a record lacks with
+// null. A null source field carries no fact worth keeping. The record itself
+// stays, even when empty.
+drop_null_fields $ocsf.unmapped
