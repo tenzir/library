@@ -20,10 +20,25 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // --- OCSF: context attributes -----------------
 
 $ocsf.app_protocol_name = "tls"
-// A TLS object models a negotiated session and requires its version.
-// Suricata logs `UNDETERMINED` when it saw none, e.g., for a lone ClientHello,
-// and the event stays Network Activity without a TLS object.
-if $event.tls.version? not in [null, "UNDETERMINED"] {
+// A TLS object models a negotiated session and requires its version. The event
+// stays Network Activity without a TLS object when Suricata logged none:
+// - No version or `UNDETERMINED`, when it saw none, e.g., for a lone
+//   ClientHello.
+// - A hex number, which Suricata logs for version bytes that name no TLS
+//   version, e.g., `0x6874` ("ht") when the server answered in plain HTTP.
+// - `SSLv2` without a certificate, which is only the SSLv2-compatible
+//   ClientHello of a client, e.g., a scanner.
+if (
+  $event.tls.version? not in [null, "UNDETERMINED"]
+  and not $event.tls.version.to_lower().starts_with("0x")
+  and (
+    $event.tls.version != "SSLv2"
+    or $event.tls.subject? != null
+    or $event.tls.issuerdn? != null
+    or $event.tls.fingerprint? != null
+    or $event.tls.serial? != null
+  )
+) {
   $ocsf.tls = {
     sni: $event.tls.sni?,
     version: move $event.tls.version,

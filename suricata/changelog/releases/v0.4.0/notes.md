@@ -106,7 +106,13 @@ The `tls.ja3_hash`, `tls.ja3s_hash`, and `tls.sni` fields stay as before. For ex
 where "37f463bf4616ecd445d4a1937da06e19" in src_endpoint.fingerprints?.map(x => x.value)
 ```
 
-TLS events for which Suricata logged the version `UNDETERMINED`, which happens when it saw no negotiated version, such as for a lone ClientHello, no longer carry a `tls` object, because OCSF models a negotiated session there. They stay Network Activity events with the server name in `dst_endpoint.hostname`, and the version remains under `unmapped.tls.version`.
+TLS events no longer carry a `tls` object when Suricata logged no negotiated version, because OCSF models a negotiated session there:
+
+- The version `UNDETERMINED`, which Suricata logs when it saw no version, such as for a lone ClientHello.
+- A hex version such as `0x6874`, which Suricata logs for version bytes that name no TLS version, such as when the server answered in plain HTTP.
+- The version `SSLv2` without a certificate, which is only the SSLv2-compatible ClientHello of a client, such as a scanner. An `SSLv2` event with a certificate keeps its `tls` object.
+
+These events stay Network Activity events with the server name in `dst_endpoint.hostname`, and the version remains under `unmapped.tls.version`.
 
 *By @zedoraps.*
 
