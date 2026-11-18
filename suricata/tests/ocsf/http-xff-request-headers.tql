@@ -1,0 +1,21 @@
+// With extended logging, X-Forwarded-For follows the logged request headers,
+// unless they already list it, in any case. Both extend a real Cloudflare
+// request.
+from_file env("TENZIR_INPUT") {
+  read_suricata
+}
+this = {events: [
+  {...this, http: {...http, request_headers: [
+    {name: "Host", value: "lifeisnetwork.com"},
+    {name: "x-forwarded-for", value: "137.135.117.126"},
+  ]}},
+  {...this, http: {...http, request_headers: [
+    {name: "Host", value: "lifeisnetwork.com"},
+  ]}},
+]}
+unroll events
+this = events
+suricata::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select src_endpoint, http_request.http_headers, unmapped
+drop_null_fields

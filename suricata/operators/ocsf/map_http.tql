@@ -48,22 +48,33 @@ if $event.http.http_method? != null or $ocsf.http_request? != null {
 // header. With the `xff` setting in `extra-data` mode, Suricata also logs the
 // one address that it picked from a configurable header as `xff`; in
 // `overwrite` mode, it replaces the logged address instead. Clients control
-// the header, so its addresses can be forged. If an entry is no address, the
-// raw header also stays in `unmapped`. The addresses describe the client side,
-// so they need a client endpoint.
-if $ocsf.src_endpoint? != null and ($event.http.xff? != null or $event.xff? != null) {
-  $event.xff_entries = ($event.http.xff? else $event.xff).string().split(",").map(x => x.trim())
-  $event.xff_ips = $event.xff_entries.map(x => ip(x)).where(x => x != null)
-  if not $event.xff_ips.is_empty() {
+// the header, so its addresses can be forged.
+if $event.http.xff? != null or $event.xff? != null {
+  $event.xff_header = ($event.http.xff? else $event.xff).string()
+  $event.xff_ips = $event.xff_header.split(",").map(x => ip(x.trim())).where(x => x != null)
+  // The header joins the request headers, unless extended logging already
+  // lists it there.
+  $event.xff_values = ($ocsf.http_request.http_headers? else []).where(x => x.name.to_lower() == "x-forwarded-for").map(x => x.value)
+  if $event.xff_values.is_empty() {
+    $ocsf.http_request.http_headers = [
+      ...$ocsf.http_request.http_headers? else [],
+      {name: "X-Forwarded-For", value: $event.xff_header},
+    ]
+    $event.xff_values = [$event.xff_header]
+  }
+  // The addresses describe the client side, so they need a client endpoint.
+  if $ocsf.src_endpoint? != null and not $event.xff_ips.is_empty() {
     $ocsf.src_endpoint.intermediate_ips = $event.xff_ips
   }
-  if $event.xff_ips.length() == $event.xff_entries.length() {
+  // The header keeps the raw value, even if an entry is no address, so the
+  // copies that it covers leave `unmapped`.
+  if $event.xff_header in $event.xff_values {
     drop $event.http.xff?
+    if ip($event.xff?.string()) in $event.xff_ips {
+      drop $event.xff
+    }
   }
-  if ip($event.xff?.string()) in $event.xff_ips {
-    drop $event.xff
-  }
-  drop $event.xff_entries, $event.xff_ips
+  drop $event.xff_header, $event.xff_ips, $event.xff_values
 }
 // A response needs a status code.
 if $event.http.status? != null {
