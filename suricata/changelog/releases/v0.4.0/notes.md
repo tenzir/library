@@ -55,6 +55,8 @@ where metadata.correlation_uid == "1349859816939076"
 
 Kerberos events without a client principal now map to Network Activity instead of Authentication, which requires the authenticated user. This affects TGS requests, whose client identity is encrypted, errors without a client name, and AS requests that omit one, such as scanner probes. The message type, service principal, realm, and failed request remain under `unmapped.krb5`, and errors keep their code in `status_code`. Kerberos events that name a client still map to Authentication.
 
+A `KDC_ERR_PREAUTH_REQUIRED` error, which the KDC sends at the start of every regular logon, keeps its Failure status but now has Informational instead of Low severity.
+
 *By @zedoraps.*
 
 ### Protocol classes for Suricata file events
