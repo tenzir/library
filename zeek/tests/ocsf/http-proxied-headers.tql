@@ -1,0 +1,11 @@
+// Zeek's proxy headers join the request headers. The X-Forwarded-For addresses
+// of Cloudflare requests and of a Squid-forwarded request become intermediate
+// IPs in header order. A Log4Shell probe forges every proxy header, so its
+// X-Forwarded-For maps no addresses.
+from_file env("TENZIR_INPUT") {
+  read_zeek_tsv
+}
+zeek::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select metadata.correlation_uid, src_endpoint, http_request.http_headers, unmapped
+drop_null_fields

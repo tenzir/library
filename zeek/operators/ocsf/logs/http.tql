@@ -53,6 +53,32 @@ $ocsf.http_request = {
     value: xs[1],
   }),
 }
+// Zeek logs the proxy headers of a request, such as X-Forwarded-For and Via,
+// in `proxied` as `NAME -> value`, with the name in upper case. They are
+// request headers, so they join the ones from `client_headers`, unless that
+// already lists the same header and value.
+if not ($event.proxied? else []).is_empty() {
+  $event.proxied = $event.proxied.map(x => x.split(" -> ", max=1)).map(xs => {
+    name: xs[0],
+    value: xs[1]?,
+  })
+  $event.logged_headers = ($ocsf.http_request.http_headers? else []).map(x => f"{x.name.to_lower()}: {x.value}")
+  $ocsf.http_request.http_headers = [
+    ...$ocsf.http_request.http_headers? else [],
+    ...$event.proxied.where(x => f"{x.name.to_lower()}: {x.value}" not in $event.logged_headers),
+  ]
+  // X-Forwarded-For lists the addresses of the client and of the proxies that
+  // forwarded its request, in that order. Clients control the header, so its
+  // addresses can be forged. They map only if every entry is an address.
+  $event.xff = $event.proxied.where(x => x.name == "X-FORWARDED-FOR").map(x => x.value)
+  if not $event.xff.is_empty() {
+    $event.xff_ips = $event.xff.join(",").split(",").map(x => ip(x.trim()))
+    if $event.xff_ips.where(x => x == null).is_empty() {
+      $ocsf.src_endpoint.intermediate_ips = $event.xff_ips
+    }
+  }
+  drop $event.proxied, $event.logged_headers, $event.xff, $event.xff_ips?
+}
 // A URL needs a path. Zeek's `uri` also carries the query string.
 if $event.uri? != null {
   $ocsf.http_request.url = {

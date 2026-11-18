@@ -53,6 +53,16 @@ Header lists distinguish known from unknown absence: when Zeek saw the message h
 
 ## 🔧 Changes
 
+### Zeek proxy headers as HTTP request headers
+
+HTTP Activity events now map the proxy headers that Zeek logs in `proxied`, such as `X-FORWARDED-FOR`, `VIA`, and `FORWARDED`, to `http_request.http_headers`, after the headers from `client_headers`. A header that `client_headers` already lists with the same value does not repeat. The addresses in X-Forwarded-For map to `src_endpoint.intermediate_ips`, in header order, if every entry is an address. Clients control the header, so treat the addresses as claims. If an entry is no address, as in Log4Shell probes, no addresses map, but the header still does. `proxied` no longer appears in `unmapped`.
+
+```tql
+where 137.135.117.126 in src_endpoint.intermediate_ips?
+```
+
+*By @zedoraps.*
+
 ### Zeek TLS fingerprints and server names on endpoints
 
 Zeek TLS records whose handshake never finished no longer produce an invalid OCSF `tls` object, and every TLS record now exposes its JA3 and JA3S fingerprints and its SNI on the endpoints. Zeek logs no TLS version when it saw no ServerHello, for example when the client sent only a ClientHello or the server answered only with an alert. These records previously carried a `tls` object without the `version` that OCSF requires. They now stay Network Activity events without a `tls` object, and facts without an OCSF counterpart, such as `ssl_history`, remain under `unmapped`.
