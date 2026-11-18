@@ -31,6 +31,28 @@ if $event.http.http_method? != null or $ocsf.http_request? != null {
     http_headers: move $event.http.request_headers?,
   }
 }
+// The X-Forwarded-For header lists the addresses of the client and of the
+// proxies that forwarded its request, in that order. `http.xff` holds the raw
+// header. With the `xff` setting in `extra-data` mode, Suricata also logs the
+// one address that it picked from a configurable header as `xff`; in
+// `overwrite` mode, it replaces the logged address instead. Clients control
+// the header, so its addresses can be forged. If an entry is no address, the
+// raw header also stays in `unmapped`. The addresses describe the client side,
+// so they need a client endpoint.
+if $ocsf.src_endpoint? != null and ($event.http.xff? != null or $event.xff? != null) {
+  $event.xff_entries = ($event.http.xff? else $event.xff).string().split(",").map(x => x.trim())
+  $event.xff_ips = $event.xff_entries.map(x => ip(x)).where(x => x != null)
+  if not $event.xff_ips.is_empty() {
+    $ocsf.src_endpoint.intermediate_ips = $event.xff_ips
+  }
+  if $event.xff_ips.length() == $event.xff_entries.length() {
+    drop $event.http.xff?
+  }
+  if ip($event.xff?.string()) in $event.xff_ips {
+    drop $event.xff
+  }
+  drop $event.xff_entries, $event.xff_ips
+}
 // A response needs a status code.
 if $event.http.status? != null {
   $ocsf.http_response = {

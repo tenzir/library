@@ -68,9 +68,6 @@ match $event.app_proto? {
     }
     drop $event.file_sender
     suricata::ocsf::logs::http $event, $ocsf
-    if $event.http.keys().where(key => $event.http[key] != null).is_empty() {
-      drop $event.http
-    }
   }
   "smb" if $event.smb? != null => {
     // Servers send the files that clients read, and receive the ones they
@@ -147,3 +144,7 @@ if $ocsf.class_uid == 4009 {
   ]
   drop $ocsf.file
 }
+
+// --- Cleanup ----------------------------------
+
+suricata::ocsf::drop_empty $event.fileinfo

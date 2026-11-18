@@ -58,6 +58,11 @@ if $event.alert.metadata?.confidence? != null {
 
 // Suricata alerts can have a bunch of different records, based on the
 // respective protocol analyzer. Our strategy here is to map them as evidence.
+// The HTTP mapping adds the X-Forwarded-For addresses to the source endpoint,
+// so it runs before the endpoints move into the evidence.
+if $event.http? != null {
+  suricata::ocsf::map_http $event, $ocsf
+}
 $ocsf.evidence = {
   src_endpoint: move $ocsf.src_endpoint?,
   dst_endpoint: move $ocsf.dst_endpoint?,
@@ -68,7 +73,6 @@ if $event.dns?.queries? != null {
   $ocsf.evidence.query = move $ocsf.query
 }
 if $event.http? != null {
-  suricata::ocsf::map_http $event, $ocsf
   $ocsf.evidence.http_request = move $ocsf.http_request?
   $ocsf.evidence.http_response = move $ocsf.http_response?
 }
@@ -96,5 +100,9 @@ $ocsf.finding_info = {
 drop $event.alert.signature, $event.alert.signature_id
 
 // --- Finalize ---------------------------------
+
+suricata::ocsf::drop_empty $event.alert
+suricata::ocsf::drop_empty $event.http?
+suricata::ocsf::drop_empty $event.smb?
 
 @name = "ocsf.detection_finding"

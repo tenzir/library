@@ -50,6 +50,7 @@ if $event.event_type in $mapped_types {
   if $event.flow?.src_ip? != null {
     $ocsf.src_endpoint = {ip: move $event.flow.src_ip, port: move $event.flow.src_port?}
     $ocsf.dst_endpoint = {ip: move $event.flow.dest_ip?, port: move $event.flow.dest_port?}
+    suricata::ocsf::drop_empty $event.flow
   } else if $event.src_ip? != null {
     $ocsf.src_endpoint = {ip: move $event.src_ip, port: move $event.src_port?}
     $ocsf.dst_endpoint = {ip: move $event.dest_ip?, port: move $event.dest_port?}
@@ -129,3 +130,6 @@ if $ocsf.category_uid == 4 and $ocsf.connection_info? != null {
 
 drop $event.event_type
 $ocsf.unmapped = move $event
+if $ocsf.unmapped.is_empty() {
+  drop $ocsf.unmapped
+}
