@@ -1,4 +1,4 @@
-This release makes Zeek SMTP records with a rejected or unfinished envelope valid OCSF Email Activity events, whose sender and recipients fall back to the SMTP envelope when the message headers are missing. All SMTP records now carry a status from the server's last reply, and Email Activity events replace the deprecated `smtp_from`, `smtp_to`, `reply_to`, and `smtp_hello` attributes with their successors. Zeek TLS records without a finished handshake no longer carry an invalid TLS object, and all TLS records now expose their JA3 and JA3S fingerprints and server name on the endpoints. Zeek events no longer set `metadata.original_event_uid`; the connection UID remains in `metadata.correlation_uid`.
+This release makes Zeek SMTP records with a rejected or unfinished envelope valid OCSF Email Activity events with a status from the server's last reply, and maps TLS fingerprints and server names to the endpoints. HTTP Activity events gain proxy headers, X-Forwarded-For addresses, and complete URLs with the Host header port. Zeek events now keep the connection UID only in `metadata.correlation_uid`.
 
 ## 💥 Breaking changes
 
@@ -52,6 +52,18 @@ Header lists distinguish known from unknown absence: when Zeek saw the message h
 *By @zedoraps.*
 
 ## 🔧 Changes
+
+### Complete URLs for Zeek HTTP requests
+
+HTTP Activity events now carry the complete URL of a request in `http_request.url.url_string`, with `url.scheme` set to `http`, since Zeek only parses cleartext HTTP. For a request target in origin form, such as `/index.html`, the URL combines the scheme, the Host header, and the target. A port in the Host header, such as `203.176.135.102:8082`, now maps to `url.port` and no longer appears in `url.hostname`. The URL never takes the port of the connection. A proxy request in absolute form, such as `http://azenv.net/`, keeps the URL as sent and takes the scheme, host, port, path, and query from it, so its `url.path` no longer holds the whole URL. A request without a Host header keeps its path and query string but has no URL string. CONNECT targets, such as `example.org:443`, and other request targets that name no URL map no `url` object and stay in `unmapped.uri`.
+
+Zeek logs `uri` percent-decoded, so `url_string` holds the decoded form.
+
+```tql
+where http_request.url.port? == 8082
+```
+
+*By @zedoraps.*
 
 ### Zeek proxy headers as HTTP request headers
 

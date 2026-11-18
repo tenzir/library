@@ -1,0 +1,12 @@
+// Zeek rebuilds the URL of a request target in origin form from the Host
+// header and keeps the port that the header names. A proxy request in absolute
+// form is the URL as sent. A request without a Host header has a path but no
+// URL string. A CONNECT target in authority form and the EHLO line of an SMTP
+// client name no URL, so their `uri` stays in `unmapped`.
+from_file env("TENZIR_INPUT") {
+  read_zeek_tsv
+}
+zeek::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select metadata.correlation_uid, http_request.http_method, http_request.url?, unmapped.host?, unmapped.uri?
+drop_null_fields
