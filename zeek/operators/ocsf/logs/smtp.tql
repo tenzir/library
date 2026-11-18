@@ -20,49 +20,69 @@ args:
 zeek::ocsf::map_network $event, $ocsf
 $ocsf.metadata.log_name = "smtp.log"
 
-// Zeek logs these fields only after a client started a message. Without any of
-// them, the record describes the SMTP negotiation alone.
-let $message_fields = [
-  "mailfrom",
-  "rcptto",
-  "date",
-  "from",
-  "to",
-  "cc",
-  "reply_to",
-  "msg_id",
-  "in_reply_to",
-  "subject",
-  "x_originating_ip",
-  "first_received",
-  "second_received",
-  "user_agent",
-  "urls",
-  "fuids",
-]
-if $message_fields.map(key => $event[key]? not in [null, []]).any() {
-  // Keep observed email activity even when its envelope is incomplete.
+// Zeek starts the path with the server and the client of this connection and
+// appends the address from each `Received` header. The entries after the
+// connection endpoints are the hosts that handed on the message before it
+// reached the client, the most recent first. A path that starts differently
+// stays unmapped.
+if $event.path?.slice(end=2) == [$ocsf.dst_endpoint.ip?, $ocsf.src_endpoint.ip?] {
+  $ocsf.src_endpoint.intermediate_ips = $event.path.slice(begin=2) if $event.path.length() > 2 else null
+  drop $event.path
+}
+
+// Email Activity identifies a message by its sender and recipients. Zeek logs
+// the SMTP envelope (RFC 5321) once the client sends MAIL FROM and RCPT TO, and
+// the header addresses (RFC 5322) only after the server accepted the message
+// data. A negotiation without either, such as HELO and STARTTLS alone,
+// describes SMTP traffic and retains any partial message details under their
+// original keys.
+if (
+  $event.mailfrom? != null
+  or $event.rcptto? not in [null, []]
+  or $event.from? != null
+  or $event.to? not in [null, []]
+) {
   drop $ocsf.connection_info?
   $ocsf.activity_id = 1
   $ocsf.class_uid = 4009
   $ocsf.severity_id = 1
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-  $ocsf.dst_endpoint.intermediate_ips = move $event.path?
-  // OCSF separates the SMTP envelope from the message headers. The header
-  // fields hold human-readable mailboxes such as `Name <user@example.org>`,
-  // from which the machine-readable fields take the address.
+  // The header fields hold human-readable mailboxes such as
+  // `Name <user@example.org>`, from which the machine-readable fields take the
+  // address. Without header addresses, such as after a rejected envelope,
+  // `from` and `to` fall back to the envelope, and the mailbox fields stay
+  // empty. The envelope sender is the reverse-path that the receiving server
+  // records as `Return-Path` (RFC 5321, section 4.4), and the envelope
+  // recipients are the addresses that a `Delivered-To` header records
+  // (RFC 9228).
   let $address = "^.*<([^>]*)>.*$"
+  // Zeek records header fields only once it saw the message headers. With
+  // headers, a missing header list is known to be empty; without any, such as
+  // after a rejected envelope, it is unknown.
+  $event.missing_header = [] if (
+    $event.date? != null
+    or $event.from? != null
+    or $event.to? != null
+    or $event.cc? != null
+    or $event.reply_to? != null
+    or $event.msg_id? != null
+    or $event.in_reply_to? != null
+    or $event.subject? != null
+    or $event.x_originating_ip? != null
+    or $event.first_received? != null
+    or $event.user_agent? != null
+  ) else null
   $ocsf.email = {
-    smtp_from: move $event.mailfrom?,
-    smtp_to: move $event.rcptto?,
-    from: $event.from?.replace_regex($address, "\\1").trim(),
+    from: $event.from?.replace_regex($address, "\\1").trim() else $event.mailfrom?,
     from_mailbox: move $event.from?,
-    to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()),
-    to_mailboxes: move $event.to?,
-    cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()),
-    cc_mailboxes: move $event.cc?,
-    reply_to: $event.reply_to?.replace_regex($address, "\\1").trim(),
-    reply_to_mailboxes: [move $event.reply_to?].collect(),
+    to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()) else $event.rcptto?,
+    to_mailboxes: move $event.to? else $event.missing_header,
+    return_path: move $event.mailfrom?,
+    delivered_to_list: move $event.rcptto?,
+    cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()) else $event.missing_header,
+    cc_mailboxes: move $event.cc? else $event.missing_header,
+    reply_to_list: [$event.reply_to?.replace_regex($address, "\\1").trim()] if $event.reply_to? != null else $event.missing_header,
+    reply_to_mailboxes: [$event.reply_to?] if $event.reply_to? != null else $event.missing_header,
     message_uid: move $event.msg_id?,
     subject: move $event.subject?,
     x_originating_ip: move $event.x_originating_ip?,
@@ -70,34 +90,14 @@ if $message_fields.map(key => $event[key]? not in [null, []]).any() {
       url_string: url,
     }),
   }
-  // HELO/EHLO carries the client's self-reported host name.
-  $ocsf.smtp_hello = move $event.helo?
+  drop $event.reply_to?, $event.missing_header
+  // The HELO/EHLO argument carries the client's self-reported host name. Zeek
+  // doesn't log which of the two verbs the client sent.
+  $ocsf.command = move $event.helo?
   $ocsf.protocol_name = "SMTP"
   $ocsf.direction_id = 0
-  $ocsf.status_detail = move $event.last_reply?
-  // The last reply code tells whether the server accepted the transaction.
-  $ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
-  // Range bounds are exclusive.
-  match int($ocsf.status_code?) {
-    // 2xx and 3xx
-    199..400 => {
-      $ocsf.status = "Success"
-      $ocsf.status_id = 1
-    }
-    // 4xx and 5xx
-    399..600 => {
-      $ocsf.status = "Failure"
-      $ocsf.status_id = 2
-    }
-    _ => {
-      $ocsf.status = "Unknown"
-      $ocsf.status_id = 0
-    }
-  }
   @name = "ocsf.email_activity"
 } else {
-  // HELO/STARTTLS can finish without an email envelope. Report the observed
-  // SMTP traffic and retain negotiation details under their original keys.
   $ocsf.activity_id = 6
   $ocsf.class_uid = 4001
   $ocsf.severity_id = 1
@@ -106,4 +106,27 @@ if $message_fields.map(key => $event[key]? not in [null, []]).any() {
   $ocsf.connection_info.protocol_name = "tcp"
   $ocsf.connection_info.protocol_num = 6
   @name = "ocsf.network_activity"
+}
+
+// The class of the last reply code (RFC 5321, section 4.2.1) tells whether
+// the server completed the last step. A positive intermediate reply (3xx),
+// such as 354 after DATA, leaves the transaction unfinished.
+$ocsf.status_detail = move $event.last_reply?
+$ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
+// Range bounds are exclusive.
+match int($ocsf.status_code?) {
+  // 2xx
+  199..300 => {
+    $ocsf.status = "Success"
+    $ocsf.status_id = 1
+  }
+  // 4xx and 5xx
+  399..600 => {
+    $ocsf.status = "Failure"
+    $ocsf.status_id = 2
+  }
+  _ => {
+    $ocsf.status = "Unknown"
+    $ocsf.status_id = 0
+  }
 }

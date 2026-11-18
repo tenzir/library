@@ -63,22 +63,58 @@ let $alert_codes = {
   ech_required: 121, // draft-ietf-tls-esni-17
 }
 
-// Zeek logs no version when the handshake did not finish. The TLS facts that
-// were observed still belong here, even though OCSF requires the version.
-$ocsf.tls = {
-  cipher: move $event.cipher?,
-  // JSON readers infer IP values; the SNI is always a string.
-  sni: (move $event.server_name?).string(),
-  version: move $event.version?,
-  // NB: If we have an alert, `ssl_history` also contains [lL].
-  alert: $alert_codes[$event.last_alert?]?,
+// A TLS object models a negotiated session and requires its version, which
+// Zeek takes from the ServerHello. Without one, the handshake never finished
+// and the event stays Network Activity without a TLS object.
+if $event.version? != null {
+  $ocsf.tls = {
+    cipher: move $event.cipher?,
+    // JSON readers infer IP values; the SNI is always a string.
+    sni: $event.server_name?.string(),
+    version: move $event.version,
+    // NB: If we have an alert, `ssl_history` also contains [lL].
+    alert: $alert_codes[$event.last_alert?]?,
+  }
+  // A fingerprint requires its value.
+  if $event.ja3? != null {
+    $ocsf.tls.ja3_hash = {algorithm_id: 1, value: $event.ja3}
+  }
+  if $event.ja3s? != null {
+    $ocsf.tls.ja3s_hash = {algorithm_id: 1, value: $event.ja3s}
+  }
 }
-// A fingerprint requires its value.
+// JA3 and JA3S identify the client and server implementations, even when the
+// handshake failed. OCSF has no algorithm ID for them.
 if $event.ja3? != null {
-  $ocsf.tls.ja3_hash = {algorithm_id: 1, value: move $event.ja3}
+  $ocsf.src_endpoint.fingerprints = [{
+    algorithm_id: 99,
+    algorithm: "JA3",
+    value: move $event.ja3,
+  }]
 }
 if $event.ja3s? != null {
-  $ocsf.tls.ja3s_hash = {algorithm_id: 1, value: move $event.ja3s}
+  $ocsf.dst_endpoint.fingerprints = [{
+    algorithm_id: 99,
+    algorithm: "JA3S",
+    value: move $event.ja3s,
+  }]
+}
+// The SNI names the server, unless the client sent an IP literal, optionally
+// with a port. It never replaces a different host name.
+if (
+  $event.server_name? != null
+  and ip($event.server_name) == null
+  and ":" not in $event.server_name
+  and ($ocsf.dst_endpoint.hostname? else $event.server_name) == $event.server_name
+) {
+  $ocsf.dst_endpoint.hostname = move $event.server_name
+}
+// The TLS object already holds the SNI. Otherwise, an SNI that names no host
+// stays unmapped as the string the client sent.
+if $ocsf.tls? != null {
+  drop $event.server_name?
+} else if $event.server_name? != null {
+  $event.server_name = $event.server_name.string()
 }
 
 // --- OCSF: primary attributes -----------------
@@ -89,6 +125,7 @@ $ocsf.connection_info.protocol_num = 6
 if not $event.established or $event.last_alert? != null {
   $ocsf.status_id = 2
   $ocsf.status = "Failure"
+  $ocsf.status_code = $alert_codes[$event.last_alert?]?.string()
   $ocsf.status_detail = move $event.last_alert?
 } else if $event.validation_status? == "ok" {
   // There could be more `validation_status` values that mean success,

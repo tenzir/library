@@ -1,0 +1,18 @@
+// The input modifies the second message of `smtp-relays.input`, which derives
+// from the Zeek repository (https://github.com/zeek/zeek, BSD 3-Clause license,
+// see its `COPYING` file), and keeps only some of its fields. It holds the
+// message:
+//
+// - Without the envelope and the `From` and `To` headers, so that the relays
+//   appear in an SMTP Network Activity event.
+// - With only the connection endpoints in the path, as for a message without
+//   `Received` headers.
+// - With a path that does not start with the connection endpoints, which the
+//   SMTP script of Zeek never writes and which therefore stays unmapped.
+from_file env("TENZIR_INPUT") {
+  read_ndjson
+  this = this.unflatten(".")
+}
+zeek::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select class_uid, src_endpoint, dst_endpoint, unmapped

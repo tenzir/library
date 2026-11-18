@@ -53,15 +53,86 @@ $ocsf.http_request = {
     value: xs[1],
   }),
 }
-// A URL needs a path. Zeek's `uri` also carries the query string.
-if $event.uri? != null {
-  $ocsf.http_request.url = {
-    // JSON readers infer IP values; the host is always a string.
-    hostname: (move $event.dest_host? else move $event.host?).string(),
-    path: $event.uri.split("?", max=1)[0],
-    query_string: $event.uri.split("?", max=1)[1]?,
+// Zeek logs the proxy headers of a request, such as X-Forwarded-For and Via,
+// in `proxied` as `NAME -> value`, with the name in upper case. They are
+// request headers, so they join the ones from `client_headers`, unless that
+// already lists the same header and value.
+if not ($event.proxied? else []).is_empty() {
+  $event.proxied = $event.proxied.map(x => x.split(" -> ", max=1)).map(xs => {
+    name: xs[0],
+    value: xs[1]?,
+  })
+  $event.logged_headers = ($ocsf.http_request.http_headers? else []).map(x => f"{x.name.to_lower()}: {x.value}")
+  $ocsf.http_request.http_headers = [
+    ...$ocsf.http_request.http_headers? else [],
+    ...$event.proxied.where(x => f"{x.name.to_lower()}: {x.value}" not in $event.logged_headers),
+  ]
+  // X-Forwarded-For lists the addresses of the client and of the proxies that
+  // forwarded its request, in that order. Clients control the header, so its
+  // addresses can be forged. Entries that are no address, such as `unknown`,
+  // only stay in the header.
+  $event.xff = $event.proxied.where(x => x.name == "X-FORWARDED-FOR").map(x => x.value)
+  if not $event.xff.is_empty() {
+    $event.xff_ips = $event.xff.join(",").split(",").map(x => ip(x.trim())).where(x => x != null)
+    if not $event.xff_ips.is_empty() {
+      $ocsf.src_endpoint.intermediate_ips = $event.xff_ips
+    }
   }
-  drop $event.uri
+  drop $event.proxied, $event.logged_headers, $event.xff, $event.xff_ips?
+}
+// Zeek logs the request target as `uri`, including the query string. Zeek's
+// HTTP analyzer only parses cleartext HTTP, so every URL that a request target
+// names has the scheme `http`, unless an absolute target names another one.
+if $event.uri? != null {
+  if $event.uri.starts_with("/") {
+    // A target in origin form is the path and query of the URL. RFC 9110
+    // §7.1 rebuilds the URL from the scheme, the Host header, and the target.
+    // JSON readers infer IP values; the host is always a string.
+    if $event.dest_host? not in [null, ""] {
+      $event.url_authority = (move $event.dest_host).string()
+    } else if $event.host? not in [null, ""] {
+      $event.url_authority = (move $event.host).string()
+    }
+    $event.url_target = $event.uri
+    if $event.url_authority? != null {
+      $event.url_string = "http://" + $event.url_authority + $event.uri
+    }
+  } else if $event.uri.match_regex(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]") {
+    // A client sends a target in absolute form to a proxy. The URL is the
+    // target as sent, and its authority takes precedence over the Host header.
+    $event.url_scheme = $event.uri.split("://", max=1)[0].to_lower()
+    $event.url_rest = $event.uri.split("://", max=1)[1]
+    $event.url_authority = $event.url_rest.replace_regex(r"^(?:[^/?#@]*@)?([^/?#]*).*$", "\\1")
+    $event.url_target = $event.url_rest.replace_regex(r"^[^/?#]*", "")
+    $event.url_string = $event.uri
+  }
+  // Targets in authority form, such as `example.org:443` of a CONNECT
+  // request, and other targets name no URL, so `uri` stays in `unmapped`.
+  if $event.url_target? != null {
+    // The URL takes the port that the authority names, never the port of the
+    // connection. IPv6 literals in brackets also contain colons.
+    $event.url_port = $event.url_authority?.replace_regex(r"^(\[[^\]]*\]|[^:\[\]]*):(\d+)$", "\\2")
+    $event.url_hostname = $event.url_authority?.replace_regex(r"^(\[[^\]]*\]|[^:\[\]]*):(\d+)$", "\\1")
+    $event.url_path = $event.url_target.split("?", max=1)[0]
+    $ocsf.http_request.url = {
+      hostname: $event.url_hostname.replace_regex(r"^\[(.*)\]$", "\\1"),
+      port: $event.url_port.int() if $event.url_port != $event.url_authority? else null,
+      path: $event.url_path if $event.url_path != "" else null,
+      query_string: $event.url_target.split("?", max=1)[1]?,
+      scheme: $event.url_scheme? else "http",
+      url_string: $event.url_string?,
+    }
+    // The Host header of an absolute target stays only if it names another
+    // host.
+    if $event.host?.string() in [$event.url_authority?, $event.url_hostname] {
+      drop $event.host
+    }
+    if $event.dest_host?.string() in [$event.url_authority?, $event.url_hostname] {
+      drop $event.dest_host
+    }
+    drop $event.uri, $event.url_hostname, $event.url_path, $event.url_port
+  }
+  drop $event.url_authority?, $event.url_rest?, $event.url_scheme?, $event.url_string?, $event.url_target?
 }
 // A response needs a status code.
 if $event.status_code? != null {
