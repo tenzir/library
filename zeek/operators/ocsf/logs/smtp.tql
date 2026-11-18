@@ -56,17 +56,33 @@ if (
   // recipients are the addresses that a `Delivered-To` header records
   // (RFC 9228).
   let $address = "^.*<([^>]*)>.*$"
+  // Zeek records header fields only once it saw the message headers. With
+  // headers, a missing header list is known to be empty; without any, such as
+  // after a rejected envelope, it is unknown.
+  $event.missing_header = [] if (
+    $event.date? != null
+    or $event.from? != null
+    or $event.to? != null
+    or $event.cc? != null
+    or $event.reply_to? != null
+    or $event.msg_id? != null
+    or $event.in_reply_to? != null
+    or $event.subject? != null
+    or $event.x_originating_ip? != null
+    or $event.first_received? != null
+    or $event.user_agent? != null
+  ) else null
   $ocsf.email = {
     from: $event.from?.replace_regex($address, "\\1").trim() else $event.mailfrom?,
     from_mailbox: move $event.from?,
     to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()) else $event.rcptto?,
-    to_mailboxes: move $event.to?,
+    to_mailboxes: move $event.to? else $event.missing_header,
     return_path: move $event.mailfrom?,
     delivered_to_list: move $event.rcptto?,
-    cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()),
-    cc_mailboxes: move $event.cc?,
-    reply_to_list: [$event.reply_to?.replace_regex($address, "\\1").trim()].collect(),
-    reply_to_mailboxes: [move $event.reply_to?].collect(),
+    cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()) else $event.missing_header,
+    cc_mailboxes: move $event.cc? else $event.missing_header,
+    reply_to_list: [$event.reply_to?.replace_regex($address, "\\1").trim()] if $event.reply_to? != null else $event.missing_header,
+    reply_to_mailboxes: [$event.reply_to?] if $event.reply_to? != null else $event.missing_header,
     message_uid: move $event.msg_id?,
     subject: move $event.subject?,
     x_originating_ip: move $event.x_originating_ip?,
@@ -74,6 +90,7 @@ if (
       url_string: url,
     }),
   }
+  drop $event.reply_to?, $event.missing_header
   // The HELO/EHLO argument carries the client's self-reported host name. Zeek
   // doesn't log which of the two verbs the client sent.
   $ocsf.command = move $event.helo?

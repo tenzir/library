@@ -30,3 +30,5 @@ where class_uid == 4009 and command == "localhost"
 Records without an envelope or header addresses, such as an SMTP negotiation alone, become OCSF Network Activity with `app_protocol_name: "smtp"` and keep partial message details, such as `helo` and `subject`, under `unmapped`.
 
 All SMTP records now take `status`, `status_code`, and `status_detail` from Zeek's `last_reply`. The class of the reply code decides: 2xx is a success, 4xx and 5xx a failure, and a 3xx reply such as `354` after `DATA` leaves the transaction unfinished, so its status is unknown. Both classes now map the hosts from Zeek's `path` that handed on the message before it reached the client to `src_endpoint.intermediate_ips`, instead of placing the whole path, including the connection's own server and client, in the `dst_endpoint.intermediate_ips` of Email Activity events.
+
+Header lists distinguish known from unknown absence: when Zeek saw the message headers, a missing `To`, `Cc`, or `Reply-To` header yields an empty list, and without any headers, such as after a rejected envelope, these lists stay null.
