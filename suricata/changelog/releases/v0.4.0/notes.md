@@ -69,12 +69,14 @@ A `KDC_ERR_PREAUTH_REQUIRED` error, which the KDC sends at the start of every re
 
 Suricata `fileinfo` events no longer map to the deprecated Network File Activity class, which requires an actor that a network sensor cannot observe. They now use the class of the protocol that transferred the file:
 
-- HTTP transfers become HTTP Activity with the file in `file`, next to the request and response of the transaction.
+- HTTP transfers become HTTP Activity with the file in `file`, next to the request and response of the transaction, when Suricata knows the name of the file.
 - SMB transfers become SMB Activity with the file in `file`, including its share path, ID, and the SMB command.
 - SMTP attachments become Email Activity with the file in `email.files`.
 - Files from other protocols become Network Activity traffic, with the file details under `unmapped.fileinfo`.
 
 The file keeps its name, size, hashes, and libmagic description, and `metadata.log_name` still says `fileinfo`. When Suricata computed no hashes, `file.hashes` is null instead of an empty list.
+
+For HTTP, Suricata names a file only after the `Content-Disposition` filename of a response or the filename of a multipart upload, such as `aehgwjwgij.zip`. Otherwise, it falls back to the URL path, which `http_request.url.path` already holds and which always begins with `/`. Such events no longer report the path as `file.name`, and have no `file`. The file size becomes `http_response.body_length` when the evidence below identifies a response body, and `http_request.body_length` for a request body. A response body length that Suricata logged for the transaction takes precedence. Otherwise, the size stays in `unmapped.fileinfo.size`, next to the path in `unmapped.fileinfo.filename` and any hashes. A server that sends a name beginning with `/`, such as `filename="/etc/passwd"`, is treated the same way.
 
 Suricata logs a file event in the direction of the file, not of the connection, so downloads used to name the server as source. The client is now `src_endpoint` whenever hard evidence identifies the direction:
 

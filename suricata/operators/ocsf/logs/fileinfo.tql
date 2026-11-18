@@ -57,7 +57,10 @@ match $event.app_proto? {
         src_endpoint: $ocsf.dst_endpoint,
         dst_endpoint: $ocsf.src_endpoint,
       }
-    } else if $event.file_sender.server == $event.file_sender.client {
+      $event.file_body = "response"
+    } else if $event.file_sender.client and not $event.file_sender.server {
+      $event.file_body = "request"
+    } else {
       // Without evidence, or with contradicting evidence, the event names no
       // client and server. It keeps the observed addresses.
       $event.src_ip = $ocsf.src_endpoint.ip
@@ -114,9 +117,33 @@ match $event.app_proto? {
 
 // --- OCSF: primary attributes -----------------
 
-// HTTP logs the URL path as file name, SMB the path within the share, and
-// SMTP the attachment name. The SMB mapping adds the share path and times.
-if $ocsf.class_uid in [4002, 4006, 4009] {
+// For HTTP, Suricata names the file after the `Content-Disposition` filename
+// of a response or the filename of a multipart form upload. Otherwise, it falls
+// back to the URI path, which always begins with `/` (`HtpResponseBodyHandle`,
+// `HtpRequestBodyHandleMultipart`, and `HtpRequestBodyHandlePOSTorPUT` in
+// src/app-layer-htp.c). A path names no file, and the URL already holds it, so
+// such events have no `file`. A server that sends a file name beginning with
+// `/`, such as `Content-Disposition: attachment; filename="/etc/passwd"`, looks
+// the same and is no file either. The size then describes the message body
+// whose sender the evidence identified. It never replaces a different body
+// length that Suricata logged for the transaction, and stays under
+// `unmapped.fileinfo`, together with the path and any hashes, otherwise.
+if $ocsf.class_uid == 4002 and $event.fileinfo.filename?.starts_with("/") {
+  if (
+    $event.file_body? == "response"
+    and $ocsf.http_response? != null
+    and $ocsf.http_response.body_length? in [null, $event.fileinfo.size?]
+  ) {
+    $ocsf.http_response.body_length = move $event.fileinfo.size?
+  } else if $event.file_body? == "request" {
+    $ocsf.http_request.body_length = move $event.fileinfo.size?
+  }
+}
+drop $event.file_body?
+
+// HTTP and SMTP log the name of the file, SMB its path within the share. The
+// SMB mapping adds the share path and times.
+if $ocsf.class_uid in [4006, 4009] or ($ocsf.class_uid == 4002 and not $event.fileinfo.filename?.starts_with("/")) {
   $ocsf.file = {
     // EVE does not tell regular from executable files.
     type_id: 1,
