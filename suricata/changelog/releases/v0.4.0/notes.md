@@ -68,7 +68,14 @@ Suricata `fileinfo` events no longer map to the deprecated Network File Activity
 - SMTP attachments become Email Activity with the file in `email.files`.
 - Files from other protocols become Network Activity traffic, with the file details under `unmapped.fileinfo`.
 
-The file keeps its name, size, hashes, and libmagic description, and `metadata.log_name` still says `fileinfo`. Because Suricata logs files in their transfer direction, downloads used to name the server as source. The client is now `src_endpoint` whenever the standard ports, the HTTP Host header, the request method, or the SMB command identify the server. HTTP uploads without such evidence keep the direction that Suricata logged.
+The file keeps its name, size, hashes, and libmagic description, and `metadata.log_name` still says `fileinfo`. When Suricata computed no hashes, `file.hashes` is null instead of an empty list.
+
+Suricata logs a file event in the direction of the file, not of the connection, so downloads used to name the server as source. The client is now `src_endpoint` whenever hard evidence identifies the direction:
+
+- For HTTP, the ports 80, 8080, and 443, a Host header with the address of one side, or a Host header with the port of one side name the server. A response with a zero-length body makes the file the request body, and a content range or file offsets make it the response body. The request method is no evidence, because a GET request may carry a body.
+- For SMB, the ports 139 and 445 and the read or write command name the server.
+
+When an HTTP file event has no such evidence, or the evidence contradicts itself, it names no `src_endpoint` and `dst_endpoint`. It stays HTTP Activity with its `connection_info`, and keeps the observed `src_ip`, `src_port`, `dest_ip`, and `dest_port` in `unmapped`.
 
 *By @zedoraps.*
 

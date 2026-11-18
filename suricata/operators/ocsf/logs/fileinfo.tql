@@ -12,37 +12,65 @@ args:
 // Activity and its successor File Hosting Activity require. The classes of
 // the transferring protocols describe the same observation without one.
 
-// Suricata logs a file in its transfer direction, so the packet source sends
-// the file. For downloads, that is the server. OCSF puts the client into
-// `src_endpoint`, so the evidence below identifies the server.
-let $http_ports = [80, 8080]
+// Suricata logs a file event in the direction of the file, not of the
+// connection: the packet source sends the file. For a response body, that is
+// the server. OCSF puts the client into `src_endpoint`, so the mappings below
+// identify the server from evidence and swap the endpoints when it sent the
+// file.
+let $http_ports = [80, 8080, 443]
 let $smb_ports = [139, 445]
-let $bodyless_methods = ["GET", "HEAD"]
 
 // --- OCSF: classification attributes ----------
 
 match $event.app_proto? {
   // HTTP Activity needs a request or a response.
   "http" if $event.http?.url? != null or $event.http?.http_method? != null or $event.http?.status? != null => {
-    // The standard ports and the Host header name the server. GET and HEAD
-    // requests carry no body, so their files are responses.
-    if (
-      $ocsf.src_endpoint.port in $http_ports
-      or $event.http.hostname?.string() == $ocsf.src_endpoint.ip.string()
-      or $event.http.http_method? in $bodyless_methods
-    ) and not (
-      $ocsf.dst_endpoint.port in $http_ports
-      or $event.http.hostname?.string() == $ocsf.dst_endpoint.ip.string()
-    ) {
+    // The connection derives its IP version from the endpoints, which the
+    // evidence below may remove.
+    suricata::ocsf::map_connection_info $event, $ocsf
+    $ocsf.app_protocol_name = move $event.app_proto
+    // The HTTP event carries the metadata of the whole transaction, so it
+    // does not tell whether the file is the request or the response body.
+    // Only hard evidence decides:
+    // - A standard port, a Host header with the address, or a Host header
+    //   with the port names the server.
+    // - A response with a zero-length body leaves the request body as file.
+    // - A content range or file offsets only occur for response bodies.
+    // A GET request may carry a body, so the method is no evidence. If
+    // Suricata logs the request headers, a Content-Length would be further
+    // evidence.
+    $event.file_sender = {
+      server: $ocsf.src_endpoint.port in $http_ports
+        or $event.http.hostname?.string() == $ocsf.src_endpoint.ip.string()
+        or $event.http.http_port? == $ocsf.src_endpoint.port
+        or $event.http.content_range? != null
+        or $event.fileinfo.start? != null
+        or $event.fileinfo.end? != null,
+      client: $ocsf.dst_endpoint.port in $http_ports
+        or $event.http.hostname?.string() == $ocsf.dst_endpoint.ip.string()
+        or $event.http.http_port? == $ocsf.dst_endpoint.port
+        or $event.http.length? == 0,
+    }
+    if $event.file_sender.server and not $event.file_sender.client {
       $ocsf = {
         ...$ocsf,
         src_endpoint: $ocsf.dst_endpoint,
         dst_endpoint: $ocsf.src_endpoint,
       }
+    } else if $event.file_sender.server == $event.file_sender.client {
+      // Without evidence, or with contradicting evidence, the event names no
+      // client and server. It keeps the observed addresses.
+      $event.src_ip = $ocsf.src_endpoint.ip
+      $event.src_port = $ocsf.src_endpoint.port
+      $event.dest_ip = $ocsf.dst_endpoint.ip
+      $event.dest_port = $ocsf.dst_endpoint.port
+      drop $ocsf.src_endpoint, $ocsf.dst_endpoint
     }
-    suricata::ocsf::map_connection_info $event, $ocsf
-    $ocsf.app_protocol_name = move $event.app_proto
+    drop $event.file_sender
     suricata::ocsf::logs::http $event, $ocsf
+    if $event.http.keys().where(key => $event.http[key] != null).is_empty() {
+      drop $event.http
+    }
   }
   "smb" if $event.smb? != null => {
     // Servers send the files that clients read, and receive the ones they
@@ -104,6 +132,10 @@ if $ocsf.class_uid in [4002, 4006, 4009] {
       {algorithm_id: 3, value: move $event.fileinfo.sha256?},
     ].where(hash => hash.value != null),
     desc: move $event.fileinfo.magic?,
+  }
+  // Without hashes, Suricata computed none; the file has unknown hashes.
+  if $ocsf.file.hashes.is_empty() {
+    $ocsf.file.hashes = null
   }
 }
 // Email Activity holds files as attachments. Suricata names all attachments
