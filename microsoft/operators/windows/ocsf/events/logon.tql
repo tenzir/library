@@ -57,14 +57,9 @@ $ocsf.auth_protocol_id = microsoft::$windows_auth_protocol_ids[$ocsf.auth_protoc
   99 if $ocsf.auth_protocol != null else null
 )
 
-// Windows pads the registered logon process name with spaces.
-if $windows.EventData.LogonProcessName? != null {
-  $ocsf.logon_process = {name: (move $windows.EventData.LogonProcessName).trim()}
-}
-
-// The process object needs a PID, and Windows reports the caller's PID only
-// alongside its image.
-if $windows.EventData.ProcessName? != null {
+// Windows reports the process that attempted the logon. Logons without a
+// local process, such as network logons, report `0x0` and `-` instead.
+if $windows.EventData.ProcessName? not in [null, "", "-"] {
   $ocsf.actor.process = {
     pid: int(move $windows.EventData.ProcessId?, base=16),
     path: $windows.EventData.ProcessName,
@@ -76,6 +71,17 @@ if $windows.EventData.ProcessName? != null {
     name: $windows.EventData.ProcessName.split("\\")[-1],
   }
   drop $windows.EventData.ProcessName
+}
+
+// The logon process is the name under which the calling process registered
+// with the LSA, which verifies that the caller is a logon application. The
+// process that attempted the logon is therefore the logon process, and
+// Windows pads its registered name with spaces.
+if $windows.EventData.LogonProcessName? != null {
+  $ocsf.logon_process = {
+    ...$ocsf.actor?.process?,
+    name: (move $windows.EventData.LogonProcessName).trim(),
+  }
 }
 
 $ocsf.session = {
