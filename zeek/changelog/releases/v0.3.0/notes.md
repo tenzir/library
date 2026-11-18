@@ -1,4 +1,4 @@
-This release makes Zeek SMTP records with a rejected or unfinished envelope valid OCSF Email Activity events, whose sender and recipients fall back to the SMTP envelope when the message headers are missing. All SMTP records now carry a status from the server's last reply.
+This release makes Zeek SMTP records with a rejected or unfinished envelope valid OCSF Email Activity events, whose sender and recipients fall back to the SMTP envelope when the message headers are missing. All SMTP records now carry a status from the server's last reply. Zeek TLS records without a finished handshake no longer carry an invalid TLS object, and all TLS records now expose their JA3 and JA3S fingerprints and server name on the endpoints.
 
 ## 🔧 Changes
 
@@ -17,5 +17,23 @@ The envelope itself moves from the deprecated `email.smtp_from` and `email.smtp_
 Records without an envelope or header addresses, such as an SMTP negotiation alone, become OCSF Network Activity with `app_protocol_name: "smtp"` and keep partial message details, such as `helo` and `subject`, under `unmapped`.
 
 All SMTP records now take `status`, `status_code`, and `status_detail` from Zeek's `last_reply`. The class of the reply code decides: 2xx is a success, 4xx and 5xx a failure, and a 3xx reply such as `354` after `DATA` leaves the transaction unfinished, so its status is unknown. Both classes now map the hosts from Zeek's `path` that handed on the message before it reached the client to `src_endpoint.intermediate_ips`, instead of placing the whole path, including the connection's own server and client, in the `dst_endpoint.intermediate_ips` of Email Activity events.
+
+*By @zedoraps.*
+
+### Zeek TLS fingerprints and server names on endpoints
+
+Zeek TLS records whose handshake never finished no longer produce an invalid OCSF `tls` object, and every TLS record now exposes its JA3 and JA3S fingerprints and its SNI on the endpoints. Zeek logs no TLS version when it saw no ServerHello, for example when the client sent only a ClientHello or the server answered only with an alert. These records previously carried a `tls` object without the `version` that OCSF requires. They now stay Network Activity events without a `tls` object, and facts without an OCSF counterpart, such as `ssl_history`, remain under `unmapped`.
+
+For all TLS records, whether the handshake finished or not:
+
+- `src_endpoint.fingerprints` holds the client's JA3 and `dst_endpoint.fingerprints` the server's JA3S, as fingerprints with `algorithm_id: 99` (Other) and `algorithm` set to `JA3` or `JA3S`.
+- `dst_endpoint.hostname` holds the SNI when it names a host. An SNI that is an IP address, with or without a port, stays in `tls.sni`, or under `unmapped.server_name` when there is no `tls` object.
+- `status_code` holds the numeric TLS alert code next to the alert name in `status_detail`.
+
+Completed handshakes keep `tls.ja3_hash`, `tls.ja3s_hash`, and `tls.sni`. Failed handshakes often come from malware, so you can now hunt for a client fingerprint or a server name across all TLS records, for example:
+
+```tql
+where "37f463bf4616ecd445d4a1937da06e19" in src_endpoint.fingerprints?.map(x => x.value)
+```
 
 *By @zedoraps.*
