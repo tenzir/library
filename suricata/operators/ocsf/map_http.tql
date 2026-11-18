@@ -13,12 +13,24 @@ if $event.http.url? != null {
   $ocsf.http_request.url = {
     // JSON readers infer IP values; the host is always a string.
     hostname: (move $event.http.hostname?).string(),
+    // Suricata logs `http_port` when the Host header names a port, such as
+    // `Host: example.org:8080`, and port 0 for requests without a host. The
+    // URL never takes the port of the connection.
+    port: $event.http.http_port? if $event.http.http_port? != 0 else null,
     path: $event.http.url.split("?", max=1)[0],
     query_string: $event.http.url.split("?", max=1)[1]?,
     scheme: "http",
   }
-  $ocsf.http_request.url.url_string = "http://" + $ocsf.http_request.url.hostname + $event.http.url
+  $ocsf.http_request.url.url_string = (
+    "http://"
+    + $ocsf.http_request.url.hostname
+    + (f":{$ocsf.http_request.url.port}" if $ocsf.http_request.url.port != null else "")
+    + $event.http.url
+  )
   drop $event.http.url
+  if $ocsf.http_request.url.port != null {
+    drop $event.http.http_port
+  }
 }
 if $event.http.http_method? != null or $ocsf.http_request? != null {
   $ocsf.http_request = {

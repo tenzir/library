@@ -51,6 +51,12 @@ where metadata.correlation_uid == "1349859816939076"
 
 ## 🔧 Changes
 
+### Host header ports in HTTP URLs
+
+HTTP, file, and alert events now map the port that the client wrote in the Host header, Suricata's `http.http_port`, to `http_request.url.port`, and include it in `http_request.url.url_string`. For example, a request with `Host: 203.176.135.102:8082` has the URL `http://203.176.135.102:8082/ono32/…` instead of `http://203.176.135.102/ono32/…`. Without a port in the Host header, the URL has no port, even when the connection uses a non-standard one. Suricata logs port 0 for requests without a host, which stays in `unmapped.http.http_port`.
+
+*By @zedoraps.*
+
 ### Network Activity for Kerberos without a client
 
 Kerberos events without a client principal now map to Network Activity instead of Authentication, which requires the authenticated user. This affects TGS requests, whose client identity is encrypted, errors without a client name, and AS requests that omit one, such as scanner probes. The message type, service principal, realm, and failed request remain under `unmapped.krb5`, and errors keep their code in `status_code`. Kerberos events that name a client still map to Authentication.
