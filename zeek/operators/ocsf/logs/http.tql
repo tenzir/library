@@ -69,11 +69,12 @@ if not ($event.proxied? else []).is_empty() {
   ]
   // X-Forwarded-For lists the addresses of the client and of the proxies that
   // forwarded its request, in that order. Clients control the header, so its
-  // addresses can be forged. They map only if every entry is an address.
+  // addresses can be forged. Entries that are no address, such as `unknown`,
+  // only stay in the header.
   $event.xff = $event.proxied.where(x => x.name == "X-FORWARDED-FOR").map(x => x.value)
   if not $event.xff.is_empty() {
-    $event.xff_ips = $event.xff.join(",").split(",").map(x => ip(x.trim()))
-    if $event.xff_ips.where(x => x == null).is_empty() {
+    $event.xff_ips = $event.xff.join(",").split(",").map(x => ip(x.trim())).where(x => x != null)
+    if not $event.xff_ips.is_empty() {
       $ocsf.src_endpoint.intermediate_ips = $event.xff_ips
     }
   }
