@@ -70,13 +70,15 @@ if $event.from? != null or $event.to? not in [null, []] {
   @name = "ocsf.network_activity"
 }
 
-// The last reply code tells whether the server accepted the transaction.
+// The class of the last reply code (RFC 5321, section 4.2.1) tells whether
+// the server completed the last step. A positive intermediate reply (3xx),
+// such as 354 after DATA, leaves the transaction unfinished.
 $ocsf.status_detail = move $event.last_reply?
 $ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
 // Range bounds are exclusive.
 match int($ocsf.status_code?) {
-  // 2xx and 3xx
-  199..400 => {
+  // 2xx
+  199..300 => {
     $ocsf.status = "Success"
     $ocsf.status_id = 1
   }

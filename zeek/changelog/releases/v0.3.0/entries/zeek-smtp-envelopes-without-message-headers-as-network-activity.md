@@ -14,4 +14,4 @@ These records now report SMTP traffic with `app_protocol_name: "smtp"` and keep 
 where class_uid == 4001 and app_protocol_name? == "smtp" and status_id == 2
 ```
 
-All SMTP records now take `status`, `status_code`, and `status_detail` from Zeek's `last_reply`, including records of an SMTP negotiation without an envelope. Records with header addresses remain Email Activity events.
+All SMTP records now take `status`, `status_code`, and `status_detail` from Zeek's `last_reply`, including records of an SMTP negotiation without an envelope. The class of the reply code decides: 2xx is a success, 4xx and 5xx a failure, and a 3xx reply such as `354` after `DATA` leaves the transaction unfinished, so its status is unknown. Records with header addresses remain Email Activity events.
