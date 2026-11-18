@@ -65,7 +65,7 @@ if (
     delivered_to_list: move $event.rcptto?,
     cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()),
     cc_mailboxes: move $event.cc?,
-    reply_to: $event.reply_to?.replace_regex($address, "\\1").trim(),
+    reply_to_list: [$event.reply_to?.replace_regex($address, "\\1").trim()].collect(),
     reply_to_mailboxes: [move $event.reply_to?].collect(),
     message_uid: move $event.msg_id?,
     subject: move $event.subject?,
@@ -74,8 +74,9 @@ if (
       url_string: url,
     }),
   }
-  // HELO/EHLO carries the client's self-reported host name.
-  $ocsf.smtp_hello = move $event.helo?
+  // The HELO/EHLO argument carries the client's self-reported host name. Zeek
+  // doesn't log which of the two verbs the client sent.
+  $ocsf.command = move $event.helo?
   $ocsf.protocol_name = "SMTP"
   $ocsf.direction_id = 0
   @name = "ocsf.email_activity"

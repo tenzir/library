@@ -1,6 +1,6 @@
 ---
 title: Zeek SMTP envelope addresses in Email Activity
-type: change
+type: breaking
 authors:
   - zedoraps
 created: 2026-11-18T09:56:02.902381Z
@@ -15,6 +15,17 @@ where class_uid == 4009 and email.from_mailbox? == null and status_id == 2
 ```
 
 The envelope itself moves from the deprecated `email.smtp_from` and `email.smtp_to` fields to `email.return_path` and `email.delivered_to_list`, which always hold the envelope sender and recipients. Zeek SMTP events no longer set `email.smtp_from` or `email.smtp_to`, so queries that read them need to switch to the new fields.
+
+Email Activity events also leave two more deprecated attributes behind. The address from the `Reply-To` header moves from `email.reply_to` to the list `email.reply_to_list`, next to the unchanged `email.reply_to_mailboxes`. The HELO/EHLO argument, the host name that the client reports for itself, moves from `smtp_hello` to the class attribute `command`:
+
+```tql
+// Before
+where smtp_hello == "localhost"
+// After
+where class_uid == 4009 and command == "localhost"
+```
+
+`command` holds only the argument, because Zeek doesn't log whether the client sent HELO or EHLO.
 
 Records without an envelope or header addresses, such as an SMTP negotiation alone, become OCSF Network Activity with `app_protocol_name: "smtp"` and keep partial message details, such as `helo` and `subject`, under `unmapped`.
 
