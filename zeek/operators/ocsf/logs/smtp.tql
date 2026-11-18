@@ -30,12 +30,18 @@ if $event.path?.slice(end=2) == [$ocsf.dst_endpoint.ip?, $ocsf.src_endpoint.ip?]
   drop $event.path
 }
 
-// OCSF identifies an email by its header addresses (RFC 5322), not by the SMTP
-// envelope. Zeek logs the headers only after the server accepted the message
-// data. Without them, such as after a rejected envelope or a negotiation alone,
-// the record describes SMTP traffic and retains the envelope and any partial
-// message details under their original keys.
-if $event.from? != null or $event.to? not in [null, []] {
+// Email Activity identifies a message by its sender and recipients. Zeek logs
+// the SMTP envelope (RFC 5321) once the client sends MAIL FROM and RCPT TO, and
+// the header addresses (RFC 5322) only after the server accepted the message
+// data. A negotiation without either, such as HELO and STARTTLS alone,
+// describes SMTP traffic and retains any partial message details under their
+// original keys.
+if (
+  $event.mailfrom? != null
+  or $event.rcptto? not in [null, []]
+  or $event.from? != null
+  or $event.to? not in [null, []]
+) {
   drop $ocsf.connection_info?
   $ocsf.activity_id = 1
   $ocsf.class_uid = 4009
@@ -43,15 +49,20 @@ if $event.from? != null or $event.to? not in [null, []] {
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
   // The header fields hold human-readable mailboxes such as
   // `Name <user@example.org>`, from which the machine-readable fields take the
-  // address.
+  // address. Without header addresses, such as after a rejected envelope,
+  // `from` and `to` fall back to the envelope, and the mailbox fields stay
+  // empty. The envelope sender is the reverse-path that the receiving server
+  // records as `Return-Path` (RFC 5321, section 4.4), and the envelope
+  // recipients are the addresses that a `Delivered-To` header records
+  // (RFC 9228).
   let $address = "^.*<([^>]*)>.*$"
   $ocsf.email = {
-    smtp_from: move $event.mailfrom?,
-    smtp_to: move $event.rcptto?,
-    from: $event.from?.replace_regex($address, "\\1").trim(),
+    from: $event.from?.replace_regex($address, "\\1").trim() else $event.mailfrom?,
     from_mailbox: move $event.from?,
-    to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()),
+    to: $event.to?.map(x => x.replace_regex($address, "\\1").trim()) else $event.rcptto?,
     to_mailboxes: move $event.to?,
+    return_path: move $event.mailfrom?,
+    delivered_to_list: move $event.rcptto?,
     cc: $event.cc?.map(x => x.replace_regex($address, "\\1").trim()),
     cc_mailboxes: move $event.cc?,
     reply_to: $event.reply_to?.replace_regex($address, "\\1").trim(),
