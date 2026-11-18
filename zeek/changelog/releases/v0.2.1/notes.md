@@ -6,4 +6,4 @@ This release makes Zeek event times independent of the Tenzir version by roundin
 
 Zeek events report their time and SMB file times with the microsecond precision that Zeek logs. Readers previously added floating-point noise below the microsecond, which differed between Tenzir versions, so the same Zeek log could normalize to slightly different times and notice finding UIDs.
 
-*By @zedoraps.*
+*By @zedoraps in #242.*

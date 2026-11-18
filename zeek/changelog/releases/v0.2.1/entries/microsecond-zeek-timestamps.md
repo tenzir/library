@@ -3,6 +3,8 @@ title: Microsecond Zeek timestamps
 type: bugfix
 authors:
   - zedoraps
+prs:
+  - 242
 created: 2026-11-18T09:21:56.030167Z
 ---
 
