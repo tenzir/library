@@ -8,9 +8,11 @@ args:
       description: The OCSF output field.
       type: field
 ---
-// Suricata logs envelope and message fields only after a client started a
-// message. Without them, the record describes the SMTP negotiation alone.
-if $event.smtp.mail_from? != null or $event.smtp.rcpt_to? not in [null, []] or $event.email? != null {
+// Email Activity requires an email with a header sender or recipient.
+// Suricata logs them only when its MIME parser found them. Rejected,
+// interrupted, or incomplete messages and plain HELO/STARTTLS sessions lack
+// them, so these records describe SMTP traffic instead.
+if $event.email?.from? != null or $event.email?.to? not in [null, []] {
   // --- OCSF: classification attributes ----------
 
   $ocsf.activity_id = 1
@@ -53,27 +55,15 @@ if $event.smtp.mail_from? != null or $event.smtp.rcpt_to? not in [null, []] or $
 
   @name = "ocsf.email_activity"
 } else {
-  let $ip_versions = {
-    "true": 6,
-    "false": 4,
-  }
-  // HELO/STARTTLS can finish without an email envelope. Report the observed
-  // SMTP traffic and retain negotiation details under their original keys.
+  // The envelope and any partial message details keep their original keys,
+  // because Network Activity has no attributes for them.
   $ocsf.activity_id = 6
   $ocsf.category_uid = 4
   $ocsf.class_uid = 4001
   $ocsf.severity_id = 1
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  suricata::ocsf::map_connection_info $event, $ocsf
   $ocsf.app_protocol_name = "smtp"
-  $ocsf.connection_info = {
-    protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint?.ip?.is_v6().string()]?,
-    uid: $ocsf.metadata.correlation_uid?,
-    protocol_name: "tcp",
-    protocol_num: 6,
-    community_uid: move $event.community_id?,
-    direction_id: 0,
-  }
-  drop $event.proto?
   $ocsf.status_id = 0
 
   @name = "ocsf.network_activity"

@@ -20,21 +20,10 @@ let $mapped_types = [
   "alert", "anomaly", "dhcp", "dns", "fileinfo", "flow", "netflow", "ftp", "http",
   "krb5", "mqtt", "sip", "smb", "smtp", "snmp", "ssh", "tls",
 ]
-// Authentication and Email Activity have no `connection_info`.
-let $types_without_connection_info = ["krb5", "smtp"]
-// Alerts and these classes describe the application protocol elsewhere.
-let $types_without_app_proto = ["alert", "krb5", "smtp"]
-let $proto_nums = {
-  TCP: 6,
-  UDP: 17,
-  ICMP: 1,
-  "IPv6-ICMP": 58,
-  SCTP: 132,
-}
-let $ip_versions = {
-  "true": 6,
-  "false": 4,
-}
+// These event types choose their class per record. Authentication and Email
+// Activity have no `connection_info`, so their operators map the connection
+// only when they pick a network class.
+let $types_with_class_choice = ["fileinfo", "krb5", "smtp"]
 
 $ocsf = {
   category_uid: 4,
@@ -66,22 +55,11 @@ if $event.event_type in $mapped_types {
     $ocsf.src_endpoint = {ip: move $event.src_ip, port: move $event.src_port?}
     $ocsf.dst_endpoint = {ip: move $event.dest_ip?, port: move $event.dest_port?}
   }
-  // Events without addresses, such as non-IP packet alerts, have no connection.
-  if $ocsf.src_endpoint? != null and not ($event.event_type in $types_without_connection_info) {
-    $ocsf.connection_info = {
-      protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint?.ip?.is_v6().string()]?,
-      uid: $event.flow_id?.string(),
-      protocol_name: $event.proto?.to_lower(),
-      // Unknown protocols have no number.
-      protocol_num: $proto_nums[$event.proto?]?,
-      community_uid: move $event.community_id?,
-      // Suricata's `direction` describes packet flow, not the network
-      // perimeter crossing that OCSF means.
-      direction_id: 0,
-    }
-    drop $event.proto?
+  if not ($event.event_type in $types_with_class_choice) {
+    suricata::ocsf::map_connection_info $event, $ocsf
   }
-  if $event.app_proto? != "failed" and not ($event.event_type in $types_without_app_proto) {
+  // Alerts describe the application protocol in their evidence.
+  if $event.app_proto? != "failed" and not ($event.event_type in ["alert", ...$types_with_class_choice]) {
     $ocsf.app_protocol_name = move $event.app_proto?
   }
   drop $event.flow_id?

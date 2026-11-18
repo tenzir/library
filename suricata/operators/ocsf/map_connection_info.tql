@@ -1,0 +1,37 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+let $proto_nums = {
+  TCP: 6,
+  UDP: 17,
+  ICMP: 1,
+  "IPv6-ICMP": 58,
+  SCTP: 132,
+}
+let $ip_versions = {
+  "true": 6,
+  "false": 4,
+}
+
+// Events without addresses, such as non-IP packet alerts, have no connection.
+if $ocsf.src_endpoint? != null {
+  $ocsf.connection_info = {
+    protocol_ver_id: move $event.ip_v? else $ip_versions[$ocsf.src_endpoint.ip?.is_v6().string()]?,
+    uid: $ocsf.metadata.correlation_uid?,
+    protocol_name: $event.proto?.to_lower(),
+    // Unknown protocols have no number.
+    protocol_num: $proto_nums[$event.proto?]?,
+    community_uid: move $event.community_id?,
+    // Suricata's `direction` describes packet flow, not the network
+    // perimeter crossing that OCSF means.
+    direction_id: 0,
+  }
+  drop $event.proto?
+}

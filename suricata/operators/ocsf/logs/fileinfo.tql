@@ -8,31 +8,110 @@ args:
       description: The OCSF output field.
       type: field
 ---
+// Suricata observes files passively and knows no actor, which Network File
+// Activity and its successor File Hosting Activity require. The classes of
+// the transferring protocols describe the same observation without one.
+
+// Suricata logs a file in its transfer direction, so the packet source sends
+// the file. For downloads, that is the server. OCSF puts the client into
+// `src_endpoint`, so the evidence below identifies the server.
+let $http_ports = [80, 8080]
+let $smb_ports = [139, 445]
+let $bodyless_methods = ["GET", "HEAD"]
+
 // --- OCSF: classification attributes ----------
 
-$ocsf.class_uid = 4010
-$ocsf.category_uid = 4
-$ocsf.activity_id = 0
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+match $event.app_proto? {
+  // HTTP Activity needs a request or a response.
+  "http" if $event.http?.url? != null or $event.http?.http_method? != null or $event.http?.status? != null => {
+    // The standard ports and the Host header name the server. GET and HEAD
+    // requests carry no body, so their files are responses.
+    if (
+      $ocsf.src_endpoint.port in $http_ports
+      or $event.http.hostname?.string() == $ocsf.src_endpoint.ip.string()
+      or $event.http.http_method? in $bodyless_methods
+    ) and not (
+      $ocsf.dst_endpoint.port in $http_ports
+      or $event.http.hostname?.string() == $ocsf.dst_endpoint.ip.string()
+    ) {
+      $ocsf = {
+        ...$ocsf,
+        src_endpoint: $ocsf.dst_endpoint,
+        dst_endpoint: $ocsf.src_endpoint,
+      }
+    }
+    suricata::ocsf::map_connection_info $event, $ocsf
+    $ocsf.app_protocol_name = move $event.app_proto
+    suricata::ocsf::logs::http $event, $ocsf
+  }
+  "smb" if $event.smb? != null => {
+    // Servers send the files that clients read, and receive the ones they
+    // write.
+    if (
+      $ocsf.src_endpoint.port in $smb_ports
+      or $event.smb.command?.match_regex("_READ")
+    ) and not (
+      $ocsf.dst_endpoint.port in $smb_ports
+      or $event.smb.command?.match_regex("_WRITE")
+    ) {
+      $ocsf = {
+        ...$ocsf,
+        src_endpoint: $ocsf.dst_endpoint,
+        dst_endpoint: $ocsf.src_endpoint,
+      }
+    }
+    suricata::ocsf::map_connection_info $event, $ocsf
+    $ocsf.app_protocol_name = move $event.app_proto
+    suricata::ocsf::logs::smb $event, $ocsf
+  }
+  // Mail clients send attachments to the server, in packet direction. The
+  // SMTP mapping picks Email Activity only for messages with header
+  // addresses.
+  "smtp" if $event.smtp? != null or $event.email? != null => {
+    suricata::ocsf::logs::smtp $event, $ocsf
+  }
+  _ => {
+    // Without a protocol class that holds a file, report the transfer as
+    // network traffic. The file details keep their original keys.
+    $ocsf.activity_id = 6
+    $ocsf.category_uid = 4
+    $ocsf.class_uid = 4001
+    $ocsf.severity_id = 1
+    $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+    suricata::ocsf::map_connection_info $event, $ocsf
+    if $event.app_proto? != "failed" {
+      $ocsf.app_protocol_name = move $event.app_proto?
+    }
+    $ocsf.status_id = 0
+    @name = "ocsf.network_activity"
+  }
+}
 
 // --- OCSF: primary attributes -----------------
 
-// The file name depends on the protocol: HTTP logs the URL path, SMB the path
-// within the share, and SMTP the attachment name.
-$ocsf.file = {
-  // EVE does not tell regular from executable files.
-  type_id: 1,
-  name: move $event.fileinfo.filename,
-  size: move $event.fileinfo.size?,
-  hashes: [
-    {algorithm_id: 1, value: move $event.fileinfo.md5?},
-    {algorithm_id: 2, value: move $event.fileinfo.sha1?},
-    {algorithm_id: 3, value: move $event.fileinfo.sha256?},
-  ].where(hash => hash.value != null),
-  desc: move $event.fileinfo.magic?,
+// HTTP logs the URL path as file name, SMB the path within the share, and
+// SMTP the attachment name. The SMB mapping adds the share path and times.
+if $ocsf.class_uid in [4002, 4006, 4009] {
+  $ocsf.file = {
+    // EVE does not tell regular from executable files.
+    type_id: 1,
+    name: move $event.fileinfo.filename,
+    ...$ocsf.file?,
+    size: move $event.fileinfo.size?,
+    hashes: [
+      {algorithm_id: 1, value: move $event.fileinfo.md5?},
+      {algorithm_id: 2, value: move $event.fileinfo.sha1?},
+      {algorithm_id: 3, value: move $event.fileinfo.sha256?},
+    ].where(hash => hash.value != null),
+    desc: move $event.fileinfo.magic?,
+  }
 }
-
-// --- Finalize ---------------------------------
-
-@name = "ocsf.network_file_activity"
+// Email Activity holds files as attachments. Suricata names all attachments
+// of the message, including the observed one.
+if $ocsf.class_uid == 4009 {
+  $ocsf.email.files = [
+    $ocsf.file,
+    ...($ocsf.email.files? else []).where(x => x.name != $ocsf.file.name),
+  ]
+  drop $ocsf.file
+}
