@@ -1,4 +1,53 @@
-This release maps Suricata file, Kerberos, and SMTP events to the OCSF classes that their observed evidence supports, so they no longer require actors or users that the sensor never saw. SMTP events without parsed message headers become valid Email Activity events whose sender and recipients come from the SMTP envelope. TLS events now expose their JA3 and JA3S fingerprints and server name on the endpoints.
+This release maps Suricata file, Kerberos, and SMTP events to the OCSF classes that their observed evidence supports, so they no longer require actors or users that the sensor never saw. SMTP events without parsed message headers become valid Email Activity events whose sender and recipients come from the SMTP envelope, SMTP events replace the deprecated `smtp_from`, `smtp_to`, and `smtp_hello` attributes with their successors, and they no longer report an unknown status. TLS events now expose their JA3 and JA3S fingerprints and server name on the endpoints. Suricata events no longer set `metadata.original_event_uid`; the flow ID remains in `metadata.correlation_uid`.
+
+## 💥 Breaking changes
+
+### SMTP envelope addresses in Email Activity
+
+SMTP events with an SMTP envelope but no parsed message headers now produce valid OCSF Email Activity events. Suricata logs the header `From` and `To` addresses only when its MIME parser found them, so rejected, interrupted, or incompletely parsed messages previously produced Email Activity events without the `from` or `to` address that the `email` object requires.
+
+The `email.from` and `email.to` fields now take the header addresses and fall back to the envelope sender (`MAIL FROM`) and recipients (`RCPT TO`). The `email.from_mailbox`, `email.to_mailboxes`, and `email.cc_mailboxes` fields hold header values only, so an empty `from_mailbox` tells that `from` came from the envelope. For example, find messages without a parsed header sender with:
+
+```tql
+where class_uid == 4009 and email.from_mailbox? == null
+```
+
+The envelope itself moves from the deprecated `email.smtp_from` and `email.smtp_to` fields to `email.return_path` and `email.delivered_to_list`, which always hold the envelope sender and recipients. Suricata SMTP and `fileinfo` events no longer set `email.smtp_from` or `email.smtp_to`, so queries that read them need to switch to the new fields.
+
+Email Activity events also move the HELO/EHLO argument, the host name that the client reports for itself, from the deprecated `smtp_hello` to the class attribute `command`:
+
+```tql
+// Before
+where smtp_hello == "localhost"
+// After
+where class_uid == 4009 and command == "localhost"
+```
+
+`command` holds only the argument, because Suricata doesn't log whether the client sent HELO or EHLO.
+
+Plain HELO and STARTTLS sessions without an envelope or header addresses map to Network Activity traffic tagged with the SMTP application protocol, with their HELO name under `unmapped`, because Network Activity has no `command` attribute.
+
+Suricata logs no SMTP reply codes, so SMTP Email Activity and Network Activity events no longer set `status` and `status_id`, instead of reporting an `Unknown` status that told nothing. Queries such as `status_id == 0` no longer match these events.
+
+*By @zedoraps.*
+
+### Suricata flow IDs only as correlation UIDs
+
+Suricata events no longer set `metadata.original_event_uid`. OCSF defines this attribute as the identifier of the one raw log entry an event came from, but Suricata's `flow_id` identifies a flow, which the `flow`, `alert`, `http`, `fileinfo`, and other events of that flow share. Use `metadata.correlation_uid` instead, which holds the same value and exists to link related events. Network events also keep the flow ID in `connection_info.uid`.
+
+Before:
+
+```tql
+where metadata.original_event_uid == "1349859816939076"
+```
+
+After:
+
+```tql
+where metadata.correlation_uid == "1349859816939076"
+```
+
+*By @zedoraps.*
 
 ## 🔧 Changes
 
@@ -18,22 +67,6 @@ Suricata `fileinfo` events no longer map to the deprecated Network File Activity
 - Files from other protocols become Network Activity traffic, with the file details under `unmapped.fileinfo`.
 
 The file keeps its name, size, hashes, and libmagic description, and `metadata.log_name` still says `fileinfo`. Because Suricata logs files in their transfer direction, downloads used to name the server as source. The client is now `src_endpoint` whenever the standard ports, the HTTP Host header, the request method, or the SMB command identify the server. HTTP uploads without such evidence keep the direction that Suricata logged.
-
-*By @zedoraps.*
-
-### SMTP envelope addresses in Email Activity
-
-SMTP events with an SMTP envelope but no parsed message headers now produce valid OCSF Email Activity events. Suricata logs the header `From` and `To` addresses only when its MIME parser found them, so rejected, interrupted, or incompletely parsed messages previously produced Email Activity events without the `from` or `to` address that the `email` object requires.
-
-The `email.from` and `email.to` fields now take the header addresses and fall back to the envelope sender (`MAIL FROM`) and recipients (`RCPT TO`). The `email.from_mailbox`, `email.to_mailboxes`, and `email.cc_mailboxes` fields hold header values only, so an empty `from_mailbox` tells that `from` came from the envelope. For example, find messages without a parsed header sender with:
-
-```tql
-where class_uid == 4009 and email.from_mailbox? == null
-```
-
-The envelope itself moves from the deprecated `email.smtp_from` and `email.smtp_to` fields to `email.return_path` and `email.delivered_to_list`, which always hold the envelope sender and recipients. Suricata SMTP and `fileinfo` events no longer set `email.smtp_from` or `email.smtp_to`, so queries that read them need to switch to the new fields.
-
-Plain HELO and STARTTLS sessions without an envelope or header addresses map to Network Activity traffic tagged with the SMTP application protocol, with their HELO name under `unmapped`.
 
 *By @zedoraps.*
 

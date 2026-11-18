@@ -1,6 +1,6 @@
 ---
 title: SMTP envelope addresses in Email Activity
-type: change
+type: breaking
 authors:
   - zedoraps
 created: 2026-11-18T10:12:11.500363Z
@@ -16,4 +16,17 @@ where class_uid == 4009 and email.from_mailbox? == null
 
 The envelope itself moves from the deprecated `email.smtp_from` and `email.smtp_to` fields to `email.return_path` and `email.delivered_to_list`, which always hold the envelope sender and recipients. Suricata SMTP and `fileinfo` events no longer set `email.smtp_from` or `email.smtp_to`, so queries that read them need to switch to the new fields.
 
-Plain HELO and STARTTLS sessions without an envelope or header addresses map to Network Activity traffic tagged with the SMTP application protocol, with their HELO name under `unmapped`.
+Email Activity events also move the HELO/EHLO argument, the host name that the client reports for itself, from the deprecated `smtp_hello` to the class attribute `command`:
+
+```tql
+// Before
+where smtp_hello == "localhost"
+// After
+where class_uid == 4009 and command == "localhost"
+```
+
+`command` holds only the argument, because Suricata doesn't log whether the client sent HELO or EHLO.
+
+Plain HELO and STARTTLS sessions without an envelope or header addresses map to Network Activity traffic tagged with the SMTP application protocol, with their HELO name under `unmapped`, because Network Activity has no `command` attribute.
+
+Suricata logs no SMTP reply codes, so SMTP Email Activity and Network Activity events no longer set `status` and `status_id`, instead of reporting an `Unknown` status that told nothing. Queries such as `status_id == 0` no longer match these events.
