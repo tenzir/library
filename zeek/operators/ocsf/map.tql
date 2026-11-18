@@ -15,12 +15,15 @@ $ocsf = {}
 
 // --- OCSF: occurrence attributes --------------
 
+// Zeek logs times with microsecond precision. Readers convert them through
+// floating point, which adds noise below the microsecond that differs between
+// Tenzir versions, so round to the precision Zeek wrote.
 match type_kind($event.ts) {
   "time" => {
-    $ocsf.time = move $event.ts
+    $ocsf.time = (move $event.ts).round(1us)
   }
   "float" => {
-    $ocsf.time = (move $event.ts).seconds().from_epoch()
+    $ocsf.time = (move $event.ts).seconds().from_epoch().round(1us)
   }
   _ => {}
 }

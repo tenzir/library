@@ -37,13 +37,22 @@ $ocsf.metadata.log_name = "smb_files.log"
 $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
-// Native JSON stores Zeek times as Unix seconds instead of time values.
+// Native JSON stores Zeek times as Unix seconds instead of time values. Both
+// forms carry microsecond precision, which the rounding restores.
 if type_kind($event.times?.modified?) in ["int", "uint", "float"] {
   $event.times = {
     accessed: $event.times.accessed?.seconds().from_epoch(),
     changed: $event.times.changed?.seconds().from_epoch(),
     created: $event.times.created?.seconds().from_epoch(),
     modified: $event.times.modified.seconds().from_epoch(),
+  }
+}
+if $event.times? != null {
+  $event.times = {
+    accessed: $event.times.accessed?.round(1us),
+    changed: $event.times.changed?.round(1us),
+    created: $event.times.created?.round(1us),
+    modified: $event.times.modified?.round(1us),
   }
 }
 // Zeek's `path` names the UNC share, and `name` the file within it.
