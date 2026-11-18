@@ -73,24 +73,46 @@ match $event.app_proto? {
     suricata::ocsf::logs::http $event, $ocsf
   }
   "smb" if $event.smb? != null => {
-    // Servers send the files that clients read, and receive the ones they
-    // write.
-    if (
-      $ocsf.src_endpoint.port in $smb_ports
-      or $event.smb.command?.match_regex("_READ")
-    ) and not (
-      $ocsf.dst_endpoint.port in $smb_ports
-      or $event.smb.command?.match_regex("_WRITE")
-    ) {
+    suricata::ocsf::map_connection_info $event, $ocsf
+    $ocsf.app_protocol_name = move $event.app_proto
+    // Servers send the files that clients read, and receive the ones that
+    // they write. As for HTTP, only evidence decides, and only one-sided
+    // evidence names the client and server.
+    $event.file_sender = {
+      server: $ocsf.src_endpoint.port in $smb_ports
+        or $event.smb.command?.match_regex("_READ"),
+      client: $ocsf.dst_endpoint.port in $smb_ports
+        or $event.smb.command?.match_regex("_WRITE"),
+    }
+    if $event.file_sender.server and not $event.file_sender.client {
       $ocsf = {
         ...$ocsf,
         src_endpoint: $ocsf.dst_endpoint,
         dst_endpoint: $ocsf.src_endpoint,
       }
+    } else if $event.file_sender.server == $event.file_sender.client {
+      // SMB Activity requires an endpoint, so `ocsf_cast` warns about these
+      // events. Guessing the server would be worse.
+      $event.src_ip = $ocsf.src_endpoint.ip
+      $event.src_port = $ocsf.src_endpoint.port
+      $event.dest_ip = $ocsf.dst_endpoint.ip
+      $event.dest_port = $ocsf.dst_endpoint.port
+      drop $ocsf.src_endpoint, $ocsf.dst_endpoint
     }
-    suricata::ocsf::map_connection_info $event, $ocsf
-    $ocsf.app_protocol_name = move $event.app_proto
+    drop $event.file_sender
     suricata::ocsf::logs::smb $event, $ocsf
+    // SMB Activity defines activities only for the dispositions of a create
+    // request. Reads and writes are known activities without an ID.
+    if $ocsf.activity_id == 0 {
+      if $ocsf.command?.match_regex("_READ") {
+        $ocsf.activity_id = 99
+        $ocsf.activity_name = "Read"
+      } else if $ocsf.command?.match_regex("_WRITE") {
+        $ocsf.activity_id = 99
+        $ocsf.activity_name = "Write"
+      }
+      $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+    }
   }
   // Mail clients send attachments to the server, in packet direction. The
   // SMTP mapping picks Email Activity for messages with an envelope or header
