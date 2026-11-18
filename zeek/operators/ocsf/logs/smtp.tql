@@ -20,6 +20,16 @@ args:
 zeek::ocsf::map_network $event, $ocsf
 $ocsf.metadata.log_name = "smtp.log"
 
+// Zeek starts the path with the server and the client of this connection and
+// appends the address from each `Received` header. The entries after the
+// connection endpoints are the hosts that handed on the message before it
+// reached the client, the most recent first. A path that starts differently
+// stays unmapped.
+if $event.path?.slice(end=2) == [$ocsf.dst_endpoint.ip?, $ocsf.src_endpoint.ip?] {
+  $ocsf.src_endpoint.intermediate_ips = $event.path.slice(begin=2) if $event.path.length() > 2 else null
+  drop $event.path
+}
+
 // OCSF identifies an email by its header addresses (RFC 5322), not by the SMTP
 // envelope. Zeek logs the headers only after the server accepted the message
 // data. Without them, such as after a rejected envelope or a negotiation alone,
@@ -31,7 +41,6 @@ if $event.from? != null or $event.to? not in [null, []] {
   $ocsf.class_uid = 4009
   $ocsf.severity_id = 1
   $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-  $ocsf.dst_endpoint.intermediate_ips = move $event.path?
   // The header fields hold human-readable mailboxes such as
   // `Name <user@example.org>`, from which the machine-readable fields take the
   // address.
