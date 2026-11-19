@@ -1,0 +1,17 @@
+// An application answers failed logins with 200 and successful ones with a
+// 302 redirect, so 200 goes into failure_codes. It must count as failure only,
+// not also as success. One address fails 60 times and succeeds twice, while
+// a busy shared address with mostly successful logins stays quiet.
+from {}
+repeat 162
+enumerate n
+this = {
+  time: 2024-01-01T10:00:00Z + n * 1s,
+  class_uid: 4002,
+  http_request: {http_method: "POST", url: {path: "/login"}},
+  http_response: {code: 302 if n in [20, 40] or n >= 82 else 200},
+  src_endpoint: {ip: 198.51.100.7 if n < 62 else 192.0.2.10},
+}
+tenzir::detect::http::credential_stuffing failure_codes=[200]
+this = ocsf_cast(this)
+select severity_id, finding_info.title, finding_info.desc
