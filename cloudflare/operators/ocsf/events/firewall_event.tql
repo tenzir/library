@@ -23,20 +23,19 @@ args:
 // Logpush writes Unix nanoseconds unless a job asks for RFC 3339, which JSON
 // parsing already turns into a time value.
 $ocsf.time = move $cloudflare.Datetime?
-$ocsf.time = from_epoch($ocsf.time * 1ns) if $ocsf.time.type_kind() == "int" else $ocsf.time
+$ocsf.time = $ocsf.time.nanoseconds().from_epoch() if $ocsf.time.type_kind() == "int" else $ocsf.time
 drop $cloudflare.Kind?
 
 cloudflare::ocsf::client_request $cloudflare, $ocsf
 
 // --- OCSF: security control profile -----------
 
+// OCSF accepts `firewall_rule` only with the Security Control profile. The
+// dashboard calls the description of a rule its name. `Ref` is the rule's
+// user-defined reference and stays under `unmapped`.
 if $cloudflare.Action? != null {
   cloudflare::ocsf::security_action $cloudflare.Action, $ocsf
   drop $cloudflare.Action
-}
-// The dashboard calls the description of a rule its name. `Ref` is the
-// rule's user-defined reference and stays under `unmapped`.
-if $cloudflare.RuleID? != null or $cloudflare.Description? != null {
   $ocsf.firewall_rule = {
     uid: move $cloudflare.RuleID?,
     name: move $cloudflare.Description?,
