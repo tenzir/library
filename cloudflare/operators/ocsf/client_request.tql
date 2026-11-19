@@ -2,9 +2,6 @@
 description: |
   Maps the client request fields that the Cloudflare HTTP requests and
   firewall events datasets share to OCSF HTTP Activity.
-
-  The dataset operators call it after they set the dataset-specific parts of
-  `http_request`, the query string and the referrer.
 args:
   positional:
     - name: cloudflare
@@ -32,23 +29,39 @@ $ocsf.activity_name = $cloudflare.ClientRequestMethod if $ocsf.activity_id == 99
 replace $cloudflare.ClientASN?, $cloudflare.ClientSrcPort?, $cloudflare.EdgeColoID?,
   $cloudflare.OriginResponseStatus?, $cloudflare.EdgeResponseStatus?, what=0, with=null
 
+// HTTP requests log the query string as part of `ClientRequestURI`, firewall
+// events as `ClientRequestQuery` with a leading `?`.
 $ocsf.http_request = {
   http_method: move $cloudflare.ClientRequestMethod?,
   user_agent: move $cloudflare.ClientRequestUserAgent?,
   version: move $cloudflare.ClientRequestProtocol?,
   uid: $cloudflare.RayID?,
-  referrer: $ocsf.http_request?.referrer?,
+  referrer: move $cloudflare.ClientRequestReferer?,
   url: {
     scheme: move $cloudflare.ClientRequestScheme?,
     hostname: move $cloudflare.ClientRequestHost?,
     path: move $cloudflare.ClientRequestPath?,
-    query_string: $ocsf.http_request?.url?.query_string?,
+    query_string: (
+      (move $cloudflare.ClientRequestQuery?).trim_start("?")
+      else (move $cloudflare.ClientRequestURI?).split("?", max=1)[1]?
+    ),
   },
+}
+replace $ocsf.http_request.url.query_string, what="", with=null
+
+// Firewall events split the referrer into parts. A `move` in an inline
+// conditional consumes the field even when the condition fails, so this needs
+// a statement.
+if $cloudflare.ClientRefererScheme? != null and $cloudflare.ClientRefererHost? != null {
+  $ocsf.http_request.referrer = (
+    f"{move $cloudflare.ClientRefererScheme}://{move $cloudflare.ClientRefererHost}"
+    + (move $cloudflare.ClientRefererPath? else "")
+    + (move $cloudflare.ClientRefererQuery? else "")
+  )
 }
 
 // The zone is the registered domain of the requested host, unless the host
-// is a custom hostname of another domain. A `move` in an inline conditional
-// consumes the field even when the condition fails, so this needs a statement.
+// is a custom hostname of another domain.
 if $cloudflare.ZoneName? != null and (
   $ocsf.http_request.url.hostname == $cloudflare.ZoneName
   or $ocsf.http_request.url.hostname.ends_with(f".{$cloudflare.ZoneName}")
@@ -139,7 +152,6 @@ $ocsf.connection_info = {
     else 6 if $ocsf.src_endpoint?.ip?.is_v6()
   ),
 }
-// Every request passes through Cloudflare's reverse proxy.
 $ocsf.metadata.profiles = ["network_proxy"]
 
 // --- OCSF: context attributes -----------------

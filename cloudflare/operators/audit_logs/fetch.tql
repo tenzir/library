@@ -51,5 +51,32 @@ from_http $url,
   read_json
 }
 unroll result
-this = result
-cloudflare::audit_logs::to_logpush
+// The API nests the fields that Logpush flattens.
+this = {
+  AccountID: result.account?.id?,
+  AccountName: result.account?.name?,
+  ActionDescription: result.action?.description?,
+  ActionResult: result.action?.result?,
+  ActionTimestamp: result.action?.time?,
+  ActionType: result.action?.type?,
+  ActorContext: result.actor?.context?,
+  ActorEmail: result.actor?.email?,
+  ActorID: result.actor?.id?,
+  ActorIPAddress: result.actor?.ip_address?,
+  // Older API responses carry `token_id` and `token_name` instead of `token`.
+  ActorTokenDetails: result.actor?.token? else (
+    {id: result.actor.token_id, name: result.actor?.token_name?} if result.actor?.token_id? != null
+  ),
+  ActorType: result.actor?.type?,
+  AuditLogID: result.id?,
+  Raw: result.raw?,
+  ResourceID: result.resource?.id?,
+  ResourceProduct: result.resource?.product?,
+  ResourceRequest: result.resource?.request?,
+  ResourceResponse: result.resource?.response?,
+  ResourceScope: result.resource?.scope?,
+  ResourceType: result.resource?.type?,
+  ResourceValue: result.resource?.value?,
+  ZoneID: result.zone?.id?,
+  ZoneName: result.zone?.name?,
+}

@@ -10,14 +10,9 @@ description: |
   cloudflare::ocsf::normalize
   ```
 
-  Logpush delivers newline-delimited JSON, which Tenzir reads natively, so the
-  package starts at the mapper. The operator maps HTTP requests and firewall
-  events to OCSF HTTP Activity and audit logs to OCSF API Activity. Whatever
-  has no OCSF attribute remains under `unmapped`.
-
-  Callers who already hold a structured Logpush record under another field, or
-  who want to inspect and enrich the record before mapping, use
-  `cloudflare::ocsf::map`.
+  The operator maps HTTP requests and firewall events to OCSF HTTP Activity
+  and audit logs to OCSF API Activity. Whatever has no OCSF attribute remains
+  under `unmapped`.
 args:
   positional:
     - name: cloudflare
@@ -25,18 +20,12 @@ args:
       type: field
       default: this
   named:
-    - name: dataset
-      type: string
-      default: null
-      description: |
-        The Logpush dataset of the record: `http_requests`, `firewall_events`,
-        or `audit_logs_v2`. Defaults to recognizing the dataset by its fields.
     - name: into
       description: The field that receives the OCSF event.
       type: field
       default: this
 ---
 
-$into = {source: $cloudflare, ocsf: {}}
-cloudflare::ocsf::map $into.source, $into.ocsf, dataset=$dataset
-$into = move $into.ocsf
+$into.cloudflare = $cloudflare
+cloudflare::ocsf::map $into.cloudflare, $into.ocsf
+$into = $into.ocsf

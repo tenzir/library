@@ -23,7 +23,7 @@ from_file "s3://example-logpush/http_requests/**/*.log.gz", watch=1min {
   decompress_gzip
   read_ndjson
 }
-cloudflare::ocsf::normalize dataset="http_requests"
+cloudflare::ocsf::normalize
 to_hydrolix "https://hydrolix.example.com",
   table="security.ocsf",
   token=secret("HYDROLIX_TOKEN")

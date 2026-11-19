@@ -16,11 +16,7 @@ description: |
   | `audit_logs_v2`   | API Activity (6003)                        |
 
   Logpush records carry no dataset name, so the operator recognizes the
-  dataset by its fields: `Datetime` or `Kind` for firewall events,
-  `AuditLogID` or `ActionTimestamp` for audit logs, and `EdgeStartTimestamp`,
-  `RayID`, or `ClientRequestHost` for HTTP requests. Pass `dataset` when a
-  Logpush job selects so few fields that the shape is ambiguous. A record of
-  no supported dataset becomes an OCSF Base Event.
+  dataset by its fields. Records of other datasets become OCSF Base Events.
 
   The operator consumes the source event: what it maps becomes OCSF, and what
   it cannot map becomes `unmapped` inside the OCSF event.
@@ -32,13 +28,6 @@ args:
     - name: ocsf
       type: field
       description: The OCSF event to build.
-  named:
-    - name: dataset
-      type: string
-      default: null
-      description: |
-        The Logpush dataset of the record: `http_requests`, `firewall_events`,
-        or `audit_logs_v2`. Defaults to recognizing the dataset by its fields.
 ---
 
 $ocsf = {
@@ -58,10 +47,13 @@ replace $cloudflare, what="", with=null
 replace $cloudflare, what={}, with=null
 replace $cloudflare.ParentRayID?, $cloudflare.OriginatorRayID?, what="00", with=null
 
-$ocsf.metadata.log_name = $dataset else (
-  "firewall_events" if $cloudflare.Datetime? != null or $cloudflare.Kind? == "firewall"
-  else "audit_logs_v2" if $cloudflare.AuditLogID? != null or $cloudflare.ActionTimestamp? != null
-  else "http_requests" if $cloudflare.EdgeStartTimestamp? != null or $cloudflare.RayID? != null or $cloudflare.ClientRequestHost? != null
+// Records carry no dataset name, so their timestamp field identifies the
+// dataset. WebSocket analytics share the timestamps of HTTP requests, and many
+// datasets use `Datetime`, so connection and Ray IDs tell them apart.
+$ocsf.metadata.log_name = (
+  "http_requests" if $cloudflare.EdgeStartTimestamp? != null and $cloudflare.ConnectionID? == null
+  else "firewall_events" if $cloudflare.Datetime? != null and $cloudflare.RayID? != null
+  else "audit_logs_v2" if $cloudflare.ActionTimestamp? != null
 )
 
 match $ocsf.metadata.log_name {
@@ -79,6 +71,13 @@ match $ocsf.metadata.log_name {
     $ocsf.category_uid = 0
     $ocsf.class_uid = 0
     $ocsf.activity_id = 0
+    // Most other datasets record their time in `Timestamp` or `Datetime`.
+    if $cloudflare.Timestamp? != null {
+      $ocsf.time = move $cloudflare.Timestamp
+    } else {
+      $ocsf.time = move $cloudflare.Datetime?
+    }
+    $ocsf.time = from_epoch($ocsf.time * 1ns) if $ocsf.time.type_kind() == "int" else $ocsf.time
   }
 }
 

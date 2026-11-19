@@ -18,22 +18,16 @@ args:
 
 // --- OCSF: occurrence attributes --------------
 
-cloudflare::ocsf::timestamp $cloudflare.EdgeStartTimestamp?
-cloudflare::ocsf::timestamp $cloudflare.EdgeEndTimestamp?
+// Logpush writes Unix nanoseconds unless a job asks for RFC 3339, which JSON
+// parsing already turns into a time value.
 $ocsf.time = move $cloudflare.EdgeStartTimestamp?
-$ocsf.start_time = $ocsf.time
 $ocsf.end_time = move $cloudflare.EdgeEndTimestamp?
-$ocsf.duration = int(($ocsf.end_time - $ocsf.start_time) / 1ms)
-
-// --- OCSF: dataset-specific request parts -----
-
-$ocsf.http_request = {
-  // `ClientRequestURI` carries the path and the query string.
-  url: {
-    query_string: (move $cloudflare.ClientRequestURI?).split("?", max=1)[1]?,
-  },
-  referrer: move $cloudflare.ClientRequestReferer?,
+if $ocsf.time.type_kind() == "int" {
+  $ocsf.time = from_epoch($ocsf.time * 1ns)
+  $ocsf.end_time = from_epoch($ocsf.end_time * 1ns)
 }
+$ocsf.start_time = $ocsf.time
+$ocsf.duration = int(($ocsf.end_time - $ocsf.start_time) / 1ms)
 
 cloudflare::ocsf::client_request $cloudflare, $ocsf
 
