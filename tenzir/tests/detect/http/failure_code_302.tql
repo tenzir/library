@@ -1,0 +1,18 @@
+// An application redirects failed logins back to the form with 302 and
+// successful ones to the dashboard with 303, so 302 goes into failure_codes.
+// It must count as failure only, not also as success. One address fails 60
+// times, while a busy shared address with mostly successful logins stays
+// quiet.
+from {}
+repeat 160
+enumerate n
+this = {
+  time: 2024-01-01T10:00:00Z + n * 1s,
+  class_uid: 4002,
+  http_request: {http_method: "POST", url: {path: "/login"}},
+  http_response: {code: 302 if n < 80 else 303},
+  src_endpoint: {ip: 198.51.100.7 if n < 60 else 192.0.2.10},
+}
+tenzir::detect::http::credential_stuffing failure_codes=[302]
+this = ocsf_cast(this)
+select severity_id, finding_info.title, finding_info.desc
