@@ -76,8 +76,11 @@ if $windows.EventData.ProcessName? not in [null, "", "-"] {
 // The logon process is the name under which the calling process registered
 // with the LSA, which verifies that the caller is a logon application. The
 // process that attempted the logon is therefore the logon process, and
-// Windows pads its registered name with spaces.
-if $windows.EventData.LogonProcessName? != null {
+// Windows pads its registered name with spaces. Logons without a local
+// process, such as network logons, name the security package instead, such as
+// `Kerberos` or `NtLmSsp`. A process needs an identifier, so that name stays
+// under its original key; the package is the authentication protocol.
+if $windows.EventData.LogonProcessName? != null and $ocsf.actor?.process? != null {
   $ocsf.logon_process = {
     ...$ocsf.actor?.process?,
     name: (move $windows.EventData.LogonProcessName).trim(),
