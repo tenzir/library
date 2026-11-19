@@ -1,0 +1,113 @@
+---
+description: |
+  Cloudflare Logpush `http_requests` → OCSF HTTP Activity (4002).
+
+  The client is the source endpoint, the Cloudflare data center is the proxy
+  endpoint, and the origin server, when Cloudflare contacted one, is the
+  destination endpoint. `http_response` describes the response that the client
+  received, and `proxy_http_response` the response of the origin.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured HTTP request record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: occurrence attributes --------------
+
+// Logpush writes Unix nanoseconds unless a job asks for RFC 3339, which JSON
+// parsing already turns into a time value.
+$ocsf.time = move $cloudflare.EdgeStartTimestamp?
+$ocsf.end_time = move $cloudflare.EdgeEndTimestamp?
+if $ocsf.time.type_kind() == "int" {
+  $ocsf.time = $ocsf.time.nanoseconds().from_epoch()
+  $ocsf.end_time = $ocsf.end_time.nanoseconds().from_epoch()
+}
+$ocsf.start_time = $ocsf.time
+$ocsf.duration = int(($ocsf.end_time - $ocsf.start_time) / 1ms)
+
+cloudflare::ocsf::client_request $cloudflare, $ocsf
+
+// --- OCSF: request and response details -------
+
+// Custom fields log selected headers and cookies as records.
+$ocsf.http_request.length = move $cloudflare.ClientRequestBytes?
+$ocsf.http_request.http_headers = [
+  ...$cloudflare.RequestHeaders?.keys().map(name => {
+    name: name,
+    value: $cloudflare.RequestHeaders[name],
+  }) else [],
+  {name: "X-Requested-With", value: move $cloudflare.ClientXRequestedWith?},
+].where(header => header.value != null)
+$ocsf.http_cookies = $cloudflare.Cookies?.keys().map(name => {
+  name: name,
+  value: $cloudflare.Cookies[name],
+})
+drop $cloudflare.RequestHeaders?, $cloudflare.Cookies?
+
+// OCSF requires a response to have a status code.
+$ocsf.http_response = {
+  ...$ocsf.http_response,
+  content_type: move $cloudflare.EdgeResponseContentType?,
+  length: move $cloudflare.EdgeResponseBytes?,
+  body_length: move $cloudflare.EdgeResponseBodyBytes?,
+  latency: move $cloudflare.EdgeTimeToFirstByteMs?,
+  http_headers: $cloudflare.ResponseHeaders?.keys().map(name => {
+    name: name,
+    value: $cloudflare.ResponseHeaders[name],
+  }),
+} if $ocsf.http_response != null
+drop $cloudflare.ResponseHeaders?
+
+// Bytes in flow from the destination to the source, bytes out the reverse.
+$ocsf.traffic = {
+  bytes_out: $ocsf.http_request.length,
+  bytes_in: $ocsf.http_response.length?,
+}
+
+// --- OCSF: TLS --------------------------------
+
+// Cloudflare reports `none` without TLS and `unknown` or `UNK` when it could
+// not tell. OCSF requires TLS to have a version and a fingerprint to have a
+// value.
+replace $cloudflare.ClientSSLProtocol?, $cloudflare.OriginSSLProtocol?, what="unknown", with=null
+replace $cloudflare.ClientSSLProtocol?, $cloudflare.OriginSSLProtocol?, what="UNK", with=null
+$ocsf.tls = {
+  version: move $cloudflare.ClientSSLProtocol?,
+  cipher: move $cloudflare.ClientSSLCipher?,
+  ja3_hash: {algorithm_id: 1, value: move $cloudflare.JA3Hash?} if $cloudflare.JA3Hash? != null,
+} if $cloudflare.ClientSSLProtocol? not in [null, "none"]
+$ocsf.ja4_fingerprint_list = [{type_id: 1, value: move $cloudflare.JA4?}] if $cloudflare.JA4? != null
+
+// --- OCSF: origin (destination) ---------------
+
+$ocsf.dst_endpoint = {ip: ip(move $cloudflare.OriginIP?)} if $cloudflare.OriginIP? != null
+$ocsf.proxy_http_response = {
+  ...$ocsf.proxy_http_response,
+  latency: move $cloudflare.OriginResponseDurationMs?,
+} if $ocsf.proxy_http_response != null
+$ocsf.proxy_tls = {
+  version: move $cloudflare.OriginSSLProtocol?,
+} if $cloudflare.OriginSSLProtocol? not in [null, "none"]
+
+// --- OCSF: security control profile -----------
+
+// `SecurityAction` is the action of the rule that terminated the request.
+// The `Security*` lists of all products that matched remain under `unmapped`.
+// OCSF accepts `firewall_rule` only with the Security Control profile.
+if $cloudflare.SecurityAction? not in [null, "unknown"] {
+  cloudflare::ocsf::security_action $cloudflare.SecurityAction, $ocsf
+  drop $cloudflare.SecurityAction
+  // The dashboard calls the description of a rule its name. The product that
+  // matched the rule sits at the same position in `SecuritySources` as the
+  // rule in `SecurityRuleIDs`.
+  $ocsf.firewall_rule = {
+    type: zip($cloudflare.SecurityRuleIDs? else [], $cloudflare.SecuritySources? else [])
+      .where(x => x.left == $cloudflare.SecurityRuleID?)[0]?.right?,
+    uid: move $cloudflare.SecurityRuleID?,
+    name: move $cloudflare.SecurityRuleDescription?,
+  }
+}

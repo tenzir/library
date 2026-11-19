@@ -1,0 +1,82 @@
+---
+description: |
+  Fetches account audit logs from the Cloudflare API (Audit Logs v2) and emits
+  them in the field layout of the Logpush `audit_logs_v2` dataset.
+
+  ```tql
+  cloudflare::audit_logs::fetch "023e105f4ecef8ad9ca31a8372d0c353",
+    api_token=secret("CLOUDFLARE_API_TOKEN"),
+    since=now() - 1d
+  cloudflare::ocsf::normalize
+  to_splunk "https://splunk.example.com:8088", hec_token=secret("SPLUNK_HEC_TOKEN"),
+    index="cloudflare"
+  ```
+
+  The operator requests the logs between `since` and `before` in
+  chronological order and follows the API's cursor until it has all pages.
+  The API token needs the *Account Settings Read* permission.
+args:
+  positional:
+    - name: account_id
+      type: string
+      description: The ID of the Cloudflare account.
+  named:
+    - name: api_token
+      type: secret
+      description: A Cloudflare API token with read access to the account's audit logs.
+    - name: since
+      type: time
+      description: The start of the time range to fetch.
+    - name: before
+      type: time
+      default: null
+      description: The end of the time range to fetch. Defaults to now.
+    - name: limit
+      type: int
+      default: 1000
+      description: The number of records per page, at most 1000.
+    - name: api
+      type: string
+      default: "https://api.cloudflare.com/client/v4"
+      description: The base URL of the Cloudflare API.
+---
+
+// See https://developers.cloudflare.com/api/resources/accounts/subresources/logs/subresources/audit/methods/list/
+let $url = f"{$api}/accounts/{$account_id}/logs/audit?direction=asc&limit={$limit}&since={string($since).encode_url()}&before={string($before else now()).encode_url()}"
+
+from_http $url,
+  headers={Authorization: f"Bearer {$api_token}"},
+  paginate=(page => f"{$url}&cursor={page.result_info.cursor.encode_url()}"
+    if page.result_info?.cursor? not in [null, ""] and page.result?.length() > 0) {
+  read_json
+}
+unroll result
+// The API nests the fields that Logpush flattens.
+this = {
+  AccountID: result.account?.id?,
+  AccountName: result.account?.name?,
+  ActionDescription: result.action?.description?,
+  ActionResult: result.action?.result?,
+  ActionTimestamp: result.action?.time?,
+  ActionType: result.action?.type?,
+  ActorContext: result.actor?.context?,
+  ActorEmail: result.actor?.email?,
+  ActorID: result.actor?.id?,
+  ActorIPAddress: result.actor?.ip_address?,
+  // Older API responses carry `token_id` and `token_name` instead of `token`.
+  ActorTokenDetails: result.actor?.token? else (
+    {id: result.actor.token_id, name: result.actor?.token_name?} if result.actor?.token_id? != null
+  ),
+  ActorType: result.actor?.type?,
+  AuditLogID: result.id?,
+  Raw: result.raw?,
+  ResourceID: result.resource?.id?,
+  ResourceProduct: result.resource?.product?,
+  ResourceRequest: result.resource?.request?,
+  ResourceResponse: result.resource?.response?,
+  ResourceScope: result.resource?.scope?,
+  ResourceType: result.resource?.type?,
+  ResourceValue: result.resource?.value?,
+  ZoneID: result.zone?.id?,
+  ZoneName: result.zone?.name?,
+}

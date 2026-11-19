@@ -1,0 +1,22 @@
+// Detections such as `tenzir::detect::http::credential_stuffing` read these
+// fields, so they must keep their types for every job layout.
+from_file f"{env("TENZIR_INPUTS")}/http_requests.ndjson" {
+  read_ndjson
+}
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/http_requests_subset.ndjson" {
+    read_ndjson
+  }
+}
+cloudflare::ocsf::normalize
+sort time
+this = {
+  log_name: metadata.log_name,
+  time: time.type_kind(),
+  method: http_request.http_method,
+  path: http_request.url.path,
+  code: http_response.code.type_kind(),
+  src_ip: src_endpoint.ip.type_kind(),
+  user_agent: http_request.user_agent.type_kind(),
+  asn: src_endpoint.autonomous_system?.number?.type_kind(),
+}

@@ -1,0 +1,18 @@
+---
+name: "Cloudflare Logpush from S3 or R2 → OCSF → Hydrolix"
+description: |
+  Reads the HTTP request logs that a Logpush job writes to an S3-compatible
+  bucket, such as Amazon S3 or Cloudflare R2, normalizes them to OCSF HTTP
+  Activity, and writes them to a Hydrolix table.
+---
+
+let $url = "s3://example-logpush/http_requests/**/*.log.gz?region=us-east-1"
+
+from_file $url, watch=1min {
+  decompress_gzip
+  read_ndjson
+}
+cloudflare::ocsf::normalize
+to_hydrolix "https://hydrolix.example.com",
+  table="security.ocsf",
+  token=secret("HYDROLIX_TOKEN")

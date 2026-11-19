@@ -1,0 +1,35 @@
+---
+description: |
+  Normalizes a Cloudflare Logpush record to OCSF.
+
+  ```tql
+  from_file "s3://example-logpush/http_requests/**/*.log.gz" {
+    decompress_gzip
+    read_ndjson
+  }
+  cloudflare::ocsf::normalize
+  ```
+
+  The operator maps HTTP requests and firewall events to OCSF HTTP Activity
+  and audit logs to OCSF API Activity. Whatever has no OCSF attribute remains
+  under `unmapped`.
+
+  Firewall events repeat a request once per matched rule and share its Ray ID
+  in `metadata.correlation_uid`, so count requests on
+  `metadata.log_name == "http_requests"`.
+args:
+  positional:
+    - name: cloudflare
+      description: The structured Cloudflare Logpush record.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+$into.cloudflare = $cloudflare
+cloudflare::ocsf::map $into.cloudflare, $into.ocsf
+$into = $into.ocsf

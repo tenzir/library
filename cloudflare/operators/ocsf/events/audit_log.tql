@@ -1,0 +1,121 @@
+---
+description: |
+  Cloudflare Logpush `audit_logs_v2` → OCSF API Activity (6003).
+
+  The actor is the user, the account API token, or the Cloudflare service that
+  performed the action. The action becomes the API operation, the changed
+  resource and its zone become `resources`, and the recorded API call becomes
+  `http_request` and `http_response`.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured audit log record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: classification attributes ----------
+
+@name = "ocsf.api_activity"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6003
+$ocsf.activity_id = (
+  cloudflare::$api_activity_ids[$cloudflare.ActionType?]?
+  else 99 if $cloudflare.ActionType? != null else 0
+)
+$ocsf.activity_name = $cloudflare.ActionType if $ocsf.activity_id == 99
+
+// --- OCSF: occurrence attributes --------------
+
+// Logpush writes Unix nanoseconds unless a job asks for RFC 3339, which JSON
+// parsing already turns into a time value, as does the API.
+$ocsf.time = move $cloudflare.ActionTimestamp?
+$ocsf.time = $ocsf.time.nanoseconds().from_epoch() if $ocsf.time.type_kind() == "int" else $ocsf.time
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.uid = move $cloudflare.AuditLogID?
+$ocsf.metadata.product.feature.name = "Audit Logs"
+$ocsf.metadata.profiles = ["cloud"]
+$ocsf.cloud = {
+  provider: "Cloudflare",
+  account: {
+    uid: move $cloudflare.AccountID?,
+    name: move $cloudflare.AccountName?,
+  },
+}
+
+// --- OCSF: primary attributes -----------------
+
+$ocsf.status_id = cloudflare::$audit_status_ids[move $cloudflare.ActionResult?]? else 0
+
+// A `system` actor is Cloudflare, and a `delegated_service` actor is a
+// Cloudflare service acting on behalf of a user that the log does not name.
+// Some records name no actor at all. Without a user, Cloudflare is the actor
+// and, without an IP address, also the source endpoint.
+$ocsf.actor = {
+  app_name: "Cloudflare" if $cloudflare.ActorID? == null and $cloudflare.ActorEmail? == null,
+  user: {
+    uid: move $cloudflare.ActorID?,
+    email_addr: move $cloudflare.ActorEmail?,
+    type_id: cloudflare::$actor_type_ids[$cloudflare.ActorType?]? else 99,
+    type: move $cloudflare.ActorType?,
+  } if $cloudflare.ActorID? != null or $cloudflare.ActorEmail? != null,
+}
+$ocsf.src_endpoint = {
+  name: $ocsf.actor.app_name,
+  ip: ip(move $cloudflare.ActorIPAddress?),
+}
+
+// The Ray ID of the API call identifies the request. OCSF requires a request
+// to have an ID. An account API token and a user API token both authenticate
+// as an API token.
+$ocsf.api = {
+  operation: move $cloudflare.ActionDescription? else move $cloudflare.ActionType?,
+  service: {name: move $cloudflare.ResourceProduct?},
+  request: {
+    uid: $cloudflare.Raw?.cf_ray_id?,
+    data: move $cloudflare.ResourceRequest?,
+  } if $cloudflare.Raw?.cf_ray_id? != null,
+  response: {
+    code: $cloudflare.Raw?.status_code?,
+    data: move $cloudflare.ResourceResponse?,
+  },
+  token: {
+    uid: move $cloudflare.ActorTokenDetails.id?,
+    name: move $cloudflare.ActorTokenDetails.name?,
+    type_id: 7 if $cloudflare.ActorContext? in ["api_token", "api_key"] else 99,
+    type: $cloudflare.ActorContext? if $cloudflare.ActorContext? not in ["api_token", "api_key"],
+  } if $cloudflare.ActorTokenDetails? != null,
+}
+
+// The request URI carries the path and the query string. OCSF requires a
+// response to have a status code.
+$ocsf.http_request = {
+  http_method: move $cloudflare.Raw.method?,
+  user_agent: move $cloudflare.Raw.user_agent?,
+  uid: move $cloudflare.Raw.cf_ray_id?,
+  url: {
+    path: $cloudflare.Raw.uri.split("?", max=1)[0],
+    query_string: $cloudflare.Raw.uri.split("?", max=1)[1]?,
+  } if $cloudflare.Raw?.uri? != null,
+}
+drop $cloudflare.Raw?.uri?
+$ocsf.http_response = {code: move $cloudflare.Raw.status_code?} if $cloudflare.Raw?.status_code? != null
+
+// The changed resource and, for zone-scoped resources, the zone. OCSF
+// requires a resource to have an ID or a name.
+$ocsf.resources = [
+  {
+    uid: move $cloudflare.ResourceID?,
+    type: move $cloudflare.ResourceType?,
+    data: move $cloudflare.ResourceValue?,
+  },
+  {
+    uid: move $cloudflare.ZoneID?,
+    name: move $cloudflare.ZoneName?,
+    type: "zone",
+  },
+].where(resource => resource.uid? != null or resource.name? != null)

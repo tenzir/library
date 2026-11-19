@@ -1,0 +1,83 @@
+---
+description: |
+  Cloudflare Logpush events → OCSF.
+
+  Reads a structured Cloudflare Logpush record and builds the corresponding
+  OCSF event in the second field:
+
+  ```tql
+  cloudflare::ocsf::map cloudflare, ocsf
+  ```
+
+  | Logpush dataset   | OCSF class                                 |
+  | ----------------- | ------------------------------------------ |
+  | `http_requests`   | HTTP Activity (4002)                       |
+  | `firewall_events` | HTTP Activity (4002), Security Control     |
+  | `audit_logs_v2`   | API Activity (6003)                        |
+
+  Logpush records carry no dataset name, so the operator recognizes the
+  dataset by its fields. Records of other datasets become OCSF Base Events.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what
+  it cannot map becomes `unmapped` inside the OCSF event.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured Cloudflare Logpush record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+$ocsf = {
+  metadata: {
+    version: "1.9.0",
+    product: {
+      name: "Cloudflare",
+      vendor_name: "Cloudflare",
+    },
+  },
+  severity_id: 1,
+}
+
+// Logpush writes empty strings and objects for fields that do not apply to a
+// request, such as `OriginIP` for a cache hit, and `00` for a missing Ray ID.
+replace $cloudflare, what="", with=null
+replace $cloudflare, what={}, with=null
+replace $cloudflare.ParentRayID?, $cloudflare.OriginatorRayID?, what="00", with=null
+
+// Records carry no dataset name, so their timestamp field identifies the
+// dataset. WebSocket analytics share the timestamps of HTTP requests, and many
+// datasets use `Datetime`, so connection and Ray IDs tell them apart.
+$ocsf.metadata.log_name = (
+  "http_requests" if $cloudflare.EdgeStartTimestamp? != null and $cloudflare.ConnectionID? == null
+  else "firewall_events" if $cloudflare.Datetime? != null and $cloudflare.RayID? != null
+  else "audit_logs_v2" if $cloudflare.ActionTimestamp? != null
+)
+
+match $ocsf.metadata.log_name {
+  "http_requests" => {
+    cloudflare::ocsf::events::http_request $cloudflare, $ocsf
+  }
+  "firewall_events" => {
+    cloudflare::ocsf::events::firewall_event $cloudflare, $ocsf
+  }
+  "audit_logs_v2" => {
+    cloudflare::ocsf::events::audit_log $cloudflare, $ocsf
+  }
+  _ => {
+    @name = "ocsf.base_event"
+    $ocsf.category_uid = 0
+    $ocsf.class_uid = 0
+    $ocsf.activity_id = 0
+    // Most other datasets record their time in `Timestamp` or `Datetime`.
+    $ocsf.time = move $cloudflare.Timestamp? else move $cloudflare.Datetime?
+    $ocsf.time = $ocsf.time.nanoseconds().from_epoch() if $ocsf.time.type_kind() == "int" else $ocsf.time
+  }
+}
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// Containers whose fields all moved into the OCSF event are empty now.
+replace $cloudflare, what={}, with=null
+$ocsf = {...$ocsf, unmapped: move $cloudflare}

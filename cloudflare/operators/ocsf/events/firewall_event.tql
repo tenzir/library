@@ -1,0 +1,44 @@
+---
+description: |
+  Cloudflare Logpush `firewall_events` → OCSF HTTP Activity (4002) with the
+  Security Control profile.
+
+  Each firewall event reports one security rule that matched a request. The
+  rule becomes `firewall_rule`, the security product that owns it becomes
+  `firewall_rule.type`, and the rule's action becomes `action_id` and
+  `disposition_id`. A request that matched several rules yields several
+  events with the same Ray ID in `metadata.correlation_uid`.
+args:
+  positional:
+    - name: cloudflare
+      type: field
+      description: The structured firewall event record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// --- OCSF: occurrence attributes --------------
+
+// Logpush writes Unix nanoseconds unless a job asks for RFC 3339, which JSON
+// parsing already turns into a time value.
+$ocsf.time = move $cloudflare.Datetime?
+$ocsf.time = $ocsf.time.nanoseconds().from_epoch() if $ocsf.time.type_kind() == "int" else $ocsf.time
+drop $cloudflare.Kind?
+
+cloudflare::ocsf::client_request $cloudflare, $ocsf
+
+// --- OCSF: security control profile -----------
+
+// OCSF accepts `firewall_rule` only with the Security Control profile. The
+// dashboard calls the description of a rule its name. `Ref` is the rule's
+// user-defined reference and stays under `unmapped`.
+if $cloudflare.Action? != null {
+  cloudflare::ocsf::security_action $cloudflare.Action, $ocsf
+  drop $cloudflare.Action
+  $ocsf.firewall_rule = {
+    uid: move $cloudflare.RuleID?,
+    name: move $cloudflare.Description?,
+    type: move $cloudflare.Source?,
+  }
+}
