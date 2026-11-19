@@ -1,0 +1,34 @@
+name: Sync to News
+
+# Forward package changelog updates to tenzir/news, which notifies Discord
+# about new entries and releases.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*/changelog/**"
+      - "*/package.yaml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Trigger news sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.TENZIR_GITHUB_APP_ID }}
+          private-key: ${{ secrets.TENZIR_GITHUB_APP_PRIVATE_KEY }}
+          repositories: news
+
+      - name: Trigger sync workflow
+        uses: tenzir/news/.github/actions/sync@main
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          # Sync the pushed commit, not whatever main points to later.
+          source_ref: ${{ github.sha }}
+          packages: true
