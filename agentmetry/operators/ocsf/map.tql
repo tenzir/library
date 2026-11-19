@@ -22,13 +22,68 @@ description: |
   | `mcp_schema` with outcome `changed`                                | Detection Finding (2004)    |
 
   A `null` event, a record without Agentmetry's `action` section, and every
-  other action type, such as `session_start`, become an OCSF Base Event.
+  other action type, such as `session_start`, a configuration change, or an
+  unchanged MCP listing, become an OCSF Base Event.
   A supplied `timestamp_utc` becomes `time` even when the action is missing.
   When the timestamp is absent, `time` remains null.
 
   The operator consumes the source event: what it maps becomes OCSF, and what it
   cannot map becomes `unmapped` inside the OCSF event. The operator does not
   preserve the original log record.
+
+  ## Semantics
+
+  - Agentmetry names the agent by its harness, such as `claude` or `cursor`, and
+    groups one session under `correlation_id`. The mapping adds the AI
+    Operation profile and makes the session the `ai_agent.instance_uid` and the
+    `metadata.correlation_uid`.
+  - Model IDs, model providers, and optional account claims stay under
+    `unmapped.model` and `unmapped.account`. A model provider can be an app-name
+    fallback such as `codex`, so it does not populate `cloud.provider`. Account
+    claims do not replace the operator identity in `actor.user`.
+  - Agentmetry's standalone hook hashes tool arguments by default, so a file
+    tool call without a captured path has no file to report. It becomes API
+    Activity with the tool as the operation.
+  - Shell calls preserve the recorded command in `process.cmd_line`, but
+    Agentmetry does not report the launched process's identity. A Claude Code
+    call carries the harness's tool-use ID, which becomes `process.uid`. For
+    other shell calls, OCSF validation warns that `process` lacks `pid`, `uid`,
+    or `cpid`. Approval requests and denied calls do not establish that a
+    process ran.
+  - A tool call that a policy denied gets the Security Control profile with
+    action Denied and disposition Blocked. A person's decision on an approval
+    request is Approved or Rejected. An inferred response, from a later tool
+    call or a session ending with the request open, has Unknown disposition,
+    and the inference reason is the status detail.
+  - The Claude Code tool-use ID becomes `process.uid` of a shell call and
+    `api.request.uid` of an API call. A file call keeps it under
+    `unmapped.tool.invocation`, together with the phase, hook event, and
+    provenance of every observation. The ID relates observations only within
+    one session from one recorder, so join on it together with
+    `metadata.correlation_uid`. A result's reported status becomes
+    `status_code` and its reported execution time becomes `duration`. Both are
+    what the harness reported, not a verified process exit. A request has
+    neither. Claude Code reports failed calls only through the
+    `PostToolUseFailure` hook, which existing installations receive after they
+    refresh their Agentmetry hooks.
+  - A detection is a sequence rule that matched across the calls of one
+    session. The rule becomes the analytic, the matched calls become
+    `finding_info.related_events`, and the ATT&CK identifiers become `attacks`.
+    Evidence includes the identified acting user and, when named, the agent.
+    Without an identified user, the agent stays under `unmapped.agent` because
+    OCSF 1.9 does not accept an AI agent alone as evidence.
+  - The tool calls in `detection.artifacts` become evidence with their event
+    ID and tool, plus the file path or URL when Agentmetry captured one. These
+    calls can stem from other sessions, so they do not inherit the triggering
+    actor. Their outcomes stay under `unmapped`, so evidence of a denied call
+    shows an attempt, not an execution.
+  - An `mcp_schema` event with outcome `changed` says that the `tools/list` of a
+    known MCP server changed, the shape of an MCP rug pull. Agentmetry assigns
+    it no severity.
+  - MITRE ATLAS identifiers, the per-call ATT&CK classification of a tool, DLP
+    matches, and the hash-chain fields of a trail line have no OCSF attribute
+    and stay under `unmapped`. The chain hashes cover the Agentmetry event, not
+    the OCSF event, so they cannot become a Record Integrity attestation.
 args:
   positional:
     - name: agentmetry

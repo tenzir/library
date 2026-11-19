@@ -11,21 +11,24 @@ description: |
 
   The mapping picks the event class from the event name:
 
-  | Kunai event                                                                  | OCSF class                         |
-  | ---------------------------------------------------------------------------- | ---------------------------------- |
-  | `execve`, `execve_script`, `clone`, `exit`, `exit_group`, `kill`, `ptrace`,  | Process Activity (1007)            |
-  | `prctl`, `commit_creds`, `creds_tampered`                                    |                                    |
-  | `read`, `read_config`, `write`, `write_config`, `write_close`, `file_create`, | File System Activity (1001)        |
-  | `file_unlink`, `file_rename`                                                 |                                    |
-  | `connect`, `send_data`                                                       | Network Activity (4001)            |
-  | `dns_query`                                                                  | DNS Activity (4003)                |
-  | `init_module`, `bpf_prog_load`, `bpf_socket_filter`                          | Kernel Extension Activity (1002)   |
-  | `mmap_exec`                                                                  | Module Activity (1005)             |
-  | `mprotect_exec`                                                              | Memory Activity (1004)             |
-  | `io_uring_sqe`                                                               | Kernel Activity (1003)             |
-  | `file_scan` with a positive match                                            | Detection Finding (2004)           |
-  | `start`                                                                      | Application Lifecycle (6002)       |
-  | `error`, `event_loss`                                                        | Application Error (6008)           |
+  | Kunai event                                                                                                | OCSF class                                 |
+  | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+  | `execve`, `execve_script`                                                                                  | Process Activity (1007), Launch            |
+  | `clone`                                                                                                    | Process Activity (1007), Launch (Fork)     |
+  | `exit`, `exit_group`, `kill`                                                                               | Process Activity (1007), Terminate         |
+  | `ptrace`                                                                                                   | Process Activity (1007), Open              |
+  | `commit_creds`                                                                                             | Process Activity (1007), Set User ID       |
+  | `prctl`, `creds_tampered`                                                                                  | Process Activity (1007), Other             |
+  | `read`, `read_config`, `write`, `write_config`, `write_close`, `file_create`, `file_unlink`, `file_rename` | File System Activity (1001)                |
+  | `connect`, `send_data`                                                                                     | Network Activity (4001)                    |
+  | `dns_query`                                                                                                | DNS Activity (4003), Response              |
+  | `init_module`, `bpf_prog_load`, `bpf_socket_filter`                                                        | Kernel Extension Activity (1002), Load     |
+  | `mmap_exec`                                                                                                | Module Activity (1005), Load               |
+  | `mprotect_exec`                                                                                            | Memory Activity (1004), Modify Page        |
+  | `io_uring_sqe`                                                                                             | Kernel Activity (1003), Invoke             |
+  | `file_scan` with a positive match                                                                          | Detection Finding (2004)                   |
+  | `start`                                                                                                    | Application Lifecycle (6002), Start        |
+  | `error`, `event_loss`                                                                                      | Application Error (6008)                   |
 
   A `null` event, a record without Kunai's `info` section, an event that Kunai
   does not define, and a `file_scan` without a match become an OCSF Base Event.
@@ -33,6 +36,30 @@ description: |
   The operator consumes the source event: what it maps becomes OCSF, and what it
   cannot map becomes `unmapped` inside the OCSF event. The operator does not
   preserve the original log record.
+
+  ## Semantics
+
+  - Kunai reports Linux tasks. The thread group ID is the OCSF `pid`, the task ID
+    is `ptid`, and the thread group UUID is the process `uid`. A `clone` of a
+    thread and the `exit` of a thread other than the group leader do not start or
+    end a process, so they map to activity `Other` instead of Launch or
+    Terminate.
+  - An `execve` replaces the image of the task that calls it, so that task is
+    the actor. Kunai reports the task only with its new image, so the actor
+    carries just the process and thread IDs and the process `uid`.
+  - The `execve_script` event reports the script as the process file. The
+    interpreter remains under `unmapped.data.interpreter`.
+  - A `kill` maps to Terminate when the signal asks the target to end, such as
+    `SIGTERM` or `SIGKILL`, and to activity `Other` for every other signal.
+  - Kunai writes `?` or an empty string for what it cannot resolve, for example
+    the executable of a process that started before Kunai did. The mapping
+    treats these values as `null`.
+  - Kunai's own detection engine adds a `detection` section to every event that
+    one of its rules matched. The mapping turns it into an alert in the OCSF
+    Security Control profile and takes the severity, which ranges from 0 to 10,
+    and the ATT&CK identifiers from it.
+  - Kunai marks the container that a process runs in. The mapping adds it to the
+    process and enables the OCSF Container profile.
 args:
   positional:
     - name: kunai
