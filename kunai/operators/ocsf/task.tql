@@ -7,6 +7,10 @@ description: |
   thread ID and becomes `ptid`. The thread group UUID `guuid` is stable for the
   whole process and becomes the producer-assigned process `uid`.
 
+  Kunai 0.7.0-rc.1 writes the user and group of the task directly into the
+  section, while later versions nest them under `creds.effective`. The operator
+  accepts both layouts.
+
   The operator consumes the fields that it maps. The mount namespace, the task
   flags, and the zombie marker have no OCSF attribute and remain in the source
   section.
@@ -25,6 +29,15 @@ $process = {
   pid: move $task.tgid,
   ptid: move $task.pid,
   uid: move $task.guuid,
+}
+// Lift the flat identity of Kunai 0.7.0-rc.1 into the nested layout.
+if $task.creds? == null and $task.uid? != null {
+  $task.creds.effective = {
+    uid: move $task.uid,
+    user: move $task.user,
+    gid: move $task.gid,
+    group: move $task.group,
+  }
 }
 kunai::ocsf::user $task.creds.effective, $process.user
 if $task.creds.is_empty() {
