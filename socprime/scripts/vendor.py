@@ -39,9 +39,21 @@ HOS_NAMES = {
     "knjkfvZHX16t": "windows_privesc_persistence",
 }
 
-# Rules that cannot run on OCSF, with the reason. The HoS rules leave them out,
-# so that their stages only count rules that can fire.
+_PS_SCRIPT = "Uses `ScriptBlockText` without `category: ps_script`."
+
+# Rules that cannot run on OCSF, with the reason. The `sigma` operator maps the
+# standard Sigma taxonomy only, not vendor variants of it. The HoS rules leave
+# these rules out, so that their stages only count rules that can fire.
 UNSUPPORTED = {
+    "ce152116-1d05-408a-a1a7-a4091528dc74": _PS_SCRIPT,
+    "4ab60adc-7117-4f20-80de-77ecf2a1ef99": _PS_SCRIPT,
+    "93ec52aa-776a-4976-8209-bc68321c75b7": _PS_SCRIPT,
+    "0c128c4f-9323-4e7a-9e46-cff7c51f6b92": _PS_SCRIPT,
+    "991bc36f-3348-4aeb-868a-380294c7fd36": _PS_SCRIPT,
+    "ca5427f8-ede3-48df-b98c-5fa254010b2a": _PS_SCRIPT,
+    "42e2973c-cf5e-47fa-b0e6-e73792578684": _PS_SCRIPT,
+    "309111d8-89ad-4c98-a799-10053a40bd0a": _PS_SCRIPT,
+    "4586d131-5d2a-4582-b028-a5841eea1d35": "Uses the Sysmon field `QueryName` in a generic `dns` rule instead of `query`.",
     "a8d99db6-5f54-4b53-a600-0bca8bec3884": "Uses the non-standard field `dns_query_name` instead of `query`.",
     "63f2ae8a-6912-4ea9-ad2c-369f4555a549": "Uses `DestinationHostname`, which DNS queries do not have, instead of `QueryName`.",
     "ac652c9a-dd0b-11ec-9d64-0242ac120002": "Uses raw auditd fields that OCSF Process Activity does not preserve.",
