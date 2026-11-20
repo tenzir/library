@@ -1,9 +1,13 @@
 ---
 description: |
   Adapts a structured Windows Event Log event collected by NXLog to the canonical Windows
-  Event Log structure. Configure NXLog with `AddPrefix TRUE` and read its JSON
-  with `unflatten_separator="."` to preserve provider fields that collide with
-  NXLog metadata, such as `EventType`.
+  Event Log structure. Read its JSON with `unflatten_separator="."`. Only NXLog
+  Enterprise Edition supports `AddPrefix TRUE`, which keeps provider fields
+  under `EventData` apart from NXLog metadata. NXLog Community Edition rejects
+  `AddPrefix` and `CaptureEventXML`: it delivers EventData fields flat, drops
+  unnamed `<Data>`, `<Binary>`, and `UserData`, and overwrites EventData fields
+  that share a name with NXLog fields, such as `ProcessId`, `EventType`, or
+  `AccountName`, with NXLog's values.
 args:
   positional:
     - name: input
@@ -99,9 +103,10 @@ if (
   }
 }
 
-// With AddPrefix disabled, NXLog and Sysmon may both emit `EventType` into the
-// same flat field. Preserve a non-severity value as Sysmon EventData, but treat
-// every documented NXLog severity caption as collector metadata.
+// Without AddPrefix, which only NXLog Enterprise Edition supports, NXLog and
+// Sysmon may both emit `EventType` into the same flat field. Preserve a
+// non-severity value as Sysmon EventData, but treat every documented NXLog
+// severity caption as collector metadata.
 if (
   $windows.nxlog.EventData? != null
   or $windows.nxlog.EventType? in microsoft::$nxlog_event_types
