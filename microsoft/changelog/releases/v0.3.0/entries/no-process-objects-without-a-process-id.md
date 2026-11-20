@@ -8,15 +8,67 @@ created: 2026-11-19T00:54:09.695523Z
 
 Microsoft Defender, Windows Firewall, and AppX deployment events no longer build `actor.process`, and keep the raw value in `unmapped.EventData` instead.
 
-| Source | Before | Now |
+#### Microsoft Defender
+
+**Windows writes** (Microsoft Defender 1121, attack surface reduction block):
+
+```xml
+<Provider Name="Microsoft-Windows-Windows Defender"/>  <EventID>1121</EventID>
+<Data Name="User">CORP\jdoe</Data>
+<Data Name="Process Name">C:\Windows\System32\wbem\WmiPrvSE.exe</Data>  <!-- image path only -->
+```
+
+**OCSF before → now** (detections 1006, 1116, 1117 and attack surface reduction events 1121, 1122):
+
+| | Before | Now |
 |---|---|---|
-| Defender detections (1006, 1116, 1117) and attack surface reduction events (1121, 1122) | `actor.process` from `Process Name`, without `pid` | Image path in `unmapped.EventData["Process Name"]`; the actor keeps the user |
-| Windows Firewall rule and configuration events (2003–2097) | `actor.process` from `ModifyingApplication`, without `pid` | Image path in `unmapped.EventData.ModifyingApplication`; the actor keeps the user from `ModifyingUser` |
-| AppX deployment, `CallingProcess` `svchost.exe,InstallService` | `actor.process` | `actor.application.name: "InstallService"` |
-| AppX deployment, `CallingProcess` `powershell.exe` | `actor.process` | `actor.application.name: "powershell.exe"` |
-| AppX deployment, image with several services | `actor.process` | No actor |
+| `actor.process` | From `Process Name`, without `pid` (warning) | Not set |
+| Image path | Not in `unmapped.EventData` | `unmapped.EventData["Process Name"]` |
+| `actor.user` | `{name: "jdoe", domain: "CORP"}` | Unchanged |
+
+**Why:** Defender names the process only by its image path and logs no process ID for it. An OCSF process needs a process ID, so the actor keeps only the user.
+
+#### Windows Firewall
+
+**Windows writes** (Windows Firewall 2004, rule added):
+
+```xml
+<Provider Name="Microsoft-Windows-Windows Firewall With Advanced Security"/>  <EventID>2004</EventID>
+<Data Name="ModifyingUser">S-1-5-21-3471133136-2963561160-3931775028-1001</Data>
+<Data Name="ModifyingApplication">C:\Windows\System32\netsh.exe</Data>  <!-- image path only -->
+```
+
+**OCSF before → now** (rule and configuration events 2003–2097):
+
+| | Before | Now |
+|---|---|---|
+| `actor.process` | From `ModifyingApplication`, without `pid` (warning) | Not set |
+| Image path | Not in `unmapped.EventData` | `unmapped.EventData.ModifyingApplication` |
+| `actor.user` | From `ModifyingUser` | Unchanged |
+
+**Why:** Windows Firewall names the program that changed the rule only by its image path, without a process ID, which an OCSF process needs.
+
+#### AppX deployment
+
+**Windows writes** (AppXDeployment-Server 400 and 404, three requesters):
+
+```xml
+<Data Name="CallingProcess">powershell.exe</Data>             <!-- a program -->
+<Data Name="CallingProcess">svchost.exe,InstallService</Data> <!-- one service in svchost.exe -->
+<Data Name="CallingProcess">svchost.exe,BITS,CryptSvc,DoSvc,EventSystem,InstallService,LicenseManager,Schedule,StorSvc,TokenBroker,UsoSvc,Winmgmt</Data>
+```
+
+**OCSF before → now:**
+
+| `CallingProcess` | Before | Now |
+|---|---|---|
+| `svchost.exe,InstallService` | `actor.process` (warning) | `actor.application.name: "InstallService"` |
+| `powershell.exe` | `actor.process` (warning) | `actor.application.name: "powershell.exe"` |
+| Image with several services | `actor.process` (warning) | No actor |
 
 AppX deployment events name the requester in `actor.application.name` and keep the raw value in `unmapped.EventData.CallingProcess`. Before, `unmapped.EventData` had neither `Process Name` nor `ModifyingApplication`.
+
+**Why:** `CallingProcess` names the requester's image, followed by the services it hosts, but no process ID. A program or a single hosted service still names the requester as an application; an image that hosts several services doesn't say which one asked.
 
 **What you need to do**
 
@@ -52,5 +104,3 @@ where class_uid == 6002 and metadata.event_code == "400" and
 ```
 
 </details>
-
-**Why:** Defender and Windows Firewall log no process ID, nor does Windows for the AppX requester, and an OCSF process needs one.
