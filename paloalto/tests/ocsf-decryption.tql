@@ -1,0 +1,23 @@
+// Synthetic PAN-OS Decryption records; every value is invented. The column
+// order follows the PAN-OS 11.1 Decryption log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/decryption-log-fields
+// A forward-proxied session with its TLS version and server certificate, a
+// failed handshake, and a session that a no-decrypt policy left uninspected.
+// Only the failed handshake has a known status.
+from {content: r"1,2026/05/29 23:00:01,000700000042,DECRYPTION,0,,2026/05/29 23:00:00,192.0.2.180,198.51.100.180,,,allow-web,example\grace,,ssl,vsys1,,,,,,2026/05/29 23:00:00,,,50700,443,,,,tcp,allow,,,,,,00000000-0000-4000-8000-000000000002,Client_Hello,Server_Hello,TLS1.3,ECDHE,AES_256_GCM,SHA384,decrypt-outbound,,,trusted,Trusted,Forward,0a1b2c3d4e5f,00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff,2026/01/01 00:00:00,2027/01/01 00:00:00,V3,,,,,,,www.example.test,Example Issuing CA,Example Root CA,www.example.test,,,,,,,,,,,,,,,,,,,,,,,,,,8201,,,,,,,fw-example-1,,,,,,,,,,"},
+  {content: r"1,2026/05/29 23:00:01,000700000042,DECRYPTION,0,,2026/05/29 23:00:00,192.0.2.180,198.51.100.180,,,allow-web,example\grace,,ssl,vsys1,,,,,,2026/05/29 23:00:00,,,50700,443,,,,tcp,allow,,,,,,00000000-0000-4000-8000-000000000002,Client_Hello,Unknown,Unknown,,,,decrypt-outbound,,,,,Forward,,,,,,,,,,,,,,,broken.example.test,TLS handshake failure: example alert from server,,,,,,,,,,,,,,,,,,,,,,,,,8202,,,,,,,fw-example-1,,,,,,,,,,"},
+  {content: r"1,2026/05/29 23:00:01,000700000042,DECRYPTION,0,,2026/05/29 23:00:00,192.0.2.180,198.51.100.180,,,allow-web,example\grace,,ssl,vsys1,,,,,,2026/05/29 23:00:00,,,50700,443,,,,tcp,allow,,,,,,00000000-0000-4000-8000-000000000002,,,TLS1.2,,,,no-decrypt-finance,,,uninspected,Uninspected,No Decrypt,,,,,,,,,,,,,,,bank.example.test,,,,,,,,,,,,,,,,,,,,,,,,,,8203,,,,,,,fw-example-1,,,,,,,,,,"}
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {
+  class_uid: class_uid,
+  activity_id: activity_id,
+  status_id: status_id,
+  status_detail: status_detail?,
+  tls: tls?,
+  policy: policy?,
+  firewall_rule: firewall_rule?,
+  actor: actor?,
+  unmapped: unmapped,
+}
+drop_null_fields
