@@ -6,7 +6,7 @@ authors:
 created: 2026-11-20T17:56:57Z
 ---
 
-`paloalto::parse` now keeps text columns as PAN-OS writes them, reads the `AUTH`, `HIPMATCH`, Tunnel Inspection `START`/`END`, and lowercase `audit` records that it used to reject, and keeps the columns of Correlated Events, Config, URL Filtering, and SD-WAN Traffic records in their documented positions.
+`paloalto::parse` now keeps text columns as PAN-OS writes them, reads the `AUTH`, `HIPMATCH`, Tunnel Inspection `START`/`END`, and lowercase `audit` records that it used to reject, keeps the columns of Correlated Events, Config, URL Filtering, and SD-WAN Traffic records in their documented positions, and `paloalto::ocsf::normalize` now also reads RFC 5424 Syslog messages.
 
 **PAN-OS writes** (Traffic, with a rule name `00123` and SD-WAN link switches, abbreviated):
 
@@ -30,5 +30,6 @@ created: 2026-11-20T17:56:57Z
 | Times such as `2026-05-29T11:00:00.250+02:00` | Null in GlobalProtect records; `.250` as `.249999999` | Parsed with offset and exact milliseconds |
 | High-resolution time `1969-12-31T16:00:00-08:00` | Unix epoch | Null |
 | Syslog timestamp `May 29 11:00:05` | Event time, null after `ocsf_cast` | Only `unmapped.timestamp` |
+| RFC 5424 Syslog message, such as `<14>1 2026-05-29T11:00:05+02:00 fw-example-1 - - - - 1,2026/05/29 11:00:01,…` | Not parsed, Base Event without fields | Parsed and mapped; zoned timestamp in `unmapped.timestamp` |
 
-**Why:** PAN-OS writes every column as text, so guessing types turned identifiers into numbers and times. It writes SD-WAN link switches as an unquoted list with commas, Config records without change details have two columns fewer, and PAN-OS 10.1 added two URL Filtering columns in the middle of the record. Older PAN-OS versions write a documented prefix of the current columns. An RFC 3164 timestamp has neither year nor zone, so it can't be an event time.
+**Why:** PAN-OS writes every column as text, so guessing types turned identifiers into numbers and times. It writes SD-WAN link switches as an unquoted list with commas, Config records without change details have two columns fewer, and PAN-OS 10.1 added two URL Filtering columns in the middle of the record. Older PAN-OS versions write a documented prefix of the current columns. An RFC 3164 timestamp has neither year nor zone, so it can't be an event time. `parse_syslog` puts the payload of an RFC 5424 message into `message` instead of `content`, which the normalizer didn't read.
