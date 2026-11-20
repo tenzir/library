@@ -21,15 +21,25 @@ $ocsf.type_uid = 200401
 drop $ocsf.activity_name?
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.is_alert = true
+// The Threat/Content Name column holds the signature name followed by its
+// numeric ID in parentheses, such as `Example Exploit Attempt(41000)`, or only
+// the ID. The column stays in `unmapped`.
+$ocsf._signature = $event.threat_id?.string().trim()
+$ocsf._signature_name = $ocsf._signature.replace_regex(r"(^[0-9]+$|\([0-9]+\)$)", "").trim() else ""
+$ocsf._signature_uid = $ocsf._signature.replace_regex(r"^.*?\(?([0-9]+)\)?$", r"\1") if $ocsf._signature.match_regex(r"^(.*\([0-9]+\)|[0-9]+)$") else null
 $ocsf.finding_info = {
-  uid: ($event.sequence_number? else $event.threat_id?).string(),
-  title: $event.url_filename? else $event.threat_content_type? else "PAN-OS threat",
-  analytic: {
-    type_id: 1,
-    uid: $event.threat_id?.string(),
-    name: $event.threat_content_type?,
-  },
+  // The signature ID identifies the analytic, not this finding.
+  uid: $ocsf.metadata.sequence?.string(),
+  title: $ocsf._signature_name if $ocsf._signature_name != "" else $event.threat_content_type?,
 }
+if $ocsf._signature_uid != null or $ocsf._signature_name != "" {
+  $ocsf.finding_info.analytic = {
+    type_id: 1,
+    uid: $ocsf._signature_uid,
+    name: $ocsf._signature_name if $ocsf._signature_name != "" else null,
+  }
+}
+drop $ocsf._signature, $ocsf._signature_name, $ocsf._signature_uid
 paloalto::ocsf::endpoints $event, $ocsf
 paloalto::ocsf::connection_info $event, $ocsf
 $ocsf._evidence = {
@@ -40,7 +50,17 @@ $ocsf._evidence = {
 if $ocsf._evidence.src_endpoint.owner? != null {
   $ocsf._evidence.actor = {user: move $ocsf._evidence.src_endpoint.owner}
 }
-if $event.url_filename? != null {
+// The URL/Filename column holds a filename for file-based subtypes and a URL
+// otherwise.
+if $event.url_filename? != null and $event.threat_content_type? in ["file", "virus", "ml-virus", "wildfire", "wildfire-virus"] {
+  $ocsf._evidence.file = {
+    name: move $event.url_filename,
+    type_id: 1,
+  }
+  if $event.file_digest? != null {
+    $ocsf._evidence.file.hashes = [{algorithm_id: 3, value: move $event.file_digest}]
+  }
+} else if $event.url_filename? != null {
   $ocsf._evidence.url = {url_string: move $event.url_filename}
 }
 $ocsf.evidences = [drop_null_fields(move $ocsf._evidence)]
@@ -54,5 +74,4 @@ paloalto::ocsf::action $event, $ocsf
 
 drop $event.type?
 drop $event.threat_content_type?
-drop $event.threat_id?
 drop $event.sequence_number?
