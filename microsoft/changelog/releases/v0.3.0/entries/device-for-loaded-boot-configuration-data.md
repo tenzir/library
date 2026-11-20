@@ -6,6 +6,6 @@ authors:
 created: 2026-11-19T01:06:11.094713Z
 ---
 
-Boot Configuration Data load events (4826) now identify the managed entity by the device that logged the event, in `entity.device`.
+Boot Configuration Data load events (4826) now set `entity.device` to the device that logged the event.
 
-The event names the boot configuration only by its settings, so the entity had no name, ID, or device, which OCSF requires, and `ocsf_cast` warned about every such event.
+**Why:** The entity had no name, ID, or device, which OCSF requires, because the event names the boot configuration only by its settings.

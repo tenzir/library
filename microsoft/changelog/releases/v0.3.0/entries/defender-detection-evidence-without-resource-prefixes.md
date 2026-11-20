@@ -6,10 +6,20 @@ authors:
 created: 2026-11-18T10:40:12.897818Z
 ---
 
-Microsoft Defender detections (1116/1117) now list each detected file on disk once in `evidences`, without the resource prefix that Defender writes in `Path`, such as `file:_`:
+Microsoft Defender detections (1116/1117) now list each detected file on disk once in `evidences`, instead of one file holding the whole `Path` with its resource prefixes.
 
-- Container files (`containerfile:_`) and downloads (`webfile:_`) count as files. For a download, the evidence is the local path, without the URL and the process details.
-- An archive member, such as `file:_C:\x.zip->(Zip:y.exe)`, becomes its container, `C:\x.zip`, because OCSF has no field for archive members.
-- Other resources, such as registry keys, aren't evidence. A detection without a file has no `evidences`.
+| Resource in `Path` | Evidence now |
+|---|---|
+| `file:_C:\x.exe`, `containerfile:_C:\x.zip` | The file |
+| `file:_C:\x.zip->(Zip:y.exe)` | The container, `C:\x.zip` |
+| `webfile:_C:\x.exe`, followed by URL and process | The local path, `C:\x.exe` |
+| `regkey:_…` and other resources | None |
+
+```tql
+evidences: [
+  {file: {path: "C:\\Users\\rchen\\Downloads\\tools.zip", name: "tools.zip", type_id: 1}},
+  {file: {path: "C:\\Users\\rchen\\Downloads\\setup.exe", name: "setup.exe", type_id: 1}},
+],
+```
 
 The complete list stays in `unmapped.EventData.Path`.

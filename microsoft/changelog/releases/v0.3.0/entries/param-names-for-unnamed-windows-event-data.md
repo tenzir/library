@@ -6,6 +6,13 @@ authors:
 created: 2026-11-20T08:29:21.798384Z
 ---
 
-Unnamed event data now uses the names `param1`, `param2`, and so on, for all collectors. Legacy providers, such as Application Error and Windows Error Reporting, write event data without field names. Windows Event XML parsing names these fields `_0`, `_1`, and so on, while Winlogbeat names them `param1`, `param2`, and so on, which match the `%1`, `%2` inserts of the provider's message.
+Unnamed event data from legacy providers, such as Application Error, now uses the names `param1`, `param2`, … for all collectors.
 
-If your queries read `unmapped.EventData._0`, read `unmapped.EventData.param1` instead, and shift every other index by one.
+| Collector | Before | Now |
+|---|---|---|
+| Windows Event XML | `unmapped.EventData._0`, `_1`, … | `param1`, `param2`, … |
+| Winlogbeat | `param1`, `param2`, … | Unchanged |
+
+**What you need to do:** Replace `unmapped.EventData._0` with `unmapped.EventData.param1`, and shift every other index by one.
+
+**Why:** The names match Winlogbeat and the `%1`, `%2` inserts of the provider's message.

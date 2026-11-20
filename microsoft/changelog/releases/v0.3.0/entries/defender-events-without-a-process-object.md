@@ -6,13 +6,22 @@ authors:
 created: 2026-11-19T00:55:28.245022Z
 ---
 
-Microsoft Defender detections (1006, 1116, 1117) and attack surface reduction events (1121, 1122) no longer build `actor.process` from `Process Name`. The image path stays in `unmapped.EventData["Process Name"]`, and the actor keeps the user when Defender names one.
+Microsoft Defender detections (1006, 1116, 1117) and attack surface reduction events (1121, 1122) no longer build `actor.process`; the actor keeps the user.
 
-Defender names the process only by its image path and logs no process ID. An OCSF process needs a `pid`, `uid`, or `cpid`, so `ocsf_cast` warned about these events.
+| Field | Before | Now |
+|---|---|---|
+| `actor.process` | From `Process Name`, without `pid` | Not set |
+| `unmapped.EventData["Process Name"]` | Not set | The image path |
 
-Tenzir's Sigma catalog reads `ProcessName` from `actor.process.path`, so Sigma rules that test it now see no value, and SigmaHQ's *PSExec and WMI Process Creations Block* no longer matches. Match the unmapped field instead:
+**What you need to do**
+
+| Rule | Effect | Replacement |
+|---|---|---|
+| PSExec and WMI Process Creations Block | Silent | Match the unmapped field |
 
 ```tql
 where class_uid == 2004 and metadata.event_code == "1121" and
   unmapped.EventData["Process Name"].to_lower().ends_with(r"\wmiprvse.exe")
 ```
+
+**Why:** Defender logs no process ID, and an OCSF process needs one.

@@ -6,14 +6,21 @@ authors:
 created: 2026-11-19T15:42:44.696333Z
 ---
 
-Cleared event logs now name who cleared the log and with which process. Security 1102 and Eventlog 104 now read `UserData/LogFileCleared`, or `EventData` when a collector flattens the section, and Winlogbeat's flattened `user_data` maps the same way. The actor gets:
+Cleared event logs now name who cleared the log and with which process.
 
-- The user from `SubjectUserSid` (1102 only), `SubjectUserName`, and `SubjectDomainName`.
-- The session from `SubjectLogonId` (1102 only).
-- The process ID from `ClientProcessId`, which Windows writes as a decimal number.
+| Event | Before | Now |
+|---|---|---|
+| Security 1102 | Empty user, session, process | `actor.user`, `actor.session`, `actor.process.pid` |
+| Eventlog 104 | User only | `actor.user`, `actor.process.pid` |
 
-Each object appears only when the event names it. `ClientProcessStartKey` stays in `unmapped.EventData`.
-
-Security 1102 read its data from `EventData`, while Windows writes it under `UserData/LogFileCleared`, so the actor of real events had an empty user, session, and process, and the mapping warned about each missing field. Eventlog 104 read the user but discarded the clearing process.
+```tql
+actor: {
+  user: {name: "lmorgan", domain: "EXAMPLE"},
+  session: {uid_alt: "0x5d2e71"},
+  process: {pid: 6212},
+},
+```
 
 Sigma rules that read `SubjectUserName` or `SubjectUserSid` on 1102 now see a value.
+
+**Why:** The mapping read `EventData`, while Windows writes the data under `UserData/LogFileCleared`.

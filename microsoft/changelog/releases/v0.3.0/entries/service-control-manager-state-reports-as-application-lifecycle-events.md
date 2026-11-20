@@ -6,14 +6,35 @@ authors:
 created: 2026-11-19T13:03:46.875364Z
 ---
 
-Service Control Manager state reports now map to Application Lifecycle (6002) instead of Windows Service Activity: service state changes (7036), unexpected terminations (7034), and terminations with an error (7023). Like Windows Firewall 5024, the service is the `application`, with its display name in `application.name` and `type: "Windows Service"`:
+Service state reports from the Service Control Manager are now Application Lifecycle (6002) events with the service as `application`.
 
-- 7036 maps `running` to Start and `stopped` to Stop, with status Success. Other states, including localized ones such as `arrêté`, map to Other with the state as `activity_name`.
-- 7034 and 7023 map to Stop with status Failure. The error message of 7023 stays in `status_detail`, including a `%%21`-style token from the system message table. The termination count of 7034 stays in `unmapped.EventData.param2`, because OCSF `count` counts aggregated events.
+| Event | Before | Now |
+|---|---|---|
+| 7036 `running` | Windows Service Activity | Application Lifecycle · Start · Success |
+| 7036 `stopped` | Windows Service Activity | Application Lifecycle · Stop · Success |
+| 7036 other states | Windows Service Activity | Application Lifecycle · Other (`activity_name` = state) |
+| 7034 crashed | Windows Service Activity | Application Lifecycle · Stop · Failure |
+| 7023 terminated with error | Windows Service Activity | Application Lifecycle · Stop · Failure, error in `status_detail` |
 
-The events name neither the service configuration nor a process or account that caused the change. Windows Service Activity requires both a `win_service` with service details and an `actor`, so `ocsf_cast` warned about these events. Service installations (7045 and 4697) and start type changes (7040) remain Windows Service Activity.
+Service installations (7045, 4697) and start type changes (7040) remain Windows Service Activity.
 
-Tenzir's Sigma catalog reads the System log service family only from Windows Service Activity, so SigmaHQ's *Windows Defender Threat Detection Service Disabled*, *Important Windows Service Terminated Unexpectedly*, *Important Windows Service Terminated With Error*, and *Windows Service Terminated With Error* no longer match. Query Application Lifecycle instead:
+```tql
+class_uid: 6002,
+activity_name: "Start",
+status_id: 1,
+application: {name: "ExampleUpdate", type: "Windows Service"},
+```
+
+**What you need to do**
+
+Tenzir's Sigma catalog reads the System log service family only from Windows Service Activity, so these SigmaHQ rules no longer match:
+
+| Rule | Effect | Replacement |
+|---|---|---|
+| Windows Defender Threat Detection Service Disabled | Silent | 7036, Defender stopped |
+| Important Windows Service Terminated Unexpectedly | Silent | 7034, service name |
+| Important Windows Service Terminated With Error | Silent | 7023, service name |
+| Windows Service Terminated With Error | Silent | 7023 |
 
 ```tql
 // Windows Defender Threat Detection Service Disabled
@@ -22,6 +43,9 @@ where (metadata.product.name == "Service Control Manager"
   and application.name in ["Windows Defender Antivirus Service", "Service antivirus Microsoft Defender"]
   and (activity_id == 4 or activity_name == "arrêté"))
 ```
+
+<details>
+<summary>More replacement queries</summary>
 
 ```tql
 // Important Windows Service Terminated Unexpectedly
@@ -38,4 +62,8 @@ where (metadata.product.name == "Service Control Manager"
   and application.name.match_regex(" Antivirus| Firewall|Application Guard|BitLocker Drive Encryption Service|Encrypting File System|Microsoft Defender|Threat Protection|Windows Event Log"))
 ```
 
-The 7034 and 7023 rules also match the service key name, such as `WinDefend`, which Windows writes as UTF-16 hex in the event's binary data. Only collectors that ship this data, such as Winlogbeat, report it, in `unmapped.EventData.Binary`, so that alternative works only for them. Windows Event XML parsing drops the binary data, so match those records on `application.name`.
+</details>
+
+The 7034 and 7023 rules can also match the service key name in `unmapped.EventData.Binary`, but only collectors that ship it, such as Winlogbeat, report it.
+
+**Why:** The events name neither the service configuration nor an actor, both of which Windows Service Activity requires.
