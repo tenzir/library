@@ -72,7 +72,8 @@ $windows.canonical = {
 // an audit failure. Winlogbeat renders them as a list of names, such as
 // `["Audit Failure"]`, and lists the mask only when it cannot name them. Take
 // the mask, or derive it from the audit outcome, so that mappings read the
-// outcome as for every other collector. Rendered names stay in unmapped.
+// outcome as for every other collector. Preserve both bits when both audit
+// labels are present. Rendered names stay in unmapped.
 let $audit_keywords = {
   "Audit Failure": "0x8010000000000000",
   "Audit Success": "0x8020000000000000",
@@ -80,6 +81,10 @@ let $audit_keywords = {
 if type_kind($windows.winlogbeat.winlog.keywords?) == "list" {
   $windows.canonical.System.Keywords = (
     $windows.winlogbeat.winlog.keywords.where(keyword => keyword.starts_with("0x"))[0]?
+      else ("0x8030000000000000"
+        if "Audit Failure" in $windows.winlogbeat.winlog.keywords
+          and "Audit Success" in $windows.winlogbeat.winlog.keywords
+        else null)
       else $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)[0]?
   )
   if $windows.winlogbeat.winlog.keywords.where(keyword => not keyword.starts_with("0x")).is_empty() {

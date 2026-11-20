@@ -1,0 +1,31 @@
+---
+description: Maps Windows Security Auditing keywords to an OCSF status ID.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The canonical Windows Security Auditing event.
+    - name: status_id
+      type: field
+      description: The field that receives the OCSF status ID.
+---
+
+// Windows defines the Security log's audit bits in StandardEventKeywords.
+// https://learn.microsoft.com/dotnet/api/system.diagnostics.eventing.reader.standardeventkeywords
+let $audit_failure = uint("0x0010000000000000", base=16)
+let $audit_success = uint("0x0020000000000000", base=16)
+// Other keyword bits can coexist with the audit outcome. If neither outcome
+// bit or both outcome bits are set, the outcome is unknown.
+$status_id = (
+  bit_and(uint($windows.System.Keywords, base=16), bit_or($audit_failure, $audit_success))
+  if type_kind($windows.System.Keywords?) == "string"
+    and $windows.System.Keywords.match_regex(r"^0[xX][0-9A-Fa-f]{1,16}$")
+  else null
+)
+if $status_id == $audit_failure {
+  $status_id = 2
+} else if $status_id == $audit_success {
+  $status_id = 1
+} else {
+  $status_id = 0
+}

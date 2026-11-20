@@ -11,9 +11,13 @@ args:
 ---
 
 $ocsf.category_uid = 1
-// EID 4663 reports a performed access; EID 4656 reports a handle request, which
-// may also fail. The Keywords field carries the audit outcome.
-$ocsf.status_id = 2 if $windows.System.Keywords? == "0x8010000000000000" else 1
+// EID 4656 reports a handle request, which may fail. EID 4663 reports a
+// performed access and retains its existing status mapping.
+if $windows.System.EventID == 4656 {
+  microsoft::windows::ocsf::audit_status $windows, $ocsf.status_id
+} else {
+  $ocsf.status_id = 2 if $windows.System.Keywords? == "0x8010000000000000" else 1
+}
 $ocsf.access_mask = int($windows.EventData.AccessMask, base=16)
 
 $ocsf.actor = {

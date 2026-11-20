@@ -1,0 +1,19 @@
+from_file f"{env("TENZIR_INPUTS")}/eid-4774.xml" {
+  read_all
+}
+// Derive synthetic failure and missing-keyword cases from the existing event so that
+// only the audit outcome evidence differs between the three inputs.
+this = {cases: [
+  {case: "audit success", event: data},
+  {case: "audit failure", event: data.replace_regex(r"0x8020000000000000", "0x8010000000000000")},
+  {case: "missing keywords", event: data.replace_regex(r"<Keywords>0x8020000000000000</Keywords>", "")},
+]}
+unroll cases
+this = cases
+microsoft::windows::ocsf::normalize event, into=ocsf
+this = {
+  case: case,
+  event_code: ocsf.metadata.event_code,
+  status_id: ocsf.status_id,
+}
+sort case

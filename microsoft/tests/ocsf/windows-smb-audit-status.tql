@@ -1,0 +1,106 @@
+// Use the audit outcome for both share access events. Windows reports the
+// reason for each permission in a detailed check, independent of its outcome.
+from_file f"{env("TENZIR_INPUTS")}/windows-smb-audit-failure.xml" {
+  read_all
+}
+this = {cases: [
+  {case: "XML failure", event: data},
+  {
+    case: "XML uppercase hex prefix",
+    event: data.replace_regex("0x8010000000000000", "0X8010000000000000"),
+  },
+  {
+    case: "XML out-of-range keywords",
+    event: data.replace_regex("0x8010000000000000", "0x18010000000000000"),
+  },
+  {
+    case: "XML failure with other keyword bits",
+    event: data.replace_regex("0x8010000000000000", "0x8010000000000001"),
+  },
+  {
+    case: "XML conflicting outcomes",
+    event: data.replace_regex("0x8010000000000000", "0x8030000000000000"),
+  },
+  {
+    case: "XML missing keywords",
+    event: data.replace_regex(r"<Keywords>[^<]+</Keywords>", ""),
+  },
+  {
+    case: "XML no audit outcome",
+    event: data.replace_regex("0x8010000000000000", "0x8000000000000000"),
+  },
+  {
+    case: "XML malformed keywords",
+    event: data.replace_regex("0x8010000000000000", "unrecognized"),
+  },
+]}
+unroll cases
+this = cases
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/windows-smb-audit-failure.xml" {
+    read_all
+  }
+  windows = data.parse_winlog(raw=true)
+  windows.System.Keywords = 7
+  this = {case: "Canonical non-string keywords", event: windows}
+}
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/eid-5145.xml" {
+    read_all
+  }
+  this = {case: "XML success", event: data}
+}
+merge {
+  from_file f"{env("TENZIR_INPUTS")}/eid-5140.xml" {
+    read_all
+  }
+  this = {
+    case: "XML share failure",
+    event: data.replace_regex("0x8020000000000000", "0x8010000000000000"),
+  }
+}
+merge {
+  from {
+    case: "Winlogbeat failure",
+    event: {
+      "@timestamp": 2025-01-15T10:31:00Z,
+      winlog: {
+        provider_name: "Microsoft-Windows-Security-Auditing",
+        event_id: "5145",
+        channel: "Security",
+        computer_name: "FS01.example.test",
+        record_id: "514502",
+        keywords: ["Audit Failure"],
+        event_data: {
+          ShareName: "\\\\*\\Finance",
+          RelativeTargetName: "budget\\forecast.xlsx",
+          AccessReason: "ReadData (or ListDirectory):\tGranted by D:(A;;0x1;;;WD)\nWriteData (or AddFile):\tNot granted",
+        },
+      },
+    },
+  }
+  this = {cases: [
+    this,
+    {
+      case: "Winlogbeat failure then success",
+      event: {...event, winlog: {...event.winlog, keywords: ["Audit Failure", "Audit Success"]}},
+    },
+    {
+      case: "Winlogbeat success then failure",
+      event: {...event, winlog: {...event.winlog, keywords: ["Audit Success", "Audit Failure"]}},
+    },
+  ]}
+  unroll cases
+  this = cases
+}
+microsoft::windows::ocsf::normalize event, into=ocsf
+this = {
+  case: case,
+  event_code: ocsf.metadata.event_code,
+  keywords: ocsf.unmapped?.System?.Keywords?,
+  status_id: ocsf.status_id,
+  status_detail: ocsf.status_detail?,
+  access_reason: ocsf.unmapped?.EventData?.AccessReason?,
+  target_path: ocsf.file?.path?,
+}
+sort case
