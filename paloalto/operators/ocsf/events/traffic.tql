@@ -31,6 +31,10 @@ $ocsf.initiator_id = 1
 $ocsf.app_name = move $event.application?
 paloalto::ocsf::endpoints $event, $ocsf
 paloalto::ocsf::connection_info $event, $ocsf
+// PAN-OS writes the elapsed session time in seconds.
+if $event.elapsed_time? != null {
+  $ocsf.duration = (move $event.elapsed_time) * 1000
+}
 $ocsf.cumulative_traffic = {
   bytes: move $event.bytes?,
   bytes_out: move $event.bytes_sent?,
@@ -53,5 +57,3 @@ paloalto::ocsf::action $event, $ocsf
 // contradictory subtype leaves the outcome unknown.
 $ocsf.status_id = 2 if $ocsf.action_id? == 2 else (1 if $ocsf.action_id? == 1 and $ocsf.activity_id == 2 else 0)
 
-drop $event.type?
-drop $event.threat_content_type?

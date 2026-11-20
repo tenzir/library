@@ -37,6 +37,21 @@ $ocsf = {
   },
 }
 
+// PAN-OS numbers the records of each log type per device, so the serial
+// number, log type, and sequence number identify a record.
+$ocsf._log_type = $event.type? else $event.threat_content_type?
+if $ocsf.metadata.product.uid != null and $ocsf._log_type != null and $ocsf.metadata.sequence != null {
+  $ocsf.metadata.uid = f"{$ocsf.metadata.product.uid}:{$ocsf._log_type}:{$ocsf.metadata.sequence}"
+}
+drop $ocsf._log_type
+// The device name is the hostname of the firewall that logged the record.
+if ($event.device_name? else $ocsf.metadata.product.uid) != null {
+  $ocsf.metadata.reporter = {
+    hostname: move $event.device_name?,
+    uid: $ocsf.metadata.product.uid,
+  }
+}
+
 if ($event.type? else $event.threat_content_type?) != null {
   $ocsf.activity_id = 99
   $ocsf.activity_name = $event.type? else $event.threat_content_type?
