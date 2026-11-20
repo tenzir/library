@@ -1,23 +1,5 @@
 The Palo Alto Networks package now keeps PAN-OS columns exactly as the firewall writes them, recognizes the layouts of more PAN-OS versions and log types, and interprets times in the firewall's time zone. Its OCSF mappings normalize actions, outcomes, files, URLs, and identities consistently, and they map Authentication, GlobalProtect, Config, Data Filtering, Decryption, and Correlated Events records to OCSF classes instead of Base Event.
 
-## 💥 Breaking changes
-
-### Palo Alto Networks syslog receiver for v6
-
-The Palo Alto Networks package now parses PAN-OS CSV payloads with positional input and output fields. It also maps PAN-OS Traffic, URL Filtering, Threat, and supported GlobalProtect authentication records to OCSF 1.9. Other parsed families become OCSF Base Events and retain their structured fields in `unmapped`.
-
-Normalize a Syslog record in one call:
-
-```tql
-accept_udp "0.0.0.0:514"
-this = data.parse_syslog()
-paloalto::ocsf::normalize
-```
-
-Use `paloalto::parse` and `paloalto::ocsf::map` separately when a pipeline needs to inspect or enrich the parsed PAN-OS record before mapping.
-
-*By @mavam and @codex in #147.*
-
 ## 🚀 Features
 
 ### OCSF classes for PAN-OS authentication, configuration, DLP, decryption, correlation, and tunnel records
@@ -133,6 +115,22 @@ where dst_endpoint.name == "example-external-gw"
 **Why:** The device name is the hostname of the logging firewall, the high-resolution timestamp is when its management plane received the record, and PAN-OS numbers records per firewall and log type, so only all three identify a record. PAN-OS defines the source user as the user who initiated the session and writes users as `domain\user`. GlobalProtect portal and gateway columns hold configuration names, not hostnames.
 
 *By @zedoraps.*
+
+### Palo Alto Networks syslog receiver for v6
+
+The Palo Alto Networks package now parses PAN-OS CSV payloads with positional input and output fields. It also maps PAN-OS Traffic, URL Filtering, Threat, and supported GlobalProtect authentication records to OCSF 1.9. Other parsed families become OCSF Base Events and retain their structured fields in `unmapped`.
+
+Normalize a Syslog record in one call:
+
+```tql
+accept_udp "0.0.0.0:514"
+this = data.parse_syslog()
+paloalto::ocsf::normalize
+```
+
+Use `paloalto::parse` and `paloalto::ocsf::map` separately when a pipeline needs to inspect or enrich the parsed PAN-OS record before mapping.
+
+*By @mavam in #147.*
 
 ## 🐞 Bug fixes
 
