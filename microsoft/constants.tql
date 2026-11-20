@@ -62,7 +62,8 @@ let $defender_asr_rules = {
   "c1db55ab-c21a-4637-bb3f-a12568109d35": "Use advanced protection against ransomware",
 }
 
-// OCSF `reg_value.type_id` values for registry value type names.
+// OCSF `reg_value.type_id` values for registry value type names. The resource
+// types have no OCSF value and map to Other with the name as caption.
 let $windows_registry_value_types = {
   REG_BINARY: 1,
   REG_DWORD: 2,
@@ -74,6 +75,9 @@ let $windows_registry_value_types = {
   REG_QWORD: 8,
   REG_QWORD_LITTLE_ENDIAN: 9,
   REG_SZ: 10,
+  REG_RESOURCE_LIST: 99,
+  REG_FULL_RESOURCE_DESCRIPTOR: 99,
+  REG_RESOURCE_REQUIREMENTS_LIST: 99,
 }
 
 // Microsoft Defender threat categories → OCSF `malware.classification_ids`.
@@ -102,3 +106,239 @@ let $nxlog_event_types = [
   "VERBOSE",
   "WARNING",
 ]
+
+// Windows Security message-table texts for the `%%NNNN` insertion strings that
+// Security-Auditing events carry in the EventData fields that
+// `$windows_security_message_fields` lists. Windows resolves
+// these from msobjs.dll when it renders an event, so Winlogbeat reports the
+// text, while Windows Event XML and Fluent Bit report the token. The texts are
+// the en-US strings that Windows rendered for the same records in the lab
+// corpus, or, for tokens without such a pair, the strings extracted from
+// msobjs.dll of Windows 11 23H2 (build 22631). Unknown tokens stay unchanged.
+let $windows_security_messages = {
+  // Access rights in AccessList and AccessReason (4656, 4661, 4662, 4663,
+  // 5145), in Properties (4661, 4662), and in AccessMask (4674).
+  "%%1537": "DELETE",
+  "%%1538": "READ_CONTROL",
+  "%%1539": "WRITE_DAC",
+  "%%1540": "WRITE_OWNER",
+  "%%1541": "SYNCHRONIZE",
+  "%%1542": "ACCESS_SYS_SEC",
+  "%%1552": "Unknown specific access (bit 0)",
+  "%%4416": "ReadData (or ListDirectory)",
+  "%%4417": "WriteData (or AddFile)",
+  "%%4418": "AppendData (or AddSubdirectory or CreatePipeInstance)",
+  "%%4419": "ReadEA",
+  "%%4420": "WriteEA",
+  "%%4423": "ReadAttributes",
+  "%%4421": "Execute/Traverse",
+  "%%4422": "DeleteChild",
+  "%%4424": "WriteAttributes",
+  "%%4432": "Query key value",
+  "%%4433": "Set key value",
+  "%%4434": "Create sub-key",
+  "%%4435": "Enumerate sub-keys",
+  "%%4436": "Notify about changes to keys",
+  "%%4437": "Create Link",
+  "%%4448": "Query mutant state",
+  "%%4484": "Read from process memory",
+  "%%4490": "Query process information",
+  "%%4528": "Query semaphore state",
+  "%%4529": "Modify semaphore state",
+  "%%4592": "AssignAsPrimary",
+  "%%4593": "Duplicate",
+  "%%4594": "Impersonate",
+  "%%4595": "Query",
+  "%%4596": "QuerySource",
+  "%%4597": "AdjustPrivileges",
+  "%%4598": "AdjustGroups",
+  "%%4599": "AdjustDefaultDacl",
+  "%%4600": "AdjustSessionID",
+  "%%5649": "Query secret value",
+  "%%7186": "Query status of service",
+  "%%7188": "Start the service",
+  "%%7680": "Create Child",
+  "%%7682": "List Contents",
+  "%%7684": "Read Property",
+  "%%7685": "Write Property",
+  "%%7686": "Delete Tree",
+  "%%7688": "Control Access",
+  // Reasons for granted access in AccessReason (4656, 5145).
+  "%%1801": "Granted by",
+  "%%1804": "Granted by Ownership",
+  "%%1805": "Not granted",
+  "%%1809": "Unknown or unchecked",
+  // Account attributes and UserAccountControl flags (4720, 4738, 4741, 4742).
+  "%%1793": "<value not set>",
+  "%%1794": "<never>",
+  "%%1797": "All",
+  "%%2048": "Account Enabled",
+  "%%2050": "'Password Not Required' - Disabled",
+  "%%2080": "Account Disabled",
+  "%%2082": "'Password Not Required' - Enabled",
+  "%%2084": "'Normal Account' - Enabled",
+  "%%2087": "'Workstation Trust Account' - Enabled",
+  "%%2088": "'Server Trust Account' - Enabled",
+  "%%2093": "'Trusted For Delegation' - Enabled",
+  // Trust attributes (4706).
+  "%%1796": "Disabled",
+  // Logon settings (4624) and Boot Configuration Data settings (4826).
+  "%%1832": "Identification",
+  "%%1833": "Impersonation",
+  "%%1840": "Delegation",
+  "%%1842": "Yes",
+  "%%1843": "No",
+  "%%1846": "Default",
+  "%%1848": "Off",
+  "%%1849": "Auto",
+  // Registry values, value types, and operations (4657).
+  "%%1800": "<Value change auditing for this registry type is not supported>",
+  "%%1872": "REG_NONE",
+  "%%1873": "REG_SZ",
+  "%%1874": "REG_EXPAND_SZ",
+  "%%1875": "REG_BINARY",
+  "%%1876": "REG_DWORD",
+  "%%1877": "REG_DWORD_BIG_ENDIAN",
+  "%%1878": "REG_LINK",
+  "%%1879": "REG_MULTI_SZ (New lines are replaced with *. A * is replaced with **)",
+  "%%1880": "REG_RESOURCE_LIST",
+  "%%1881": "REG_FULL_RESOURCE_DESCRIPTOR",
+  "%%1882": "REG_RESOURCE_REQUIREMENTS_LIST",
+  "%%1883": "REG_QWORD",
+  "%%1904": "New registry value created",
+  "%%1905": "Existing registry value modified",
+  "%%1906": "Registry value deleted",
+  // Token elevation types (4688).
+  "%%1936": "TokenElevationTypeDefault (1)",
+  "%%1937": "TokenElevationTypeFull (2)",
+  "%%1938": "TokenElevationTypeLimited (3)",
+  // Logon failure reasons (4625).
+  "%%2304": "An Error occured during Logon.",
+  "%%2309": "The specified account's password has expired.",
+  "%%2313": "Unknown user name or bad password.",
+  // Cryptographic key operations (5058, 5059, 5061).
+  "%%2458": "Read persisted key from file.",
+  "%%2459": "Write persisted key to file.",
+  "%%2464": "Export of persistent cryptographic key.",
+  "%%2480": "Open Key.",
+  "%%2481": "Create Key.",
+  "%%2499": "Machine key.",
+  "%%2500": "User key.",
+  // Credential Manager read operations (5379).
+  "%%8099": "Read Credential",
+  "%%8100": "Enumerate Credentials",
+  // Audit policy categories and subcategories (4719).
+  "%%8272": "System",
+  "%%8273": "Logon/Logoff",
+  "%%8274": "Object Access",
+  "%%8275": "Privilege Use",
+  "%%8276": "Detailed Tracking",
+  "%%8277": "Policy Change",
+  "%%8278": "Account Management",
+  "%%8279": "DS Access",
+  "%%8280": "Account Logon",
+  "%%8448": "Success removed",
+  "%%8449": "Success Added",
+  "%%8450": "Failure removed",
+  "%%8451": "Failure added",
+  "%%12288": "Security State Change",
+  "%%12289": "Security System Extension",
+  "%%12290": "System Integrity",
+  "%%12292": "Other System Events",
+  "%%12544": "Logon",
+  "%%12545": "Logoff",
+  "%%12548": "Special Logon",
+  "%%12551": "Other Logon/Logoff Events",
+  "%%12800": "File System",
+  "%%12801": "Registry",
+  "%%12804": "Other Object Access Events",
+  "%%12807": "Handle Manipulation",
+  "%%12808": "File Share",
+  "%%12811": "Detailed File Share",
+  "%%13056": "Sensitive Privilege Use",
+  "%%13312": "Process Creation",
+  "%%13313": "Process Termination",
+  "%%13568": "Audit Policy Change",
+  "%%13571": "MPSSVC Rule-Level Policy Change",
+  "%%13824": "User Account Management",
+  "%%13825": "Computer Account Management",
+  "%%13826": "Security Group Management",
+  "%%13827": "Distribution Group Management",
+  "%%13829": "Other Account Management Events",
+  "%%14080": "Directory Service Access",
+  "%%14081": "Directory Service Changes",
+  "%%14082": "Directory Service Replication",
+  "%%14083": "Detailed Directory Service Replication",
+  "%%14336": "Credential Validation",
+  "%%14337": "Kerberos Service Ticket Operations",
+  "%%14339": "Kerberos Authentication Service",
+  // Directory service changes (4662, 5136, 5137, 5141).
+  "%%14674": "Value Added",
+  "%%14675": "Value Deleted",
+  "%%14676": "Active Directory Domain Services",
+  "%%14678": "Yes",
+  "%%14679": "No",
+}
+
+// Security-Auditing EventData fields whose values Windows renders from
+// `$windows_security_messages`. Fields marked `tokens` hold message tokens,
+// alone or in lists, such as access rights with their reasons and GUIDs.
+// Fields marked `placeholder` hold free text, such as a path or a display
+// name, or a single token for a placeholder, such as "<value not set>". Only
+// a value that is exactly one token renders there. All other fields, such as
+// command lines, stay unchanged.
+let $windows_security_message_fields = {
+  // Object access and directory service events (4656, 4661, 4662, 4663,
+  // 5136, 5137, 5141, 5145).
+  AccessList: "tokens",
+  AccessReason: "tokens",
+  AccessMask: "tokens",
+  Properties: "tokens",
+  OperationType: "tokens",
+  DSType: "tokens",
+  TreeDelete: "tokens",
+  // Logons (4624, 4625) and process creations (4688).
+  ImpersonationLevel: "tokens",
+  ElevatedToken: "tokens",
+  VirtualAccount: "tokens",
+  FailureReason: "tokens",
+  TokenElevationType: "tokens",
+  // Registry values (4657). The value data holds a placeholder for types
+  // that Windows does not audit.
+  OldValueType: "tokens",
+  NewValueType: "tokens",
+  OldValue: "placeholder",
+  NewValue: "placeholder",
+  // Trusts (4706) and audit policies (4719).
+  SidFilteringEnabled: "tokens",
+  CategoryId: "tokens",
+  SubcategoryId: "tokens",
+  AuditPolicyChanges: "tokens",
+  // Accounts (4720, 4738, 4741, 4742).
+  UserAccountControl: "tokens",
+  AccountExpires: "tokens",
+  PasswordLastSet: "tokens",
+  LogonHours: "tokens",
+  DisplayName: "placeholder",
+  HomeDirectory: "placeholder",
+  HomePath: "placeholder",
+  ScriptPath: "placeholder",
+  ProfilePath: "placeholder",
+  UserWorkstations: "placeholder",
+  UserParameters: "placeholder",
+  // Boot Configuration Data (4826).
+  AdvancedOptions: "tokens",
+  ConfigAccessPolicy: "tokens",
+  RemoteEventLogging: "tokens",
+  KernelDebug: "tokens",
+  VsmLaunchType: "tokens",
+  TestSigning: "tokens",
+  FlightSigning: "tokens",
+  DisableIntegrityChecks: "tokens",
+  HypervisorLaunchType: "tokens",
+  HypervisorDebug: "tokens",
+  // Cryptographic keys (5058, 5059, 5061) and credentials (5379).
+  Operation: "tokens",
+  KeyType: "tokens",
+  ReadOperation: "tokens",
+}

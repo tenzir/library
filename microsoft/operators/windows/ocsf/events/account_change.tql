@@ -49,15 +49,16 @@ if $windows.System.EventID == 4740 {
   $ocsf.src_endpoint = {hostname: move $ocsf.user.domain}
 }
 
-// Do not interpret Windows message-resource tokens as real account values.
-if not $windows.EventData.DisplayName?.starts_with("%%") {
+// Do not interpret placeholders such as "<value not set>", or message tokens
+// that canonicalization does not know, as real account values.
+if $windows.EventData.DisplayName? not in ["<value not set>", "<never>"] and not $windows.EventData.DisplayName?.starts_with("%%") {
   $ocsf.user.display_name = move $windows.EventData.DisplayName?
 }
-if not $windows.EventData.UserPrincipalName?.starts_with("%%") {
+if $windows.EventData.UserPrincipalName? not in ["<value not set>", "<never>"] and not $windows.EventData.UserPrincipalName?.starts_with("%%") {
   $ocsf.user.uid_alt = move $windows.EventData.UserPrincipalName?
 }
 
 // EID 4720 carries many account-attribute fields (HomeDirectory,
 // UserAccountControl flags, etc.) containing either real values or Windows
-// sentinel strings ("%%1793" = not set, "%%1794" = never). These stay in
-// unmapped; downstream enrichment can decode %%NNNN message IDs if needed.
+// placeholders such as "<value not set>" (`%%1793`) and "<never>" (`%%1794`).
+// These stay in unmapped.

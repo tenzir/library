@@ -30,3 +30,44 @@ if type_kind($input) == "string" {
 } else {
   $windows = null
 }
+// Legacy providers such as Application Error or Windows Error Reporting write
+// `Data` elements without a name, which Windows Event XML renders as `_0`,
+// `_1`, …. Name them `param1`, `param2`, … like Winlogbeat does, so that the
+// numbers match the `%1`, `%2`, … inserts of the provider's message.
+if type_kind($windows.EventData?) == "record" and $windows.EventData.keys()[0]? == "_0" {
+  $windows.EventData = collect_record($windows.EventData.keys().map(key => [
+    "param" + (key.slice(begin=1).int() + 1).string(),
+    $windows.EventData[key],
+  ]))
+}
+// Security-Auditing events carry many settings as message-table tokens, such as
+// `%%1843` for "No". Windows Event XML and Fluent Bit keep the token, whereas
+// Winlogbeat renders the text. Replace every known token in the fields that
+// hold tokens like Windows does, so that every collector yields the same
+// canonical event. Splitting a value at `%%` leaves each token's digits at the
+// start of a part. Separators, GUIDs, SDDL strings, unknown tokens, and all
+// other fields, such as command lines, stay unchanged. Values without `%%`
+// skip the table lookups, which dominate the cost.
+if $windows.System?.Provider?.Name? == "Microsoft-Windows-Security-Auditing" and type_kind($windows.EventData?) == "record" {
+  $windows.EventData = {
+    ...$windows.EventData,
+    ...collect_record($windows.EventData.entries()
+      .where(field => type_kind(field.value) == "string" and "%%" in field.value)
+      .map(field => {
+        key: field.key,
+        value: field.value,
+        kind: microsoft::$windows_security_message_fields[field.key]?,
+      })
+      .where(field => field.kind == "tokens"
+        or (field.kind == "placeholder" and field.value.match_regex(r"^\s*%%[0-9]+\s*$")))
+      .map(field => {key: field.key, parts: field.value.split("%%")})
+      .map(field => {
+        key: field.key,
+        value: field.parts[0] + field.parts.slice(begin=1).map(part =>
+          (microsoft::$windows_security_messages["%%" + part.replace_regex(r"[^0-9][\s\S]*$", "")]?
+            + part.replace_regex(r"^[0-9]+", ""))
+          else "%%" + part
+        ).join(""),
+      })),
+  }
+}

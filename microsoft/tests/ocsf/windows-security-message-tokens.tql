@@ -1,0 +1,53 @@
+// Windows Event XML and Fluent Bit report Security-Auditing settings as
+// message-table tokens, which Winlogbeat renders as text. The XML form must
+// yield the text that Winlogbeat 9.5.2 renders for a 4826 record. Lists
+// of access rights and audit policy changes render each known token, and an
+// unknown token stays unchanged.
+from_file f"{env("TENZIR_INPUTS")}/eid-4826.xml" {
+  read_all
+}
+windows = data.parse_winlog()
+cases = [
+  {name: "boot configuration", rights: null, changes: null},
+  {name: "access rights", rights: "%%7684\n\t\t\t\t%%1539\n\t\t\t\t%%9999\n\t\t\t\t", changes: null},
+  {name: "audit policy changes", rights: null, changes: "%%8449, %%8451"},
+]
+unroll cases
+if cases.rights != null {
+  windows.System.EventID = 4662
+  windows.EventData = {...windows.EventData, AccessList: cases.rights, AccessMask: "0x10"}
+}
+if cases.changes != null {
+  windows.System.EventID = 4719
+  windows.EventData = {
+    ...windows.EventData,
+    CategoryId: "%%8274",
+    SubcategoryId: "%%12804",
+    SubcategoryGuid: "{0CCE9227-69AE-11D9-BED3-505054503030}",
+    AuditPolicyChanges: cases.changes,
+  }
+}
+microsoft::windows::ocsf::normalize windows, into=ocsf
+if cases.rights == null and cases.changes == null {
+  assert ocsf.unmapped.EventData == {
+    LoadOptions: null,
+    AdvancedOptions: "No",
+    ConfigAccessPolicy: "Default",
+    RemoteEventLogging: "No",
+    KernelDebug: "No",
+    VsmLaunchType: "Off",
+    TestSigning: "No",
+    FlightSigning: "No",
+    DisableIntegrityChecks: "No",
+    HypervisorLoadOptions: null,
+    HypervisorLaunchType: "Off",
+    HypervisorDebug: "No",
+  }
+}
+this = {
+  case: cases.name,
+  kernel_debug: ocsf.unmapped?.EventData?.KernelDebug?,
+  access_list: ocsf.access_list?,
+  policy: ocsf.entity?.policy?.data?,
+}
+sort case
