@@ -18,17 +18,10 @@ Microsoft Defender detections (1116/1117) now translate the Defender threat seve
 
 Threat events (1006/1007) write only the name, such as `<Data Name="Severity">Moderate</Data>`.
 
-**OCSF before → now:**
+**What changes:**
 
-| Defender severity | Event | Before | Now |
-|---|---|---|---|
-| `1` Low | 1116/1117 | `1` (Informational) | `2` (Low) |
-| `2` Moderate | 1116/1117 | `2` (Low) | `3` (Medium) |
-| `0` Unknown, `4` High, `5` Severe | all | Unchanged | Unchanged |
-| An undocumented ID, such as `3` | 1116/1117 | The ID, such as `3` (Medium) | `99` (Other), with the name or the ID as `severity` |
-| An undocumented ID or name | 1006/1007, 1009/1011 | `0` (Unknown) | `99` (Other), with the name or the ID as `severity` |
-| None | 1116/1117 | Not set | `0` (Unknown) |
-
-**Why:** Defender numbers its threat severities 1 Low, 2 Moderate, 4 High, and 5 Severe, while OCSF numbers 1 Informational, 2 Low, 3 Medium, 4 High, and 5 Critical, so the detection mapping copied the number and lowered Low and Moderate threats by one level. All Defender events now share one table in the package constants.
-
-No Sigma rule in the package filters on severity.
+- Detections (1116/1117) with Low (`1`) now get OCSF severity Low (`2`) instead of Informational (`1`).
+- Detections (1116/1117) with Moderate (`2`) now get OCSF severity Medium (`3`) instead of Low (`2`).
+- Unknown (`0`), High (`4`), and Severe (`5`) map as before.
+- Undocumented severities now map to Other (`99`), keeping the name or ID in `severity`, for all Defender events. Detections previously copied the ID; threat and quarantine events used Unknown (`0`).
+- Detections without a severity now get Unknown (`0`).
