@@ -1,4 +1,4 @@
-This release maps Windows events the way real records write them and stops building OCSF objects that the events can't fill.
+This release improves the Windows event mappings: events look the same from every collector, move to the OCSF classes their data supports, and no longer build OCSF objects that an event can't fill. Some events change class and some Sigma rules need replacement queries; the entries below show what changes and what to do.
 
 | Area                    | What changes                                                                                                                                                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
