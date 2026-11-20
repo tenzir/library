@@ -24,7 +24,7 @@ $ocsf.class_uid = 6002
 $ocsf.activity_id = 1  // Install
 $ocsf.type_uid = 600201
 $ocsf.status_id = $status_id
-$ocsf.status_code = (move $windows.EventData?.ErrorCode?).string()
+$ocsf.status_code = move $windows.EventData?.ErrorCode?
 // Payload-free events, such as the policy block 441, and failures before the
 // package was opened (404 with an empty PackageFullName) identify no package
 // and therefore have no application. Application Lifecycle requires one, so
@@ -49,10 +49,11 @@ if (
       path: move $windows.EventData.Path?,
       file_path: move $windows.EventData.FilePath?,
       deployment_operation: move $windows.EventData.DeploymentOperation?,
-      has_full_trust: move $windows.EventData.HasFullTrust?,
-      flags: move $windows.EventData.Flags?,
+      has_full_trust: $windows.EventData.HasFullTrust? == "true" if $windows.EventData.HasFullTrust? != null else null,
+      flags: (move $windows.EventData.Flags?).int(),
     },
   }
+  drop $windows.EventData.HasFullTrust?
 }
 // CallingProcess names the image of the requesting process, followed by the
 // services it hosts, such as `svchost.exe,AppReadiness`. The event logs no

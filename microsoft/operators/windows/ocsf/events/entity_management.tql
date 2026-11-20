@@ -38,7 +38,7 @@ if $windows.EventData.ObjectGUID? != null {
 } else if $windows.EventData.EventSourceId? != null {
   $ocsf.entity.uid = move $windows.EventData.EventSourceId
 } else if $windows.EventData.RequestId? != null {
-  $ocsf.entity.uid = (move $windows.EventData.RequestId).string()
+  $ocsf.entity.uid = move $windows.EventData.RequestId
 } else if $windows.EventData.DomainSid? != null {
   // Trusted domain events (4706/4707/4716) identify the trusted domain.
   $ocsf.entity.uid = move $windows.EventData.DomainSid
@@ -47,12 +47,12 @@ if $windows.EventData.ObjectGUID? != null {
   // Operations (4666) name their object instead.
   $ocsf.entity.uid = move $windows.EventData.ClientLogonId
 } else if $windows.EventData.CertificateSerialNumber? != null {
-  $ocsf.entity.uid = (move $windows.EventData.CertificateSerialNumber).string()
+  $ocsf.entity.uid = move $windows.EventData.CertificateSerialNumber
 } else if $windows.EventData.PuaPolicyId? != null {
   $ocsf.entity.uid = move $windows.EventData.PuaPolicyId
 } else if $windows.EventData.NamingContext? != null and $windows.EventData.SessionID? != null {
   // Replica synchronization (4932/4933) identifies the replication session.
-  $ocsf.entity.uid = (move $windows.EventData.SessionID).string()
+  $ocsf.entity.uid = move $windows.EventData.SessionID
 }
 if $windows.EventData.ObjectName? != null {
   $ocsf.entity.name = move $windows.EventData.ObjectName
@@ -116,7 +116,7 @@ if $windows.EventData.OperationType? != null {
 // ACCESS_SYSTEM_SECURITY, and sometimes as rendered access rights. Only a
 // number becomes the mask; rendered rights stay in unmapped.
 if $windows.EventData.AccessMask? != null {
-  $windows.EventData.AccessMask = $windows.EventData.AccessMask.string().trim()
+  $windows.EventData.AccessMask = $windows.EventData.AccessMask.trim()
   if $windows.EventData.AccessMask.match_regex("^0[xX][0-9a-fA-F]+$") {
     $ocsf.access_mask = int(move $windows.EventData.AccessMask, base=16)
   } else if $windows.EventData.AccessMask.match_regex("^[0-9]+$") {
@@ -153,7 +153,7 @@ if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserN
 // (4661/4674) name the subject's process.
 if $windows.EventData.ProcessId? != null or $windows.EventData.ProcessName? != null {
   $ocsf.actor.process = {
-    pid: int((move $windows.EventData.ProcessId?).string(), base=16),
+    pid: int(move $windows.EventData.ProcessId?, base=16),
     path: move $windows.EventData.ProcessName?,
   }
   $ocsf.actor.process.name = $ocsf.actor.process.path?.split("\\")[-1]?
@@ -163,9 +163,9 @@ if $windows.EventData.ProcessId? != null or $windows.EventData.ProcessName? != n
     type_id: 8,
   }
 }
-$ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+$ocsf.status_code = move $windows.EventData.ErrorCode?
 // Directory replication events (4931/4933) report a Win32 status code.
 if $windows.EventData.StatusCode? != null {
-  $ocsf.status_code = (move $windows.EventData.StatusCode).string()
+  $ocsf.status_code = move $windows.EventData.StatusCode
   $ocsf.status_id = 1 if $ocsf.status_code == "0" else 2
 }

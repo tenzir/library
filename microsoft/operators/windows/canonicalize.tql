@@ -13,8 +13,12 @@ args:
       description: The field that receives the canonical Windows Event Log record.
 ---
 
+// Windows writes every event data value as text. Parse it with `raw=true`, so
+// that each value stays a string instead of a guessed type, such as an integer
+// for a hex value without letters or an IP address for a file version. The
+// mappings convert the values that an OCSF field needs explicitly.
 if type_kind($input) == "string" {
-  $windows = $input.parse_winlog()
+  $windows = $input.parse_winlog(raw=true)
   microsoft::windows::adapters::windows_event_log $windows
 } else if type_kind($input.System?) == "string" {
   microsoft::windows::adapters::fluent_bit $input, $windows
@@ -29,6 +33,26 @@ if type_kind($input) == "string" {
   microsoft::windows::adapters::fluent_bit $input, $windows
 } else {
   $windows = null
+}
+// Collectors and JSON readers may deliver typed values, such as numbers from
+// NXLog or times inferred by `read_ndjson`. Convert them to strings, so that
+// the mappings see the same canonical event for every collector.
+if type_kind($input) != "string" {
+  if type_kind($windows.EventData?) == "record" {
+    $windows.EventData = collect_record($windows.EventData.entries().map(field => [
+      field.key,
+      field.value.string() if type_kind(field.value) not in ["string", "null", "record", "list"] else field.value,
+    ]))
+  }
+  if type_kind($windows.UserData?) == "record" {
+    $windows.UserData = collect_record($windows.UserData.entries().map(section => [
+      section.key,
+      collect_record(section.value.entries().map(field => [
+        field.key,
+        field.value.string() if type_kind(field.value) not in ["string", "null", "record", "list"] else field.value,
+      ])) if type_kind(section.value) == "record" else section.value,
+    ]))
+  }
 }
 // Legacy providers such as Application Error or Windows Error Reporting write
 // `Data` elements without a name, which Windows Event XML renders as `_0`,

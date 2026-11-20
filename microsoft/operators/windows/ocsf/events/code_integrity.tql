@@ -52,17 +52,21 @@ $ocsf.status_detail = $status_detail else $outcome.status_detail
 // events use names such as `FileNameBuffer`.
 $ocsf.application = {
   desc: move $windows.EventData.FileDescription?,
-  version: (move $windows.EventData.FileVersion?).string(),
+  version: move $windows.EventData.FileVersion?,
   // OCSF requires a name in a product object.
   product: {name: move $windows.EventData.ProductName} if $windows.EventData.ProductName? != null else null,
   data: {
     file_path: move $windows.EventData.FileNameBuffer? else move $windows.EventData["File Name"]?,
     requested_policy: move $windows.EventData.RequestedPolicy?,
     validated_policy: move $windows.EventData.ValidatedPolicy?,
-    requested_signing_level: move $windows.EventData.RequestedSigningLevel?
-      else move $windows.EventData["Requested Signing Level"]?,
-    validated_signing_level: move $windows.EventData.ValidatedSigningLevel?
-      else move $windows.EventData["Validated Signing Level"]?,
+    requested_signing_level: (
+      move $windows.EventData.RequestedSigningLevel?
+        else move $windows.EventData["Requested Signing Level"]?
+    ).int(),
+    validated_signing_level: (
+      move $windows.EventData.ValidatedSigningLevel?
+        else move $windows.EventData["Validated Signing Level"]?
+    ).int(),
   },
 }
 // Events without an App Control policy decision, such as unsigned image loads
@@ -76,7 +80,7 @@ if ($windows.EventData.PolicyName? else $windows.EventData.PolicyGUID?) != null 
     data: {hash: move $windows.EventData.PolicyHash?},
   }
 }
-$ocsf.status_code = (move $windows.EventData.Status?).string()
+$ocsf.status_code = move $windows.EventData.Status?
 $ocsf.application.name = $ocsf.application.data.file_path?.split("\\")[-1]?
 $ocsf.application.type = "Code Integrity"
 // Code Integrity writes the event in the context of the loading process, so

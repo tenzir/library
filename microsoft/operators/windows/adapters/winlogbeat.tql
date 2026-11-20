@@ -25,7 +25,7 @@ $windows.canonical = {
     Level: move $windows.winlogbeat.log?.level?,
     Task: move $windows.winlogbeat.winlog.task?,
     Opcode: move $windows.winlogbeat.winlog.opcode?,
-    Keywords: move $windows.winlogbeat.winlog.keywords?,
+    Keywords: $windows.winlogbeat.winlog.keywords?,
     TimeCreated: {
       SystemTime: move $windows.winlogbeat["@timestamp"],
     },
@@ -66,6 +66,26 @@ $windows.canonical = {
     uid: move $windows.winlogbeat.agent?.id?,
     version: move $windows.winlogbeat.agent?.version?,
   },
+}
+// Windows writes the keywords as a hex mask, such as `0x8010000000000000` for
+// an audit failure. Winlogbeat renders them as a list of names, such as
+// `["Audit Failure"]`, and lists the mask only when it cannot name them. Take
+// the mask, or derive it from the audit outcome, so that mappings read the
+// outcome as for every other collector. Rendered names stay in unmapped.
+let $audit_keywords = {
+  "Audit Failure": "0x8010000000000000",
+  "Audit Success": "0x8020000000000000",
+}
+if type_kind($windows.winlogbeat.winlog.keywords?) == "list" {
+  $windows.canonical.System.Keywords = (
+    $windows.winlogbeat.winlog.keywords.where(keyword => keyword.starts_with("0x"))[0]?
+      else $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)[0]?
+  )
+  if $windows.winlogbeat.winlog.keywords.where(keyword => not keyword.starts_with("0x")).is_empty() {
+    drop $windows.winlogbeat.winlog.keywords
+  }
+} else {
+  drop $windows.winlogbeat.winlog.keywords?
 }
 // Without host metadata, the agent is the one that read the local event log,
 // as the other collector adapters assume.

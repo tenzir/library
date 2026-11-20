@@ -2,7 +2,7 @@ This release maps Windows events the way real records write them and stops build
 
 | Area                    | What changes                                                                                                                                                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Message tokens          | Security event data carries rendered text instead of `%%` tokens, and unnamed event data is `param1`, `param2`, … for all collectors.                                                                                                       |
+| Event data              | Security event data carries rendered text instead of `%%` tokens, unnamed event data is `param1`, `param2`, …, and event data values stay strings as Windows writes them, for all collectors.                                               |
 | Class changes           | Service Control Manager and Sysmon state reports, application hangs, Windows Error Reporting, and Event Log service starts and stops move to classes that their data supports.                                                              |
 | Objects no longer built | Defender, Windows Firewall, and AppX events no longer build `actor.process` without a process ID. Some Sigma rules go silent or match more; the entries give replacements.                                                                  |
 | Bug fixes               | Application crashes, App Control, AppX errors, Code Integrity, cleared logs, Defender evidence, Security entity events and access masks, PowerShell, Sysmon modules, and Microsoft Graph devices and risky users map more fields correctly. |
@@ -189,7 +189,7 @@ where class_uid == 6002 and metadata.event_code == "400" and
 
 ### Same Windows event data from every collector
 
-Security event data now carries the text of message-table tokens, and unnamed event data from legacy providers, such as Application Error, now uses the names `param1`, `param2`, … for all collectors, so Windows Event XML, Fluent Bit, and Winlogbeat produce the same event.
+Security event data now carries the text of message-table tokens, unnamed event data from legacy providers, such as Application Error, now uses the names `param1`, `param2`, … for all collectors, and event data values stay strings as Windows writes them, so Windows Event XML, Fluent Bit, NXLog, and Winlogbeat produce the same event.
 
 #### Message-table tokens
 
@@ -241,14 +241,40 @@ Free-text fields, such as command lines, and unknown tokens stay unchanged.
 
 **Why:** legacy providers write their values without names, and the mappings read them as `param1`, `param2`, …, the names that Winlogbeat uses and that match the `%1`, `%2` inserts of the provider's message. Windows Event XML parsing numbered them from `_0`, so these mappings found nothing.
 
+#### Event data as strings
+
+**Windows writes** every event data value as text (Defender 1116 and Windows Firewall 2003 in Windows Event XML):
+
+```xml
+<EventID>1116</EventID>  <Data Name="Category ID">34</Data>
+<EventID>2003</EventID>  <Data Name="SettingValue">01000000</Data>
+```
+
+**OCSF before → now:**
+
+| Field                                              | Before              | Now          |
+| -------------------------------------------------- | ------------------- | ------------ |
+| `unmapped.EventData["Category ID"]` (1116)         | `34`                | `"34"`       |
+| `unmapped.EventData.SettingValue` (2003)           | `1000000`           | `"01000000"` |
+| `unmapped.EventData.SchemaVersion` (Sysmon 4)      | `4.9`               | `"4.90"`     |
+| `entity.data.local_ports` (2004, 2097)             | `4444`              | `"4444"`     |
+| `application.data.deployment_operation` (AppX 400) | `1`                 | `"1"`        |
+| Winlogbeat object access failures (4656)           | `status_id` Success | Failure      |
+
+Every other mapped field keeps its value and type: the mappings now convert the values that an OCSF field needs, such as IP addresses, ports, hexadecimal process IDs, Sysmon flags, and file creation times.
+
+**Why:** Windows Event XML parsing guessed a type per value, so the same field changed its type between events: a hexadecimal value without letters became a decimal number, a file version an IP address, and a value with leading zeros lost them. Collectors and JSON readers delivered other types again. Now every collector yields the strings that Windows writes, like Winlogbeat, and each mapping converts the fields it fills. Port lists, such as `4444` or `80,443`, and deployment operations, such as `1` or `Add`, stay strings. Winlogbeat renders the keywords as names, such as `Audit Failure`, so the object access mapping missed the failure; the keywords are now the hex mask for every collector, and the rendered names stay in `unmapped.Winlogbeat.winlog.keywords`.
+
 **What you need to do**
 
-| Query                                           | Effect | Replacement                                                                                          |
-| ----------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| Tests on a token, such as `%%1843`              | Silent | Test the text, such as `No`                                                                          |
-| Tests on 4719 `category_id` or `subcategory_id` | Silent | Test `category` or `subcategory`                                                                     |
-| Tests on 4719 `changes` as a string             | Silent | `"Success removed" in entity.policy.data.changes`                                                    |
-| Tests on `unmapped.EventData._0`                | Silent | Replace `unmapped.EventData._0` with `unmapped.EventData.param1`, and shift every other index by one |
+| Query                                                                                           | Effect | Replacement                                                                                          |
+| ----------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| Tests on a token, such as `%%1843`                                                              | Silent | Test the text, such as `No`                                                                          |
+| Tests on 4719 `category_id` or `subcategory_id`                                                 | Silent | Test `category` or `subcategory`                                                                     |
+| Tests on 4719 `changes` as a string                                                             | Silent | `"Success removed" in entity.policy.data.changes`                                                    |
+| Numeric tests on `unmapped.EventData` values, such as `unmapped.EventData["Category ID"] == 34` | Silent | Compare the string, such as `== "34"`, or convert with `int()`                                       |
+| Numeric tests on `entity.data.local_ports` or `application.data.deployment_operation`           | Silent | Compare the string                                                                                   |
+| Tests on `unmapped.EventData._0`                                                                | Silent | Replace `unmapped.EventData._0` with `unmapped.EventData.param1`, and shift every other index by one |
 
 *By @zedoraps.*
 
