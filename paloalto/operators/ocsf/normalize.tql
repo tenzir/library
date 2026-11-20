@@ -3,9 +3,10 @@ description: |
   Normalizes a Syslog event carrying a Palo Alto Networks PAN-OS CSV payload to
   OCSF 1.9.
 
-  The input is the record produced by `read_syslog` or `parse_syslog`. The
-  operator parses its `content` field, maps the PAN-OS record, and preserves the
-  CSV payload as provenance. Unsupported input becomes an OCSF Base Event.
+  The input is the record produced by `read_syslog` or `parse_syslog` from an
+  RFC 3164 or RFC 5424 message. The operator parses its payload, maps the
+  PAN-OS record, and preserves the CSV payload as provenance. Unsupported
+  input becomes an OCSF Base Event.
 args:
   positional:
     - name: syslog
@@ -27,24 +28,29 @@ args:
 ---
 
 // Snapshot the carrier before writing so in-place and separate-field calls use
-// the same normalization path.
+// the same normalization path. `parse_syslog` puts the payload of an RFC 3164
+// message into `content` and that of an RFC 5424 message into `message`.
 $into = {source: $syslog}
-paloalto::parse $into.source.content, $into.paloalto, timezone=$timezone
+if $into.source.content? != null {
+  $into.payload = move $into.source.content
+} else {
+  $into.payload = move $into.source.message?
+}
+paloalto::parse $into.payload, $into.paloalto, timezone=$timezone
 if $into.paloalto == null {
   $into.paloalto = {}
 }
 // The Syslog timestamp is when the carrier sent the message. Use it only as a
-// last resort for the event time, and only when it is a complete time: an
-// RFC 3164 timestamp has neither a year nor a zone. It also stays in
+// last resort for the event time, and only when it is a complete time, as in
+// RFC 5424: an RFC 3164 timestamp has neither a year nor a zone. It also stays in
 // `unmapped.timestamp`, distinct from the PAN-OS generated and receive times.
 if type_kind($into.source.timestamp?) == "time" {
   $into.paloalto.time = $into.source.timestamp
 }
 paloalto::ocsf::map $into.paloalto, $into.ocsf
 
-$into.ocsf.raw_data = $into.source.content
-$into.ocsf.raw_data_size = $into.source.content?.length_bytes()
-drop $into.source.content?
+$into.ocsf.raw_data = $into.payload
+$into.ocsf.raw_data_size = $into.payload?.length_bytes()
 $into.ocsf.unmapped = {
   ...$into.source,
   ...$into.ocsf.unmapped,
