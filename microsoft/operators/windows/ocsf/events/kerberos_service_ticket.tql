@@ -18,8 +18,15 @@ $ocsf.activity_id = 4  // Service Ticket
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // Status 0x0 = success; anything else = failure (e.g. 0x1F = no TGT).
-$ocsf.status_id = 1 if $windows.EventData.Status == "0x0" else 2
-$ocsf.status_code = move $windows.EventData.Status
+// Without a status, the audit keywords decide.
+if $windows.EventData.Status? == "0x0" {
+  $ocsf.status_id = 1
+} else if $windows.EventData.Status? != null {
+  $ocsf.status_id = 2
+} else {
+  microsoft::windows::ocsf::audit_status $windows, $ocsf
+}
+$ocsf.status_code = move $windows.EventData.Status?
 
 // TargetUserName usually includes @REALM (e.g. "jdoe@CORP.LOCAL"); split off
 // the realm into domain. Fall back to TargetDomainName when no @ is present.

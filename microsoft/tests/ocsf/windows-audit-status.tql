@@ -1,21 +1,39 @@
 // The audit keywords decide the status of Security events that Windows logs as
 // success or failure. Account mapping (4774) and handle requests (4656) can
-// fail, and unknown keywords yield Unknown. A Kerberos TGT request (4768)
-// follows its result code, or the keywords without one. Events that Windows
-// logs only as success, such as process creation (4688), stay Success.
-from_file f"{env("TENZIR_INPUTS")}/eid-4*.xml" {
+// fail, and unknown keywords yield Unknown. Kerberos TGT and service ticket
+// requests (4768, 4769) and NTLM credential validation (4776) follow their
+// result code, or the keywords without one. Events that Windows logs only as
+// success, such as process creation (4688), stay Success. A device
+// installation that policy forbids (6423) failed, although Windows logs the
+// enforcement as Audit Success.
+from_file f"{env("TENZIR_INPUTS")}/eid-*.xml" {
   read_all
 }
 windows = data.parse_winlog(raw=true)
-where windows.System.EventID in [4656, 4688, 4768, 4774]
+where windows.System.EventID in [4656, 4688, 4768, 4769, 4774, 4776, 6423]
+// One process creation suffices.
+where windows.System.EventRecordID != 4688002
 cases = [
   {keywords: "0x8010000000000000", status: "keep"},
   {keywords: "0x8020000000000000", status: "keep"},
   {keywords: null, status: "keep"},
 ]
-if windows.System.EventID == 4768 {
+// The outcome bits decide, whatever other keyword bits are set. Both outcome
+// bits and malformed keywords yield Unknown.
+if windows.System.EventID == 4774 {
+  cases = [
+    ...cases,
+    {keywords: "0x8010000000000001", status: "keep"},
+    {keywords: "0x0020000000000000", status: "keep"},
+    {keywords: "0x8030000000000000", status: "keep"},
+    {keywords: "0x8000000000000000", status: "keep"},
+    {keywords: "Audit Failure", status: "keep"},
+  ]
+}
+if windows.System.EventID in [4768, 4769, 4776] {
   cases = [
     {keywords: "0x8010000000000000", status: "0x6"},
+    {keywords: "0x8020000000000000", status: "0x0"},
     {keywords: "0x8010000000000000", status: null},
     {keywords: "0x8020000000000000", status: null},
     {keywords: null, status: null},
@@ -32,5 +50,7 @@ this = {
   keywords: cases.keywords,
   status_code: ocsf.status_code?,
   status_id: ocsf.status_id,
+  action_id: ocsf.action_id?,
+  disposition_id: ocsf.disposition_id?,
 }
 sort event_code, keywords, status_code
