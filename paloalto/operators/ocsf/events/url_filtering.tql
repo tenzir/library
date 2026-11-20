@@ -66,12 +66,20 @@ if $event.url_filename? != null {
   $ocsf.http_request.url = {url_string: move $event.url_filename}
   // PAN-OS writes the PAN-DB category and, in newer versions, the full list of
   // categories including a risk rating. Translate the categories that have an
-  // OCSF equivalent. The PAN-DB labels stay in `unmapped`.
-  $ocsf._category_ids = ($event.url_category_list? else $event.category?).split(",").map(label => paloalto::$url_category_ids[label.trim()]?).where(id => id != null).distinct()
-  if $ocsf._category_ids.length() > 0 {
-    $ocsf.http_request.url.category_ids = $ocsf._category_ids
+  // OCSF equivalent; other categories become `Other` with their PAN-DB label.
+  // The PAN-DB labels also stay in `unmapped`.
+  $ocsf._categories = ($event.url_category_list? else $event.category?).split(",").map(label => label.trim()).where(label => label != "" and label not in paloalto::$url_risk_ratings).map(label => {
+    id: paloalto::$url_category_ids[label]? else 99,
+    caption: null if paloalto::$url_category_ids.has(label) else label,
+  }).distinct()
+  if $ocsf._categories.length() > 0 {
+    $ocsf.http_request.url.category_ids = $ocsf._categories.map(category => category.id)
+    // `ocsf_derive` fills in the captions of the translated categories.
+    if $ocsf._categories.where(category => category.caption != null).length() > 0 {
+      $ocsf.http_request.url.categories = $ocsf._categories.map(category => category.caption)
+    }
   }
-  drop $ocsf._category_ids
+  drop $ocsf._categories
 }
 if ($event.rule_name? else $event.rule_uuid?) != null {
   $ocsf.firewall_rule = {
