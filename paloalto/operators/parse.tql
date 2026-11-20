@@ -1206,89 +1206,165 @@ let $audit_fields = [
   "severity",
 ].join(",")
 
+
+// PAN-OS writes every column as text. Parse with `raw=true`, so that values
+// such as the rule name `00123` or a numeric-looking filename stay text instead
+// of a guessed integer or time. Only `"` quotes a value, and quoted values
+// double embedded quotes. A `;` inside a value, such as in a user agent or a
+// configuration detail, is text and not a list separator. The conversions
+// below type the columns that are genuinely numbers, addresses, or times.
+let $integer_fields = [
+  "app_flap_count",
+  "bytes",
+  "bytes_received",
+  "bytes_sent",
+  "certificate_size",
+  "common_name_length",
+  "destination_port",
+  "elapsed_time",
+  "factor_number",
+  "issuer_common_name_length",
+  "login_duration",
+  "maximum_encapsulation",
+  "nat_destination_port",
+  "nat_source_port",
+  "packets",
+  "packets_received",
+  "packets_sent",
+  "repeat_count",
+  "response_time",
+  "root_common_name_length",
+  "sctp_chunks",
+  "sctp_chunks_received",
+  "sctp_chunks_sent",
+  "sequence_number",
+  "sessions_closed",
+  "sessions_created",
+  "sni_length",
+  "source_port",
+  "tcp_retransit_cnt_c2s",
+  "tcp_retransit_cnt_s2c",
+  "tcp_rtt_c2s",
+  "tcp_rtt_s2c",
+  "tcp_zero_window_cnt_c2s",
+  "tcp_zero_window_cnt_s2c",
+  "time_out_threshold",
+  "timeout",
+  "total_n_ooseq_c2s",
+  "total_n_ooseq_s2c",
+]
+let $ip_fields = [
+  "destination_address",
+  "end_user_ip_address",
+  "ipv6_source_address",
+  "nat_destination_ip",
+  "nat_source_ip",
+  "private_ip",
+  "private_ipv6",
+  "public_ip",
+  "public_ipv6",
+  "remote_user_ip",
+  "source_address",
+  "source_ip",
+]
+let $time_fields = [
+  "certificate_end_date",
+  "certificate_start_date",
+  "generate_time",
+  "generated_time",
+  "high_res_timestamp",
+  "high_resolution_timestamp",
+  "parent_start_time",
+  "receive_time",
+  "start_time",
+  "time_logged",
+]
+
+let $typed_fields = [...$integer_fields, ...$ip_fields, ...$time_fields]
+
 match $input.split(",", max=5)[3]? {
   "TRAFFIC" => {
-    $paloalto = {...$input.parse_csv(header=$traffic_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.traffic"
   }
   "GLOBALPROTECT" => {
-    $paloalto = {...$input.parse_csv(header=$globalprotect_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.globalprotect"
   }
   "URL-FILTERING" => {
-    $paloalto = {...$input.parse_csv(header=$url_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.url-filtering"
   }
   "DATA-FILTERING" => {
-    $paloalto = {...$input.parse_csv(header=$data_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.data-filtering"
   }
   "THREAT" => {
     match $input.split(",", max=5)[4]? {
       "url" => {
-        $paloalto = {...$input.parse_csv(header=$url_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
+        $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"")
         @name = "paloalto.url-filtering"
       }
       "data" | "dlp" | "dlp-non-file" => {
-        $paloalto = {...$input.parse_csv(header=$data_filtering_fields), serial_number: $input.split(",", max=3)[2]?}
+        $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"")
         @name = "paloalto.data-filtering"
       }
       _ => {
-        $paloalto = {...$input.parse_csv(header=$threat_fields), serial_number: $input.split(",", max=3)[2]?}
+        $paloalto = $input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"")
         @name = "paloalto.threat"
       }
     }
   }
   "HIP-MATCH" => {
-    $paloalto = {...$input.parse_csv(header=$hip_match_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.hip-match"
   }
   "IPTAG" | "IP-TAGS" => {
-    $paloalto = {...$input.parse_csv(header=$ip_tag_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$ip_tag_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.ip-tags"
   }
   "USERID" | "USER-ID" => {
-    $paloalto = {...$input.parse_csv(header=$user_id_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$user_id_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.user-id"
   }
   "DECRYPTION" => {
-    $paloalto = {...$input.parse_csv(header=$decryption_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.decryption"
   }
   "TUNNEL" | "TUNNEL-INSPECTION" => {
-    $paloalto = {...$input.parse_csv(header=$tunnel_inspection_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.tunnel-inspection"
   }
   "SCTP" => {
-    $paloalto = {...$input.parse_csv(header=$sctp_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.sctp"
   }
   "CONFIG" => {
-    $paloalto = {...$input.parse_csv(header=$config_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.config"
   }
   "AUTHENTICATION" => {
-    $paloalto = {...$input.parse_csv(header=$authentication_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.authentication"
   }
   "SYSTEM" => {
-    $paloalto = {...$input.parse_csv(header=$system_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.system"
   }
   "CORRELATION" => {
-    $paloalto = {...$input.parse_csv(header=$correlated_events_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$correlated_events_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.correlation"
   }
   "GTP" => {
-    $paloalto = {...$input.parse_csv(header=$gtp_fields), serial_number: $input.split(",", max=3)[2]?}
+    $paloalto = $input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.gtp"
   }
   "AUDIT" => {
-    $paloalto = {...$input.parse_csv(header=$audit_fields), serial_number: $input.split(",", max=2)[0]?}
+    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.audit"
   }
   _ if $input.split(",", max=5)[2]? == "AUDIT" => {
-    $paloalto = {...$input.parse_csv(header=$audit_fields), serial_number: $input.split(",", max=2)[0]?}
+    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"")
     @name = "paloalto.audit"
   }
   _ => {
@@ -1299,19 +1375,25 @@ match $input.split(",", max=5)[3]? {
 
 if $paloalto != null {
   $paloalto = $paloalto.drop_matching("^future_use")
-  if $paloalto.receive_time? != null {
-    $paloalto.receive_time = $paloalto.receive_time.parse_time("%Y/%m/%d %H:%M:%S")
-  }
-  if $paloalto.generated_time? != null {
-    $paloalto.generated_time = $paloalto.generated_time.parse_time("%Y/%m/%d %H:%M:%S")
-  }
-  if $paloalto.generate_time? != null {
-    $paloalto.generate_time = $paloalto.generate_time.parse_time("%Y/%m/%d %H:%M:%S")
-  }
-  if $paloalto.start_time? != null {
-    $paloalto.start_time = $paloalto.start_time.parse_time("%Y/%m/%d %H:%M:%S")
-  }
-  if $paloalto.parent_start_time? != null {
-    $paloalto.parent_start_time = $paloalto.parent_start_time.parse_time("%Y/%m/%d %H:%M:%S")
-  }
+  // Some layouts pad empty numeric columns with spaces.
+  $paloalto = collect_record($paloalto.entries().map(field => [
+    field.key,
+    (null if field.value.trim() == "" else field.value.trim()) if field.key in $typed_fields else field.value,
+  ]))
+  // PAN-OS writes times as `2026/05/29 10:11:11` without a zone, which this
+  // parser reads as UTC, or with an offset as in `2026-05-29T10:11:11.123+02:00`.
+  $paloalto = collect_record($paloalto.entries().map(field => [
+    field.key,
+    field.value.int() if field.key in $integer_fields else (
+      field.value.ip() if field.key in $ip_fields else (
+        (field.value.parse_time("%Y/%m/%d %H:%M:%S") if field.value.match_regex("^[0-9]{4}/") else field.value.time()) if field.key in $time_fields else field.value
+      )
+    ),
+  ]))
+  // Managed devices that lack a high-resolution time write the Unix epoch,
+  // such as `1969-12-31T16:00:00.000-08:00`, which means absent.
+  $paloalto = collect_record($paloalto.entries().map(field => [
+    field.key,
+    null if field.key in $time_fields and field.value <= 1970-01-01T00:00:00Z else field.value,
+  ]))
 }
