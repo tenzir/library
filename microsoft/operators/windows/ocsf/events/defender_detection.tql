@@ -20,7 +20,7 @@ $ocsf.activity_id = 1  // Create
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.metadata.profiles = ["host", "security_control"]
 
-$ocsf.severity_id = move $windows.EventData["Severity ID"]
+$ocsf.severity_id = (move $windows.EventData["Severity ID"]).int()
 
 // Defender Action IDs → OCSF disposition_id (present on EID 1117).
 let $dispositions = {
@@ -32,7 +32,7 @@ let $dispositions = {
   "10": 2,  // Block → Blocked
 }
 // Collectors that fill every template field report an absent action as null.
-$ocsf.disposition_id = $dispositions[$windows.EventData["Action ID"]?.string()]? else (
+$ocsf.disposition_id = $dispositions[$windows.EventData["Action ID"]?]? else (
   99 if $windows.EventData["Action ID"]? != null else null
 )
 // Other carries the Defender action as its caption.
@@ -56,24 +56,24 @@ $ocsf.malware = [{
   classifications: [$ocsf.finding_info.types[0]?] if $ocsf.finding_info.types[0]? != null else null,
 }]
 
-// Detected file; wrap in evidences as required by Detection Finding.
-$ocsf.file = {
-  path: move $windows.EventData.Path,
-  type_id: 1,  // Regular file
-}
-$ocsf.file.name = $ocsf.file.path.split("\\")[-1]
-$ocsf.evidences = [{ file: move $ocsf.file }]
+// Path lists the affected resources as `type:_value`, separated by `; `, such
+// as `file:_C:\x.exe`, `containerfile:_C:\x.zip`, or
+// `webfile:_C:\x.exe|https://example.test/x.exe|pid:1,ProcessStart:2`. The
+// files on disk become evidence: a webfile up to its first `|`, and an archive
+// member, such as `file:_C:\x.zip->(Zip:y.exe)`, as its container, because
+// OCSF has no field for the member. Other resources, such as registry keys,
+// are no evidence. The complete list stays in unmapped.
+$ocsf.evidences = (
+  $windows.EventData.Path?.split("; ")
+    .where(x => x.match_regex(r"^(file|containerfile|webfile):_"))
+    .map(x => x.replace_regex(r"^[a-z]+:_", "").split("|")[0].split("->")[0])
+    .distinct()
+    .map(path => {file: {path: path, name: path.split("\\")[-1], type_id: 1}})
+)
+$ocsf.evidences = $ocsf.evidences if $ocsf.evidences.length() > 0 else null
 
-// Process that triggered the detection.
-$ocsf.actor = {
-  process: {
-    path: move $windows.EventData["Process Name"],
-    file: { type_id: 1 },
-  },
-}
-$ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-$ocsf.actor.process.file.name = $ocsf.actor.process.name
-$ocsf.actor.process.file.path = $ocsf.actor.process.path
+// Defender names the process only by its image path and logs no process ID.
+// An OCSF process needs a PID or UID, so "Process Name" stays in unmapped.
 
 // Detection User is "DOMAIN\username" format.
 _user = (move $windows.EventData["Detection User"]).split("\\")

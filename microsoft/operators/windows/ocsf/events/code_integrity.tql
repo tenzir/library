@@ -47,18 +47,26 @@ let $outcomes = {
 let $outcome = $outcomes[$status_id.string()]
 $ocsf.severity_id = $severity_id else $outcome.severity_id
 $ocsf.status_detail = $status_detail else $outcome.status_detail
-// Code Integrity reports file names as device paths.
+// Code Integrity reports file names as device paths. App Control decisions
+// (3076/3077) name their fields with spaces, such as `File Name`, while other
+// events use names such as `FileNameBuffer`.
 $ocsf.application = {
   desc: move $windows.EventData.FileDescription?,
-  version: (move $windows.EventData.FileVersion?).string(),
+  version: move $windows.EventData.FileVersion?,
   // OCSF requires a name in a product object.
   product: {name: move $windows.EventData.ProductName} if $windows.EventData.ProductName? != null else null,
   data: {
-    file_path: move $windows.EventData.FileNameBuffer?,
+    file_path: move $windows.EventData.FileNameBuffer? else move $windows.EventData["File Name"]?,
     requested_policy: move $windows.EventData.RequestedPolicy?,
     validated_policy: move $windows.EventData.ValidatedPolicy?,
-    requested_signing_level: move $windows.EventData.RequestedSigningLevel?,
-    validated_signing_level: move $windows.EventData.ValidatedSigningLevel?,
+    requested_signing_level: (
+      move $windows.EventData.RequestedSigningLevel?
+        else move $windows.EventData["Requested Signing Level"]?
+    ).int(),
+    validated_signing_level: (
+      move $windows.EventData.ValidatedSigningLevel?
+        else move $windows.EventData["Validated Signing Level"]?
+    ).int(),
   },
 }
 // Events without an App Control policy decision, such as unsigned image loads
@@ -72,19 +80,29 @@ if ($windows.EventData.PolicyName? else $windows.EventData.PolicyGUID?) != null 
     data: {hash: move $windows.EventData.PolicyHash?},
   }
 }
-$ocsf.status_code = (move $windows.EventData.Status?).string()
+$ocsf.status_code = move $windows.EventData.Status?
 $ocsf.application.name = $ocsf.application.data.file_path?.split("\\")[-1]?
 $ocsf.application.type = "Code Integrity"
-if $windows.EventData.ProcessNameBuffer? != null {
+// Code Integrity writes the event in the context of the loading process, so
+// the header carries that process's PID and thread: on records with a process
+// name, Sysmon shows the header PID running that image. Without a header PID,
+// the name stays in unmapped: OCSF requires a process to have a PID or UID.
+if (
+  ($windows.EventData.ProcessNameBuffer? else $windows.EventData["Process Name"]?) != null
+    and $windows.System.Execution?.ProcessID? != null
+) {
   $ocsf.actor = {
     process: {
-      path: move $windows.EventData.ProcessNameBuffer,
+      pid: move $windows.System.Execution.ProcessID,
+      ptid: move $windows.System.Execution.ThreadID?,
+      path: move $windows.EventData.ProcessNameBuffer? else move $windows.EventData["Process Name"]?,
       file: {type_id: 8},
     },
   }
   $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
   $ocsf.actor.process.file.name = $ocsf.actor.process.name
   $ocsf.actor.process.file.path = $ocsf.actor.process.path
+  drop $windows.System.Execution?
 }
 drop $windows.EventData.FileNameLength?,
   $windows.EventData.ProcessNameLength?,

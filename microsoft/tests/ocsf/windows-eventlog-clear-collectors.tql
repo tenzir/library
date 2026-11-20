@@ -1,0 +1,60 @@
+// Cleared event logs carry their data under UserData/LogFileCleared. Fluent
+// Bit flattens that section into EventData, and Winlogbeat into user_data with
+// the section name in xml_name. All collectors map the same actor, with
+// ClientProcessId read as a decimal number or by its 0x prefix.
+from {
+  ProviderName: "Microsoft-Windows-Eventlog",
+  ProviderGuid: "{FC65DDD8-D6EF-4962-83D5-6E5CFE9CE148}",
+  EventID: 1102,
+  Version: 1,
+  Level: 4,
+  Task: 104,
+  Opcode: 0,
+  Keywords: "0x4020000000000000",
+  TimeCreated: "2025-06-12 07:07:31 -0700",
+  EventRecordID: 48211,
+  ProcessID: 1388,
+  ThreadID: 5076,
+  Channel: "Security",
+  Computer: "WS01.example.test",
+  UserID: "",
+  EventData: {
+    SubjectUserSid: "S-1-5-21-1111111111-2222222222-3333333333-1104",
+    SubjectUserName: "lmorgan",
+    SubjectDomainName: "EXAMPLE",
+    SubjectLogonId: "0x5d2e71",
+    ClientProcessId: "0x1844",
+    ClientProcessStartKey: "3940649673949291",
+  },
+}, {
+  "@timestamp": 2025-06-12T14:09:02.118Z,
+  message: "The log file was cleared.",
+  winlog: {
+    computer_name: "WS01.example.test",
+    user_data: {
+      xml_name: "LogFileCleared",
+      SubjectUserName: "lmorgan",
+      SubjectDomainName: "EXAMPLE",
+      Channel: "Microsoft-Windows-PowerShell/Operational",
+      BackupPath: "",
+      ClientProcessId: "7340",
+      ClientProcessStartKey: "3940649673949402",
+    },
+    event_id: "104",
+    channel: "System",
+    record_id: "104311",
+    provider_guid: "{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}",
+    provider_name: "Microsoft-Windows-Eventlog",
+    process: {pid: 1388, thread: {id: 5092}},
+    version: 1,
+  },
+}
+microsoft::windows::ocsf::normalize
+this = ocsf_cast(this)
+this = {
+  event_code: metadata.event_code,
+  log_provider: metadata.loggers[0].log_provider,
+  log_name: log_name,
+  actor: actor,
+  unmapped_event_data: unmapped.EventData?,
+}

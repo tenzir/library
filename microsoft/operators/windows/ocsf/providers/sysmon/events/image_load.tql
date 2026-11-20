@@ -21,7 +21,7 @@ $ocsf.module = {
   file: {
     path: move $windows.EventData.ImageLoaded,
     type_id: 8,  // Executable File (DLLs are PE images)
-    version: (move $windows.EventData.FileVersion).string(),
+    version: move $windows.EventData.FileVersion,
     desc: move $windows.EventData.Description,
     company_name: move $windows.EventData.Company,
     internal_name: move $windows.EventData.OriginalFileName,
@@ -35,6 +35,9 @@ $ocsf.module = {
   },
 }
 $ocsf.module.file.name = $ocsf.module.file.path.split("\\")[-1]
+// Sysmon does not say how the image was loaded, for example by LoadLibrary or
+// by mapping it manually. OCSF needs a load type or function name in a module.
+$ocsf.module.load_type_id = 0  // Unknown
 
 // product.name is a required field — only add the object when the source has a value.
 if $windows.EventData.Product? != null {
@@ -43,7 +46,7 @@ if $windows.EventData.Product? != null {
 drop $windows.EventData.Product?
 
 // Attach digital-signature details when the module is signed.
-if $windows.EventData.Signed {
+if $windows.EventData.Signed == "true" {
   $ocsf.module.file.signature = {
     algorithm_id: 0,  // Unknown — Sysmon does not report the algorithm
     state_id: microsoft::$sysmon_signature_states[$windows.EventData.SignatureStatus]?,

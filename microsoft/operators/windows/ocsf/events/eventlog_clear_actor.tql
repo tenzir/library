@@ -1,0 +1,41 @@
+---
+description: Actor of a cleared event log (Security 1102, Eventlog 104)
+args:
+  positional:
+    - name: windows
+      description: The Windows event, with the LogFileCleared data in EventData.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+// The user that cleared the log. Security 1102 names the user by SID, while
+// Eventlog 104 names it only by account name.
+if $windows.EventData.SubjectUserSid? != null {
+  $ocsf.actor.user = {
+    uid: move $windows.EventData.SubjectUserSid,
+    name: move $windows.EventData.SubjectUserName?,
+    domain: move $windows.EventData.SubjectDomainName?,
+  }
+} else if $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor.user = {
+    name: move $windows.EventData.SubjectUserName,
+    domain: move $windows.EventData.SubjectDomainName?,
+  }
+}
+if $windows.EventData.SubjectLogonId? != null {
+  $ocsf.actor.session = {uid_alt: move $windows.EventData.SubjectLogonId}
+}
+// Windows writes ClientProcessId as a decimal number; read a hexadecimal
+// rendering by its 0x prefix.
+if $windows.EventData.ClientProcessId? != null {
+  $ocsf.actor.process = {
+    pid: (
+      int($windows.EventData.ClientProcessId, base=16)
+        if $windows.EventData.ClientProcessId.starts_with("0x")
+        else int($windows.EventData.ClientProcessId)
+    ),
+  }
+  drop $windows.EventData.ClientProcessId
+}

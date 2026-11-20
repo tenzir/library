@@ -14,10 +14,12 @@ args:
 
 $ocsf.category_uid = 1
 $ocsf.class_uid = 201002
+// Canonicalization renders the operation token, such as `%%1904`, as the
+// message text that Winlogbeat also reports.
 match $windows.EventData.OperationType {
-  "%%1904" => { $ocsf.activity_id = 2 } // Set (created)
-  "%%1905" => { $ocsf.activity_id = 3 } // Modify
-  "%%1906" => { $ocsf.activity_id = 4 } // Delete
+  "New registry value created" => { $ocsf.activity_id = 2 } // Set
+  "Existing registry value modified" => { $ocsf.activity_id = 3 } // Modify
+  "Registry value deleted" => { $ocsf.activity_id = 4 } // Delete
   _ => { $ocsf.activity_id = 0 } // Unknown
 }
 drop $windows.EventData.OperationType
@@ -45,22 +47,29 @@ $ocsf.actor.process.file = {
   type_id: 8,
 }
 
-// The Security log renders value types as message tokens such as "%%1873",
-// which stay in unmapped. Collectors that render the message show the type
-// name, which maps to the OCSF type.
+// Canonicalization renders known value-type tokens, such as `%%1874`, as the
+// message text, such as `REG_EXPAND_SZ`. The text of `REG_MULTI_SZ` carries a
+// note on the data encoding after the type name. A known type name maps to
+// the OCSF type, and unknown tokens stay in unmapped.
 $ocsf.reg_value = {
   path: move $windows.EventData.ObjectName,
   name: move $windows.EventData.ObjectValueName,
-  type_id: microsoft::$windows_registry_value_types[$windows.EventData.NewValueType?]?,
+  type_id: microsoft::$windows_registry_value_types[$windows.EventData.NewValueType?.split(" ")[0]]?,
   data: move $windows.EventData.NewValue,
 }
-$ocsf.reg_value.type = move $windows.EventData.NewValueType if $ocsf.reg_value.type_id != null else null
+$ocsf.reg_value.type = $windows.EventData.NewValueType?.split(" ")[0] if $ocsf.reg_value.type_id != null else null
+if $ocsf.reg_value.type_id != null {
+  drop $windows.EventData.NewValueType
+}
 $ocsf.prev_reg_value = {
   path: $ocsf.reg_value.path,
   name: $ocsf.reg_value.name,
-  type_id: microsoft::$windows_registry_value_types[$windows.EventData.OldValueType?]?,
+  type_id: microsoft::$windows_registry_value_types[$windows.EventData.OldValueType?.split(" ")[0]]?,
   data: move $windows.EventData.OldValue,
 }
-$ocsf.prev_reg_value.type = move $windows.EventData.OldValueType if $ocsf.prev_reg_value.type_id != null else null
+$ocsf.prev_reg_value.type = $windows.EventData.OldValueType?.split(" ")[0] if $ocsf.prev_reg_value.type_id != null else null
+if $ocsf.prev_reg_value.type_id != null {
+  drop $windows.EventData.OldValueType
+}
 
 // HandleId remains in unmapped for source-level correlation.

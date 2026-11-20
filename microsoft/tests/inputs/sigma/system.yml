@@ -1,6 +1,11 @@
 # Stock-shaped Sigma rules for regression tests. Each rule uses the logsource,
 # event IDs, and field names of the SigmaHQ rule in `related`, with synthetic
 # values that match the fixtures in tests/inputs.
+#
+# Tenzir's catalog selects Windows Service Activity for the system service
+# family. Service Control Manager state reports (7023, 7034, 7036) map to
+# Application Lifecycle, so the 7023 rules below must not fire. Service
+# installations (7045) remain Windows Service Activity.
 title: Service terminated with an error
 id: d344f10a-2ebe-5641-9b02-b2ad807fb1a7
 related:
@@ -31,5 +36,22 @@ detection:
     Provider_Name: 'Service Control Manager'
     EventID: 7023
     param1|contains: 'Defender'
+  condition: selection
+level: medium
+---
+title: Network adapter driver installed as a service
+id: ad593ddc-1c60-4d95-abd9-be08e7332508
+related:
+  - id: 8e4cf0e5-aa5d-4dc3-beff-dc26917744a9
+    type: similar
+status: test
+logsource:
+  product: windows
+  service: system
+detection:
+  selection:
+    Provider_Name: 'Service Control Manager'
+    EventID: 7045
+    ImagePath|contains: 'exnet64'
   condition: selection
 level: medium

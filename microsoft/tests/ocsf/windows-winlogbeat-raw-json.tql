@@ -1,0 +1,10 @@
+// Winlogbeat JSON parsed with `parse_json(raw=true)`, as in the package's
+// Winlogbeat example, keeps every value a string. The OCSF event must still
+// carry typed times and pass `ocsf_cast` without warnings.
+from_file f"{env("TENZIR_INPUTS")}/sysmon/01-ProcessCreate.winlogbeat.json" {
+  read_lines
+}
+event = line.parse_json(raw=true)
+microsoft::windows::ocsf::normalize event, into=ocsf
+this = ocsf_cast(ocsf_derive(ocsf))
+select class_name, time, logged_time = metadata.logged_time, logged_time_kind = type_kind(metadata.logged_time)

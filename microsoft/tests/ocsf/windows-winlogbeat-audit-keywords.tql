@@ -1,0 +1,44 @@
+// Winlogbeat renders the keywords of a Security event as names, such as
+// "Audit Failure", or lists the hex mask when it cannot name them. A failed
+// handle request (4656) maps to Failure either way, like the Windows Event XML
+// that carries `0x8010000000000000`. Rendered names stay in unmapped.
+from {
+  "@timestamp": 2025-05-08T05:56:36.764Z,
+  winlog: {
+    provider_name: "Microsoft-Windows-Security-Auditing",
+    provider_guid: "{54849625-5478-4994-a5ba-3e3b0328c30d}",
+    event_id: "4656",
+    channel: "Security",
+    computer_name: "DC01.example.test",
+    record_id: "678117",
+    keywords: ["Audit Failure"],
+    event_data: {
+      SubjectUserSid: "S-1-5-21-1111111111-2222222222-3333333333-1104",
+      SubjectUserName: "lmorgan",
+      SubjectDomainName: "EXAMPLE",
+      SubjectLogonId: "0xc731e",
+      ObjectServer: "Security",
+      ObjectType: "File",
+      ObjectName: "C:\\Shares\\Finance\\Budget 2025.xlsx",
+      HandleId: "0x0",
+      AccessMask: "0x12019f",
+      ProcessId: "0x1f64",
+      ProcessName: "C:\\Program Files\\Example Office\\editor.exe",
+    },
+  },
+}
+this = {event: [
+  this,
+  {...this, winlog: {...winlog, record_id: "678118", keywords: ["0x8010000000000000"]}},
+  {...this, winlog: {...winlog, record_id: "678119", keywords: ["Audit Success"]}},
+]}
+unroll event
+this = event
+microsoft::windows::ocsf::normalize
+this = {
+  record: metadata.original_event_uid,
+  status_id: status_id,
+  keywords: unmapped.System.Keywords?,
+  rendered_keywords: unmapped.Winlogbeat?.winlog?.keywords?,
+}
+sort record

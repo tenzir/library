@@ -1,0 +1,58 @@
+// Winlogbeat renders Security-Auditing message tokens as text, such as the
+// registry operation and value type of 4657 and the access rights of 4662,
+// which it separates by line breaks. The OCSF events must match those of the
+// Windows Event XML form, which reports the tokens.
+from_file f"{env("TENZIR_INPUTS")}/eid-46*.xml" {
+  read_all
+}
+xml = data.parse_winlog()
+where xml.System.EventID in [4657, 4662]
+winlogbeat = {
+  "@timestamp": xml.System.TimeCreated.SystemTime,
+  winlog: {
+    provider_name: xml.System.Provider.Name,
+    event_id: xml.System.EventID,
+    record_id: xml.System.EventRecordID,
+    channel: xml.System.Channel,
+    computer_name: xml.System.Computer,
+    event_data: xml.EventData,
+  },
+}
+if xml.System.EventID == 4657 {
+  winlogbeat.winlog.event_data.OperationType = {
+    "%%1904": "New registry value created",
+    "%%1905": "Existing registry value modified",
+    "%%1906": "Registry value deleted",
+  }[xml.EventData.OperationType]
+  winlogbeat.winlog.event_data.OldValueType = {
+    "%%1873": "REG_SZ",
+    "%%1874": "REG_EXPAND_SZ",
+  }[xml.EventData.OldValueType]
+  winlogbeat.winlog.event_data.NewValueType = {
+    "%%1873": "REG_SZ",
+    "%%1874": "REG_EXPAND_SZ",
+  }[xml.EventData.NewValueType]
+} else {
+  xml.EventData.AccessList = "%%1539\n\t\t\t\t%%1540\n\t\t\t\t%%1542\n\t\t\t\t"
+  winlogbeat.winlog.event_data.AccessList = "WRITE_DAC\n\t\t\t\tWRITE_OWNER\n\t\t\t\tACCESS_SYS_SEC\n\t\t\t\t"
+}
+microsoft::windows::ocsf::normalize xml, into=xml
+microsoft::windows::ocsf::normalize winlogbeat, into=winlogbeat
+this = {
+  event_code: xml.metadata.event_code,
+  record: xml.metadata.original_event_uid?,
+  xml: {
+    activity_id: xml.activity_id,
+    reg_value_type_id: xml.reg_value?.type_id?,
+    reg_value_type: xml.reg_value?.type?,
+    access_list: xml.access_list?,
+  },
+  winlogbeat: {
+    activity_id: winlogbeat.activity_id,
+    reg_value_type_id: winlogbeat.reg_value?.type_id?,
+    reg_value_type: winlogbeat.reg_value?.type?,
+    access_list: winlogbeat.access_list?,
+  },
+}
+assert xml == winlogbeat
+sort event_code, record

@@ -1,0 +1,14 @@
+// Message tokens render only in fields that hold them. A command line that
+// contains a known token stays verbatim, while the token elevation type of the
+// same event renders.
+from_file f"{env("TENZIR_INPUTS")}/eid-4688.xml" {
+  read_all
+}
+windows = data.parse_winlog()
+windows.EventData.CommandLine = "cmd /c echo %%1843 & echo %%1842"
+microsoft::windows::ocsf::normalize windows, into=ocsf
+assert ocsf.process.cmd_line == "cmd /c echo %%1843 & echo %%1842"
+this = {
+  cmd_line: ocsf.process.cmd_line,
+  token_elevation_type: ocsf.unmapped.EventData.TokenElevationType,
+}

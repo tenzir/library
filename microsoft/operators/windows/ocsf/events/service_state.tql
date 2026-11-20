@@ -1,5 +1,5 @@
 ---
-description: Service Control Manager 7036 (service entered a state) → OCSF Windows Service Activity (201004)
+description: Service Control Manager 7036 (service entered a state) → OCSF Application Lifecycle (6002, Start/Stop)
 args:
   positional:
     - name: windows
@@ -10,23 +10,38 @@ args:
       type: field
 ---
 
-@name = "ocsf.windows_service_activity"
-$ocsf.category_uid = 1
-$ocsf.class_uid = 201004
+// The service control manager reports that a service entered a state. The
+// event names neither the service configuration nor a process or account that
+// requested the change, which Windows Service Activity requires, so it maps to
+// the start and stop of the service application, like Windows Firewall 5024.
+@name = "ocsf.application_lifecycle"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
 // param1 is the service display name and param2 the localized state.
+// Application Lifecycle has no activity for other states, such as paused,
+// which map to Other with the source state as the activity name.
 let $activities = {
   running: {id: 3, name: "Start"},
   stopped: {id: 4, name: "Stop"},
-  paused: {id: 5, name: "Pause"},
 }
-$ocsf.activity_name = (move $windows.EventData.param2).to_lower()
-$ocsf.activity_id = $activities[$ocsf.activity_name]?.id else 99
-$ocsf.activity_name = $activities[$ocsf.activity_name]?.name else $ocsf.activity_name
+$ocsf.activity_name = move $windows.EventData.param2
+$ocsf.activity_id = $activities[$ocsf.activity_name.to_lower()]?.id? else 99
+$ocsf.activity_name = $activities[$ocsf.activity_name.to_lower()]?.name? else $ocsf.activity_name
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-$ocsf.win_service = {
+$ocsf.status_id = 1  // Success
+$ocsf.application = {
   name: move $windows.EventData.param1,
+  type: "Windows Service",
 }
-// The service control manager acts autonomously; the event carries no subject.
-$ocsf.actor = {}
-// Binary repeats the service name as UTF-16; it adds nothing.
-drop $windows.EventData.Binary?
+// The service control manager performs the state transitions and writes the
+// event, so the header's process is services.exe. The event names no caller.
+$ocsf.actor = {
+  process: {
+    pid: move $windows.System.Execution.ProcessID?,
+    ptid: move $windows.System.Execution.ThreadID?,
+  },
+}
+drop $windows.System.Execution?
+// Binary holds the service key name and the new state as UTF-16 hex, such as
+// `WinDefend/1`, and stays in unmapped. Only collectors that ship it, such as
+// Winlogbeat, report it; Windows Event XML parsing drops it.

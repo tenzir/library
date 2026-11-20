@@ -16,21 +16,22 @@ $ocsf.class_uid = 1008
 $ocsf.activity_id = 1  // Clear
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.severity_id = 3  // Medium
-// EID 104 carries its fields under UserData/LogFileCleared.
-$ocsf.actor = {
-  user: {
-    name: move $windows.UserData.LogFileCleared.SubjectUserName?,
-    domain: move $windows.UserData.LogFileCleared.SubjectDomainName?,
-  },
+// Windows writes the event data under UserData/LogFileCleared; collectors
+// that flatten that section put it into EventData.
+$windows.EventData = move $windows.UserData?.LogFileCleared? else $windows.EventData?
+if $windows.UserData?.is_empty() == true {
+  drop $windows.UserData
 }
+microsoft::windows::ocsf::events::eventlog_clear_actor $windows, $ocsf
 // The class attribute names the log that was cleared; metadata.log_name keeps
 // the channel that recorded the clearing.
-$ocsf.log_name = move $windows.UserData.LogFileCleared.Channel?
-if $windows.UserData.LogFileCleared.BackupPath? != null and $windows.UserData.LogFileCleared.BackupPath != "" {
+$ocsf.log_name = move $windows.EventData.Channel?
+if $windows.EventData.BackupPath? != null and $windows.EventData.BackupPath != "" {
   $ocsf.file = {
-    path: move $windows.UserData.LogFileCleared.BackupPath,
+    path: move $windows.EventData.BackupPath,
     type_id: 1,
   }
   $ocsf.file.name = $ocsf.file.path.split("\\")[-1]
 }
-drop $windows.UserData
+drop $windows.EventData.BackupPath?
+// ClientProcessStartKey has no OCSF home and remains in unmapped.

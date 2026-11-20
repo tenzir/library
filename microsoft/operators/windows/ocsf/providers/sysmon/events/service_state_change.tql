@@ -1,5 +1,5 @@
 ---
-description: Sysmon ServiceStateChange (EID 4) → OCSF Windows Service Activity (201004, Start/Stop)
+description: Sysmon ServiceStateChange (EID 4) → OCSF Application Lifecycle (6002, Start/Stop)
 args:
   positional:
     - name: windows
@@ -10,25 +10,31 @@ args:
       type: field
 ---
 
-@name = "ocsf.windows_service_activity"
+// Sysmon reports that it started or stopped, with its version. The event
+// names neither the Sysmon service's configuration nor a process or account
+// that changed its state, which Windows Service Activity requires, so it maps
+// to the start and stop of the Sysmon application.
+@name = "ocsf.application_lifecycle"
 
-$ocsf.category_uid = 1
-$ocsf.class_uid = 201004
-
-$ocsf.activity_id = 3 if $windows.EventData.State == "Started" else 4  // Start / Stop
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+let $activities = {
+  Started: {id: 3, name: "Start"},
+  Stopped: {id: 4, name: "Stop"},
+}
+$ocsf.activity_name = move $windows.EventData.State
+$ocsf.activity_id = $activities[$ocsf.activity_name]?.id else 99
+$ocsf.activity_name = $activities[$ocsf.activity_name]?.name else $ocsf.activity_name
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-drop $windows.EventData.State
-
-// The Sysmon service itself — name comes from the provider, version from the event.
-$ocsf.win_service = {
+// The provider identifies the Sysmon service; the event reports its version.
+// OCSF 1.9 deprecates `app` in favor of `application`, which the Service
+// Control Manager and Windows Firewall lifecycle events also use.
+$ocsf.application = {
   name: "Sysmon",
-  version: (move $windows.EventData.Version).string(),
+  type: "Windows Service",
+  version: move $windows.EventData.Version,
 }
-
-// Windows Service Activity requires actor (inherited from System Activity).
-// EID 4 carries no user/process context — the SCM starts/stops Sysmon autonomously.
-$ocsf.actor = {}
 
 // SchemaVersion describes the Sysmon config schema, not the OCSF schema — left in
 // unmapped intentionally so analysts can correlate config changes via EID 16.

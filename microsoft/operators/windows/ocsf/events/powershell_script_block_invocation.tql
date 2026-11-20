@@ -22,15 +22,23 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 // Windows Level 5 (Verbose).
 $ocsf.severity_id = 1  // Informational
 
-// These events carry only correlation IDs; their value is linking back to the
-// matching 4104 script-block record via script.uid / actor.session.uid.
+// These events report only that the script block with ScriptBlockId started
+// or stopped in a runspace. They do not include the script text, which only
+// 4104 records, so the script lacks the required script_content and ocsf_cast
+// warns. script.uid links them to the matching 4104 record.
 $ocsf.script = {
   uid: move $windows.EventData.ScriptBlockId,
   type_id: 2,  // PowerShell
 }
 
+// PowerShell writes the event from its host process, as for 4104.
 $ocsf.actor = {
+  process: {
+    pid: move $windows.System.Execution.ProcessID?,
+    ptid: move $windows.System.Execution.ThreadID?,
+  },
   session: {
     uid: move $windows.EventData.RunspaceId,
   },
 }
+drop $windows.System.Execution?

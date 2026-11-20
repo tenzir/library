@@ -1,0 +1,26 @@
+// A 4657 record reports the value types as message-table tokens. Known types
+// map to the OCSF type, the resource types map to Other, and an unknown token
+// stays in unmapped.
+from_file f"{env("TENZIR_INPUTS")}/eid-4657.xml" {
+  read_all
+}
+windows = data.parse_winlog()
+cases = [
+  {old: "%%1874", new: "%%1874"},
+  {old: "%%1873", new: "%%1879"},
+  {old: "%%1880", new: "%%1883"},
+  {old: "%%1872", new: "%%1899"},
+]
+unroll cases
+windows.EventData.OldValueType = cases.old
+windows.EventData.NewValueType = cases.new
+microsoft::windows::ocsf::normalize windows, into=ocsf
+this = {
+  tokens: cases,
+  type_id: ocsf.reg_value.type_id,
+  type: ocsf.reg_value.type,
+  prev_type_id: ocsf.prev_reg_value.type_id,
+  prev_type: ocsf.prev_reg_value.type,
+  unmapped_old: ocsf.unmapped?.EventData?.OldValueType?,
+  unmapped_new: ocsf.unmapped?.EventData?.NewValueType?,
+}
