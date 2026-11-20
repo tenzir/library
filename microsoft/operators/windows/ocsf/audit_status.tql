@@ -1,0 +1,24 @@
+---
+description: |
+  Sets the OCSF status of a Windows Security-Auditing event from its audit
+  keywords: Audit Failure is Failure, Audit Success is Success, and any other
+  keywords are Unknown.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The canonical Windows event to read the keywords from.
+    - name: ocsf
+      type: field
+      description: The OCSF event that receives the status.
+---
+
+// Windows writes the audit outcome as a keyword mask, and the collector
+// adapters canonicalize it to that mask for every collector.
+if $windows.System.Keywords? == "0x8010000000000000" {
+  $ocsf.status_id = 2  // Audit Failure
+} else if $windows.System.Keywords? == "0x8020000000000000" {
+  $ocsf.status_id = 1  // Audit Success
+} else {
+  $ocsf.status_id = 0
+}
