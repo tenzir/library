@@ -2,13 +2,17 @@
 name: Map PAN-OS Traffic CSV to OCSF in stages
 description: |
   Parses one PAN-OS Traffic record, maps it to OCSF Network Activity, and adds
-  the original CSV payload as provenance.
+  the original CSV payload as provenance. The source user `example\alice`
+  becomes the actor with domain `example` and name `alice`.
 ---
 
 from {
-  message: ",2026/05/29 10:11:12,007200001234,TRAFFIC,end,,2026/05/29 10:11:11,192.0.2.10,198.51.100.20,,,allow-web,alice,,ssl,,trust,untrust,,,,,42,,54321,443,,,,tcp,allow,1000,,,,,,,,,,US,DE,,,,aged-out,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,adv-src,adv-dst",
+  message: r"1,2026/05/29 10:11:12,000700000042,TRAFFIC,end,,2026/05/29 10:11:11,192.0.2.10,198.51.100.20,,,allow-web,example\alice,,ssl,,trust,untrust,,,,,4242,,54321,443,,,,tcp,allow,1000,400,600,12,,5,,,7001,,US,DE,,,,tcp-fin,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",
 }
-paloalto::parse message, event
+// The firewall writes its local time without a zone. Set `timezone` only when
+// that time isn't UTC and the records lack `high_resolution_timestamp`, whose
+// offset the parser uses otherwise.
+paloalto::parse message, event, timezone="Europe/Zurich"
 paloalto::ocsf::map event, ocsf
 this = {
   ...ocsf,
