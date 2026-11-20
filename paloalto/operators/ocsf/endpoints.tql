@@ -33,11 +33,21 @@ $ocsf.dst_endpoint = {
   hostname: move $event.destination_hostname?,
   mac: move $event.destination_mac_address?,
 }
+// User-ID names users as `domain\user`, which OCSF splits into domain and
+// name. A user principal name, such as `user@example.test`, stays the name.
 if $event.source_user? != null {
-  $ocsf.src_endpoint.owner = {name: move $event.source_user}
+  $ocsf.src_endpoint.owner = {
+    name: $event.source_user.split("\\", max=1)[1]? else $event.source_user,
+    domain: $event.source_user.split("\\", max=1)[0] if $event.source_user.split("\\", max=1).length() == 2 else null,
+  }
+  drop $event.source_user
 }
 if $event.destination_user? != null {
-  $ocsf.dst_endpoint.owner = {name: move $event.destination_user}
+  $ocsf.dst_endpoint.owner = {
+    name: $event.destination_user.split("\\", max=1)[1]? else $event.destination_user,
+    domain: $event.destination_user.split("\\", max=1)[0] if $event.destination_user.split("\\", max=1).length() == 2 else null,
+  }
+  drop $event.destination_user
 }
 if $event.nat_source_ip? != null and $event.nat_source_ip not in [0.0.0.0, ::] {
   $ocsf.src_endpoint.proxy_endpoint = {
