@@ -33,11 +33,19 @@ if type_kind($input) == "string" {
 // Legacy providers such as Application Error or Windows Error Reporting write
 // `Data` elements without a name, which Windows Event XML renders as `_0`,
 // `_1`, …. Name them `param1`, `param2`, … like Winlogbeat does, so that the
-// numbers match the `%1`, `%2`, … inserts of the provider's message.
-if type_kind($windows.EventData?) == "record" and $windows.EventData.keys()[0]? == "_0" {
-  $windows.EventData = collect_record($windows.EventData.keys().map(key => [
-    "param" + (key.slice(begin=1).int() + 1).string(),
-    $windows.EventData[key],
+// numbers match the `%1`, `%2`, … inserts of the provider's message. Like
+// Winlogbeat, rename only unnamed fields, keep named ones, such as `Binary`,
+// and never overwrite an existing field. Note that `parse_winlog` counts only
+// the unnamed elements, whereas Winlogbeat counts all positions, so the
+// numbers differ when an event mixes named and unnamed elements.
+if type_kind($windows.EventData?) == "record" and $windows.EventData.has("_0") {
+  $windows.EventData = collect_record($windows.EventData.entries().map(field => {
+    field: field,
+    name: "param" + (field.key.slice(begin=1).int() + 1).string()
+      if field.key.match_regex(r"^_[0-9]+$") else null,
+  }).map(x => [
+    x.name if x.name != null and not $windows.EventData.has(x.name) else x.field.key,
+    x.field.value,
   ]))
 }
 // Security-Auditing events carry many settings as message-table tokens, such as

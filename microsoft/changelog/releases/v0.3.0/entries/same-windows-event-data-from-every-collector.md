@@ -54,6 +54,7 @@ Free-text fields, such as command lines, and unknown tokens stay unchanged.
 |---|---|---|
 | Windows Event XML | `unmapped.EventData._0`, `_1`, … | `param1`, `param2`, … |
 | Winlogbeat | `param1`, `param2`, … | Unchanged |
+| Windows Event XML, mixed with named data, such as `Binary` | Named fields broken | Named fields keep their names, like in Winlogbeat |
 
 **Why:** legacy providers write their values without names, and the mappings read them as `param1`, `param2`, …, the names that Winlogbeat uses and that match the `%1`, `%2` inserts of the provider's message. Windows Event XML parsing numbered them from `_0`, so these mappings found nothing.
 
