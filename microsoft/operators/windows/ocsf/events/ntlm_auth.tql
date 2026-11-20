@@ -18,8 +18,15 @@ $ocsf.activity_id = 1  // Logon
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // Status 0x0 = success; non-zero = failure (e.g. 0xC000006A = wrong password).
-$ocsf.status_id = 1 if $windows.EventData.Status == "0x0" else 2
-$ocsf.status_code = move $windows.EventData.Status
+// Without a status, the audit keywords decide.
+if $windows.EventData.Status? == "0x0" {
+  $ocsf.status_id = 1
+} else if $windows.EventData.Status? != null {
+  $ocsf.status_id = 2
+} else {
+  microsoft::windows::ocsf::audit_status $windows, $ocsf
+}
+$ocsf.status_code = move $windows.EventData.Status?
 
 $ocsf.user = {
   name: move $windows.EventData.TargetUserName,
