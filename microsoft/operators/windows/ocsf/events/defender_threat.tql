@@ -20,14 +20,14 @@ $ocsf.activity_id = 1  // Create
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.metadata.profiles = ["host", "security_control"]
 
-// Map string severity name to OCSF severity_id.
-let $severities = {
-  "Low": 2,
-  "Moderate": 3,
-  "High": 4,
-  "Severe": 5,
+// Defender reports the threat severity by name. Other carries the name.
+$ocsf.severity_id = microsoft::$defender_severities[$windows.EventData.Severity?]? else (
+  99 if $windows.EventData.Severity? not in [null, ""] else 0
+)
+if $ocsf.severity_id == 99 {
+  $ocsf.severity = $windows.EventData.Severity
 }
-$ocsf.severity_id = $severities[move $windows.EventData.Severity]? else 0
+drop $windows.EventData.Severity?
 
 // Action string → OCSF disposition_id (EID 1007 only).
 let $dispositions = {

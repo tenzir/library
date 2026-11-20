@@ -1,0 +1,37 @@
+// Synthetic: the Defender threat (1006), quarantine (1009), and detection
+// (1116) fixtures, which hold invented values, with each Defender threat
+// severity, an undocumented one with and without a name, and none.
+from {data: file_contents(f"{env("TENZIR_INPUTS")}/eid-1006.xml")},
+  {data: file_contents(f"{env("TENZIR_INPUTS")}/eid-1009.xml")},
+  {data: file_contents(f"{env("TENZIR_INPUTS")}/eid-1116.xml")}
+win = data.parse_winlog()
+defender = [
+  {id: "0", name: "Unknown"},
+  {id: "1", name: "Low"},
+  {id: "2", name: "Moderate"},
+  {id: "4", name: "High"},
+  {id: "5", name: "Severe"},
+  {id: "3", name: "Elevated"},
+  {id: "3", name: null},
+  {id: null, name: null},
+]
+unroll defender
+// Threat events report only the name, the others the ID and the name.
+if win.System.EventID == 1006 {
+  win.EventData.Severity = defender.name
+} else {
+  win.EventData["Severity ID"] = defender.id
+  win.EventData["Severity Name"] = defender.name
+}
+microsoft::windows::ocsf::normalize win, into=ocsf
+this = {
+  event_code: ocsf.metadata.event_code,
+  defender: defender,
+  severity_id: ocsf.severity_id,
+  severity: ocsf.severity?,
+  unmapped_severity: [
+    ocsf.unmapped.EventData.Severity?,
+    ocsf.unmapped.EventData["Severity ID"]?,
+    ocsf.unmapped.EventData["Severity Name"]?,
+  ],
+}
