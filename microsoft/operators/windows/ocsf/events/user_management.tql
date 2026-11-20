@@ -1,5 +1,7 @@
 ---
-description: Maps Windows user privilege changes to OCSF User Management.
+description: >
+  Maps Windows user account lifecycle, attribute, and privilege changes to
+  OCSF User Management (3007).
 args:
   positional:
     - name: windows
@@ -32,12 +34,30 @@ $ocsf.actor = {
   },
   session: {uid_alt: move $windows.EventData.SubjectLogonId?},
 }
-// User rights events (4704/4705) list privileges, system access events
-// (4717/4718) the granted or removed logon rights, and each event carries
-// exactly one of these fields.
-$ocsf.privileges = (
-  move $windows.EventData.PrivilegeList?
-    else move $windows.EventData.AccessList?
-    else move $windows.EventData.AccessGranted?
-    else move $windows.EventData.AccessRemoved?
-).split_regex(r"\s+")
+// A lockout (4740) names the computer the failed logons came from, the caller
+// computer, in TargetDomainName.
+if $windows.System.EventID == 4740 {
+  $ocsf.src_endpoint = {hostname: move $ocsf.user.domain}
+}
+if $activity_id in [2, 14, 15] {
+  // User rights events (4704/4705) list privileges, system access events
+  // (4717/4718) the granted or removed logon rights, and each event carries
+  // exactly one of these fields.
+  $ocsf.privileges = (
+    move $windows.EventData.PrivilegeList?
+      else move $windows.EventData.AccessList?
+      else move $windows.EventData.AccessGranted?
+      else move $windows.EventData.AccessRemoved?
+  ).split_regex(r"\s+")
+} else {
+  // Account creation (4720/4741) describes the new account. Update events
+  // (4738/4742/4781) write the new values instead, so they stay in unmapped.
+  // Do not interpret placeholders such as "<value not set>", or message tokens
+  // that canonicalization does not know, as real account values.
+  if $windows.EventData.DisplayName? not in ["<value not set>", "<never>"] and not $windows.EventData.DisplayName?.starts_with("%%") {
+    $ocsf.user.display_name = move $windows.EventData.DisplayName?
+  }
+  if $windows.EventData.UserPrincipalName? not in ["<value not set>", "<never>"] and not $windows.EventData.UserPrincipalName?.starts_with("%%") {
+    $ocsf.user.uid_alt = move $windows.EventData.UserPrincipalName?
+  }
+}
