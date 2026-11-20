@@ -3,7 +3,8 @@ description: |
   Maps a structured Palo Alto Networks PAN-OS event to OCSF 1.9.
 
   Traffic records become Network Activity, URL Filtering records become HTTP
-  Activity, threat records become Detection Finding, Authentication records and
+  Activity, threat records become Detection Finding, Data Filtering records
+  become Data Security Finding, Authentication records and
   GlobalProtect logons become Authentication, GlobalProtect tunnel lifecycle
   records become Tunnel Activity, and Config records become Entity
   Management. Other parsed families
@@ -30,13 +31,16 @@ match $event.type? {
   "URL-FILTERING" => {
     paloalto::ocsf::events::url_filtering $event, $ocsf
   }
+  "DATA-FILTERING" => {
+    paloalto::ocsf::events::data_filtering $event, $ocsf
+  }
   "THREAT" => {
     match $event.threat_content_type? {
       "url" => {
         paloalto::ocsf::events::url_filtering $event, $ocsf
       }
       "data" | "dlp" | "dlp-non-file" => {
-        paloalto::ocsf::base $event, $ocsf
+        paloalto::ocsf::events::data_filtering $event, $ocsf
       }
       _ => {
         paloalto::ocsf::events::threat $event, $ocsf

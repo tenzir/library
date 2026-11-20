@@ -1,0 +1,59 @@
+---
+description: Palo Alto Networks PAN-OS Data Filtering record -> OCSF Data Security Finding.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// The firewall writes a Data Filtering record when a data filtering profile
+// matches sensitive data, such as credit card numbers, in a file or in other
+// content of a session.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/data-filtering-log-fields
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.data_security_finding"
+
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2006
+$ocsf.activity_id = 1
+$ocsf.type_uid = 200601
+drop $ocsf.activity_name?
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.is_alert = true
+// The Threat/Content Name column holds the data pattern followed by its ID in
+// parentheses. The column stays in `unmapped`.
+$ocsf._pattern = $event.threat_id?.string().trim()
+$ocsf._pattern_name = $ocsf._pattern.replace_regex(r"(^[0-9]+$|\([0-9]+\)$)", "").trim() else ""
+$ocsf.finding_info = {
+  uid: $ocsf.metadata.uid?,
+  title: $ocsf._pattern_name if $ocsf._pattern_name != "" else $event.threat_content_type?,
+}
+$ocsf.data_security = {
+  data_lifecycle_state_id: 2,
+  detection_system_id: 2,
+  detection_pattern: $ocsf._pattern_name if $ocsf._pattern_name != "" else null,
+}
+drop $ocsf._pattern, $ocsf._pattern_name
+paloalto::ocsf::endpoints $event, $ocsf
+if $ocsf.src_endpoint.owner? != null {
+  $ocsf.actor = {user: move $ocsf.src_endpoint.owner}
+}
+// Except for `dlp-non-file` records, the URL/Filename column names the file
+// that matched.
+if $event.url_filename? != null and $event.threat_content_type? != "dlp-non-file" {
+  $ocsf.file = {
+    name: move $event.url_filename,
+    type_id: 1,
+  }
+}
+if ($event.rule_name? else $event.rule_uuid?) != null {
+  $ocsf.policy = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
+}
+paloalto::ocsf::action $event, $ocsf
