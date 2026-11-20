@@ -42,6 +42,17 @@ if $windows.EventData.ObjectGUID? != null {
 } else if $windows.EventData.DomainSid? != null {
   // Trusted domain events (4706/4707/4716) identify the trusted domain.
   $ocsf.entity.uid = move $windows.EventData.DomainSid
+} else if $windows.EventData.ClientLogonId? != null and $windows.EventData.ObjectName? == null {
+  // Client context events (4665/4667) render this as the Client Context ID.
+  // Operations (4666) name their object instead.
+  $ocsf.entity.uid = move $windows.EventData.ClientLogonId
+} else if $windows.EventData.CertificateSerialNumber? != null {
+  $ocsf.entity.uid = (move $windows.EventData.CertificateSerialNumber).string()
+} else if $windows.EventData.PuaPolicyId? != null {
+  $ocsf.entity.uid = move $windows.EventData.PuaPolicyId
+} else if $windows.EventData.NamingContext? != null and $windows.EventData.SessionID? != null {
+  // Replica synchronization (4932/4933) identifies the replication session.
+  $ocsf.entity.uid = (move $windows.EventData.SessionID).string()
 }
 if $windows.EventData.ObjectName? != null {
   $ocsf.entity.name = move $windows.EventData.ObjectName
@@ -61,6 +72,23 @@ if $windows.EventData.ObjectName? != null {
   $ocsf.entity.name = move $windows.EventData.TransactionId
 } else if $windows.EventData.DomainName? != null {
   $ocsf.entity.name = move $windows.EventData.DomainName
+} else if $windows.EventData.NamingContext? != null {
+  // Directory replication events (4931–4933) name the replicated naming
+  // context.
+  $ocsf.entity.name = move $windows.EventData.NamingContext
+} else if $windows.EventData.Service? != null {
+  // Privileged service calls (4673) name the called service, if any.
+  $ocsf.entity.name = move $windows.EventData.Service
+} else if $windows.EventData.PrivilegeList? != null {
+  // Most privileged service calls (4673) render the service as "-", so the
+  // exercised privileges identify the operation.
+  $ocsf.entity.name = move $windows.EventData.PrivilegeList
+}
+// The Boot Configuration Data that Windows loaded (4826) belongs to the device
+// that logs the event, which the event names only in its header. The entity
+// has no name or ID of its own.
+if $entity_type == "Boot Configuration Data" {
+  $ocsf.entity.device = $ocsf.device
 }
 if $windows.EventData.ObjectServer? != null {
   $ocsf.entity.data.object_server = move $windows.EventData.ObjectServer
@@ -83,11 +111,23 @@ if $windows.EventData.AttributeValue? != null {
 if $windows.EventData.OperationType? != null {
   $ocsf.entity.data.operation = move $windows.EventData.OperationType
 }
+// Windows logs the access mask as hex in most events, such as `0x12019f` in
+// 4656 and 4663, but as decimal in some 4674 records, such as `16777216` for
+// ACCESS_SYSTEM_SECURITY, and sometimes as rendered access rights. Only a
+// number becomes the mask; rendered rights stay in unmapped.
 if $windows.EventData.AccessMask? != null {
-  $ocsf.access_mask = int(move $windows.EventData.AccessMask, base=16)
+  $windows.EventData.AccessMask = $windows.EventData.AccessMask.string().trim()
+  if $windows.EventData.AccessMask.match_regex("^0[xX][0-9a-fA-F]+$") {
+    $ocsf.access_mask = int(move $windows.EventData.AccessMask, base=16)
+  } else if $windows.EventData.AccessMask.match_regex("^[0-9]+$") {
+    $ocsf.access_mask = int(move $windows.EventData.AccessMask)
+  }
 }
+// Windows separates access rights by line breaks and tabs. Canonicalization
+// renders their tokens, and rendered rights, such as "Read Property", contain
+// spaces.
 if $windows.EventData.AccessList? != null {
-  $ocsf.access_list = (move $windows.EventData.AccessList).split_regex(r"\s+")
+  $ocsf.access_list = (move $windows.EventData.AccessList).trim().split_regex(r"\s*[\r\n\t]\s*")
 }
 // Some events, such as workstation locks (4800–4803) or certificate requests
 // (4886–4888), name no subject.
@@ -100,5 +140,32 @@ if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserN
     },
     session: {uid_alt: move $windows.EventData.SubjectLogonId?},
   }
+} else if $windows.EventData.ClientName? != null {
+  // Authorization Manager events (4665/4667) name the client as the subject.
+  $ocsf.actor = {
+    user: {
+      name: move $windows.EventData.ClientName,
+      domain: move $windows.EventData.ClientDomain?,
+    },
+  }
+}
+// Events such as privileged service calls (4673) and handle requests
+// (4661/4674) name the subject's process.
+if $windows.EventData.ProcessId? != null or $windows.EventData.ProcessName? != null {
+  $ocsf.actor.process = {
+    pid: int((move $windows.EventData.ProcessId?).string(), base=16),
+    path: move $windows.EventData.ProcessName?,
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.path?.split("\\")[-1]?
+  $ocsf.actor.process.file = {
+    name: $ocsf.actor.process.name,
+    path: $ocsf.actor.process.path,
+    type_id: 8,
+  }
 }
 $ocsf.status_code = (move $windows.EventData.ErrorCode?).string()
+// Directory replication events (4931/4933) report a Win32 status code.
+if $windows.EventData.StatusCode? != null {
+  $ocsf.status_code = (move $windows.EventData.StatusCode).string()
+  $ocsf.status_id = 1 if $ocsf.status_code == "0" else 2
+}
