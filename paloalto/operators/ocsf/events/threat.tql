@@ -30,40 +30,28 @@ $ocsf.finding_info = {
     name: $event.threat_content_type?,
   },
 }
-$ocsf.evidences = [drop_null_fields({
-  src_endpoint: {
-    ip: move $event.source_address?,
-    port: move $event.source_port?,
-    zone: move $event.source_zone?,
-    interface_name: move $event.inbound_interface?,
-    hostname: move $event.source_hostname?,
-    mac: move $event.source_mac_address?,
-  },
-  dst_endpoint: {
-    ip: move $event.destination_address?,
-    port: move $event.destination_port?,
-    zone: move $event.destination_zone?,
-    interface_name: move $event.outbound_interface?,
-    hostname: move $event.destination_hostname?,
-    mac: move $event.destination_mac_address?,
-  },
+paloalto::ocsf::endpoints $event, $ocsf
+$ocsf._evidence = {
+  src_endpoint: move $ocsf.src_endpoint,
+  dst_endpoint: move $ocsf.dst_endpoint,
   connection_info: {
     direction_id: 0,
     protocol_name: move $event.ip_protocol?,
     uid: (move $event.session_id?).string(),
   },
-  url: {
-    url_string: move $event.url_filename?,
-  },
-  actor: {
-    user: {
-      name: move $event.source_user?,
-    },
-  },
-})]
-$ocsf.policy = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+}
+if $ocsf._evidence.src_endpoint.owner? != null {
+  $ocsf._evidence.actor = {user: move $ocsf._evidence.src_endpoint.owner}
+}
+if $event.url_filename? != null {
+  $ocsf._evidence.url = {url_string: move $event.url_filename}
+}
+$ocsf.evidences = [drop_null_fields(move $ocsf._evidence)]
+if ($event.rule_name? else $event.rule_uuid?) != null {
+  $ocsf.policy = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
 }
 paloalto::ocsf::action $event, $ocsf
 
