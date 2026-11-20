@@ -1,5 +1,15 @@
 ---
-description: Parse Palo Alto Networks PAN-OS syslog CSV payloads
+description: |
+  Parse Palo Alto Networks PAN-OS syslog CSV payloads.
+
+  PAN-OS writes most times, such as the generated and receive times, without a
+  zone, in the time zone of the firewall. The parser interprets them in the
+  `timezone` argument when you set it. Otherwise it uses the UTC offset of the
+  record's high-resolution timestamp, which PAN-OS writes with an offset, and
+  falls back to UTC. An IANA time zone name accounts for daylight saving time
+  per record. A fixed offset, such as `+01:00`, doesn't: records from both
+  sides of a daylight saving change then need different offsets, which the
+  high-resolution timestamp provides.
 args:
   positional:
     - name: input
@@ -8,6 +18,13 @@ args:
     - name: paloalto
       type: field
       description: The field that receives the parsed event.
+  named:
+    - name: timezone
+      type: string
+      default: null
+      description: |
+        The time zone of times without a zone, as an IANA name such as
+        `Europe/Berlin` or as a UTC offset such as `+01:00`.
 ---
 
 // Header constants are derived from Palo Alto Networks' syslog field
@@ -1445,6 +1462,11 @@ let $time_fields = [
 
 let $typed_fields = [...$integer_fields, ...$ip_fields, ...$time_fields]
 
+// A `timezone` argument is either a UTC offset, such as `+01:00` or `-0500`,
+// or an IANA time zone name.
+let $timezone_offset = $timezone.replace_regex(r"^([+-][0-9]{2}):?([0-9]{2})$", r"\1\2") if $timezone.match_regex(r"^[+-][0-9]{2}:?[0-9]{2}$") else null
+let $timezone_name = null if $timezone.match_regex(r"^[+-][0-9]{2}:?[0-9]{2}$") else $timezone
+
 // Keep the payload and its number of columns, which tells documented older
 // layouts apart, before writing the result: the input and output can be the
 // same field. Quoted values and the SD-WAN brace list count as one column.
@@ -1654,16 +1676,30 @@ if $paloalto != null {
     field.key,
     (null if field.value.trim() == "" else field.value.trim()) if field.key in $typed_fields else (null if field.value == "" else field.value),
   ]))
-  // PAN-OS writes times as `2026/05/29 10:11:11` without a zone, which this
-  // parser reads as UTC, or with an offset as in `2026-05-29T10:11:11.123+02:00`.
+  // PAN-OS writes times as `2026/05/29 10:11:11` without a zone, or with an
+  // offset as in `2026-05-29T10:11:11.123+02:00`. A time without a zone is in
+  // the `timezone` argument, else in the offset of the high-resolution
+  // timestamp, else in UTC. The Unix epoch placeholder of a missing
+  // high-resolution timestamp has no meaningful offset. Rounding to
+  // microseconds undoes the nanosecond error with which `time` parses
+  // milliseconds, such as `.120` as `.119999999`.
+  $paloalto._offset = $timezone_offset
+  if $timezone == null and not ($paloalto.high_resolution_timestamp? else $paloalto.high_res_timestamp?).match_regex("^19(69|70)-") {
+    $paloalto._offset = ($paloalto.high_resolution_timestamp? else $paloalto.high_res_timestamp?).replace_regex(r"^.*([+-][0-9]{2}):?([0-9]{2})$", r"\1\2") if ($paloalto.high_resolution_timestamp? else $paloalto.high_res_timestamp?).match_regex(r"[+-][0-9]{2}:?[0-9]{2}$") else ("+0000" if ($paloalto.high_resolution_timestamp? else $paloalto.high_res_timestamp?).match_regex("Z$") else null)
+  }
   $paloalto = collect_record($paloalto.entries().map(field => [
     field.key,
     field.value.int() if field.key in $integer_fields else (
       field.value.ip() if field.key in $ip_fields else (
-        (field.value.parse_time("%Y/%m/%d %H:%M:%S") if field.value.match_regex("^[0-9]{4}/") else field.value.time()) if field.key in $time_fields else field.value
+        (
+          (
+            (field.value + " " + $paloalto._offset).parse_time("%Y/%m/%d %H:%M:%S %z") if $paloalto._offset != null else field.value.parse_time("%Y/%m/%d %H:%M:%S", timezone=$timezone_name)
+          ) if field.value.match_regex("^[0-9]{4}/") else field.value.time().round(1us)
+        ) if field.key in $time_fields else field.value
       )
     ),
   ]))
+  drop $paloalto._offset
   // Managed devices that lack a high-resolution time write the Unix epoch,
   // such as `1969-12-31T16:00:00.000-08:00`, which means absent.
   $paloalto = collect_record($paloalto.entries().map(field => [
