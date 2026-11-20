@@ -990,6 +990,38 @@ let $config_fields = [
   "high_resolution_timestamp",
 ].join(",")
 
+// PAN-OS writes the before and after change details only when the firewall
+// records them. Without them, the sequence number follows the configuration
+// path directly.
+let $config_fields_without_details = [
+  "future_use",
+  "receive_time",
+  "serial_number",
+  "type",
+  "subtype",
+  "future_use_2",
+  "generated_time",
+  "host",
+  "virtual_system",
+  "command",
+  "admin",
+  "client",
+  "result",
+  "configuration_path",
+  "sequence_number",
+  "action_flags",
+  "device_group_hierarchy_level_1",
+  "device_group_hierarchy_level_2",
+  "device_group_hierarchy_level_3",
+  "device_group_hierarchy_level_4",
+  "virtual_system_name",
+  "device_name",
+  "device_group",
+  "audit_comment",
+  "future_use_3",
+  "high_resolution_timestamp",
+].join(",")
+
 // Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/authentication-log-fields
 let $authentication_fields = [
   "future_use",
@@ -1080,7 +1112,8 @@ let $correlated_events_fields = [
   "content_threat_type",
   "future_use_2",
   "generated_time",
-  "source_address_source_user",
+  "source_address",
+  "source_user",
   "virtual_system",
   "category",
   "severity",
@@ -1284,89 +1317,106 @@ let $typed_fields = [...$integer_fields, ...$ip_fields, ...$time_fields]
 
 match $input.split(",", max=5)[3]? {
   "TRAFFIC" => {
-    $paloalto = $input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"")
+    // SD-WAN link details are a brace-enclosed list that PAN-OS writes
+    // without quotes, although it contains commas. Quote a brace group that
+    // spans whole columns, so that it stays one column and the tail keeps its
+    // positions. Other values with braces stay as they are.
+    $paloalto = $input.replace_regex(r#",(\{[^{}"]*\})(,|$)"#, r#","\1"\2"#).parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.traffic"
   }
   "GLOBALPROTECT" => {
-    $paloalto = $input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.globalprotect"
   }
   "URL-FILTERING" => {
-    $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.url-filtering"
   }
   "DATA-FILTERING" => {
-    $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.data-filtering"
   }
   "THREAT" => {
     match $input.split(",", max=5)[4]? {
       "url" => {
-        $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"")
+        $paloalto = $input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
         @name = "paloalto.url-filtering"
       }
       "data" | "dlp" | "dlp-non-file" => {
-        $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"")
+        $paloalto = $input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
         @name = "paloalto.data-filtering"
       }
       _ => {
-        $paloalto = $input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"")
+        $paloalto = $input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
         @name = "paloalto.threat"
       }
     }
   }
-  "HIP-MATCH" => {
-    $paloalto = $input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"")
+  // PAN-OS 11 writes `HIPMATCH`; the hyphenated spelling is the documented
+  // log name.
+  "HIP-MATCH" | "HIPMATCH" => {
+    $paloalto = $input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.hip-match"
   }
   "IPTAG" | "IP-TAGS" => {
-    $paloalto = $input.parse_csv(header=$ip_tag_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$ip_tag_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.ip-tags"
   }
   "USERID" | "USER-ID" => {
-    $paloalto = $input.parse_csv(header=$user_id_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$user_id_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.user-id"
   }
   "DECRYPTION" => {
-    $paloalto = $input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.decryption"
   }
-  "TUNNEL" | "TUNNEL-INSPECTION" => {
-    $paloalto = $input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"")
+  // Tunnel Inspection records carry their lifecycle stage, `START` or `END`,
+  // in the type column.
+  "TUNNEL" | "TUNNEL-INSPECTION" | "START" | "END" => {
+    $paloalto = $input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.tunnel-inspection"
   }
   "SCTP" => {
-    $paloalto = $input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.sctp"
   }
   "CONFIG" => {
-    $paloalto = $input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"")
+    // Without change details, the hexadecimal action flags follow the
+    // sequence number directly after the configuration path.
+    $paloalto = $input.parse_csv(header=$config_fields_without_details, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if not (($paloalto.sequence_number?.match_regex("^[0-9]+$") else false) and ($paloalto.action_flags?.match_regex("^0x[0-9A-Fa-f]+$") else false)) {
+      $paloalto = $input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.config"
   }
-  "AUTHENTICATION" => {
-    $paloalto = $input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"")
+  // Older PAN-OS versions write `AUTH` instead of `AUTHENTICATION`.
+  "AUTHENTICATION" | "AUTH" => {
+    $paloalto = $input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.authentication"
   }
   "SYSTEM" => {
-    $paloalto = $input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.system"
   }
   "CORRELATION" => {
-    $paloalto = $input.parse_csv(header=$correlated_events_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$correlated_events_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.correlation"
   }
   "GTP" => {
-    $paloalto = $input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.gtp"
   }
   "AUDIT" => {
-    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"")
+    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.audit"
   }
-  _ if $input.split(",", max=5)[2]? == "AUDIT" => {
-    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"")
+  // Audit records start with the serial number and carry their type in the
+  // third column, in upper or lower case.
+  _ if $input.split(",", max=5)[2]? in ["AUDIT", "audit"] => {
+    $paloalto = $input.parse_csv(header=$audit_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     @name = "paloalto.audit"
   }
+  // Keep the payload of an unsupported layout instead of guessing its columns.
   _ => {
     $paloalto = null
     @name = "paloalto.unknown"
@@ -1375,6 +1425,15 @@ match $input.split(",", max=5)[3]? {
 
 if $paloalto != null {
   $paloalto = $paloalto.drop_matching("^future_use")
+  // Nonempty values beyond the documented columns, such as from a newer
+  // PAN-OS version, stay in order in `excess_values`.
+  if $paloalto.has("unnamed1") {
+    $paloalto.excess_values = $paloalto.entries().where(field => field.key.match_regex("^unnamed[0-9]+$") and field.value != null).map(field => field.value)
+    $paloalto = $paloalto.drop_matching("^unnamed[0-9]+$")
+    if $paloalto.excess_values.length() == 0 {
+      drop $paloalto.excess_values
+    }
+  }
   // Some layouts pad empty numeric columns with spaces.
   $paloalto = collect_record($paloalto.entries().map(field => [
     field.key,
