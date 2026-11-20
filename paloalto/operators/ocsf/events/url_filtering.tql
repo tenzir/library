@@ -33,29 +33,7 @@ drop $ocsf.activity_name?
 $ocsf.status_id = 1
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.app_name = move $event.application?
-$ocsf.src_endpoint = {
-  ip: move $event.source_address?,
-  port: move $event.source_port?,
-  zone: move $event.source_zone?,
-  interface_name: move $event.inbound_interface?,
-  hostname: move $event.source_hostname?,
-  mac: move $event.source_mac_address?,
-  owner: {
-    name: move $event.source_user?,
-  },
-}
-$ocsf.dst_endpoint = {
-  ip: move $event.destination_address?,
-  port: move $event.destination_port?,
-  zone: move $event.destination_zone?,
-  interface_name: move $event.outbound_interface?,
-  hostname: move $event.destination_hostname?,
-  mac: move $event.destination_mac_address?,
-  owner: {
-    name: move $event.destination_user?,
-  },
-}
-paloalto::ocsf::endpoint_locations $event, $ocsf
+paloalto::ocsf::endpoints $event, $ocsf
 $ocsf.connection_info = {
   direction_id: 0,
   protocol_name: move $event.ip_protocol?,
@@ -66,16 +44,18 @@ $ocsf.http_request = {
   user_agent: move $event.user_agent?,
   referrer: move $event.referer?,
   x_forwarded_for: move $event.x_forwarded_for?,
-  url: {
-    url_string: move $event.url_filename?,
-  },
+}
+if $event.url_filename? != null {
+  $ocsf.http_request.url = {url_string: move $event.url_filename}
 }
 if $event.category? != null {
   $ocsf.http_request.url.categories = [move $event.category]
 }
-$ocsf.firewall_rule = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+if ($event.rule_name? else $event.rule_uuid?) != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
 }
 paloalto::ocsf::action $event, $ocsf
 if $ocsf.action_id? != null {

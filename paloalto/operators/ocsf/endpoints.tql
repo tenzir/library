@@ -1,0 +1,58 @@
+---
+description: |
+  Maps the PAN-OS source and destination of a session to OCSF network
+  endpoints.
+
+  A translated address becomes the endpoint's `proxy_endpoint` only when
+  PAN-OS names one. PAN-OS writes `0.0.0.0` or `::` and port `0` when a session
+  has no NAT; the mapper consumes these placeholders without creating an
+  endpoint. Users and locations become objects only when PAN-OS names them.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event.
+    - name: ocsf
+      type: field
+      description: The OCSF output field.
+---
+
+$ocsf.src_endpoint = {
+  ip: move $event.source_address?,
+  port: move $event.source_port?,
+  zone: move $event.source_zone?,
+  interface_name: move $event.inbound_interface?,
+  hostname: move $event.source_hostname?,
+  mac: move $event.source_mac_address?,
+}
+$ocsf.dst_endpoint = {
+  ip: move $event.destination_address?,
+  port: move $event.destination_port?,
+  zone: move $event.destination_zone?,
+  interface_name: move $event.outbound_interface?,
+  hostname: move $event.destination_hostname?,
+  mac: move $event.destination_mac_address?,
+}
+if $event.source_user? != null {
+  $ocsf.src_endpoint.owner = {name: move $event.source_user}
+}
+if $event.destination_user? != null {
+  $ocsf.dst_endpoint.owner = {name: move $event.destination_user}
+}
+if $event.nat_source_ip? != null and $event.nat_source_ip not in [0.0.0.0, ::] {
+  $ocsf.src_endpoint.proxy_endpoint = {
+    ip: move $event.nat_source_ip,
+    port: move $event.nat_source_port?,
+  }
+} else if ($event.nat_source_port? else 0) == 0 {
+  drop $event.nat_source_ip?, $event.nat_source_port?
+}
+if $event.nat_destination_ip? != null and $event.nat_destination_ip not in [0.0.0.0, ::] {
+  $ocsf.dst_endpoint.proxy_endpoint = {
+    ip: move $event.nat_destination_ip,
+    port: move $event.nat_destination_port?,
+  }
+} else if ($event.nat_destination_port? else 0) == 0 {
+  drop $event.nat_destination_ip?, $event.nat_destination_port?
+}
+paloalto::ocsf::endpoint_locations $event, $ocsf
