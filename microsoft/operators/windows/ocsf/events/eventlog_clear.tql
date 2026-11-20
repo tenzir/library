@@ -22,18 +22,12 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.severity_id = 4  // High
 $ocsf.log_name = "Security"
 
-$ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid,
-    name: move $windows.EventData.SubjectUserName,
-    domain: move $windows.EventData.SubjectDomainName,
-  },
-  session: {
-    uid_alt: move $windows.EventData.SubjectLogonId,
-  },
-  process: {
-    pid: int(move $windows.EventData.ClientProcessId, base=16),
-  },
+// Windows writes the event data under UserData/LogFileCleared; collectors
+// that flatten that section put it into EventData.
+$windows.EventData = move $windows.UserData?.LogFileCleared? else $windows.EventData?
+if $windows.UserData?.is_empty() == true {
+  drop $windows.UserData
 }
+microsoft::windows::ocsf::events::eventlog_clear_actor $windows, $ocsf
 
 // ClientProcessStartKey has no OCSF home and remains in unmapped.

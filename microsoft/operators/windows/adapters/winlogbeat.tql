@@ -78,6 +78,14 @@ if $windows.canonical.System.Provider.Name == "Microsoft-Windows-WMI-Activity" a
     Operation_ESStoConsumerBinding: move $windows.canonical.UserData,
   }
 }
+// Winlogbeat flattens the LogFileCleared section of cleared event logs
+// (Security 1102, Eventlog 104) in the same way.
+if $windows.canonical.UserData?.xml_name? == "LogFileCleared" {
+  drop $windows.canonical.UserData.xml_name
+  $windows.canonical.UserData = {
+    LogFileCleared: move $windows.canonical.UserData,
+  }
+}
 // Winlogbeat preserves Sysmon's uppercase GUID suffix, while Windows Event
 // XML exposes the same fields with a `Guid` suffix.
 // Renaming only present fields keeps other events free of null fields.
