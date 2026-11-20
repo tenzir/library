@@ -67,6 +67,14 @@ if $ocsf._xff.length() > 0 {
   }
 }
 drop $ocsf._xff
+// PAN-OS 10.1 and later write the HTTP status code of the response. The
+// content type is the one of the response data.
+if $event.http_status_code?.match_regex("^[0-9]{3}$") {
+  $ocsf.http_response = {
+    code: (move $event.http_status_code).int(),
+    content_type: move $event.content_type?,
+  }
+}
 if $event.url_filename? != null {
   $ocsf.http_request.url = {url_string: move $event.url_filename}
   // PAN-OS writes the PAN-DB category and, in newer versions, the full list of

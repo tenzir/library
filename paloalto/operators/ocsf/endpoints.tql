@@ -66,3 +66,35 @@ if $event.nat_destination_ip? != null and $event.nat_destination_ip not in [0.0.
   drop $event.nat_destination_ip?, $event.nat_destination_port?
 }
 paloalto::ocsf::endpoint_locations $event, $ocsf
+// Device-ID identifies the operating system of an endpoint, and VM monitoring
+// the virtual machine.
+if $event.source_device_os_family? != null {
+  $ocsf.src_endpoint.os = {
+    name: $event.source_device_os_family,
+    version: move $event.source_device_os_version?,
+    type_id: paloalto::$os_type_ids[$event.source_device_os_family.to_lower()]? else 0,
+  }
+  drop $event.source_device_os_family
+}
+if $event.destination_device_os_family? != null {
+  $ocsf.dst_endpoint.os = {
+    name: $event.destination_device_os_family,
+    version: move $event.destination_device_os_version?,
+    type_id: paloalto::$os_type_ids[$event.destination_device_os_family.to_lower()]? else 0,
+  }
+  drop $event.destination_device_os_family
+}
+if paloalto::$endpoint_type_ids[$event.source_device_category?.to_lower()]? != null {
+  $ocsf.src_endpoint.type_id = paloalto::$endpoint_type_ids[$event.source_device_category.to_lower()]
+  drop $event.source_device_category
+}
+if paloalto::$endpoint_type_ids[$event.destination_device_category?.to_lower()]? != null {
+  $ocsf.dst_endpoint.type_id = paloalto::$endpoint_type_ids[$event.destination_device_category.to_lower()]
+  drop $event.destination_device_category
+}
+if $event.source_vm_uuid? != null {
+  $ocsf.src_endpoint.instance_uid = move $event.source_vm_uuid
+}
+if $event.destination_vm_uuid? != null {
+  $ocsf.dst_endpoint.instance_uid = move $event.destination_vm_uuid
+}

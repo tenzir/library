@@ -29,6 +29,17 @@ if $event.public_ip? != null and $event.public_ip != 0.0.0.0 {
   $ocsf.src_endpoint = {ip: move $event.public_ipv6?}
 }
 $ocsf.src_endpoint.hostname = move $event.machine_name?
+// GlobalProtect identifies the client host and names its operating system.
+$ocsf.src_endpoint.uid = move $event.host_id?
+if $event.client_os? != null {
+  $ocsf.src_endpoint.os = {
+    name: $event.client_os,
+    version: move $event.client_os_version?,
+    type_id: paloalto::$os_type_ids[$event.client_os.to_lower()]? else 0,
+  }
+  drop $event.client_os
+}
+$ocsf.status_code = move $event.error_code?
 // The gateway column names the gateway of the client's configuration, and the
 // portal column the portal or gateway that the client logged in to. Both are
 // GlobalProtect configuration names, not hostnames.
