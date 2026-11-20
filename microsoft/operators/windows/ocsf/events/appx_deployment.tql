@@ -25,9 +25,15 @@ $ocsf.activity_id = 1  // Install
 $ocsf.type_uid = 600201
 $ocsf.status_id = $status_id
 $ocsf.status_code = (move $windows.EventData?.ErrorCode?).string()
-// Payload-free events, such as the policy block 441, identify no package and
-// therefore have no application.
-if not $windows.EventData?.is_empty() {
+// Payload-free events, such as the policy block 441, and failures before the
+// package was opened (404 with an empty PackageFullName) identify no package
+// and therefore have no application. Application Lifecycle requires one, so
+// ocsf_cast warns about these events.
+if (
+  $windows.EventData?.PackageFullName? != null
+    or $windows.EventData?.PackageDisplayName? != null
+    or $windows.EventData?.Path? != null
+) {
   $ocsf.application = {
     uid: $windows.EventData.PackageFullName?,
     // Queued deployments (EID 854) only list the package URIs in Path, separated
@@ -48,14 +54,19 @@ if not $windows.EventData?.is_empty() {
     },
   }
 }
-if $windows.EventData?.CallingProcess? != null {
-  $ocsf.actor = {
-    process: {
-      path: move $windows.EventData?.CallingProcess,
-      file: {type_id: 8},
-    },
-  }
-  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-  $ocsf.actor.process.file.name = $ocsf.actor.process.name
-  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+// CallingProcess names the image of the requesting process, followed by the
+// services it hosts, such as `svchost.exe,AppReadiness`. The event logs no
+// process ID for it, and OCSF requires a process to have a PID or UID, so it
+// names the requesting application or service instead: the one hosted
+// service, or the image of a process that hosts none. A process that hosts
+// several services does not tell which one requested the deployment. The raw
+// value stays in unmapped.
+$windows._calling = ($windows.EventData?.CallingProcess? else "").split(",").where(x => x != "")
+if $windows._calling.length() in [1, 2] {
+  $ocsf.actor.application.name = $windows._calling[-1]
+}
+drop $windows._calling
+// Failed deployments (404) render the error.
+if $windows.EventData?.SummaryError? != null {
+  $ocsf.status_detail = move $windows.EventData.SummaryError
 }
