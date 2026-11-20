@@ -77,6 +77,7 @@ Free-text fields, such as command lines, and unknown tokens stay unchanged.
 | `entity.data.local_ports` (2004, 2097) | `4444` | `"4444"` |
 | `application.data.deployment_operation` (AppX 400) | `1` | `"1"` |
 | Winlogbeat object access failures (4656) | `status_id` Success | Failure |
+| `metadata.logged_time`, Winlogbeat JSON parsed with `raw=true` | `"2026-09-01T08:15:01.000Z"` (string, `ocsf_cast` warning) | `2026-09-01T08:15:01Z` (time) |
 
 Every other mapped field keeps its value and type: the mappings now convert the values that an OCSF field needs, such as IP addresses, ports, hexadecimal process IDs, Sysmon flags, and file creation times.
 

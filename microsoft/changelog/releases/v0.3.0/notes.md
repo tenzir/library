@@ -252,14 +252,15 @@ Free-text fields, such as command lines, and unknown tokens stay unchanged.
 
 **OCSF before → now:**
 
-| Field                                              | Before              | Now          |
-| -------------------------------------------------- | ------------------- | ------------ |
-| `unmapped.EventData["Category ID"]` (1116)         | `34`                | `"34"`       |
-| `unmapped.EventData.SettingValue` (2003)           | `1000000`           | `"01000000"` |
-| `unmapped.EventData.SchemaVersion` (Sysmon 4)      | `4.9`               | `"4.90"`     |
-| `entity.data.local_ports` (2004, 2097)             | `4444`              | `"4444"`     |
-| `application.data.deployment_operation` (AppX 400) | `1`                 | `"1"`        |
-| Winlogbeat object access failures (4656)           | `status_id` Success | Failure      |
+| Field                                                          | Before                                                     | Now                           |
+| -------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------- |
+| `unmapped.EventData["Category ID"]` (1116)                     | `34`                                                       | `"34"`                        |
+| `unmapped.EventData.SettingValue` (2003)                       | `1000000`                                                  | `"01000000"`                  |
+| `unmapped.EventData.SchemaVersion` (Sysmon 4)                  | `4.9`                                                      | `"4.90"`                      |
+| `entity.data.local_ports` (2004, 2097)                         | `4444`                                                     | `"4444"`                      |
+| `application.data.deployment_operation` (AppX 400)             | `1`                                                        | `"1"`                         |
+| Winlogbeat object access failures (4656)                       | `status_id` Success                                        | Failure                       |
+| `metadata.logged_time`, Winlogbeat JSON parsed with `raw=true` | `"2026-09-01T08:15:01.000Z"` (string, `ocsf_cast` warning) | `2026-09-01T08:15:01Z` (time) |
 
 Every other mapped field keeps its value and type: the mappings now convert the values that an OCSF field needs, such as IP addresses, ports, hexadecimal process IDs, Sysmon flags, and file creation times.
 
