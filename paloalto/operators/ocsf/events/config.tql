@@ -49,9 +49,21 @@ $ocsf.type_uid = 300400 + $ocsf.activity_id
 if $activities[$event.command?]? != null {
   drop $event.command
 }
-// PAN-OS writes the configuration path with a leading space. A commit has no
-// path and thus no entity.
-if ($event.configuration_path?.trim() else "") != "" {
+// PAN-OS writes the configuration path with a leading space. A record without
+// path, such as a commit, concerns the configuration of the firewall as a
+// whole.
+if ($event.configuration_path?.trim() else "") == "" and $ocsf.metadata.reporter? != null {
+  drop $event.configuration_path?
+  $ocsf.entity = {
+    type_id: 99,
+    type: "Configuration",
+    device: {
+      hostname: $ocsf.metadata.reporter.hostname?,
+      uid: $ocsf.metadata.reporter.uid?,
+      type_id: 9,
+    },
+  }
+} else if ($event.configuration_path?.trim() else "") != "" {
   $ocsf.entity = {
     name: $event.configuration_path.trim(),
     data: move $event.before_change_detail?,
