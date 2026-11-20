@@ -1,22 +1,27 @@
 ---
-title: Service Control Manager state reports as Application Lifecycle events
+title: Service and log service events in fitting classes
 type: change
 authors:
   - zedoraps
-created: 2026-11-19T13:03:46.875364Z
+created: 2026-11-18T10:40:09.280288Z
 ---
 
-Service state reports from the Service Control Manager are now Application Lifecycle (6002) events with the service as `application`.
+Service state reports from the Service Control Manager and Sysmon service state changes (4) now map to Application Lifecycle (6002), and Event Log service starts and stops now map to Event Log Activity.
 
 | Event | Before | Now |
 |---|---|---|
-| 7036 `running` | Windows Service Activity | Application Lifecycle · Start · Success |
-| 7036 `stopped` | Windows Service Activity | Application Lifecycle · Stop · Success |
-| 7036 other states | Windows Service Activity | Application Lifecycle · Other (`activity_name` = state) |
-| 7034 crashed | Windows Service Activity | Application Lifecycle · Stop · Failure |
-| 7023 terminated with error | Windows Service Activity | Application Lifecycle · Stop · Failure, error in `status_detail` |
+| Service Control Manager 7036 `running` | Windows Service Activity | Application Lifecycle · Start · Success |
+| Service Control Manager 7036 `stopped` | Windows Service Activity | Application Lifecycle · Stop · Success |
+| Service Control Manager 7036 other states | Windows Service Activity | Application Lifecycle · Other (`activity_name` = state) |
+| Service Control Manager 7034 crashed | Windows Service Activity | Application Lifecycle · Stop · Failure |
+| Service Control Manager 7023 terminated with error | Windows Service Activity | Application Lifecycle · Stop · Failure, error in `status_detail` |
+| Sysmon 4 `Started` | Windows Service Activity · Start | Application Lifecycle · Start |
+| Sysmon 4 `Stopped` | Windows Service Activity · Stop | Application Lifecycle · Stop |
+| Sysmon 4 other states | Windows Service Activity · Stop | Application Lifecycle · Other |
+| Event Log 6005 | Windows Service Activity · Start | Event Log Activity · Start |
+| Event Log 6006 | Windows Service Activity · Stop | Event Log Activity · Stop |
 
-Service installations (7045, 4697) and start type changes (7040) remain Windows Service Activity.
+Application Lifecycle events carry the service, or Sysmon and its version, in `application`. Event Log Activity events carry the logging service in `log_provider`. Service installations (7045, 4697) and start type changes (7040) remain Windows Service Activity.
 
 ```tql
 class_uid: 6002,
@@ -66,4 +71,6 @@ where (metadata.product.name == "Service Control Manager"
 
 The 7034 and 7023 rules can also match the service key name in `unmapped.EventData.Binary`, but only collectors that ship it, such as Winlogbeat, report it.
 
-**Why:** The events name neither the service configuration nor an actor, both of which Windows Service Activity requires.
+No Sigma rule is affected by the Sysmon change: Tenzir's Sigma catalog has no family for `sysmon_status`.
+
+**Why:** The Service Control Manager and Sysmon events name neither the service configuration nor an actor, both of which Windows Service Activity requires.

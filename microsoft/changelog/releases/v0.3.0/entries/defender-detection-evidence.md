@@ -1,5 +1,5 @@
 ---
-title: Defender detection evidence without resource prefixes
+title: Defender detection evidence
 type: bugfix
 authors:
   - zedoraps

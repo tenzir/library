@@ -27,104 +27,82 @@ Three operators under `microsoft::windows::ocsf::events::` are gone because thei
 
 ## 🔧 Changes
 
-### Application hangs as Application Error events
+### Application hangs and error reports as Application Error
 
-Application hangs (1002) now map to Application Error (6008), like Windows Error Reporting (1001).
+Windows Error Reporting events (1001) and application hangs (1002) now map to Application Error (6008).
 
-| Event | Before                                 | Now                                                             |
-| ----- | -------------------------------------- | --------------------------------------------------------------- |
-| 1002  | Process Activity · Terminate · Failure | Application Error · General Error, hang type in `status_detail` |
+| Event                        | Before                                 | Now                                                             |
+| ---------------------------- | -------------------------------------- | --------------------------------------------------------------- |
+| 1001 Windows Error Reporting | Process Activity · Terminate · Failure | Application Error · General Error                               |
+| 1002 application hang        | Process Activity · Terminate · Failure | Application Error · General Error, hang type in `status_detail` |
 
-The hung process stays in `unmapped.EventData`:
+The report and the hung process stay in `unmapped.EventData`:
 
 ```tql
 status_detail: "Quiesce",
 unmapped: {EventData: {AppName: "ExampleViewer.exe", ProcessId: "0x23c8"}},
 ```
 
-**Why:** Process Activity requires an `actor`, but the event doesn't say whether the user or Windows closed the application.
+**Why:** Most error reports concern other problems than crashes, such as Windows Update failures, and Application Error 1000 already reports crashes. Process Activity requires an `actor`, but a hang event doesn't say whether the user or Windows closed the application.
 
 *By @zedoraps.*
 
-### AppX deployment requesters as actor applications
+### No process objects without a process ID
 
-AppX deployment events now name the requester in `actor.application.name` instead of `actor.process`, and keep the raw value in `unmapped.EventData.CallingProcess`.
+Microsoft Defender, Windows Firewall, and AppX deployment events no longer build `actor.process`, and keep the raw value in `unmapped.EventData` instead.
 
-| `CallingProcess`             | Before          | Now                                        |
-| ---------------------------- | --------------- | ------------------------------------------ |
-| `svchost.exe,InstallService` | `actor.process` | `actor.application.name: "InstallService"` |
-| `powershell.exe`             | `actor.process` | `actor.application.name: "powershell.exe"` |
-| Image with several services  | `actor.process` | No actor                                   |
+| Source                                                                                  | Before                                                     | Now                                                                                                    |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Defender detections (1006, 1116, 1117) and attack surface reduction events (1121, 1122) | `actor.process` from `Process Name`, without `pid`         | Image path in `unmapped.EventData["Process Name"]`; the actor keeps the user                           |
+| Windows Firewall rule and configuration events (2003–2097)                              | `actor.process` from `ModifyingApplication`, without `pid` | Image path in `unmapped.EventData.ModifyingApplication`; the actor keeps the user from `ModifyingUser` |
+| AppX deployment, `CallingProcess` `svchost.exe,InstallService`                          | `actor.process`                                            | `actor.application.name: "InstallService"`                                                             |
+| AppX deployment, `CallingProcess` `powershell.exe`                                      | `actor.process`                                            | `actor.application.name: "powershell.exe"`                                                             |
+| AppX deployment, image with several services                                            | `actor.process`                                            | No actor                                                                                               |
+
+AppX deployment events name the requester in `actor.application.name` and keep the raw value in `unmapped.EventData.CallingProcess`. Before, `unmapped.EventData` had neither `Process Name` nor `ModifyingApplication`.
 
 **What you need to do**
 
-| Rule                                                    | Effect                                                                  | Replacement                   |
-| ------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------- |
-| Windows AppX Deployment Full Trust Package Installation | More alerts: the `svchost.exe,AppReadiness` exclusion no longer applies | Exclude on the unmapped field |
+| Rule                                                                                              | Source           | Effect                                                                  | Replacement                   |
+| ------------------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------- | ----------------------------- |
+| PSExec and WMI Process Creations Block                                                            | Defender         | Silent                                                                  | Match the unmapped field      |
+| New Firewall Rule Added In Windows Firewall Exception List Via WmiPrvSE.EXE                       | Windows Firewall | Silent                                                                  | Match the unmapped field      |
+| A Rule Has Been Deleted From The Windows Firewall Exception List                                  | Windows Firewall | Silent: its `ModifyingApplication: null` filter drops all events        | Filter on the unmapped field  |
+| Exclusion-only rules, such as All Rules Have Been Deleted From The Windows Firewall Configuration | Windows Firewall | More alerts                                                             | Exclude on the unmapped field |
+| Windows AppX Deployment Full Trust Package Installation                                           | AppX deployment  | More alerts: the `svchost.exe,AppReadiness` exclusion no longer applies | Exclude on the unmapped field |
+
+<details>
+<summary>Replacement queries</summary>
 
 ```tql
+// PSExec and WMI Process Creations Block
+where class_uid == 2004 and metadata.event_code == "1121" and
+  unmapped.EventData["Process Name"].to_lower().ends_with(r"\wmiprvse.exe")
+```
+
+```tql
+// New Firewall Rule Added In Windows Firewall Exception List Via WmiPrvSE.EXE
+where metadata.log_name == "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall" and
+  metadata.event_code in ["2004", "2071", "2097"] and
+  unmapped.EventData.ModifyingApplication.ends_with(r"\WmiPrvSE.exe")
+```
+
+```tql
+// Windows AppX Deployment Full Trust Package Installation
 where class_uid == 6002 and metadata.event_code == "400" and
   application.data.has_full_trust == true and
   not unmapped.EventData.CallingProcess.starts_with("svchost.exe,AppReadiness")
 ```
 
-**Why:** Windows logs no process ID for the requester, and an OCSF process needs one.
+</details>
+
+**Why:** Defender and Windows Firewall log no process ID, nor does Windows for the AppX requester, and an OCSF process needs one.
 
 *By @zedoraps.*
 
-### Defender events without a process object
+### Same Windows event data from every collector
 
-Microsoft Defender detections (1006, 1116, 1117) and attack surface reduction events (1121, 1122) no longer build `actor.process`; the actor keeps the user.
-
-| Field                                | Before                             | Now            |
-| ------------------------------------ | ---------------------------------- | -------------- |
-| `actor.process`                      | From `Process Name`, without `pid` | Not set        |
-| `unmapped.EventData["Process Name"]` | Not set                            | The image path |
-
-**What you need to do**
-
-| Rule                                   | Effect | Replacement              |
-| -------------------------------------- | ------ | ------------------------ |
-| PSExec and WMI Process Creations Block | Silent | Match the unmapped field |
-
-```tql
-where class_uid == 2004 and metadata.event_code == "1121" and
-  unmapped.EventData["Process Name"].to_lower().ends_with(r"\wmiprvse.exe")
-```
-
-**Why:** Defender logs no process ID, and an OCSF process needs one.
-
-*By @zedoraps.*
-
-### Event Log service start and stop as Event Log Activity
-
-Event Log service starts and stops now map to Event Log Activity, with the logging service in `log_provider`.
-
-| Event | Before                           | Now                        |
-| ----- | -------------------------------- | -------------------------- |
-| 6005  | Windows Service Activity · Start | Event Log Activity · Start |
-| 6006  | Windows Service Activity · Stop  | Event Log Activity · Stop  |
-
-*By @zedoraps.*
-
-### Parameter names for unnamed Windows event data
-
-Unnamed event data from legacy providers, such as Application Error, now uses the names `param1`, `param2`, … for all collectors.
-
-| Collector         | Before                           | Now                   |
-| ----------------- | -------------------------------- | --------------------- |
-| Windows Event XML | `unmapped.EventData._0`, `_1`, … | `param1`, `param2`, … |
-| Winlogbeat        | `param1`, `param2`, …            | Unchanged             |
-
-**What you need to do:** Replace `unmapped.EventData._0` with `unmapped.EventData.param1`, and shift every other index by one.
-
-**Why:** The names match Winlogbeat and the `%1`, `%2` inserts of the provider's message.
-
-*By @zedoraps.*
-
-### Rendered Windows Security message tokens
-
-Security event data now carries the text of message-table tokens, so Windows Event XML, Fluent Bit, and Winlogbeat produce the same event.
+Security event data now carries the text of message-table tokens, and unnamed event data from legacy providers, such as Application Error, now uses the names `param1`, `param2`, … for all collectors, so Windows Event XML, Fluent Bit, and Winlogbeat produce the same event.
 
 | Field                                   | Before                                       | Now                                                  |
 | --------------------------------------- | -------------------------------------------- | ---------------------------------------------------- |
@@ -134,34 +112,42 @@ Security event data now carries the text of message-table tokens, so Windows Eve
 | `reg_value.type` (4657)                 | Not set                                      | `REG_EXPAND_SZ`                                      |
 | 4719 `entity.policy.data`               | `category_id: "%%8272"`, `changes: "%%8448"` | `category: "System"`, `changes: ["Success removed"]` |
 | Winlogbeat 4657 activity                | Unknown                                      | Set, Modify, or Delete                               |
+| Unnamed event data, Windows Event XML   | `unmapped.EventData._0`, `_1`, …             | `param1`, `param2`, …                                |
+| Unnamed event data, Winlogbeat          | `param1`, `param2`, …                        | Unchanged                                            |
 
 Free-text fields, such as command lines, and unknown tokens stay unchanged.
 
 **What you need to do**
 
-| Query                                           | Effect | Replacement                                       |
-| ----------------------------------------------- | ------ | ------------------------------------------------- |
-| Tests on a token, such as `%%1843`              | Silent | Test the text, such as `No`                       |
-| Tests on 4719 `category_id` or `subcategory_id` | Silent | Test `category` or `subcategory`                  |
-| Tests on 4719 `changes` as a string             | Silent | `"Success removed" in entity.policy.data.changes` |
+| Query                                           | Effect | Replacement                                                                                          |
+| ----------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| Tests on a token, such as `%%1843`              | Silent | Test the text, such as `No`                                                                          |
+| Tests on 4719 `category_id` or `subcategory_id` | Silent | Test `category` or `subcategory`                                                                     |
+| Tests on 4719 `changes` as a string             | Silent | `"Success removed" in entity.policy.data.changes`                                                    |
+| Tests on `unmapped.EventData._0`                | Silent | Replace `unmapped.EventData._0` with `unmapped.EventData.param1`, and shift every other index by one |
 
-**Why:** Windows Event XML and Fluent Bit report the tokens, while Winlogbeat reports the text.
+**Why:** Windows Event XML and Fluent Bit report the tokens, while Winlogbeat reports the text. The parameter names match Winlogbeat and the `%1`, `%2` inserts of the provider's message.
 
 *By @zedoraps.*
 
-### Service Control Manager state reports as Application Lifecycle events
+### Service and log service events in fitting classes
 
-Service state reports from the Service Control Manager are now Application Lifecycle (6002) events with the service as `application`.
+Service state reports from the Service Control Manager and Sysmon service state changes (4) now map to Application Lifecycle (6002), and Event Log service starts and stops now map to Event Log Activity.
 
-| Event                      | Before                   | Now                                                              |
-| -------------------------- | ------------------------ | ---------------------------------------------------------------- |
-| 7036 `running`             | Windows Service Activity | Application Lifecycle · Start · Success                          |
-| 7036 `stopped`             | Windows Service Activity | Application Lifecycle · Stop · Success                           |
-| 7036 other states          | Windows Service Activity | Application Lifecycle · Other (`activity_name` = state)          |
-| 7034 crashed               | Windows Service Activity | Application Lifecycle · Stop · Failure                           |
-| 7023 terminated with error | Windows Service Activity | Application Lifecycle · Stop · Failure, error in `status_detail` |
+| Event                                              | Before                           | Now                                                              |
+| -------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------- |
+| Service Control Manager 7036 `running`             | Windows Service Activity         | Application Lifecycle · Start · Success                          |
+| Service Control Manager 7036 `stopped`             | Windows Service Activity         | Application Lifecycle · Stop · Success                           |
+| Service Control Manager 7036 other states          | Windows Service Activity         | Application Lifecycle · Other (`activity_name` = state)          |
+| Service Control Manager 7034 crashed               | Windows Service Activity         | Application Lifecycle · Stop · Failure                           |
+| Service Control Manager 7023 terminated with error | Windows Service Activity         | Application Lifecycle · Stop · Failure, error in `status_detail` |
+| Sysmon 4 `Started`                                 | Windows Service Activity · Start | Application Lifecycle · Start                                    |
+| Sysmon 4 `Stopped`                                 | Windows Service Activity · Stop  | Application Lifecycle · Stop                                     |
+| Sysmon 4 other states                              | Windows Service Activity · Stop  | Application Lifecycle · Other                                    |
+| Event Log 6005                                     | Windows Service Activity · Start | Event Log Activity · Start                                       |
+| Event Log 6006                                     | Windows Service Activity · Stop  | Event Log Activity · Stop                                        |
 
-Service installations (7045, 4697) and start type changes (7040) remain Windows Service Activity.
+Application Lifecycle events carry the service, or Sysmon and its version, in `application`. Event Log Activity events carry the logging service in `log_provider`. Service installations (7045, 4697) and start type changes (7040) remain Windows Service Activity.
 
 ```tql
 class_uid: 6002,
@@ -211,132 +197,37 @@ where (metadata.product.name == "Service Control Manager"
 
 The 7034 and 7023 rules can also match the service key name in `unmapped.EventData.Binary`, but only collectors that ship it, such as Winlogbeat, report it.
 
-**Why:** The events name neither the service configuration nor an actor, both of which Windows Service Activity requires.
+No Sigma rule is affected by the Sysmon change: Tenzir's Sigma catalog has no family for `sysmon_status`.
 
-*By @zedoraps.*
-
-### Sysmon state changes as Application Lifecycle events
-
-Sysmon service state changes (4) now map to Application Lifecycle (6002), with Sysmon and its version in `application`.
-
-| Event          | Before                           | Now                           |
-| -------------- | -------------------------------- | ----------------------------- |
-| 4 `Started`    | Windows Service Activity · Start | Application Lifecycle · Start |
-| 4 `Stopped`    | Windows Service Activity · Stop  | Application Lifecycle · Stop  |
-| 4 other states | Windows Service Activity · Stop  | Application Lifecycle · Other |
-
-No Sigma rule is affected: Tenzir's Sigma catalog has no family for `sysmon_status`.
-
-**Why:** The event names neither the service configuration nor an actor, both of which Windows Service Activity requires.
-
-*By @zedoraps.*
-
-### Windows Error Reporting events as Application Error events
-
-Windows Error Reporting events (1001) now map to Application Error (6008), and the report stays in `unmapped.EventData`.
-
-| Event | Before                                 | Now                               |
-| ----- | -------------------------------------- | --------------------------------- |
-| 1001  | Process Activity · Terminate · Failure | Application Error · General Error |
-
-**Why:** Most reports concern other problems than crashes, such as Windows Update failures, and Application Error 1000 already reports crashes.
-
-*By @zedoraps.*
-
-### Windows Firewall changes without a modifying process
-
-Windows Firewall rule and configuration events (2003–2097) no longer build `actor.process`; the actor keeps the user from `ModifyingUser`.
-
-| Field                                     | Before                                     | Now            |
-| ----------------------------------------- | ------------------------------------------ | -------------- |
-| `actor.process`                           | From `ModifyingApplication`, without `pid` | Not set        |
-| `unmapped.EventData.ModifyingApplication` | Not set                                    | The image path |
-
-**What you need to do**
-
-| Rule                                                                                              | Effect                                                           | Replacement                   |
-| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------- |
-| New Firewall Rule Added In Windows Firewall Exception List Via WmiPrvSE.EXE                       | Silent                                                           | Match the unmapped field      |
-| A Rule Has Been Deleted From The Windows Firewall Exception List                                  | Silent: its `ModifyingApplication: null` filter drops all events | Filter on the unmapped field  |
-| Exclusion-only rules, such as All Rules Have Been Deleted From The Windows Firewall Configuration | More alerts                                                      | Exclude on the unmapped field |
-
-```tql
-where metadata.log_name == "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall" and
-  metadata.event_code in ["2004", "2071", "2097"] and
-  unmapped.EventData.ModifyingApplication.ends_with(r"\WmiPrvSE.exe")
-```
-
-**Why:** Windows Firewall logs no process ID, and an OCSF process needs one.
+**Why:** The Service Control Manager and Sysmon events name neither the service configuration nor an actor, both of which Windows Service Activity requires.
 
 *By @zedoraps.*
 
 ## 🐞 Bug fixes
 
-### Actors for Service Control Manager events
+### Application crashes and Code Integrity
 
-Service Control Manager events now have an actor when the event names one.
+Application crashes (1000) now map the values that Windows writes, with or without field names, Code Integrity events now give the loading process its process and thread ID, and App Control audit and block events (3076/3077) now map the file, the loading process, and the signing levels.
 
-| Event                                     | Before   | Now                                                         |
-| ----------------------------------------- | -------- | ----------------------------------------------------------- |
-| 7036 state change                         | No actor | Service Control Manager `pid` and `ptid` in `actor.process` |
-| 7040 start type change, 7045 installation | No actor | Header account in `actor.user`                              |
-
-Crashes (7034) and terminations with an error (7023) still have no actor, because the service stopped on its own.
-
-*By @zedoraps.*
-
-### App Control audit and block event fields
-
-App Control audit and block events (3076/3077) now map the file, the loading process, and the signing levels.
-
-| Field                                                                 | Before  | Now                                                       |
-| --------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
-| `application.name`, `application.data.file_path`                      | Empty   | From `File Name`                                          |
-| `actor.process`                                                       | Missing | From `Process Name`                                       |
-| `application.data.requested_signing_level`, `validated_signing_level` | Empty   | From `Requested Signing Level`, `Validated Signing Level` |
+| Event                 | Field                                                                 | Before               | Now                                                       |
+| --------------------- | --------------------------------------------------------------------- | -------------------- | --------------------------------------------------------- |
+| 1000 crash            | `module.file`                                                         | Positional data only | Also `ModuleName`, `ModulePath`                           |
+| 1000 crash            | `module.load_type_id`                                                 | Not set              | `0` (Unknown)                                             |
+| 1000 crash            | `actor.process`                                                       | Not set              | The crashed process                                       |
+| 1000 crash            | `process.pid` without hex letters, such as `2048`                     | Read as decimal      | Read as hexadecimal                                       |
+| Code Integrity        | `actor.process.pid`, `ptid`                                           | Not set              | From the event header                                     |
+| Code Integrity        | `actor.process` without a header process ID                           | Path only            | Not set; the name stays in `unmapped.EventData`           |
+| 3076/3077 App Control | `application.name`, `application.data.file_path`                      | Empty                | From `File Name`                                          |
+| 3076/3077 App Control | `actor.process`                                                       | Missing              | From `Process Name`                                       |
+| 3076/3077 App Control | `application.data.requested_signing_level`, `validated_signing_level` | Empty                | From `Requested Signing Level`, `Validated Signing Level` |
 
 Sigma rules that read `FileNameBuffer`, `ProcessNameBuffer`, or the signing levels now see these values.
 
-*By @zedoraps.*
-
-### Application crash fields as Windows writes them
-
-Application crashes (1000) now map the values that Windows writes, with or without field names.
-
-| Field                                             | Before               | Now                             |
-| ------------------------------------------------- | -------------------- | ------------------------------- |
-| `module.file`                                     | Positional data only | Also `ModuleName`, `ModulePath` |
-| `module.load_type_id`                             | Not set              | `0` (Unknown)                   |
-| `actor.process`                                   | Not set              | The crashed process             |
-| `process.pid` without hex letters, such as `2048` | Read as decimal      | Read as hexadecimal             |
+**Why:** Code Integrity writes these events in the context of the loading process, and an OCSF process needs a `pid`, `uid`, or `cpid`.
 
 *By @zedoraps.*
 
-### AppX deployment errors and packages
-
-Failed AppX deployments (404) now report their error, and events that identify no package have no application.
-
-| Field                           | Before                  | Now                            |
-| ------------------------------- | ----------------------- | ------------------------------ |
-| `status_detail` of 404          | Not set                 | Error text from `SummaryError` |
-| `application` without a package | Built from empty fields | Not set                        |
-
-*By @zedoraps.*
-
-### Decimal Windows access masks
-
-Entity Management events now read a decimal `AccessMask` as decimal.
-
-| `AccessMask`                            | Before                   | Now                     |
-| --------------------------------------- | ------------------------ | ----------------------- |
-| `16777216` (decimal, some 4674 records) | `access_mask: 376926742` | `access_mask: 16777216` |
-| `0x12019f`                              | Hexadecimal              | Hexadecimal             |
-
-Rendered access rights set no `access_mask` and stay in `unmapped.EventData.AccessMask`.
-
-*By @zedoraps.*
-
-### Defender detection evidence without resource prefixes
+### Defender detection evidence
 
 Microsoft Defender detections (1116/1117) now list each detected file on disk once in `evidences`, instead of one file holding the whole `Path` with its resource prefixes.
 
@@ -358,83 +249,58 @@ The complete list stays in `unmapped.EventData.Path`.
 
 *By @zedoraps.*
 
-### Device for loaded Boot Configuration Data
+### Microsoft Graph devices and risky users
 
-Boot Configuration Data load events (4826) now set `entity.device` to the device that logged the event.
+Microsoft Graph sign-ins and Intune managed devices now set the operating system type from the reported platform, and Microsoft Entra ID risky users now identify their owner.
 
-**Why:** The entity had no name, ID, or device, which OCSF requires, because the event names the boot configuration only by its settings.
-
-*By @zedoraps.*
-
-### Entities and actors for Windows Security entity events
-
-More Windows Security entity events now identify their entity and actor.
-
-| Event                        | Before             | Now                                                                                         |
-| ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------- |
-| 4665/4667 client context     | No ID, no actor    | Context ID in `entity.uid`, client in `actor.user`                                          |
-| 4870 revoked certificate     | No ID              | Serial number in `entity.uid`                                                               |
-| 4902 per-user audit policy   | No ID              | Policy ID in `entity.uid`                                                                   |
-| 4931–4933 replication        | No name            | Naming context in `entity.name`; 4932/4933 session in `entity.uid`; 4931/4933 `status_code` |
-| 4673 privileged service call | No name            | Service, or else privileges, in `entity.name`                                               |
-| 4661, 4670, 4673, 4674       | No `actor.process` | Subject's process in `actor.process`                                                        |
-
-*By @zedoraps.*
-
-### Operating system types for Microsoft Graph devices
-
-Microsoft Graph sign-ins and Intune managed devices now set the operating system type from the reported platform.
-
-| Field                                                                       | Before  | Now                                      |
-| --------------------------------------------------------------------------- | ------- | ---------------------------------------- |
-| `src_endpoint.os.type_id` (sign-ins), `device.os.type_id` (managed devices) | Not set | Such as `100` (Windows) for `Windows 11` |
-| Same, unrecognized platform                                                 | Not set | `99` (Other), name in `os.type`          |
-
-*By @zedoraps.*
-
-### PowerShell host process for script block invocations
-
-PowerShell script block invocation starts and stops (4105/4106) now set `actor.process` to the PowerShell host's `pid` and `ptid`, like script block logging (4104).
-
-*By @zedoraps.*
-
-### Process IDs for Code Integrity actors
-
-Code Integrity events now give the loading process its process and thread ID.
-
-| Field                                       | Before    | Now                                             |
-| ------------------------------------------- | --------- | ----------------------------------------------- |
-| `actor.process.pid`, `ptid`                 | Not set   | From the event header                           |
-| `actor.process` without a header process ID | Path only | Not set; the name stays in `unmapped.EventData` |
-
-**Why:** Code Integrity writes these events in the context of the loading process, and an OCSF process needs a `pid`, `uid`, or `cpid`.
-
-*By @zedoraps.*
-
-### Unknown load type for Sysmon modules
-
-Sysmon image loads (7) and remote thread creations (8) without a start function now set `module.load_type_id` to `0` (Unknown).
-
-**Why:** OCSF requires a module to have a load type or a function name, and Sysmon doesn't report how a module was loaded.
-
-*By @zedoraps.*
-
-### User ID for Entra risky user owners
-
-Microsoft Entra ID risky users now set `resources[].owner.uid` to the risky user's `id`, which Microsoft Graph defines as the ID of the user at risk.
+| Source                                           | Field                                                                       | Before  | Now                                                                                |
+| ------------------------------------------------ | --------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| Sign-ins, managed devices                        | `src_endpoint.os.type_id` (sign-ins), `device.os.type_id` (managed devices) | Not set | Such as `100` (Windows) for `Windows 11`                                           |
+| Sign-ins, managed devices, unrecognized platform | Same                                                                        | Not set | `99` (Other), name in `os.type`                                                    |
+| Entra ID risky users                             | `resources[].owner.uid`                                                     | Not set | The risky user's `id`, which Microsoft Graph defines as the ID of the user at risk |
 
 **Why:** The owner had only a display name, which doesn't identify an OCSF user.
 
 *By @zedoraps.*
 
-### Users and processes for cleared event logs
+### Services, AppX, PowerShell, and Sysmon
 
-Cleared event logs now name who cleared the log and with which process.
+Service Control Manager events now have an actor when the event names one, failed AppX deployments report their error, PowerShell script block invocations name their host process, and Sysmon modules get a load type.
 
-| Event         | Before                       | Now                                                |
-| ------------- | ---------------------------- | -------------------------------------------------- |
-| Security 1102 | Empty user, session, process | `actor.user`, `actor.session`, `actor.process.pid` |
-| Eventlog 104  | User only                    | `actor.user`, `actor.process.pid`                  |
+| Event                                                                   | Field                 | Before                  | Now                                                                  |
+| ----------------------------------------------------------------------- | --------------------- | ----------------------- | -------------------------------------------------------------------- |
+| Service Control Manager 7036 state change                               | `actor.process`       | No actor                | Service Control Manager `pid` and `ptid`                             |
+| Service Control Manager 7040 start type change, 7045 installation       | `actor.user`          | No actor                | Header account                                                       |
+| AppX deployment 404 failure                                             | `status_detail`       | Not set                 | Error text from `SummaryError`                                       |
+| AppX deployment without a package                                       | `application`         | Built from empty fields | Not set                                                              |
+| PowerShell 4105/4106 script block invocation start and stop             | `actor.process`       | Not set                 | PowerShell host's `pid` and `ptid`, like script block logging (4104) |
+| Sysmon 7 image load, 8 remote thread creation, without a start function | `module.load_type_id` | Not set                 | `0` (Unknown)                                                        |
+
+Service Control Manager crashes (7034) and terminations with an error (7023) still have no actor, because the service stopped on its own.
+
+**Why:** OCSF requires a module to have a load type or a function name, and Sysmon doesn't report how a module was loaded.
+
+*By @zedoraps.*
+
+### Windows Security event fields
+
+More Windows Security entity events now identify their entity and actor, Entity Management events read a decimal `AccessMask` as decimal, and cleared event logs now name who cleared the log and with which process.
+
+| Event                                                                  | Before                       | Now                                                                                         |
+| ---------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
+| 4665/4667 client context                                               | No ID, no actor              | Context ID in `entity.uid`, client in `actor.user`                                          |
+| 4870 revoked certificate                                               | No ID                        | Serial number in `entity.uid`                                                               |
+| 4902 per-user audit policy                                             | No ID                        | Policy ID in `entity.uid`                                                                   |
+| 4931–4933 replication                                                  | No name                      | Naming context in `entity.name`; 4932/4933 session in `entity.uid`; 4931/4933 `status_code` |
+| 4673 privileged service call                                           | No name                      | Service, or else privileges, in `entity.name`                                               |
+| 4661, 4670, 4673, 4674                                                 | No `actor.process`           | Subject's process in `actor.process`                                                        |
+| 4826 Boot Configuration Data load                                      | No name, ID, or device       | Device that logged the event in `entity.device`                                             |
+| Entity Management, decimal `AccessMask` `16777216` (some 4674 records) | `access_mask: 376926742`     | `access_mask: 16777216`                                                                     |
+| Entity Management, `AccessMask` `0x12019f`                             | Hexadecimal                  | Hexadecimal                                                                                 |
+| Security 1102 log cleared                                              | Empty user, session, process | `actor.user`, `actor.session`, `actor.process.pid`                                          |
+| Eventlog 104 log cleared                                               | User only                    | `actor.user`, `actor.process.pid`                                                           |
+
+Rendered access rights set no `access_mask` and stay in `unmapped.EventData.AccessMask`.
 
 ```tql
 actor: {
@@ -446,6 +312,6 @@ actor: {
 
 Sigma rules that read `SubjectUserName` or `SubjectUserSid` on 1102 now see a value.
 
-**Why:** The mapping read `EventData`, while Windows writes the data under `UserData/LogFileCleared`.
+**Why:** The 4826 entity had no name, ID, or device, which OCSF requires, because the event names the boot configuration only by its settings. For cleared logs, the mapping read `EventData`, while Windows writes the data under `UserData/LogFileCleared`.
 
 *By @zedoraps.*
