@@ -1,5 +1,5 @@
 ---
-description: Service Crashed Unexpectedly (EID 7034) → OCSF Windows Service Activity (201004, Stop/Failure)
+description: Service Crashed Unexpectedly (EID 7034) → OCSF Application Lifecycle (6002, Stop/Failure)
 args:
   positional:
     - name: windows
@@ -10,19 +10,27 @@ args:
       type: field
 ---
 
-@name = "ocsf.windows_service_activity"
+// The service process terminated on its own. The event names neither the
+// service configuration nor an actor, which Windows Service Activity
+// requires, so it maps to a failed stop of the service application.
+@name = "ocsf.application_lifecycle"
 
-$ocsf.category_uid = 1
-$ocsf.class_uid = 201004
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
 $ocsf.activity_id = 4  // Stop
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 3  // Medium — unexpected crash warrants elevated severity
 
-$ocsf.win_service = {
+$ocsf.application = {
   name: move $windows.EventData.param1,
+  type: "Windows Service",
 }
 
-// param2 = number of times the service has terminated unexpectedly; left in
-// unmapped as there is no OCSF home for a crash-count scalar.
+// param2 is the number of times the service has terminated unexpectedly. OCSF
+// `count` counts aggregated events within a time window, which this is not,
+// so the number stays in unmapped.
+// Binary holds the service key name as UTF-16 hex, such as `WinDefend`, and
+// stays in unmapped. Only collectors that ship it, such as Winlogbeat, report
+// it; Windows Event XML parsing drops it.

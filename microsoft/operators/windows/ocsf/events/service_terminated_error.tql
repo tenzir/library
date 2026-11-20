@@ -1,5 +1,5 @@
 ---
-description: Service Terminated With an Error (EID 7023) → OCSF Windows Service Activity (201004, Stop/Failure)
+description: Service Terminated With an Error (EID 7023) → OCSF Application Lifecycle (6002, Stop/Failure)
 args:
   positional:
     - name: windows
@@ -10,18 +10,27 @@ args:
       type: field
 ---
 
-@name = "ocsf.windows_service_activity"
+// The service stopped on its own with an error. The event names neither the
+// service configuration nor a process or account that caused it, which
+// Windows Service Activity requires, so it maps to a failed stop of the
+// service application.
+@name = "ocsf.application_lifecycle"
 
-$ocsf.category_uid = 1
-$ocsf.class_uid = 201004
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
 $ocsf.activity_id = 4  // Stop
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 3  // Medium
 
 // param1 is the service display name and param2 the rendered error message.
-$ocsf.win_service = {
+// Windows Event XML may report the message as a token of the system message
+// table, such as `%%21`, which stays unchanged.
+$ocsf.application = {
   name: move $windows.EventData.param1,
+  type: "Windows Service",
 }
 $ocsf.status_detail = move $windows.EventData.param2?
-// Binary holds the service key name as UTF-16 hex and stays in unmapped.
+// Binary holds the service key name as UTF-16 hex, such as `WinDefend`, and
+// stays in unmapped. Only collectors that ship it, such as Winlogbeat, report
+// it; Windows Event XML parsing drops it.

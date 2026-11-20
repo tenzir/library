@@ -1,0 +1,43 @@
+// Service Control Manager state reports (7023, 7034, 7036) map to Application
+// Lifecycle, which the Sigma system service family does not select. These
+// queries replace the SigmaHQ rules that therefore stay silent, as the
+// changelog documents them.
+from_file f"{env("TENZIR_INPUTS")}/eid-70*.xml" {
+  read_all
+}
+windows = data.parse_winlog()
+cases = [
+  {name: "fixture", service: null, state: null},
+  {name: "defender stopped", service: "Windows Defender Antivirus Service", state: "stopped"},
+  {name: "defender stopped (French)", service: "Service antivirus Microsoft Defender", state: "arrêté"},
+  {name: "message queuing crashed", service: "Message Queuing", state: null},
+]
+unroll cases
+where (cases.name == "fixture"
+  or (cases.state != null and windows.System.EventID == 7036)
+  or (cases.name == "message queuing crashed" and windows.System.EventID == 7034))
+if cases.service != null {
+  windows.EventData.param1 = cases.service
+}
+if cases.state != null {
+  windows.EventData.param2 = cases.state
+}
+microsoft::windows::ocsf::normalize windows, into=this
+// Windows Defender Threat Detection Service Disabled (6c0a7755).
+defender_disabled = (metadata.event_code == "7036"
+  and application.name in ["Windows Defender Antivirus Service", "Service antivirus Microsoft Defender"]
+  and (activity_id == 4 or activity_name == "arrêté"))
+// Important Windows Service Terminated Unexpectedly (56abae0c).
+important_crashed = (metadata.event_code == "7034"
+  and application.name.match_regex("Message Queuing"))
+// Important Windows Service Terminated With Error (d6b5520d).
+important_error = (metadata.event_code == "7023"
+  and application.name.match_regex(" Antivirus| Firewall|Application Guard|BitLocker Drive Encryption Service|Encrypting File System|Microsoft Defender|Threat Protection|Windows Event Log"))
+// Windows Service Terminated With Error (acfa2210).
+any_error = metadata.event_code == "7023"
+where (metadata.product.name == "Service Control Manager"
+  and class_uid == 6002
+  and (defender_disabled or important_crashed or important_error or any_error))
+select event_code=metadata.event_code, record=metadata.original_event_uid, service=application.name,
+  activity_name=activity_name?, status_id, defender_disabled, important_crashed, important_error, any_error
+sort event_code, record, service
