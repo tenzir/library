@@ -25,7 +25,6 @@ $ocsf.class_uid = 4001
 $ocsf.activity_id = $activities[$event.threat_content_type?]? else 6
 $ocsf.type_uid = 400100 + ($activities[$event.threat_content_type?]? else 6)
 drop $ocsf.activity_name?
-$ocsf.status_id = 1
 $ocsf.status_detail = move $event.session_end_reason?
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.initiator_id = 1
@@ -49,6 +48,10 @@ if ($event.rule_name? else $event.rule_uuid?) != null {
   }
 }
 paloalto::ocsf::action $event, $ocsf
+// A blocked session failed. Only a session that ended after the firewall
+// allowed it proves a successful connection; a start record or a
+// contradictory subtype leaves the outcome unknown.
+$ocsf.status_id = 2 if $ocsf.action_id? == 2 else (1 if $ocsf.action_id? == 1 and $ocsf.activity_id == 2 else 0)
 
 drop $event.type?
 drop $event.threat_content_type?
