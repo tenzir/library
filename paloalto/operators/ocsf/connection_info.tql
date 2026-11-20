@@ -1,0 +1,30 @@
+---
+description: |
+  Maps a PAN-OS session to OCSF connection info.
+
+  PAN-OS names the IP protocol, such as `tcp`, but some forwarders write its
+  number, such as `6`. A name becomes `protocol_name` and a number
+  `protocol_num`; the mapper adds the other one when IANA assigns it.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The structured source event.
+    - name: ocsf
+      type: field
+      description: The OCSF output field.
+---
+
+$ocsf.connection_info = {
+  direction_id: 0,
+  uid: (move $event.session_id?).string(),
+}
+$ocsf._protocol = (move $event.protocol? else move $event.ip_protocol?).string()
+if $ocsf._protocol.match_regex("^[0-9]+$") {
+  $ocsf.connection_info.protocol_num = $ocsf._protocol.int()
+  $ocsf.connection_info.protocol_name = paloalto::$protocol_names[$ocsf._protocol]?
+} else if $ocsf._protocol != null {
+  $ocsf.connection_info.protocol_name = $ocsf._protocol.to_lower()
+  $ocsf.connection_info.protocol_num = paloalto::$protocol_numbers[$ocsf._protocol.to_lower()]?
+}
+drop $ocsf._protocol
