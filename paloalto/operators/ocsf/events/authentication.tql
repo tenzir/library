@@ -1,0 +1,80 @@
+---
+description: Palo Alto Networks PAN-OS Authentication record -> OCSF Authentication.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// The firewall writes an Authentication record for each authentication
+// factor that a user completes or fails against an authentication policy,
+// the authentication portal, or another firewall service.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/authentication-log-fields
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.authentication"
+
+// The event type is the result of the authentication attempt.
+let $status_ids = {
+  "auth-success": 1,
+  "auth-fail": 2,
+  "auth-failure": 2,
+  "auth-timeout": 2,
+  "authentication timeout": 2,
+}
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1
+$ocsf.type_uid = 300201
+drop $ocsf.activity_name?
+$ocsf.metadata.profiles = ["security_control"]
+// PAN-OS writes users as `domain\user`; OCSF splits domain and name.
+if $event.user? != null {
+  $ocsf.user = {
+    name: $event.user.split("\\", max=1)[1]? else $event.user,
+    domain: $event.user.split("\\", max=1)[0] if $event.user.split("\\", max=1).length() == 2 else null,
+  }
+  drop $event.user
+}
+$ocsf.src_endpoint = {
+  ip: move $event.source_ip?,
+  hostname: move $event.source_hostname?,
+  mac: move $event.source_mac_address?,
+}
+// The client type names the firewall service that authenticated the user,
+// such as the authentication portal.
+if $event.client_type? != null {
+  $ocsf.service = {name: move $event.client_type}
+}
+// A record of an additional factor proves multi-factor authentication. A first
+// factor record does not tell whether more factors follow.
+if $event.factor_number? > 1 {
+  $ocsf.is_mfa = true
+}
+if ($event.authentication_policy? else $event.uuid_for_rule?) != null {
+  $ocsf.policy = {
+    name: move $event.authentication_policy?,
+    uid: move $event.uuid_for_rule?,
+  }
+}
+// The authentication ID is shared by the records of all factors of one
+// authentication.
+$ocsf.metadata.correlation_uid = move $event.authentication_id?
+if paloalto::$auth_protocol_ids[$event.authentication_protocol?.to_lower()]? != null {
+  $ocsf.auth_protocol_id = paloalto::$auth_protocol_ids[$event.authentication_protocol.to_lower()]
+  drop $event.authentication_protocol
+} else if $event.authentication_protocol? != null {
+  $ocsf.auth_protocol_id = 99
+  $ocsf.auth_protocol = move $event.authentication_protocol
+}
+if $status_ids[$event.event_type?.to_lower()]? != null {
+  $ocsf.status_id = $status_ids[$event.event_type.to_lower()]
+  $ocsf.status_detail = move $event.event_type
+}
+if $event.user_agent? != null {
+  $ocsf.http_request = {user_agent: move $event.user_agent}
+}
