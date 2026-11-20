@@ -1,3 +1,7 @@
+---
+pre-compare: sort
+---
+
 // Synthetic PAN-OS URL Filtering records; every value is invented. The column
 // order follows the PAN-OS 11.1 URL Filtering log fields.
 // https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
@@ -7,9 +11,10 @@
 // OCSF equivalent become category IDs, others become `Other` with their label;
 // risk ratings are no categories. A category can have two OCSF equivalents.
 // The labels stay in `unmapped`.
-from {content: "1,2026/05/29 14:00:01,000700000042,THREAT,url,,2026/05/29 14:00:00,192.0.2.100,198.51.100.100,,,web-policy,,,web-browsing,,,,,,,,,,50300,80,,,,tcp,alert,www.example.test/news/today,(9999),news,informational,,7401,,,,,,,,,,,,\"203.0.113.7, 2001:db8::7\",,,,,,,,,,,fw-example-1,,,,get,,,,,,,,,,,,\"news,low-risk\",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"},
-  {content: "1,2026/05/29 14:00:01,000700000042,THREAT,url,,2026/05/29 14:00:00,192.0.2.100,198.51.100.100,,,web-policy,,,web-browsing,,,,,,,,,,50300,80,,,,tcp,alert,coins.example.test/,(9999),cryptocurrency,informational,,7402,,,,,,,,,,,,\"unknown, 203.0.113.8\",,,,,,,,,,,fw-example-1,,,,propfind,,,,,,,,,,,,\"cryptocurrency,medium-risk\",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"},
-  {content: "1,2026/05/29 14:00:01,000700000042,THREAT,url,,2026/05/29 14:00:00,192.0.2.100,198.51.100.100,,,web-policy,,,web-browsing,,,,,,,,,,50300,80,,,,tcp,alert,shop.example.test/,(9999),alcohol-and-tobacco,informational,,7403,,,,,,,,,,,,,,,,,,,,,,,fw-example-1,,,,post,,,,,,,,,,,,\"alcohol-and-tobacco,entertainment-and-arts,low-risk\",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"}
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
 paloalto::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
 select metadata.sequence, activity_id, activity_name, http_request, unmapped.category, unmapped.url_category_list, unmapped.x_forwarded_for?

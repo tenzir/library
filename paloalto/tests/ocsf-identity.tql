@@ -1,3 +1,7 @@
+---
+pre-compare: sort
+---
+
 // Synthetic PAN-OS records; every value is invented. The column order follows
 // the PAN-OS 11.1 Traffic and Threat log fields.
 // https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
@@ -5,8 +9,10 @@
 // The firewall that logged a record is its reporter. Serial number, log type,
 // and sequence number identify the record and the finding. The elapsed time
 // becomes the duration, and the log type and subtype stay searchable.
-from {content: r"1,2026/05/29 17:00:01,000700000042,TRAFFIC,end,,2026/05/29 17:00:00,192.0.2.130,198.51.100.130,,,allow-web,example\carol,,ssl,,,,,,,,,1,50500,443,,,,tcp,allow,5000,1000,4000,20,2026/05/29 16:59:00,60,,,7701,,,,,,,tcp-fin,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"},
-  {content: r"1,2026/05/29 17:00:01,000700000042,THREAT,spyware,,2026/05/29 17:00:00,192.0.2.130,198.51.100.130,203.0.113.13,,allow-web,carol@example.test,example\svc-web,ssl,,,,,,,,,,50500,443,40500,,,tcp,alert,,Example Command and Control Traffic(13000),spyware,high,,7702,,,,,,,,,,,,,,,,,,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"}
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
 paloalto::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
 this = {
