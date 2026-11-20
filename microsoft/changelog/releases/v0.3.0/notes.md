@@ -560,9 +560,9 @@ Service Control Manager events now have an actor when the event names one, faile
 |                                             | Before                            | Now                                                                                  |
 | ------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
 | `status_detail`                             | Not set                           | `error 0x8000000B: Opening the package from location … failed.`, from `SummaryError` |
-| `application`, deployment without a package | Built from empty fields (warning) | Not set                                                                              |
+| `application`, deployment without a package | Built from empty fields (warning) | Not set (warning: Application Lifecycle requires an application)                     |
 
-**Why:** a failed deployment explains the failure only in `SummaryError`, and when Windows couldn't open the package, `PackageFullName` is empty. An application with only empty fields identifies nothing, so the mapping leaves it out.
+**Why:** a failed deployment explains the failure only in `SummaryError`, and when Windows couldn't open the package, `PackageFullName` is empty. An application with only empty fields identifies nothing, so the mapping leaves it out and accepts the warning that the class requires one.
 
 #### PowerShell script block invocations
 
