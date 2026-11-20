@@ -35,7 +35,6 @@ if $ocsf.activity_id == 99 {
   $ocsf.activity_name = $event.http_method.to_upper()
 }
 $ocsf.type_uid = 400200 + $ocsf.activity_id
-$ocsf.status_id = 1
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.app_name = move $event.application?
 paloalto::ocsf::endpoints $event, $ocsf
@@ -81,6 +80,9 @@ if ($event.rule_name? else $event.rule_uuid?) != null {
   }
 }
 paloalto::ocsf::action $event, $ocsf
+// A blocked request failed. PAN-OS does not record the HTTP response, so an
+// allowed request has an unknown outcome.
+$ocsf.status_id = 2 if $ocsf.action_id? == 2 else 0
 if $ocsf.action_id? != null {
   $ocsf.is_alert = $ocsf.action_id == 3
 }
