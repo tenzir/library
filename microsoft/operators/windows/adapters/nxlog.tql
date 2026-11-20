@@ -1,13 +1,40 @@
 ---
 description: |
-  Adapts a structured Windows Event Log event collected by NXLog to the canonical Windows
-  Event Log structure. Read its JSON with `unflatten_separator="."`. Only NXLog
-  Enterprise Edition supports `AddPrefix TRUE`, which keeps provider fields
-  under `EventData` apart from NXLog metadata. NXLog Community Edition rejects
-  `AddPrefix` and `CaptureEventXML`: it delivers EventData fields flat, drops
-  unnamed `<Data>`, `<Binary>`, and `UserData`, and overwrites EventData fields
-  that share a name with NXLog fields, such as `ProcessId`, `EventType`, or
-  `AccountName`, with NXLog's values.
+  Adapts a Windows Event Log event that NXLog's `im_msvistalog` module
+  collected to the canonical Windows Event Log structure. Read NXLog's JSON
+  output (`to_json()`) with `unflatten_separator="."`.
+
+  With NXLog Enterprise Edition and `CaptureEventXML TRUE`, the adapter reads
+  the event from its XML in `EventXML`, like a natively collected event, and
+  adds only NXLog's metadata and rendered message. This is the only NXLog
+  configuration that yields the same event as native collection. With
+  `AddPrefix TRUE`, Enterprise Edition keeps the event data fields under
+  `EventData`.
+
+  NXLog Community Edition supports neither option, so the adapter rebuilds the
+  event from NXLog's fields:
+
+  - Community Edition drops unnamed `<Data>` elements, `<Binary>`, and
+    `UserData`, so their values are lost. For Eventlog 104 and Security 1102,
+    the adapter rebuilds `UserData` from the account that NXLog resolves and
+    from the English message, but the client process is lost.
+  - It writes event data fields next to its own fields and overwrites those
+    whose name matches an NXLog field in any case, such as `ProcessId`,
+    `EventType`, `Version`, `AccountName`, `Domain`, `Category`, or
+    `Severity`. The adapter recovers these values from the rendered message of
+    English Windows: Sysmon's `Key: value` lines, the `Process ID` and
+    `Creator Process ID` of Security-Auditing events, the faulting process ID
+    of Application Error 1000, and the service account of Service Control
+    Manager 7045. Other languages and other providers lose them.
+  - It keeps the XML escaping of event data values, such as `&lt;` for `<`,
+    which the adapter decodes.
+  - It writes `EventTime` and `EventReceivedTime` in the local time of the
+    Windows host, without a time zone and with second precision, which the
+    adapter reads as UTC. With
+    `Exec $EventTime = integer($EventTime); $EventReceivedTime = integer($EventReceivedTime);`
+    in the input, NXLog writes microseconds since the Unix epoch instead,
+    which the adapter reads exactly.
+  - It writes no level, which the adapter derives from `EventType`.
 args:
   positional:
     - name: input
@@ -18,64 +45,248 @@ args:
       description: The field that receives the canonical Windows Event Log record.
 ---
 
-$windows = {nxlog: $input}
-$windows.canonical = {
-  System: {
-    Provider: {
-      Name: move $windows.nxlog.SourceName?,
-      Guid: move $windows.nxlog.ProviderGuid?,
-    },
-    EventID: move $windows.nxlog.EventID,
-    Version: move $windows.nxlog.Version?,
-    Level: move $windows.nxlog.LevelValue?,
-    Task: (
-      move $windows.nxlog.Task?
-    ) else (
-      move $windows.nxlog.TaskValue?
-    ),
-    Opcode: move $windows.nxlog.OpcodeValue?,
-    Keywords: move $windows.nxlog.Keywords?,
-    TimeCreated: {
-      SystemTime: move $windows.nxlog.EventTime?,
-    },
-    EventRecordID: move $windows.nxlog.RecordNumber?,
-    Execution: {
-      ProcessID: (
-        move $windows.nxlog.ProcessID?
-      ) else (
-        move $windows.nxlog.ExecutionProcessID?
-      ),
-      ThreadID: (
-        move $windows.nxlog.ThreadID?
-      ) else (
-        move $windows.nxlog.ExecutionThreadID?
-      ),
-    },
-    Channel: move $windows.nxlog.Channel?,
-    Computer: move $windows.nxlog.Hostname?,
-    Security: {
-      UserID: move $windows.nxlog.UserID?,
-    },
-  },
-  RenderingInfo: {
-    Message: move $windows.nxlog.Message?,
-  },
-  NXLog: {
-    event_received_time: move $windows.nxlog.EventReceivedTime?,
-    module_name: move $windows.nxlog.SourceModuleName?,
-    module_type: move $windows.nxlog.SourceModuleType?,
-    severity: move $windows.nxlog.Severity?,
-    severity_value: move $windows.nxlog.SeverityValue?,
-    level: move $windows.nxlog.Level?,
-    category: move $windows.nxlog.Category?,
-    opcode: move $windows.nxlog.Opcode?,
-    activity_uid: move $windows.nxlog.ActivityID?,
-    related_activity_uid: move $windows.nxlog.RelatedActivityID?,
-    raw_event: move $windows.nxlog.raw_event?,
-    event_xml: move $windows.nxlog.EventXML?,
-  },
-}
+let $hex_digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
 
+$windows = {nxlog: $input}
+// NXLog's own fields, which describe the collection or name System values.
+$windows.metadata = {
+  event_received_time: move $windows.nxlog.EventReceivedTime?,
+  module_name: move $windows.nxlog.SourceModuleName?,
+  module_type: move $windows.nxlog.SourceModuleType?,
+  event_type: move $windows.nxlog.EventType?,
+  severity: move $windows.nxlog.Severity?,
+  severity_value: move $windows.nxlog.SeverityValue?,
+  level: move $windows.nxlog.Level?,
+  category: move $windows.nxlog.Category?,
+  opcode: move $windows.nxlog.Opcode?,
+  raw_event: move $windows.nxlog.raw_event?,
+}
+// NXLog resolves the user of `UserID` into `AccountName`, `Domain`, and
+// `AccountType`. Without a `UserID`, these fields are event data.
+if (
+  $windows.nxlog.UserID? != null
+    and (
+      $windows.nxlog.AccountName? != null
+        or $windows.nxlog.Domain? != null
+        or $windows.nxlog.AccountType? != null
+    )
+) {
+  $windows.metadata.account = {
+    name: move $windows.nxlog.AccountName?,
+    domain: move $windows.nxlog.Domain?,
+    type: move $windows.nxlog.AccountType?,
+  }
+}
+if type_kind($windows.nxlog.EventXML?) == "string" {
+  // NXLog Enterprise Edition with `CaptureEventXML TRUE` delivers the event as
+  // Windows renders it. NXLog's other fields repeat values of the XML.
+  $windows.canonical = (move $windows.nxlog.EventXML).parse_winlog(raw=true)
+  if $windows.canonical.RenderingInfo?.Message? == null {
+    $windows.canonical.RenderingInfo.Message = $windows.nxlog.Message?
+  }
+  $windows.nxlog = {}
+} else {
+  $windows.canonical = {
+    System: {
+      Provider: {
+        Name: move $windows.nxlog.SourceName?,
+        // Windows writes GUIDs in lower case, NXLog in upper case.
+        Guid: (move $windows.nxlog.ProviderGuid?).to_lower(),
+      },
+      EventID: move $windows.nxlog.EventID,
+      Version: move $windows.nxlog.Version?,
+      // NXLog Enterprise Edition writes the level, Community Edition only
+      // the `EventType` caption that it derives from the level.
+      Level: (
+        move $windows.nxlog.LevelValue?
+      ) else (
+        microsoft::$nxlog_event_type_levels[$windows.metadata.event_type]?
+      ),
+      Task: (
+        move $windows.nxlog.Task?
+      ) else (
+        move $windows.nxlog.TaskValue?
+      ),
+      Opcode: move $windows.nxlog.OpcodeValue?,
+      Keywords: move $windows.nxlog.Keywords?,
+      TimeCreated: {
+        SystemTime: move $windows.nxlog.EventTime?,
+      },
+      EventRecordID: move $windows.nxlog.RecordNumber?,
+      Correlation: {
+        ActivityID: (move $windows.nxlog.ActivityID?).to_lower(),
+        RelatedActivityID: (move $windows.nxlog.RelatedActivityID?).to_lower(),
+      },
+      Execution: {
+        ProcessID: (
+          move $windows.nxlog.ProcessID?
+        ) else (
+          move $windows.nxlog.ExecutionProcessID?
+        ),
+        ThreadID: (
+          move $windows.nxlog.ThreadID?
+        ) else (
+          move $windows.nxlog.ExecutionThreadID?
+        ),
+      },
+      Channel: move $windows.nxlog.Channel?,
+      Computer: move $windows.nxlog.Hostname?,
+      Security: {
+        UserID: move $windows.nxlog.UserID?,
+      },
+    },
+    RenderingInfo: {
+      Message: move $windows.nxlog.Message?,
+    },
+  }
+  // NXLog writes the keywords mask as a signed 64-bit integer, such as
+  // -9223372036854775808, whereas Windows writes it in hexadecimal, such as
+  // 0x8000000000000000. Render the 16 nibbles of its two's complement without
+  // leading zeros, as Windows does. JSON readers with `raw=true` keep the
+  // integer as a string.
+  if type_kind($windows.canonical.System.Keywords) == "string" and $windows.canonical.System.Keywords.match_regex(r"^-?[0-9]+$") {
+    $windows.canonical.System.Keywords = $windows.canonical.System.Keywords.int()
+  }
+  if type_kind($windows.canonical.System.Keywords) == "int" {
+    $windows.canonical.System.Keywords = "0x" + (
+      [60, 56, 52, 48, 44, 40, 36, 32, 28, 24, 20, 16, 12, 8, 4, 0]
+        .map(shift => $hex_digits[bit_and(shift_right($windows.canonical.System.Keywords, shift), 15)])
+        .join("")
+        .replace_regex("^0+(.)", r"\1")
+    )
+  }
+  // NXLog writes the local time of the Windows host without a time zone, such
+  // as `2026-03-26 03:11:05`, which reads as UTC. With
+  // `Exec $EventTime = integer($EventTime);`, it writes microseconds since the
+  // Unix epoch instead.
+  if type_kind($windows.canonical.System.TimeCreated.SystemTime) == "string" and $windows.canonical.System.TimeCreated.SystemTime.match_regex(r"^[0-9]+$") {
+    $windows.canonical.System.TimeCreated.SystemTime = $windows.canonical.System.TimeCreated.SystemTime.int()
+  }
+  if type_kind($windows.canonical.System.TimeCreated.SystemTime) == "int" {
+    $windows.canonical.System.TimeCreated.SystemTime = from_epoch($windows.canonical.System.TimeCreated.SystemTime * 1us)
+  } else if type_kind($windows.canonical.System.TimeCreated.SystemTime) == "string" {
+    $windows.canonical.System.TimeCreated.SystemTime = time($windows.canonical.System.TimeCreated.SystemTime)
+  }
+  $windows.message = $windows.canonical.RenderingInfo.Message
+  if type_kind($windows.message) != "string" {
+    $windows.message = ""
+  }
+  if $windows.nxlog.EventData? != null {
+    // With `AddPrefix TRUE`, NXLog writes the event data under `EventData`,
+    // and the remaining fields are NXLog metadata.
+    $windows.canonical.EventData = move $windows.nxlog.EventData
+  } else {
+    // Without `AddPrefix`, every remaining field is event data.
+    $windows.canonical.EventData = move $windows.nxlog
+    $windows.nxlog = {}
+    // Recover the event data fields that NXLog overwrote with its own from
+    // the rendered message.
+    if $windows.canonical.System.Provider.Name == "Microsoft-Windows-Sysmon" {
+      // Sysmon labels each value with the name of its field. Its fields
+      // `ProcessId`, `EventType`, and `Version` (EID 4) share their names
+      // with NXLog fields.
+      if $windows.message.match_regex(r"\nProcessId: ") {
+        $windows.canonical.EventData.ProcessId = $windows.message.replace_regex(r"(?s)^.*?\nProcessId: ([^\r\n]*).*$", r"\1")
+      }
+      if $windows.message.match_regex(r"\nEventType: ") {
+        $windows.canonical.EventData.EventType = $windows.message.replace_regex(r"(?s)^.*?\nEventType: ([^\r\n]*).*$", r"\1")
+      }
+      if $windows.message.match_regex(r"\nVersion: ") {
+        $windows.canonical.EventData.Version = $windows.message.replace_regex(r"(?s)^.*?\nVersion: ([^\r\n]*).*$", r"\1")
+      }
+    } else if (
+      $windows.canonical.System.Provider.Name == "Microsoft-Windows-Security-Auditing"
+        and $windows.canonical.EventData.ProcessId? == null
+        and $windows.message.match_regex(r"\n\t(Creator )?Process ID:\t+0x[0-9A-Fa-f]+")
+    ) {
+      // `Process ID` renders `ProcessId`, and `Creator Process ID` that of
+      // 4688. Events such as 4799 render `CallerProcessId` in the same way,
+      // so skip a process ID that another field holds.
+      $windows.process_id = $windows.message.replace_regex(r"(?s)^.*?\n\t(?:Creator )?Process ID:\t+(0x[0-9A-Fa-f]+).*$", r"\1").to_lower()
+      if $windows.canonical.EventData.entries().where(field =>
+        field.key.to_lower().ends_with("processid")
+          and type_kind(field.value) == "string"
+          and field.value.to_lower() == $windows.process_id
+      ).is_empty() {
+        $windows.canonical.EventData.ProcessId = $windows.process_id
+      }
+    } else if (
+      $windows.canonical.System.Provider.Name == "Application Error"
+        and $windows.canonical.EventData.ProcessId? == null
+        and $windows.message.match_regex(r"\nFaulting process id: 0x[0-9A-Fa-f]+")
+    ) {
+      $windows.canonical.EventData.ProcessId = $windows.message.replace_regex(r"(?s)^.*?\nFaulting process id: (0x[0-9A-Fa-f]+).*$", r"\1").to_lower()
+    } else if (
+      $windows.canonical.System.Provider.Name == "Service Control Manager"
+        and $windows.canonical.System.EventID.int() == 7045
+        and $windows.canonical.EventData.AccountName? == null
+        and $windows.message.match_regex(r"\nService Account: +[^\r\n]")
+    ) {
+      $windows.canonical.EventData.AccountName = $windows.message.replace_regex(r"(?s)^.*?\nService Account: +([^\r\n]*).*$", r"\1")
+    }
+  }
+  if $windows.canonical.EventData.is_empty() {
+    drop $windows.canonical.EventData
+  } else if "&" in $windows.canonical.EventData.print_json() {
+    // NXLog keeps the XML escaping of event data values. Decode `&amp;` last,
+    // so that an escaped entity, such as `&amp;lt;`, stays literal text.
+    // Searching the JSON first skips the many events without any `&`.
+    $windows.canonical.EventData = collect_record($windows.canonical.EventData.entries().map(field => [
+      field.key,
+      (
+        field.value
+          .replace("&lt;", "<")
+          .replace("&gt;", ">")
+          .replace("&quot;", "\"")
+          .replace("&apos;", "'")
+          .replace("&amp;", "&")
+          if "&" in field.value else field.value
+      ) if type_kind(field.value) == "string" else field.value,
+    ]))
+  }
+  // NXLog drops the `UserData` of cleared event logs. Rebuild it from the
+  // account that NXLog resolves (Eventlog 104) or from the subject of the
+  // English message (Security 1102), and take the name of the cleared log
+  // from the English message of Eventlog 104.
+  if (
+    $windows.canonical.System.Provider.Name == "Microsoft-Windows-Eventlog"
+      and $windows.canonical.EventData? == null
+  ) {
+    if $windows.canonical.System.EventID.int() == 104 {
+      $windows.canonical.UserData.LogFileCleared = {
+        SubjectUserName: $windows.metadata.account?.name?,
+        SubjectDomainName: $windows.metadata.account?.domain?,
+        Channel: $windows.message.replace_regex(r"(?s)^The (.+) log file was cleared\.\s*$", r"\1")
+          if $windows.message.match_regex(r"^The .+ log file was cleared\.\s*$") else null,
+      }
+    } else if $windows.canonical.System.EventID.int() == 1102 {
+      $windows.canonical.UserData.LogFileCleared = {
+        SubjectUserSid: $windows.message.replace_regex(r"(?s)^.*?\n\tSecurity ID:\t+([^\r\n]+).*$", r"\1")
+          if $windows.message.match_regex(r"\n\tSecurity ID:\t+[^\r\n]") else null,
+        SubjectUserName: $windows.message.replace_regex(r"(?s)^.*?\n\tAccount Name:\t+([^\r\n]+).*$", r"\1")
+          if $windows.message.match_regex(r"\n\tAccount Name:\t+[^\r\n]") else null,
+        SubjectDomainName: $windows.message.replace_regex(r"(?s)^.*?\n\tDomain Name:\t+([^\r\n]+).*$", r"\1")
+          if $windows.message.match_regex(r"\n\tDomain Name:\t+[^\r\n]") else null,
+        SubjectLogonId: $windows.message.replace_regex(r"(?s)^.*?\n\tLogon ID:\t+(0x[0-9A-Fa-f]+).*$", r"\1").to_lower()
+          if $windows.message.match_regex(r"\n\tLogon ID:\t+0x[0-9A-Fa-f]") else null,
+      }
+    }
+    if $windows.canonical.UserData? != null {
+      $windows.canonical.UserData.LogFileCleared = drop_null_fields($windows.canonical.UserData.LogFileCleared)
+      if $windows.canonical.UserData.LogFileCleared.is_empty() {
+        drop $windows.canonical.UserData
+      }
+    }
+  }
+}
+if type_kind($windows.metadata.event_received_time) == "string" and $windows.metadata.event_received_time.match_regex(r"^[0-9]+$") {
+  $windows.metadata.event_received_time = $windows.metadata.event_received_time.int()
+}
+if type_kind($windows.metadata.event_received_time) == "int" {
+  $windows.metadata.event_received_time = from_epoch($windows.metadata.event_received_time * 1us)
+} else if type_kind($windows.metadata.event_received_time) == "string" {
+  $windows.metadata.event_received_time = time($windows.metadata.event_received_time)
+}
 $windows.canonical.Logger = {
   device: {
     hostname: $windows.canonical.System.Computer,
@@ -83,45 +294,15 @@ $windows.canonical.Logger = {
   },
   log_name: $windows.canonical.System.Channel,
   log_provider: "NXLog",
-  logged_time: move $windows.canonical.NXLog.event_received_time?,
-  name: move $windows.canonical.NXLog.module_name?,
+  logged_time: move $windows.metadata.event_received_time,
+  name: move $windows.metadata.module_name,
   product: {
     name: "NXLog",
     vendor_name: "NXLog",
   },
 }
-
-if (
-  $windows.nxlog.AccountName? != null
-  or $windows.nxlog.Domain? != null
-  or $windows.nxlog.AccountType? != null
-) {
-  $windows.canonical.NXLog.account = {
-    name: move $windows.nxlog.AccountName?,
-    domain: move $windows.nxlog.Domain?,
-    type: move $windows.nxlog.AccountType?,
-  }
-}
-
-// Without AddPrefix, which only NXLog Enterprise Edition supports, NXLog and
-// Sysmon may both emit `EventType` into the same flat field. Preserve a
-// non-severity value as Sysmon EventData, but treat every documented NXLog
-// severity caption as collector metadata.
-if (
-  $windows.nxlog.EventData? != null
-  or $windows.nxlog.EventType? in microsoft::$nxlog_event_types
-) {
-  $windows.canonical.NXLog.event_type = move $windows.nxlog.EventType?
-}
-
-if $windows.nxlog.EventData? != null {
-  $windows.canonical.EventData = move $windows.nxlog.EventData
-  $windows.canonical.NXLog = {
-    ...$windows.canonical.NXLog,
-    ...move $windows.nxlog,
-  }
-} else {
-  $windows.canonical.EventData = move $windows.nxlog
-}
-$windows.canonical.NXLog = drop_null_fields($windows.canonical.NXLog)
+$windows.canonical.NXLog = drop_null_fields({
+  ...move $windows.metadata,
+  ...move $windows.nxlog,
+})
 $windows = move $windows.canonical
