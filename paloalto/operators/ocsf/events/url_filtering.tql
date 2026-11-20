@@ -73,10 +73,20 @@ if $event.url_filename? != null {
   // categories including a risk rating. Translate the categories that have an
   // OCSF equivalent; other categories become `Other` with their PAN-DB label.
   // The PAN-DB labels also stay in `unmapped`.
-  $ocsf._categories = ($event.url_category_list? else $event.category?).split(",").map(label => label.trim()).where(label => label != "" and label not in paloalto::$url_risk_ratings).map(label => {
-    id: paloalto::$url_category_ids[label]? else 99,
-    caption: null if paloalto::$url_category_ids.has(label) else label,
-  }).distinct()
+  $ocsf._labels = ($event.url_category_list? else $event.category?).split(",").map(label => label.trim()).where(label => label != "" and label not in paloalto::$url_risk_ratings)
+  // A PAN-DB category can correspond to two OCSF categories, such as
+  // `alcohol-and-tobacco`.
+  $ocsf._categories = [
+    ...$ocsf._labels.map(label => {
+      id: paloalto::$url_category_ids[label]?[0]? else 99,
+      caption: null if paloalto::$url_category_ids.has(label) else label,
+    }),
+    ...$ocsf._labels.where(label => paloalto::$url_category_ids[label]?[1]? != null).map(label => {
+      id: paloalto::$url_category_ids[label][1],
+      caption: null,
+    }),
+  ].distinct()
+  drop $ocsf._labels
   if $ocsf._categories.length() > 0 {
     $ocsf.http_request.url.category_ids = $ocsf._categories.map(category => category.id)
     // `ocsf_derive` fills in the captions of the translated categories.
