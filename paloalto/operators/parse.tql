@@ -1452,6 +1452,12 @@ $paloalto = {
   input: $input,
   columns: $input.replace_regex(r#",\{[^{}"]*\}(,|$)"#, r#",x\1"#).replace_regex(r#""([^"]|"")*""#, "x").split(",").length(),
 }
+// PAN-OS 9.1 and 10.0 write fewer columns than later versions, and their
+// columns are a prefix of the later ones. Records with exactly these numbers
+// of columns fill the missing columns with null without a warning; all other
+// short records keep the warning.
+// Source: https://docs.paloaltonetworks.com/pan-os/9-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions
+// Source: https://docs.paloaltonetworks.com/pan-os/10-0/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions
 match $paloalto.input.split(",", max=5)[3]? {
   "TRAFFIC" => {
     // SD-WAN link details are a brace-enclosed list that PAN-OS writes
@@ -1459,23 +1465,39 @@ match $paloalto.input.split(",", max=5)[3]? {
     // spans whole columns, so that it stays one column and the tail keeps its
     // positions. Other values with braces stay as they are.
     $paloalto.input = $paloalto.input.replace_regex(r#",(\{[^{}"]*\})(,|$)"#, r#","\1"\2"#)
-    $paloalto = $paloalto.input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [75, 105] {
+      $paloalto = $paloalto.input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.traffic"
   }
   "GLOBALPROTECT" => {
-    $paloalto = $paloalto.input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [42] {
+      $paloalto = $paloalto.input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$globalprotect_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.globalprotect"
   }
   "URL-FILTERING" => {
     if $paloalto.columns >= 125 {
       $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
     } else {
-      $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true)
+      if $paloalto.columns in [79, 111] {
+        $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+      } else {
+        $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true)
+      }
     }
     @name = "paloalto.url-filtering"
   }
   "DATA-FILTERING" => {
-    $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [79, 111] {
+      $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.data-filtering"
   }
   "THREAT" => {
@@ -1484,16 +1506,28 @@ match $paloalto.input.split(",", max=5)[3]? {
         if $paloalto.columns >= 125 {
           $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
         } else {
-          $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true)
+          if $paloalto.columns in [79, 111] {
+            $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+          } else {
+            $paloalto = $paloalto.input.parse_csv(header=$url_filtering_fields_without_response, raw=true, list_separator="", quotes="\"", auto_expand=true)
+          }
         }
         @name = "paloalto.url-filtering"
       }
       "data" | "dlp" | "dlp-non-file" => {
-        $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+        if $paloalto.columns in [79, 111] {
+          $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+        } else {
+          $paloalto = $paloalto.input.parse_csv(header=$data_filtering_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+        }
         @name = "paloalto.data-filtering"
       }
       _ => {
-        $paloalto = $paloalto.input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+        if $paloalto.columns in [79, 111] {
+          $paloalto = $paloalto.input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+        } else {
+          $paloalto = $paloalto.input.parse_csv(header=$threat_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+        }
         @name = "paloalto.threat"
       }
     }
@@ -1501,7 +1535,11 @@ match $paloalto.input.split(",", max=5)[3]? {
   // PAN-OS 11 writes `HIPMATCH`; the hyphenated spelling is the documented
   // log name.
   "HIP-MATCH" | "HIPMATCH" => {
-    $paloalto = $paloalto.input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [29, 31] {
+      $paloalto = $paloalto.input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$hip_match_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.hip-match"
   }
   "IPTAG" | "IP-TAGS" => {
@@ -1513,17 +1551,29 @@ match $paloalto.input.split(",", max=5)[3]? {
     @name = "paloalto.user-id"
   }
   "DECRYPTION" => {
-    $paloalto = $paloalto.input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [91] {
+      $paloalto = $paloalto.input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$decryption_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.decryption"
   }
   // Tunnel Inspection records carry their lifecycle stage, `START` or `END`,
   // in the type column.
   "TUNNEL" | "TUNNEL-INSPECTION" | "START" | "END" => {
-    $paloalto = $paloalto.input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [69, 75] {
+      $paloalto = $paloalto.input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$tunnel_inspection_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.tunnel-inspection"
   }
   "SCTP" => {
-    $paloalto = $paloalto.input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [64] {
+      $paloalto = $paloalto.input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$sctp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.sctp"
   }
   "CONFIG" => {
@@ -1531,7 +1581,11 @@ match $paloalto.input.split(",", max=5)[3]? {
     // sequence number directly after the configuration path.
     $paloalto.parsed = $paloalto.input.parse_csv(header=$config_fields_without_details, raw=true, list_separator="", quotes="\"", auto_expand=true)
     if not (($paloalto.parsed.sequence_number?.match_regex("^[0-9]+$") else false) and ($paloalto.parsed.action_flags?.match_regex("^0x[0-9A-Fa-f]+$") else false)) {
-      $paloalto = $paloalto.input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+      if $paloalto.columns in [26] {
+        $paloalto = $paloalto.input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+      } else {
+        $paloalto = $paloalto.input.parse_csv(header=$config_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+      }
     } else {
       $paloalto = $paloalto.parsed
     }
@@ -1539,11 +1593,19 @@ match $paloalto.input.split(",", max=5)[3]? {
   }
   // Older PAN-OS versions write `AUTH` instead of `AUTHENTICATION`.
   "AUTHENTICATION" | "AUTH" => {
-    $paloalto = $paloalto.input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [33, 46] {
+      $paloalto = $paloalto.input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$authentication_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.authentication"
   }
   "SYSTEM" => {
-    $paloalto = $paloalto.input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [23] {
+      $paloalto = $paloalto.input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$system_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.system"
   }
   "CORRELATION" => {
@@ -1551,7 +1613,11 @@ match $paloalto.input.split(",", max=5)[3]? {
     @name = "paloalto.correlation"
   }
   "GTP" => {
-    $paloalto = $paloalto.input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    if $paloalto.columns in [83, 84] {
+      $paloalto = $paloalto.input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
+    } else {
+      $paloalto = $paloalto.input.parse_csv(header=$gtp_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
+    }
     @name = "paloalto.gtp"
   }
   "AUDIT" => {
