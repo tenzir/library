@@ -1,0 +1,36 @@
+---
+description: |
+  Maps an operating system name that Microsoft Graph reports, such as
+  `Windows 10`, `iOS`, or `MacOs`, to an OCSF operating system.
+args:
+  positional:
+    - name: name
+      type: field
+      description: The reported operating system name, which the operator consumes. Must not be null.
+    - name: os
+      type: field
+      description: The field that receives the OCSF operating system.
+---
+
+// Entra ID and Intune report the platform by name, with varying case and
+// often a version, so the prefix identifies the OCSF type.
+let $types = [
+  {prefix: "windows phone", id: 101},
+  {prefix: "windows mobile", id: 101},
+  {prefix: "windows", id: 100},
+  {prefix: "android", id: 201},
+  {prefix: "ipados", id: 302},
+  {prefix: "ios", id: 301},
+  {prefix: "macos", id: 300},
+  {prefix: "mac os", id: 300},
+  {prefix: "linux", id: 200},
+]
+$os = {
+  name: $name,
+  type_id: $types.where(t => $name.to_lower().starts_with(t.prefix))[0]?.id? else 99,
+}
+// Other carries the reported name as its caption.
+if $os.type_id == 99 {
+  $os.type = $name
+}
+drop $name
