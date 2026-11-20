@@ -26,12 +26,18 @@ paloalto::parse $into.source.content, $into.paloalto
 if $into.paloalto == null {
   $into.paloalto = {}
 }
-$into.paloalto.time = $into.source.timestamp?
+// The Syslog timestamp is when the carrier sent the message. Use it only as a
+// last resort for the event time, and only when it is a complete time: an
+// RFC 3164 timestamp has neither a year nor a zone. It also stays in
+// `unmapped.timestamp`, distinct from the PAN-OS generated and receive times.
+if type_kind($into.source.timestamp?) == "time" {
+  $into.paloalto.time = $into.source.timestamp
+}
 paloalto::ocsf::map $into.paloalto, $into.ocsf
 
 $into.ocsf.raw_data = $into.source.content
 $into.ocsf.raw_data_size = $into.source.content?.length_bytes()
-drop $into.source.content?, $into.source.timestamp?
+drop $into.source.content?
 $into.ocsf.unmapped = {
   ...$into.source,
   ...$into.ocsf.unmapped,
