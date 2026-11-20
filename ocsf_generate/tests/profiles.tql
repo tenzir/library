@@ -1,0 +1,47 @@
+ocsf_generate::generate count=32768, raw="none"
+if "container" in (metadata.profiles? else []) {
+  assert process.container.uid != null and process.container.image.uid != null
+}
+if "data_classification" in (metadata.profiles? else []) {
+  assert file.data_classifications[0].confidentiality_id == 2
+}
+if "datetime" in (metadata.profiles? else []) {
+  assert time_dt == time
+  assert type_id(time_dt) == type_id(now())
+}
+if "load_balancer" in (metadata.profiles? else []) {
+  assert load_balancer.code == http_response.code
+}
+if "network_proxy" in (metadata.profiles? else []) {
+  assert proxy_endpoint.port == 8080
+  assert proxy_http_response.code == http_response.code
+}
+if "osint" in (metadata.profiles? else []) {
+  assert osint[0].value != null
+}
+if "trace" in (metadata.profiles? else []) {
+  assert trace.span.start_time <= trace.span.end_time
+  assert trace.span.operation == api.operation
+}
+if "record_integrity" in (metadata.profiles? else []) {
+  assert attestation_list[0].fingerprint.algorithm_id == 3
+}
+if "linux/linux_users" in (metadata.profiles? else []) {
+  assert metadata.extensions[0].name == "linux" and metadata.extensions[0].uid == "1"
+  assert process.auid == process.euid and process.egid == 1000
+  assert device.os.type_id == 200
+}
+if "macos/macos_users" in (metadata.profiles? else []) {
+  assert metadata.extensions[0].name == "macos" and metadata.extensions[0].uid == "3"
+  assert process.euid != null and process.egid == 1000
+  assert device.os.type_id == 300
+}
+if class_uid >= 200000 {
+  assert metadata.extensions[0].name == "win" and metadata.extensions[0].uid == "2"
+  assert device.os.type_id == 100
+}
+ocsf_cast
+ocsf_derive
+metadata.profiles = metadata.profiles? else []
+unroll metadata.profiles
+summarize profiles=count_distinct(metadata.profiles)

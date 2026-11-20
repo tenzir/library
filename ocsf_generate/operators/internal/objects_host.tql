@@ -1,0 +1,50 @@
+---
+description: Add consistent host, sensor, interface, and location metadata.
+---
+
+if device? != null {
+  if device.os? == null {
+    device.os = ({name: "Windows", type_id: 100, version: "11", cpu_bits: 64} if _ctx.windows
+      else {name: "macOS", type_id: 300, version: "15.0", cpu_bits: 64} if _ctx.macos
+      else {name: "Ubuntu", type_id: 200, version: "24.04", cpu_bits: 64})
+    if class_uid == 3002 and _ctx.native != "winsec" {
+      device.os = {name: "Ubuntu", type_id: 200, version: "24.04", cpu_bits: 64}
+    }
+  }
+  _ctx.mac_seed = hash_md5(string(device.ip))
+  device.mac = f"02:50:56:{_ctx.mac_seed.slice(end=2)}:{_ctx.mac_seed.slice(begin=2, end=4)}:{_ctx.mac_seed.slice(begin=4, end=6)}"
+  device.subnet = subnet(device.ip, 24)
+  device.os.build = "26100" if device.os.type_id == 100 else "24A335" if device.os.type_id == 300 else "6.8.0"
+  _ctx.hardware_hash = hash_md5(device.uid)
+  device.hw_info = {serial_number: f"ACME-{_ctx.hardware_hash.slice(end=12)}", vendor_name: "Acme",
+    uuid: f"{_ctx.hardware_hash.slice(end=8)}-{_ctx.hardware_hash.slice(begin=8, end=12)}-4{_ctx.hardware_hash.slice(begin=13, end=16)}-a{_ctx.hardware_hash.slice(begin=17, end=20)}-{_ctx.hardware_hash.slice(begin=20)}",
+    ram_size: 32768, cpu_count: 1,
+    cpu_info_list: [{model: "Acme workstation CPU", cores: 8, cpu_bits: 64,
+      cpu_architecture_id: 2 if device.os.type_id == 300 else 1}],
+  }
+  device.agent_list = [{uid: f"sensor-{device.uid}", name: "Falcon sensor", vendor_name: "CrowdStrike", type_id: 1}]
+  device.network_interfaces = [{
+    uid: f"interface-{device.uid}-eth0",
+    name: "eth0",
+    ip: device.ip,
+    mac: device.mac,
+    hostname: device.hostname,
+    type_id: 1,
+    subnet_prefix: 24,
+  }]
+  device.groups = [_ctx.group]
+  device.org = _ctx.org
+  if class_uid == 3002 {
+    device.groups = [{uid: "group-operations", name: "Operations", domain: "acme.example"}]
+    device.org = {uid: "o-acme123456", name: "Acme", ou_uid: "group-operations", ou_name: "Operations"}
+  }
+  device.location = {city: "Zurich", country: "CH", continent: "Europe", lat: 47.3769, long: 8.5417, is_on_premises: true}
+  _ctx.source.os_name = device.os.name
+  _ctx.source.os_version = device.os.version
+  _ctx.source.sensor_uid = device.agent_list[0].uid
+  _ctx.source.interface_name = device.network_interfaces[0].name
+  _ctx.source.interface_ip = device.network_interfaces[0].ip
+  _ctx.source.office_city = device.location.city
+  _ctx.source.office_country = device.location.country
+  _ctx.source.organization_uid = device.org.uid
+}

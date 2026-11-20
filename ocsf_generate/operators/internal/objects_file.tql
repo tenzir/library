@@ -1,0 +1,31 @@
+---
+description: Describe hashes of recurring fixtures and signed PDF documents.
+---
+
+if class_uid == 1001 {
+  file.hashes = [{algorithm_id: 3, encoding_id: 1, value: hash_sha256(f"synthetic-fixture-{file.name}")}]
+  _ctx.source.file_sha256 = file.hashes[0].value
+  if file.name.ends_with(".pdf") {
+    file.signatures = [{
+      algorithm_id: 2,
+      serialization_id: 1,
+      state_id: 1,
+      developer_uid: "acme-document-signing",
+      created_time: 2026-01-01,
+      digest: file.hashes[0],
+      certificate: {
+        uid: "certificate-acme-document-signing",
+        issuer: "CN=Acme Test CA,O=Acme",
+        serial_number: "ac01",
+        subject: "CN=Acme Document Signing,O=Acme",
+        created_time: 2026-01-01,
+        expiration_time: 2028-01-01,
+        is_self_signed: false,
+      },
+    }]
+    _ctx.source.signature_algorithm_id = file.signatures[0].algorithm_id
+    _ctx.source.signature_state_id = file.signatures[0].state_id
+    _ctx.source.signature_digest = file.signatures[0].digest.value
+    _ctx.source.signer_certificate_uid = file.signatures[0].certificate.uid
+  }
+}

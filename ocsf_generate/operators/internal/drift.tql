@@ -1,0 +1,26 @@
+---
+description: Inject optional type conflicts, unknown fields, and synthetic vendor fields.
+args:
+  named:
+    - name: type_probability
+      type: float
+    - name: unknown_probability
+      type: float
+    - name: vendor_probability
+      type: float
+---
+
+if random() < $type_probability {
+  // A numeric string is deliberately a different native type from integer_t.
+  severity_id = string(severity_id)
+}
+if random() < $unknown_probability {
+  this[f"unknown_field_{1 + int(random() * 8)}"] = {
+    collector: "ocsf-gen", revision: 1, enabled: true,
+  }
+}
+if random() < $vendor_probability {
+  // This is a synthetic vendor payload for catch-all testing, not a registered
+  // OCSF extension. Do not claim one in metadata.extensions.
+  acme = {sensor_zone: "benchmark", policy_revision: 7, verdict: "allow"}
+}

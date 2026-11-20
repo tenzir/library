@@ -1,0 +1,50 @@
+// Exercise a partial final batch and the actual 1.6 paths before casting.
+ocsf_generate::generate_legacy count=8193
+assert metadata.version == "1.6.0"
+assert metadata.profiles == ["host"]
+assert metadata.source? == null and metadata.log_format? == null
+assert actor.app_name == "Workstation collector" and actor.app_uid == "acme-collector"
+assert actor.application? == null
+assert type_uid == class_uid * 100 + activity_id
+assert observables.length() >= 2
+assert observables[0].value == string(device.ip)
+assert observables[1].value == device.hostname
+_source = raw_data.parse_json(raw=true)
+assert _source.event_id == metadata.uid and _source.message == message
+assert _source.timestamp == int(time.since_epoch().count_milliseconds())
+assert _source.user == actor.user.name and _source.host == device.hostname
+assert _source.activity == activity_id and _source.status == status_id
+if class_uid == 1001 {
+  assert @name == "ocsf.file_activity" and category_uid == 1
+  assert file.signatures? == null
+  if file.name == "agent.exe" {
+    assert file.signature.algorithm_id == 4
+  }
+  assert observables[2].name == "file.path" and observables[2].value == file.path
+  assert _source.details.file_path == file.path
+} else if class_uid == 1007 {
+  assert @name == "ocsf.process_activity" and category_uid == 1
+  assert process.user.uid == actor.user.uid
+  assert _source.details.command_line == process.cmd_line
+  assert observables[2].name == "process.cmd_line" and observables[2].value == process.cmd_line
+} else if class_uid == 3002 {
+  assert @name == "ocsf.authentication" and category_uid == 3
+  assert user.uid == actor.user.uid
+  assert _source.details.username == user.name
+} else if class_uid == 4001 {
+  assert @name == "ocsf.network_activity" and category_uid == 4
+  assert connection_info.protocol_num == 6 and dst_endpoint.port == 443
+  assert _source.details.dst_ip == string(dst_endpoint.ip)
+} else {
+  assert class_uid == 4003 and @name == "ocsf.dns_activity" and category_uid == 4
+  assert activity_id == 2
+  assert query.packet_uid == answers[0].packet_uid
+  assert query.opcode_id == 0 and answers[0].flag_ids == [3, 4]
+  assert transaction_id? == null and opcode_id? == null and flag_ids? == null
+  assert observables[2].name == "query.hostname" and observables[2].value == query.hostname
+  assert _source.details.transaction_id == query.packet_uid
+}
+drop _source
+this = ocsf_cast(this)
+assert this != null
+summarize events=count(), classes=count_distinct(class_uid)

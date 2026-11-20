@@ -1,0 +1,198 @@
+---
+description: Add unmapped fields for CI/CD, automation, messaging, databases, and legacy systems.
+---
+
+// Build and deployment tools run on service hosts, as do the legacy gateways.
+device = _ctx.base.server
+match _ctx.base.source {
+  0 => {
+    metadata.product = {name: "Jenkins", vendor_name: "Jenkins Project", version: "2.462.2"}
+    metadata.log_name = "build-events"
+    metadata.log_provider = "Logstash plugin"
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      job: f"acme/service-{1 + int(random() * 120)}/main",
+      build_number: 1 + int(random() * 4000),
+      result: ["SUCCESS", "SUCCESS", "UNSTABLE", "FAILURE"][_ctx.scenario],
+      duration_ms: 20000 + int(random() * 900000),
+      cause: f"Started by user {_ctx.user.name}" if random() < 0.3 else "Started by an SCM change",
+      node: f"agent-linux-{1 + int(random() * 12)}",
+      scm: {branch: "main", commit: hash_sha1(f"commit-{_ctx.base.n}")},
+      parameters: {DEPLOY: random() < 0.2, TARGET_ENV: ["dev", "staging"][int(random() * 2)]},
+    }
+    message = f"{unmapped.job} #{unmapped.build_number} completed: {unmapped.result}"
+    status_id = 1 if _ctx.scenario < 2 else 99 if _ctx.scenario == 2 else 2
+    if status_id == 99 {
+      status = unmapped.result
+    }
+  }
+  1 => {
+    metadata.product = {name: "GitLab Runner", vendor_name: "GitLab", version: "17.4.0"}
+    metadata.log_name = "runner.log"
+    metadata.log_provider = "logrus"
+    unmapped = {
+      job: 700000000 + _ctx.base.n,
+      pipeline: 140000000 + int(_ctx.base.n / 7),
+      project: 2000 + int(random() * 300),
+      runner: hash_md5(_ctx.service.hostname).slice(end=8),
+      executor: ["docker", "kubernetes"][int(random() * 2)],
+      stage: ["build", "test", "deploy", "test"][_ctx.scenario],
+      status: ["success", "success", "canceled", "failed"][_ctx.scenario],
+      duration_s: int(random() * 120000) / 100,
+    }
+    message = "Job succeeded" if _ctx.scenario < 2 else f"Job {unmapped.status}"
+    if _ctx.scenario == 3 {
+      unmapped.error = "exit code 1"
+    }
+  }
+  2 => {
+    metadata.product = {name: "RabbitMQ", vendor_name: "Broadcom", version: "3.13.7"}
+    metadata.log_name = "rabbit.log"
+    metadata.log_provider = "rabbit_log"
+    unmapped = {
+      vhost: "/",
+      queue: ["orders.created", "billing.events", "mail.outbound", "orders.dlq"][int(random() * 4)],
+      connection: f"{_ctx.host.ip}:{49152 + int(random() * 16384)} -> {_ctx.service.ip}:5672",
+      channel: 1 + int(random() * 20),
+      messages_ready: int(random() * 50000),
+      consumers: int(random() * 8),
+      node: f"rabbit@mq-{1 + int(random() * 3)}",
+    }
+    message = [f"accepting AMQP connection {unmapped.connection}",
+      f"closing AMQP connection {unmapped.connection}",
+      f"queue '{unmapped.queue}' in vhost '/': message count exceeds 40000",
+      f"closing AMQP connection {unmapped.connection}: client unexpectedly closed TCP connection"][_ctx.scenario]
+    severity_id = 3 if _ctx.scenario >= 2 else severity_id
+  }
+  3 => {
+    metadata.product = {name: "Ansible Automation Platform", vendor_name: "Red Hat", version: "2.5"}
+    metadata.log_name = "job_events"
+    metadata.log_provider = "awx"
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      playbook: ["site.yml", "patch.yml", "users.yml", "site.yml"][_ctx.scenario],
+      play: "Configure servers",
+      task: ["Install packages", "Restart service", "Ensure users", "Copy configuration"][_ctx.scenario],
+      host: _ctx.service.hostname,
+      changed: _ctx.scenario == 1,
+      failed: _ctx.scenario == 3,
+      module: {name: ["ansible.builtin.dnf", "ansible.builtin.systemd", "ansible.builtin.user", "ansible.builtin.template"][_ctx.scenario], args: {state: "present", name: f"pkg-{int(random() * 40)}"}},
+      job_id: 50000 + int(_ctx.base.n / 10),
+      launched_by: _ctx.user.name,
+    }
+    message = f"TASK [{unmapped.task}] {"failed" if unmapped.failed else "changed" if unmapped.changed else "ok"}: [{unmapped.host}]"
+  }
+  4 => {
+    metadata.product = {name: "Argo CD", vendor_name: "Argo Project", version: "2.12.4"}
+    metadata.log_name = "application-controller"
+    metadata.log_provider = "argocd"
+    unmapped = {
+      application: f"service-{1 + int(random() * 120)}",
+      project: "default",
+      revision: hash_sha1(f"rev-{_ctx.base.n}").slice(end=12),
+      sync: {status: ["Synced", "OutOfSync", "Synced", "Unknown"][_ctx.scenario], phase: ["Succeeded", "Running", "Succeeded", "Failed"][_ctx.scenario]},
+      health: ["Healthy", "Progressing", "Degraded", "Missing"][_ctx.scenario],
+      dest: {server: "https://kubernetes.default.svc", namespace: ["shop", "platform", "data"][int(random() * 3)]},
+    }
+    message = f"Sync operation to {unmapped.revision} {unmapped.sync.phase.to_lower()}"
+  }
+  5 => {
+    metadata.product = {name: "HCP Terraform", vendor_name: "HashiCorp"}
+    metadata.log_name = "run-events"
+    metadata.log_provider = "notification-webhook"
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      run_id: f"run-{hash_md5(metadata.uid).slice(end=16)}",
+      workspace: f"infra-team-{1 + int(random() * 100)}",
+      organization: "acme",
+      status: ["applied", "planned_and_finished", "discarded", "errored"][_ctx.scenario],
+      created_by: _ctx.user.name,
+      resource_changes: {add: int(random() * 8), change: int(random() * 5), destroy: int(random() * 2)},
+      vcs: {commit: hash_sha1(f"tf-{_ctx.base.n}").slice(end=7), branch: "main"},
+    }
+    message = f"Run {unmapped.run_id} {unmapped.status} in {unmapped.workspace}"
+  }
+  6 => {
+    metadata.product = {name: "Oracle Database", vendor_name: "Oracle", version: "19.23"}
+    metadata.log_name = "UNIFIED_AUDIT_TRAIL"
+    metadata.log_provider = "audit_syslog"
+    _ctx.base.user = _ctx.user.name
+    activity_id = 99
+    type_name = "Base Event: Other"
+    activity_name = ["LOGON", "SELECT", "ALTER USER", "LOGON"][_ctx.scenario]
+    unmapped = {
+      DBUSERNAME: _ctx.user.name.to_upper().replace(".", "_"),
+      OS_USERNAME: _ctx.user.name,
+      USERHOST: _ctx.host.hostname,
+      ACTION_NAME: activity_name,
+      OBJECT_SCHEMA: "FINANCE" if _ctx.scenario == 1 else null,
+      OBJECT_NAME: "LEDGER" if _ctx.scenario == 1 else null,
+      RETURN_CODE: 1017 if _ctx.scenario == 3 else 0,
+      SESSIONID: 4000000000 + _ctx.base.n,
+      CLIENT_PROGRAM_NAME: ["JDBC Thin Client", "sqlplus", "SQL Developer"][int(random() * 3)],
+    }
+    message = f"{activity_name} by {unmapped.DBUSERNAME} returned {unmapped.RETURN_CODE}"
+    status_id = 2 if _ctx.scenario == 3 else 1
+    status_code = string(unmapped.RETURN_CODE)
+  }
+  7 => {
+    metadata.product = {name: "SAP NetWeaver", vendor_name: "SAP", version: "7.58"}
+    metadata.log_name = "Security Audit Log"
+    metadata.log_provider = "SM20"
+    _ctx.base.user = _ctx.user.name
+    metadata.event_code = ["AU1", "AU3", "AU2", "BU4"][_ctx.scenario]
+    unmapped = {
+      SAL_EVENT_ID: metadata.event_code,
+      CLIENT: "100",
+      SAP_USER: _ctx.user.name.to_upper().slice(end=12),
+      TERMINAL: _ctx.host.hostname.split(".")[0].to_upper(),
+      TCODE: ["", "SE16N", "", "SU01"][_ctx.scenario],
+      REPORT: ["SAPMSYST", "RSTAB", "SAPMSYST", "SAPMSUU0"][_ctx.scenario],
+      MSG_PARAMS: [f"{int(random() * 3)}", "A", f"{_ctx.base.n}"],
+      INSTANCE: f"sapapp{1 + int(random() * 3)}_PRD_00",
+    }
+    message = ["Logon successful (type=A, method=A)", "Transaction SE16N started", "Logon failed (reason=1, type=A)", "Dynamic ABAP code: event E, code name SU01"][_ctx.scenario]
+    status_id = 2 if _ctx.scenario == 2 else 1
+  }
+  8 => {
+    metadata.product = {name: "z/OS", vendor_name: "IBM", version: "3.1"}
+    metadata.log_name = "SMF"
+    metadata.log_provider = "SMF dump"
+    device = {hostname: "mvs1.acme.example", ip: 10.30.0.91, type_id: 1}
+    unmapped = {
+      SMFID: "MVS1",
+      record_type: [30, 30, 80, 14][_ctx.scenario],
+      subtype: [4, 5, 0, 0][_ctx.scenario],
+      jobname: f"ACME{["PAY", "GL", "INV", "BAT"][int(random() * 4)]}{int(random() * 90) + 10}",
+      jobid: f"JOB{10000 + _ctx.base.n}",
+      stepname: f"STEP{int(random() * 9) + 1}",
+      cpu_time_s: int(random() * 60000) / 100,
+      excp_count: int(random() * 90000),
+      RC: ["0000", "0004", "0000", "0012"][_ctx.scenario],
+    }
+    // The converter emits completion codes as integers when they parse cleanly.
+    if random() < 0.40 {
+      unmapped.RC = int(unmapped.RC)
+    }
+    message = f"IEF404I {unmapped.jobname} - ENDED - TIME={time.format_time("%H.%M.%S").slice(end=8)} RC={unmapped.RC}"
+  }
+  9 => {
+    metadata.product = {name: "IBM i", vendor_name: "IBM", version: "7.5"}
+    metadata.log_name = "QAUDJRN"
+    metadata.log_provider = "DSPJRN"
+    device = {hostname: "as400.acme.example", ip: 10.30.0.92, type_id: 1}
+    _ctx.base.user = _ctx.user.name
+    unmapped = {
+      journal_code: "T",
+      entry_type: ["PW", "CA", "ZR", "AF"][_ctx.scenario],
+      job: {name: "QPADEV0001", user: _ctx.user.name.to_upper().slice(end=10), number: string(100000 + int(_ctx.base.n))},
+      object: ["", "PAYROLL", "CUSTMAST", "QSECOFR"][_ctx.scenario],
+      object_library: ["", "PAYLIB", "SALESLIB", "QSYS"][_ctx.scenario],
+      program: ["QSYSSIGN", "QSECCHGA", "QDBGETM", "QWTSETP"][_ctx.scenario],
+      sequence: 1000000 + _ctx.base.n,
+    }
+    message = ["Invalid sign-on attempt", "Authority change", "Object read", "Authority failure"][_ctx.scenario]
+    status_id = 2 if _ctx.scenario in [0, 3] else 1
+  }
+  _ => { discard }
+}

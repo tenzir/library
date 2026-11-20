@@ -1,0 +1,64 @@
+@name = "ocsf.detection_finding"
+class_uid = 2004
+category_uid = 2
+metadata.log_name = "detections"
+metadata.product = {name: "Falcon", vendor_name: "CrowdStrike", version: "7.29.20108"}
+drop src_endpoint, dst_endpoint
+// Host evidence belongs in resources; generic Findings have no actor/device fields.
+resources = [{uid: _ctx.host.uid, name: _ctx.host.hostname, type: "Host"}]
+activity_id = 1
+severity_id = 3
+status_id = 1
+finding_info = {
+  uid: uuid(),
+  title: "Repeated authentication failures",
+  desc: f"Repeated authentication failures for {_ctx.user.name} on {_ctx.host.hostname}",
+  types: ["Authentication anomaly"],
+}
+if _ctx.variant >= 70 and _ctx.variant < 80 {
+  finding_info.title = "Unusual process execution"
+  finding_info.types = ["Endpoint anomaly"]
+  finding_info.desc = f"Unusual process execution on {_ctx.host.hostname}"
+  severity_id = 4
+} else if _ctx.variant >= 80 and _ctx.variant < 95 {
+  finding_info.title = "Connection to a newly observed domain"
+  finding_info.types = ["Network anomaly"]
+  finding_info.desc = f"Connection to {_ctx.service.hostname} from {_ctx.host.hostname}"
+  severity_id = 2
+} else if _ctx.variant >= 95 {
+  finding_info.title = "Unexpected administrative API access"
+  finding_info.types = ["Cloud anomaly"]
+  finding_info.desc = f"Unexpected administrative API access by {_ctx.user.name}"
+  severity_id = 4
+}
+message = finding_info.desc
+if _ctx.detail > 0.5 {
+  confidence_id = 2
+  confidence_score = 65 + int(random() * 25)
+}
+drop actor
+// Network anomalies come from the IDS or the firewall's threat log; the EDR
+// reports the others with a detection ID that names the host's sensor.
+_ctx.native = "falcon"
+if finding_info.types[0] == "Network anomaly" {
+  evidences = [{
+    src_endpoint: {ip: ip(_ctx.host.ip), hostname: _ctx.host.hostname, port: 49152 + int(random() * 16384)},
+    dst_endpoint: {ip: ip(_ctx.service.ip), hostname: _ctx.service.hostname, port: _ctx.service.port},
+    connection_info: {protocol_num: 6, protocol_name: "tcp", direction_id: 2},
+  }]
+  if random() < 0.6 {
+    _ctx.native = "suricata"
+    metadata.product = {name: "Suricata", vendor_name: "OISF", version: "7.0.7"}
+    metadata.log_name = "eve.json"
+    finding_info.title = "ET INFO Observed Connection to Newly Registered Domain"
+    finding_info.uid = string(int(random() * 2251799813685248))
+  } else {
+    _ctx.native = "panos"
+    metadata.product = {name: "PAN-OS", vendor_name: "Palo Alto Networks", version: "11.1.4"}
+    metadata.log_name = "THREAT"
+    finding_info.title = "Suspicious Newly Registered Domain"
+    finding_info.uid = string(7000000000000000000 + int(random() * 999999999999))
+  }
+} else {
+  finding_info.uid = f"ldt:{hash_md5(_ctx.host.uid)}:{int(random() * 99999999999)}"
+}

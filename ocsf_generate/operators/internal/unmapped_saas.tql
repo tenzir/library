@@ -1,0 +1,200 @@
+---
+description: Add unmapped fields for SaaS audit logs and webhooks.
+---
+
+// SaaS records name the acting user and arrive through the collector service.
+_ctx.base.user = _ctx.user.name
+device = _ctx.base.server
+match _ctx.base.source {
+  0 => {
+    metadata.product = {name: "GitHub Enterprise Cloud", vendor_name: "GitHub"}
+    metadata.log_name = "audit-log"
+    metadata.log_provider = "audit-log-streaming"
+    activity_id = 99
+    type_name = "Base Event: Other"
+    activity_name = ["git.clone", "repo.access", "protected_branch.update", "org.remove_member"][_ctx.scenario]
+    unmapped = {
+      "@timestamp": int(time.since_epoch().count_milliseconds()),
+      action: activity_name,
+      actor: _ctx.user.name,
+      actor_location: {country_code: ["CH", "DE", "GB"][int(random() * 3)]},
+      org: "acme",
+      repo: f"acme/service-{1 + int(random() * 120)}",
+      business: "acme-corp",
+      operation_type: ["access", "access", "modify", "remove"][_ctx.scenario],
+      programmatic_access_type: ["Personal access token", "GitHub App server-to-server token", "OAuth access token"][int(random() * 3)],
+      _document_id: hash_md5(metadata.uid).slice(end=22),
+    }
+    message = f"{_ctx.user.name} performed {activity_name} on {unmapped.repo}"
+  }
+  1 => {
+    metadata.product = {name: "Slack", vendor_name: "Salesforce"}
+    metadata.log_name = "audit_logs"
+    metadata.log_provider = "Audit Logs API"
+    activity_id = 99
+    type_name = "Base Event: Other"
+    activity_name = ["user_login", "file_downloaded", "public_channel_created", "user_session_invalidated"][_ctx.scenario]
+    unmapped = {
+      id: uuid(),
+      date_create: int(time.since_epoch().count_seconds()),
+      action: activity_name,
+      actor: {type: "user", user: {id: f"U0{_ctx.base.n}", name: _ctx.user.name, email: _ctx.user.email_addr}},
+      entity: {type: "channel", channel: {id: f"C0{_ctx.base.n + 7}", name: f"team-{1 + int(random() * 100)}", privacy: ["public", "private"][int(random() * 2)]}},
+      context: {location: {type: "enterprise", id: "E0ACME", domain: "acme"}, ua: "Mozilla/5.0 Slack/4.41", ip_address: _ctx.host.ip},
+    }
+    message = f"Slack {activity_name} by {_ctx.user.email_addr}"
+  }
+  2 => {
+    metadata.product = {name: "Jira Cloud", vendor_name: "Atlassian"}
+    metadata.log_name = "auditing/record"
+    metadata.log_provider = "Jira REST API"
+    unmapped = {
+      id: 10000 + _ctx.base.n,
+      summary: ["Issue type scheme updated", "Workflow updated", "User added to group", "Project deleted"][_ctx.scenario],
+      category: ["issue types", "workflows", "group management", "projects"][_ctx.scenario],
+      eventSource: "",
+      objectItem: {id: string(int(random() * 90000)), name: f"ACME-{1 + int(random() * 400)}", typeName: "PROJECT"},
+      changedValues: [{fieldName: "Name", changedFrom: "Default", changedTo: f"Team {1 + int(random() * 100)}"}],
+      authorAccountId: hash_md5(_ctx.user.uid).slice(end=24),
+      remoteAddress: _ctx.host.ip,
+    }
+    message = unmapped.summary
+  }
+  3 => {
+    metadata.product = {name: "Sales Cloud", vendor_name: "Salesforce"}
+    metadata.log_name = "EventLogFile"
+    metadata.log_provider = "Event Monitoring"
+    // Event log files are CSV, so numbers arrive as strings.
+    unmapped = {
+      EVENT_TYPE: ["API", "Report", "URI", "LightningError"][_ctx.scenario],
+      USER_ID: f"0055g00000{_ctx.base.n}",
+      ORGANIZATION_ID: "00D5g000004ACME",
+      URI: ["/services/data/v61.0/query", "/00O5g000003Ab", "/lightning/r/Account", "/aura"][_ctx.scenario],
+      CPU_TIME: string(int(random() * 900)),
+      RUN_TIME: string(int(random() * 3000)),
+      DB_TOTAL_TIME: string(int(random() * 90000000)),
+      REQUEST_STATUS: "S" if _ctx.scenario < 3 else "F",
+      ROWS_PROCESSED: string(int(random() * 5000)),
+      CLIENT_IP: _ctx.host.ip,
+    }
+    message = f"Salesforce {unmapped.EVENT_TYPE} event for {unmapped.URI}"
+    status_id = 1 if _ctx.scenario < 3 else 2
+    status_code = unmapped.REQUEST_STATUS
+  }
+  4 => {
+    metadata.product = {name: "Zoom", vendor_name: "Zoom Video Communications"}
+    metadata.log_name = "webhook"
+    metadata.log_provider = "Zoom Webhooks"
+    unmapped = {
+      event: ["meeting.started", "meeting.ended", "recording.completed", "meeting.participant_jbh_waiting"][_ctx.scenario],
+      event_ts: int(time.since_epoch().count_milliseconds()),
+      payload: {
+        account_id: "acmeZ00m",
+        object: {id: 80000000000 + _ctx.base.n, topic: f"Team {1 + int(random() * 100)} sync", host_id: hash_md5(_ctx.user.email_addr).slice(end=22), duration: 15 + int(random() * 60), participant_count: 2 + int(random() * 20)},
+      },
+    }
+    // Meeting IDs exceed JavaScript integers in some integrations.
+    if random() < 0.30 {
+      unmapped.payload.object.id = string(unmapped.payload.object.id)
+    }
+    message = f"Zoom {unmapped.event}: {unmapped.payload.object.topic}"
+  }
+  5 => {
+    metadata.product = {name: "Zendesk Support", vendor_name: "Zendesk"}
+    metadata.log_name = "audit_logs"
+    metadata.log_provider = "Zendesk API"
+    activity_id = 99
+    type_name = "Base Event: Other"
+    activity_name = ["update", "create", "update", "destroy"][_ctx.scenario]
+    unmapped = {
+      ticket: {id: 400000 + _ctx.base.n, status: ["open", "new", "solved", "deleted"][_ctx.scenario], priority: ["normal", "high", "low", "urgent"][int(random() * 4)], via: {channel: ["email", "web", "api"][int(random() * 3)]}},
+      actor_id: 360000000 + _ctx.base.n,
+      action: activity_name,
+      source_type: "ticket",
+      change_description: ["Status changed from new to open", "Ticket created", "Status changed from open to solved", "Ticket deleted"][_ctx.scenario],
+    }
+    message = f"Ticket #{unmapped.ticket.id}: {unmapped.change_description}"
+  }
+  6 => {
+    metadata.product = {name: "PagerDuty", vendor_name: "PagerDuty"}
+    metadata.log_name = "webhook-v3"
+    metadata.log_provider = "PagerDuty Webhooks"
+    unmapped = {
+      event: {
+        id: uuid(),
+        event_type: ["incident.triggered", "incident.acknowledged", "incident.resolved", "incident.escalated"][_ctx.scenario],
+        resource_type: "incident",
+        occurred_at: string(time),
+        agent: {id: f"P{hash_md5(_ctx.user.uid).slice(end=6).to_upper()}", type: "user_reference"},
+        data: {
+          id: f"Q{_ctx.base.n}",
+          number: _ctx.base.n,
+          status: ["triggered", "acknowledged", "resolved", "triggered"][_ctx.scenario],
+          urgency: ["high", "low"][int(random() * 2)],
+          service: {id: "PSVC01", summary: f"{_ctx.service.hostname.split(".")[0]} production"},
+          assignees: [{id: f"P{hash_md5(_ctx.user.uid).slice(end=6).to_upper()}", summary: _ctx.user.name}],
+        },
+      },
+    }
+    message = f"Incident #{_ctx.base.n} {unmapped.event.event_type} on {unmapped.event.data.service.summary}"
+    severity_id = 4 if unmapped.event.data.urgency == "high" else 2
+  }
+  7 => {
+    metadata.product = {name: "Workday HCM", vendor_name: "Workday"}
+    metadata.log_name = "User Activity"
+    metadata.log_provider = "Workday Report-as-a-Service"
+    unmapped = {
+      activityAction: ["READ", "READ", "WRITE", "WRITE"][_ctx.scenario],
+      systemAccount: _ctx.user.name,
+      taskDisplayName: ["View Worker", "My Payslips", "Change Job", "Terminate Employee"][_ctx.scenario],
+      target: {descriptor: f"Worker {_ctx.base.n}", id: hash_md5(f"worker-{_ctx.base.n}"), type: "Worker"},
+      sessionId: hash_md5(f"{_ctx.user.uid}-session").slice(end=12),
+      deviceType: ["Desktop", "Phone"][int(random() * 2)],
+      userAgent: "Mozilla/5.0",
+      ipAddress: _ctx.host.ip,
+    }
+    message = f"{_ctx.user.name} {unmapped.activityAction} {unmapped.taskDisplayName}"
+  }
+  8 => {
+    metadata.product = {name: "Stripe", vendor_name: "Stripe"}
+    metadata.log_name = "events"
+    metadata.log_provider = "Stripe Webhooks"
+    _ctx.base.amount = 500 + int(random() * 90000)
+    unmapped = {
+      id: f"evt_{hash_md5(metadata.uid).slice(end=24)}",
+      type: ["charge.succeeded", "payment_intent.created", "invoice.paid", "charge.failed"][_ctx.scenario],
+      livemode: true,
+      api_version: "2024-06-20",
+      pending_webhooks: int(random() * 3),
+      data: {object: {id: f"ch_{hash_sha1(metadata.uid).slice(end=24)}", object: "charge", amount: _ctx.base.amount, currency: "chf", status: "failed" if _ctx.scenario == 3 else "succeeded"}},
+      request: {id: f"req_{_ctx.base.n}", idempotency_key: uuid()},
+    }
+    message = f"{unmapped.type} for {_ctx.base.amount / 100} CHF"
+    if _ctx.scenario == 3 {
+      unmapped.data.object.failure_code = "card_declined"
+      status_id = 2
+    }
+  }
+  9 => {
+    metadata.product = {name: "eSignature", vendor_name: "DocuSign"}
+    metadata.log_name = "connect"
+    metadata.log_provider = "DocuSign Connect"
+    unmapped = {
+      event: ["envelope-sent", "envelope-delivered", "envelope-completed", "envelope-declined"][_ctx.scenario],
+      apiVersion: "v2.1",
+      generatedDateTime: string(time),
+      data: {
+        accountId: "a1b2c3d4-acme",
+        envelopeId: uuid(),
+        envelopeSummary: {
+          status: ["sent", "delivered", "completed", "declined"][_ctx.scenario],
+          emailSubject: f"Please sign: Contract {_ctx.base.n}",
+          sender: {userName: _ctx.user.name, email: _ctx.user.email_addr},
+          recipients: {signers: [{recipientId: "1", status: "sent", email: f"legal@partner-{1 + int(random() * 100)}.example"}]},
+        },
+      },
+    }
+    message = f"Envelope {unmapped.data.envelopeId} {unmapped.data.envelopeSummary.status}"
+  }
+  _ => { discard }
+}

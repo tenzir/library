@@ -1,0 +1,75 @@
+let $dns_sources = [
+  {native: "zeek_dns", log_name: "dns.log", product: {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}},
+  {native: "suricata", log_name: "eve.json", product: {name: "Suricata", vendor_name: "OISF", version: "7.0.7"}},
+  {native: "sysmon", log_name: "Microsoft-Windows-Sysmon/Operational", product: {name: "Sysmon", vendor_name: "Microsoft", version: "15.15"}},
+]
+// Shares in 20ths: Zeek 30%, Suricata 20%, Sysmon 50% of eligible lookups;
+// lookups that Sysmon does not report go to Zeek.
+let $dns_source_mix = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+let $dns_processes = [
+  {name: "chrome.exe", path: r"C:\Program Files\Google\Chrome\Application\chrome.exe"},
+  {name: "msedge.exe", path: r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"},
+  {name: "ms-teams.exe", path: r"C:\Program Files\WindowsApps\MSTeams_25212.2204.3787.4022_x64__8wekyb3d8bbwe\ms-teams.exe"},
+  {name: "OUTLOOK.EXE", path: r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE"},
+  {name: "svchost.exe", path: r"C:\Windows\System32\svchost.exe"},
+]
+
+// Query and answer fields follow zeek::ocsf_generate::logs::dns.
+@name = "ocsf.dns_activity"
+class_uid = 4003
+category_uid = 4
+metadata.log_name = "dns.log"
+metadata.product = {name: "Zeek", vendor_name: "Zeek Project", version: "7.0.5"}
+drop actor
+activity_id = 6
+dst_endpoint = {ip: 10.20.0.53, hostname: "dns-01.acme.example", port: 53}
+connection_info = {protocol_num: 17, protocol_name: "udp", direction_id: 3}
+opcode_id = 0
+query = {hostname: _ctx.service.hostname, type: "A", class: "IN"}
+rcode_id = 0
+answers = [{rdata: _ctx.service.ip, ttl: 300}]
+message = f"DNS A query for {_ctx.service.hostname} returned {_ctx.service.ip}"
+if _ctx.variant >= 75 and _ctx.variant < 85 {
+  query.type = "AAAA"
+  answers = [{rdata: _ctx.service.ipv6, ttl: 300}]
+  message = f"DNS AAAA query for {_ctx.service.hostname} returned {_ctx.service.ipv6}"
+} else if _ctx.variant >= 85 and _ctx.variant < 95 {
+  query.hostname = "retired.acme.example"
+  rcode_id = 3
+  message = "DNS query for retired.acme.example returned NXDOMAIN"
+  drop answers
+} else if _ctx.variant >= 95 {
+  activity_id = 1
+  message = f"DNS A query for {_ctx.service.hostname}"
+  drop answers, rcode_id
+}
+if _ctx.detail > 0.5 {
+  query_time = time - 5ms
+  response_time = time if activity_id != 1
+}
+// Transaction IDs and round trips are part of every native DNS record.
+query.packet_uid = int(random() * 65536)
+// Zeek and Suricata observe DNS on the wire; Sysmon reports a Windows client's
+// completed lookup with the requesting process.
+_ctx.source_index = $dns_source_mix[int(random() * $dns_source_mix.length())]
+if _ctx.source_index == 2 and not (_ctx.windows and activity_id == 6) {
+  _ctx.source_index = 0
+}
+_ctx.native = $dns_sources[_ctx.source_index].native
+metadata.product = $dns_sources[_ctx.source_index].product
+metadata.log_name = $dns_sources[_ctx.source_index].log_name
+connection_info.uid = (f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}" if _ctx.source_index == 0
+  else string(int(random() * 2251799813685248)))
+if _ctx.source_index == 2 {
+  drop connection_info.uid
+  _ctx.dns_process = $dns_processes[int(random() * $dns_processes.length())]
+  actor = {
+    user: _ctx.user,
+    process: {
+      uid: uuid(),
+      name: _ctx.dns_process.name,
+      pid: 1000 + int(random() * 30000),
+      file: {name: _ctx.dns_process.name, path: _ctx.dns_process.path, type_id: 1},
+    },
+  }
+}

@@ -1,0 +1,61 @@
+---
+description: Model TLS peers, certificates, and source HTTP headers.
+---
+
+if (class_uid == 4002 or (class_uid == 4001 and activity_id == 6)) and dst_endpoint?.port? == 443 {
+  _ctx.tls_host = dst_endpoint.hostname
+  tls = {
+    version: "TLSv1.3",
+    cipher: "TLS_AES_256_GCM_SHA384",
+    sni: _ctx.tls_host,
+    certificate: {
+      uid: f"certificate-{_ctx.tls_host}",
+      issuer: "CN=Acme Test CA,O=Acme",
+      serial_number: hash_md5(_ctx.tls_host),
+      subject: f"CN={_ctx.tls_host},O=Acme",
+      created_time: 2026-01-01,
+      expiration_time: 2028-01-01,
+      is_self_signed: false,
+      version: "3",
+      fingerprints: [{algorithm_id: 3, encoding_id: 1, value: hash_sha256(f"synthetic-certificate-{_ctx.tls_host}")}],
+    },
+  }
+  _ctx.source.tls_version = tls.version
+  _ctx.source.tls_cipher = tls.cipher
+  _ctx.source.tls_sni = tls.sni
+  _ctx.source.certificate_serial = tls.certificate.serial_number
+  _ctx.source.certificate_sha256 = tls.certificate.fingerprints[0].value
+}
+if class_uid == 4002 {
+  http_request.http_headers = [
+    {name: "Host", value: http_request.url.hostname},
+    {name: "X-Request-ID", value: metadata.uid},
+  ]
+  http_response.http_headers = [{name: "Content-Type", value: "application/json" if http_request.url.hostname == "api.acme.example" else "text/html"}]
+  _ctx.source.http_host_header = http_request.url.hostname
+  _ctx.source.http_request_id = metadata.uid
+}
+
+if tls? != null {
+  _ctx.ja3 = "771,4865-4866-4867,0-10-11-13-16-43-45-51,29-23-24,0"
+  _ctx.ja3s = "771,4865,43-51"
+  tls.ja3_hash = {algorithm_id: 1, encoding_id: 1, value: hash_md5(_ctx.ja3)}
+  tls.ja3s_hash = {algorithm_id: 1, encoding_id: 1, value: hash_md5(_ctx.ja3s)}
+  tls.certificate.sans = [{type: "DNS", name: tls.sni}]
+  tls.client_ciphers = ["TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384"]
+  tls.handshake_dur = 20
+}
+if http_response? != null {
+  http_response.latency = 20
+}
+if class_uid == 4002 and _ctx.native == "nginx" {
+  // The reverse proxy forwards the original LAN client's address to nginx.
+  http_request.x_forwarded_for = [src_endpoint.ip]
+}
+if src_endpoint?.ip? != null and string(src_endpoint.ip).starts_with("10.") {
+  _ctx.mac_seed = hash_md5(string(src_endpoint.ip))
+  src_endpoint.mac = f"02:50:56:{_ctx.mac_seed.slice(end=2)}:{_ctx.mac_seed.slice(begin=2, end=4)}:{_ctx.mac_seed.slice(begin=4, end=6)}"
+}
+if dst_endpoint?.ip? != null and string(dst_endpoint.ip).starts_with("10.") {
+  dst_endpoint.location = {city: "Zurich", country: "CH", is_on_premises: true}
+}

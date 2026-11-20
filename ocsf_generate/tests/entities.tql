@@ -1,0 +1,32 @@
+let $uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+let $users = ocsf_generate::$users
+let $services = ocsf_generate::$services
+let $files = ocsf_generate::$files
+let $processes = ocsf_generate::$processes
+ocsf_generate::generate count=65536, raw="json"
+_source = raw_data.parse_json(raw=true)
+// Base events report appliance hosts, so only mapped classes count workstations.
+_user = _source.user if class_uid != 0
+_host = _source.host if class_uid != 0
+_service_ip = dst_endpoint?.ip? if class_uid == 4001
+_url = http_request?.url?.url_string?.replace_regex(f"/items/{$uuid_pattern}", "").replace("http://", "https://").split("?")[0] if class_uid == 4002
+_file = file?.name?.replace_regex(f"-{$uuid_pattern}", "") if class_uid == 1001
+// Windows hosts run the Windows build of the same fixture, such as python.exe.
+_command = (process?.file?.name? else "").to_lower().replace(".exe", "").replace_regex("^python$", "python3") if class_uid == 1007
+summarize users=count_distinct(_user), hosts=count_distinct(_host), user_draws=count(_user),
+  service_ips=count_distinct(_service_ip), service_draws=count(_service_ip),
+  urls=count_distinct(_url), url_draws=count(_url),
+  files=count_distinct(_file), file_draws=count(_file),
+  commands=count_distinct(_command), command_draws=count(_command)
+// Compare with expected occupancy under uniform sampling, including large pools.
+assert users >= 0.9 * $users.uid.length() * (1.0 - pow(1.0 - 1.0 / $users.uid.length(), user_draws))
+assert hosts == users and users <= $users.uid.length()
+assert service_ips >= 0.9 * $services.ip.length() * (1.0 - pow(1.0 - 1.0 / $services.ip.length(), service_draws))
+assert service_ips <= $services.ip.length()
+assert urls >= 0.9 * $services.ip.length() * (1.0 - pow(1.0 - 1.0 / $services.ip.length(), url_draws))
+assert urls <= $services.ip.length()
+assert files >= 0.9 * $files.length() * (1.0 - pow(1.0 - 1.0 / $files.length(), file_draws))
+assert files <= $files.length()
+assert commands >= 0.9 * $processes.length() * (1.0 - pow(1.0 - 1.0 / $processes.length(), command_draws))
+assert commands <= $processes.length()
+this = {pool_diversity: "passed"}

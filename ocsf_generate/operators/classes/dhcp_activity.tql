@@ -1,0 +1,19 @@
+// OCSF 1.9.0: dhcp_activity; independently sampled source scenarios.
+@name = "ocsf.dhcp_activity"
+class_uid = 4004
+category_uid = 4
+ocsf_generate::internal::network_base
+metadata.log_name = "dhcp.log"
+connection_info = {protocol_num: 17, protocol_name: "udp", direction_id: 3}
+src_endpoint.port = 68
+dst_endpoint = {ip: 10.10.0.1, hostname: "dhcp.acme.example", port: 67}
+activity_id = [5, 3, 7, 6][_ctx.scenario]
+transaction_uid = metadata.uid
+is_renewal = _ctx.scenario == 1
+if activity_id == 5 { lease_dur = 28800 }
+if activity_id == 6 { status_detail = "Requested lease rejected" }
+message = f"DHCP activity {activity_id} for {_ctx.host.hostname}"
+_ctx.source.transaction_uid = transaction_uid
+_ctx.source.is_renewal = is_renewal
+// Zeek connection IDs: "C" followed by 17 base62 characters.
+connection_info.uid = f"C{encode_base64(decode_hex(hash_md5(metadata.uid))).replace("+", "x").replace("/", "Z").slice(end=17)}"

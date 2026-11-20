@@ -1,0 +1,23 @@
+---
+description: Build a 1.6 DNS response with query and answer packet identifiers.
+---
+
+let $services = ocsf_generate::$services
+@name = "ocsf.dns_activity"
+category_uid = 4
+activity_id = 2
+actor.process = _ctx.process
+src_endpoint = {ip: device.ip, hostname: device.hostname, port: 49152 + int(random() * 16384)}
+dst_endpoint = {ip: 10.20.0.53, hostname: "dns-01.acme.example", port: 53}
+connection_info = {protocol_num: 17, protocol_name: "udp", direction_id: 3}
+query = {
+  hostname: $services.hostname[_ctx.service_index], type: "A", class: "IN",
+  opcode_id: 0, packet_uid: int(random() * 65536),
+}
+answers = [{
+  type: "A", class: "IN", rdata: $services.ip[_ctx.service_index], ttl: 300,
+  packet_uid: query.packet_uid, flag_ids: [3, 4],
+}]
+rcode_id = 0
+message = f"Resolved {query.hostname} to {answers[0].rdata}"
+_ctx.source = {query: query.hostname, answer: answers[0].rdata, transaction_id: query.packet_uid}

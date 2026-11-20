@@ -1,0 +1,48 @@
+// Bind package constants once; Nova 6.19.1 cannot evaluate module references per row.
+let $email_actions = ocsf_generate::$email_actions
+let $subjects = ocsf_generate::$subjects
+let $users = ocsf_generate::$users
+let $partners = ocsf_generate::$partner_domains
+
+// Email field shapes follow zeek::ocsf_generate::logs::smtp.
+@name = "ocsf.email_activity"
+class_uid = 4009
+category_uid = 4
+metadata.log_name = "mail.log"
+metadata.product = {name: "Postfix", vendor_name: "Postfix Project"}
+activity_id = 1
+direction_id = 3
+protocol_name = "SMTP"
+dst_endpoint = {ip: 10.20.0.25, hostname: "mail.acme.example", port: 587}
+_ctx.partner = $partners[int(random() * $partners.length())]
+_ctx.recipient_index = _ctx.user_index + 1 + int(random() * ($users.uid.length() - 1))
+_ctx.recipient_index = _ctx.recipient_index - $users.uid.length() if _ctx.recipient_index >= $users.uid.length() else _ctx.recipient_index
+_ctx.recipient_email = $users.email_addr[_ctx.recipient_index]
+email = {
+  from: _ctx.user.email_addr,
+  to: [_ctx.recipient_email],
+  subject: $subjects[int(random() * $subjects.length())],
+  message_uid: f"<{metadata.uid}@acme.example>",
+}
+if _ctx.variant >= 70 and _ctx.variant < 80 {
+  activity_id = 2
+  direction_id = 1
+  email.from = f"notifications@{_ctx.partner}"
+  email.to = [_ctx.user.email_addr]
+  src_endpoint = {ip: 192.0.2.25, hostname: f"mail.{_ctx.partner}", port: 49152}
+  dst_endpoint.port = 25
+} else if _ctx.variant >= 80 and _ctx.variant < 95 {
+  activity_id = 3
+  message = f"Scanned email from {email.from} to {email.to[0]}"
+} else if _ctx.variant >= 95 {
+  direction_id = 2
+  email.to = [f"support@{_ctx.partner}"]
+}
+drop actor
+message = f"SMTP {$email_actions[activity_id - 1]} from {email.from} to {email.to[0]}"
+if _ctx.detail > 0.75 {
+  email.cc = ["helpdesk@acme.example"]
+}
+if _ctx.detail < 0.2 {
+  drop email.subject
+}

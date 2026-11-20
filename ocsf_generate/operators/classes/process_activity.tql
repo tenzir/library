@@ -1,0 +1,93 @@
+// Bind package constants once; Nova 6.19.1 cannot evaluate module references per row.
+let $processes = ocsf_generate::$processes
+
+// Shares of Windows events in 20ths: Falcon 30%, Sysmon 40%, Security log 30%.
+let $process_sources = [
+  {native: "falcon", log_name: "endpoint-process", product: {name: "Falcon", vendor_name: "CrowdStrike", version: "7.29.20108"}},
+  {native: "sysmon", log_name: "Microsoft-Windows-Sysmon/Operational", product: {name: "Sysmon", vendor_name: "Microsoft", version: "15.15"}},
+  {native: "winsec", log_name: "Security", product: {name: "Windows Security", vendor_name: "Microsoft", version: "10.0.26100"}},
+]
+let $process_source_mix = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2]
+
+// Process, parent, and actor relationships follow the Library's Sysmon mappings.
+@name = "ocsf.process_activity"
+class_uid = 1007
+category_uid = 1
+metadata.log_name = "endpoint-process"
+metadata.product = {name: "Falcon", vendor_name: "CrowdStrike", version: "7.29.20108"}
+drop src_endpoint, dst_endpoint
+device = {
+  uid: _ctx.host.uid,
+  hostname: _ctx.host.hostname,
+  ip: ip(_ctx.host.ip),
+  type_id: 99,
+  type: "Workstation",
+}
+_ctx.executable = $processes[int(random() * $processes.length())]
+process = {
+  name: _ctx.executable.name,
+  pid: 1000 + int(random() * 30000),
+  uid: uuid(),
+  cmd_line: _ctx.executable.cmd_line,
+  file: {name: _ctx.executable.name, path: _ctx.executable.path, type_id: 8},
+  user: _ctx.user,
+}
+actor.process = {
+  uid: uuid(),
+  name: "bash",
+  pid: 800,
+  file: {name: "bash", path: "/usr/bin/bash", type_id: 8},
+}
+activity_id = 1
+process.parent_process = actor.process
+message = f"{_ctx.user.name} launched {process.name} on {_ctx.host.hostname}"
+if _ctx.variant >= 75 and _ctx.variant < 85 {
+  activity_id = 2
+  exit_code = 0
+  actor.process = process
+  drop process.parent_process
+  message = f"{process.name} exited successfully on {_ctx.host.hostname}"
+} else if _ctx.variant >= 85 and _ctx.variant < 95 {
+  activity_id = 2
+  exit_code = 1
+  actor.process = process
+  drop process.parent_process
+  message = f"{process.name} exited with code 1 on {_ctx.host.hostname}"
+} else if _ctx.variant >= 95 {
+  activity_id = 3
+  message = f"{_ctx.user.name} opened a handle to {process.name} on {_ctx.host.hostname}"
+}
+if _ctx.detail < 0.3 {
+  drop process.cmd_line, process.user.email_addr
+}
+// Windows workstations run the Windows build of the same fixture, launched from
+// Explorer. Sysmon and the Security log only exist there; Falcon covers both.
+_ctx.source_index = $process_source_mix[int(random() * $process_source_mix.length())] if _ctx.windows else 0
+_ctx.native = $process_sources[_ctx.source_index].native
+metadata.product = $process_sources[_ctx.source_index].product
+metadata.log_name = $process_sources[_ctx.source_index].log_name
+if _ctx.windows {
+  process.name = _ctx.executable.win_name
+  process.file.name = _ctx.executable.win_name
+  process.file.path = _ctx.executable.win_path
+  // Windows process creation events always carry the command line.
+  process.cmd_line = _ctx.executable.win_cmd_line
+  actor.process.name = "explorer.exe"
+  actor.process.pid = 2000 + int(random() * 8000)
+  actor.process.file = {name: "explorer.exe", path: r"C:\Windows\explorer.exe", type_id: 8}
+  message = message.replace(_ctx.executable.name, _ctx.executable.win_name)
+}
+// Hashes identify the recurring binary on every host.
+process.file.hashes = [
+  {algorithm_id: 1, value: hash_md5(f"synthetic-binary-{process.file.path}")},
+  {algorithm_id: 3, value: hash_sha256(f"synthetic-binary-{process.file.path}")},
+]
+// Falcon identifies processes by their sensor-assigned TargetProcessId.
+process.uid = string(100000000000 + int(random() * 899999999999)) if _ctx.source_index == 0 else process.uid
+actor.process.uid = string(100000000000 + int(random() * 899999999999)) if _ctx.source_index == 0 else actor.process.uid
+// An exiting process reports itself as the actor; a launch names its parent.
+if activity_id == 2 {
+  actor.process = process
+} else {
+  process.parent_process = actor.process
+}

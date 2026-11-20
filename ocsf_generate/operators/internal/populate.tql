@@ -1,0 +1,354 @@
+---
+description: Select reusable entities, build class-specific events, and attach raw logs.
+args:
+  named:
+    - name: offset
+      type: int
+    - name: count
+      type: int
+    - name: time_eps
+      type: int
+    - name: end_time
+      type: time
+    - name: historical_start
+      type: time
+      default: null
+    - name: eps_office_hours
+      type: int
+      default: 1000
+    - name: eps_off
+      type: int
+      default: 100
+    - name: class_uid
+      type: int
+    - name: base_event_share
+      type: float
+    - name: raw
+      type: string
+    - name: raw_message
+      type: bool
+    - name: needle_ip_count
+      type: int
+      default: 0
+    - name: needle_dns_count
+      type: int
+      default: 0
+    - name: needle_command_count
+      type: int
+      default: 0
+    - name: observables_probability
+      type: float
+      default: 1.0
+    - name: drift_probability
+      type: float
+      default: 0.0
+    - name: unknown_probability
+      type: float
+      default: 0.0
+    - name: vendor_probability
+      type: float
+      default: 0.0
+---
+
+// Bind package constants once; Nova 6.19.1 cannot evaluate module references per row.
+let $class_mix = ocsf_generate::$class_mix
+let $object_probability = ocsf_generate::$object_probability
+let $services = ocsf_generate::$services
+let $users = ocsf_generate::$users
+let $workstations = ocsf_generate::$workstations
+let $user_uids = $users.uid
+let $user_names = $users.name
+let $user_emails = $users.email_addr
+let $host_uids = $workstations.uid
+let $host_names = $workstations.hostname
+let $host_ips = $workstations.ip
+let $service_names = $services.hostname
+let $service_ips = $services.ip
+let $service_ipv6s = $services.ipv6
+let $service_ports = $services.port
+let $needle_total = $needle_ip_count + $needle_dns_count + $needle_command_count
+// Gaps have stride or stride+1 slots. This spreads exact counts without large
+// index*count products or a seeded random-number generator.
+let $needle_stride = int($count / $needle_total) if $needle_total > 0 and $count >= $needle_total else 1
+let $needle_wide = $count - $needle_stride * $needle_total if $needle_total > 0 else 0
+let $needle_wide_span = $needle_wide * ($needle_stride + 1)
+
+// Assign each branch disjoint timeline positions, including a partial final batch.
+_event_index = _sequence * 4 + $offset
+where _event_index < $count
+if $historical_start != null {
+  ocsf_generate::internal::historical_time start=$historical_start, end=$end_time,
+    eps_office_hours=$eps_office_hours, eps_off=$eps_off
+} else if $time_eps != null {
+  _event_time = ($end_time - ($count - _event_index) * 1s / $time_eps
+    + random() * 10ms - 5ms).floor(1ms)
+} else {
+  _event_time = (now() - 10s - random() * 2min).floor(1ms)
+}
+_needle_rank = -1
+if $needle_total > 0 {
+  _needle_rank = (int(_event_index / ($needle_stride + 1)) if _event_index < $needle_wide_span
+    else $needle_wide + int((_event_index - $needle_wide_span) / $needle_stride))
+  if _event_index != _needle_rank * $needle_stride + (_needle_rank if _needle_rank < $needle_wide else $needle_wide) {
+    _needle_rank = -1
+  }
+}
+_ctx = {
+  event_index: _event_index,
+  needle_rank: _needle_rank,
+  user_index: int(random() * $user_uids.length()),
+  service_index: int(random() * $service_names.length()),
+  variant: int(random() * 100),
+  detail: random(),
+  // Base events (class 0) stand for sources without a specific class mapping.
+  class_uid: (4001 if _needle_rank >= 0 and _needle_rank < $needle_ip_count
+    else 4003 if _needle_rank >= 0 and _needle_rank < $needle_ip_count + $needle_dns_count
+    else 1007 if _needle_rank >= 0 and _needle_rank < $needle_total
+    else $class_uid else (0 if random() < $base_event_share
+      else $class_mix[int(random() * $class_mix.length())])),
+}
+if _ctx.class_uid >= 200000 and _ctx.user_index - int(_ctx.user_index / 5) * 5 == 4 {
+  _ctx.user_index = _ctx.user_index - 1
+}
+_ctx = {
+  event_index: _ctx.event_index,
+  needle_rank: _ctx.needle_rank,
+  user_index: _ctx.user_index,
+  service_index: _ctx.service_index,
+  variant: _ctx.variant,
+  detail: _ctx.detail,
+  class_uid: _ctx.class_uid,
+  // Assigned workstations: 80% Windows, 15% Linux, and 5% macOS.
+  windows: _ctx.user_index - int(_ctx.user_index / 5) * 5 < 4,
+  macos: _ctx.user_index - int(_ctx.user_index / 20) * 20 == 19,
+  user: {
+    uid: $user_uids[_ctx.user_index],
+    name: $user_names[_ctx.user_index],
+    email_addr: $user_emails[_ctx.user_index],
+    domain: $users.domain[_ctx.user_index],
+    type_id: 1,
+  },
+  host: {
+    uid: $host_uids[_ctx.user_index],
+    hostname: $host_names[_ctx.user_index],
+    ip: $host_ips[_ctx.user_index],
+  },
+  service: {
+    hostname: $service_names[_ctx.service_index],
+    ip: $service_ips[_ctx.service_index],
+    ipv6: $service_ipv6s[_ctx.service_index],
+    port: $service_ports[_ctx.service_index],
+  },
+}
+this = {
+  _ctx: _ctx,
+  metadata: {
+    version: "1.9.0",
+    source: "Synthetic workload",
+    loggers: [{
+      name: "ocsf-gen",
+      product: {name: "OCSF workload generator", vendor_name: "Tenzir"},
+    }],
+    uid: uuid(),
+  },
+  time: _event_time,
+  severity_id: 1,
+  status_id: 1,
+  actor: {user: _ctx.user},
+  src_endpoint: {
+    ip: ip(_ctx.host.ip),
+    hostname: _ctx.host.hostname,
+    port: 49152 + int(random() * 16384),
+  },
+  dst_endpoint: {
+    ip: ip(_ctx.service.ip),
+    hostname: _ctx.service.hostname,
+    port: _ctx.service.port,
+  },
+}
+
+_ctx.scenario = 0 if _ctx.variant < 70 else 1 if _ctx.variant < 80 else 2 if _ctx.variant < 95 else 3
+match _ctx.class_uid {
+  0 => { ocsf_generate::classes::base_event }
+  1001 => { ocsf_generate::classes::file_activity }
+  1007 => { ocsf_generate::classes::process_activity }
+  2004 => { ocsf_generate::classes::detection_finding }
+  3002 => { ocsf_generate::classes::authentication }
+  4001 => { ocsf_generate::classes::network_activity }
+  4002 => { ocsf_generate::classes::http_activity }
+  4003 => { ocsf_generate::classes::dns_activity }
+  4009 => { ocsf_generate::classes::email_activity }
+  6003 => { ocsf_generate::classes::api_activity }
+  1005 => { ocsf_generate::classes::module_activity }
+  1006 => { ocsf_generate::classes::scheduled_job_activity }
+  1008 => { ocsf_generate::classes::event_log_activity }
+  1009 => { ocsf_generate::classes::script_activity }
+  2002 => { ocsf_generate::classes::vulnerability_finding }
+  2003 => { ocsf_generate::classes::compliance_finding }
+  2005 => { ocsf_generate::classes::incident_finding }
+  2006 => { ocsf_generate::classes::data_security_finding }
+  3003 => { ocsf_generate::classes::authorize_session }
+  3004 => { ocsf_generate::classes::entity_management }
+  3006 => { ocsf_generate::classes::group_management }
+  3007 => { ocsf_generate::classes::user_management }
+  3008 => { ocsf_generate::classes::role_management }
+  4004 => { ocsf_generate::classes::dhcp_activity }
+  4005 => { ocsf_generate::classes::rdp_activity }
+  4006 => { ocsf_generate::classes::smb_activity }
+  4007 => { ocsf_generate::classes::ssh_activity }
+  4008 => { ocsf_generate::classes::ftp_activity }
+  4013 => { ocsf_generate::classes::ntp_activity }
+  4014 => { ocsf_generate::classes::tunnel_activity }
+  5001 => { ocsf_generate::classes::device_inventory_info }
+  5003 => { ocsf_generate::classes::user_inventory_info }
+  5004 => { ocsf_generate::classes::os_patch_state }
+  5019 => { ocsf_generate::classes::device_config_state_change }
+  5020 => { ocsf_generate::classes::software_inventory_info }
+  5023 => { ocsf_generate::classes::cloud_resources_inventory_info }
+  6001 => { ocsf_generate::classes::web_resources_activity }
+  6002 => { ocsf_generate::classes::application_lifecycle }
+  6005 => { ocsf_generate::classes::datastore_activity }
+  6006 => { ocsf_generate::classes::file_hosting_activity }
+  6007 => { ocsf_generate::classes::scan_activity }
+  6008 => { ocsf_generate::classes::application_error }
+  7001 => { ocsf_generate::classes::remediation_activity }
+  7002 => { ocsf_generate::classes::file_remediation_activity }
+  7003 => { ocsf_generate::classes::process_remediation_activity }
+  7004 => { ocsf_generate::classes::network_remediation_activity }
+  1002 => { ocsf_generate::classes::kernel_extension_activity }
+  1003 => { ocsf_generate::classes::kernel_activity }
+  1004 => { ocsf_generate::classes::memory_activity }
+  1010 => { ocsf_generate::classes::peripheral_activity }
+  1011 => { ocsf_generate::classes::device_power_state_activity }
+  1012 => { ocsf_generate::classes::clipboard_activity }
+  2001 => { ocsf_generate::classes::security_finding }
+  2007 => { ocsf_generate::classes::application_security_posture_finding }
+  2008 => { ocsf_generate::classes::iam_analysis_finding }
+  3001 => { ocsf_generate::classes::account_change }
+  3005 => { ocsf_generate::classes::user_access }
+  4010 => { ocsf_generate::classes::network_file_activity }
+  4011 => { ocsf_generate::classes::email_file_activity }
+  4012 => { ocsf_generate::classes::email_url_activity }
+  5002 => { ocsf_generate::classes::config_state }
+  5006 => { ocsf_generate::classes::kernel_object_query }
+  5007 => { ocsf_generate::classes::file_query }
+  5008 => { ocsf_generate::classes::folder_query }
+  5009 => { ocsf_generate::classes::admin_group_query }
+  5010 => { ocsf_generate::classes::job_query }
+  5011 => { ocsf_generate::classes::module_query }
+  5012 => { ocsf_generate::classes::network_connection_query }
+  5013 => { ocsf_generate::classes::networks_query }
+  5014 => { ocsf_generate::classes::peripheral_device_query }
+  5015 => { ocsf_generate::classes::process_query }
+  5016 => { ocsf_generate::classes::service_query }
+  5017 => { ocsf_generate::classes::session_query }
+  5018 => { ocsf_generate::classes::user_query }
+  5021 => { ocsf_generate::classes::osint_inventory_info }
+  5022 => { ocsf_generate::classes::startup_item_query }
+  5040 => { ocsf_generate::classes::evidence_info }
+  6004 => { ocsf_generate::classes::web_resource_access_activity }
+  8001 => { ocsf_generate::classes::drone_flights_activity }
+  8002 => { ocsf_generate::classes::airborne_broadcast_activity }
+  201001 => { ocsf_generate::classes::win::registry_key_activity }
+  201002 => { ocsf_generate::classes::win::registry_value_activity }
+  201003 => { ocsf_generate::classes::win::windows_resource_activity }
+  201004 => { ocsf_generate::classes::win::windows_service_activity }
+  205004 => { ocsf_generate::classes::win::registry_key_query }
+  205005 => { ocsf_generate::classes::win::registry_value_query }
+  205019 => { ocsf_generate::classes::win::prefetch_query }
+  _ => { discard }
+}
+if $needle_ip_count + $needle_dns_count + $needle_command_count > 0 {
+  ocsf_generate::internal::needles ip_count=$needle_ip_count, dns_count=$needle_dns_count,
+    command_count=$needle_command_count
+}
+type_uid = class_uid * 100 + activity_id
+batch 8192, timeout=100ms
+ocsf_generate::internal::profiles
+batch 8192, timeout=100ms
+// Unmapped sources have no related objects to populate.
+_ctx.rich = _ctx.class_uid != 0 and random() < $object_probability
+if _ctx.rich {
+  ocsf_generate::internal::objects
+}
+batch 8192, timeout=100ms
+
+// Vary field presence, while keeping the required identity and class fields.
+if _ctx.detail < 0.30 {
+  drop actor.user.email_addr?
+}
+if _ctx.detail < 0.20 {
+  drop src_endpoint.hostname?, dst_endpoint.hostname?
+}
+if _ctx.detail > 0.80 {
+  metadata.labels = ["synthetic", "branch-zurich"]
+}
+
+// Source-specific fields deliberately vary in presence and native type. Base
+// events add their source profiles last, so the shared steps above see few schemas.
+if _ctx.class_uid == 0 {
+  ocsf_generate::internal::base_sources
+} else {
+  unmapped.observed_host = ip(_ctx.host.ip) if random() < 0.5 else _ctx.host.hostname
+  if _ctx.detail > 0.20 {
+    unmapped.collector_zone = ["zurich", "frankfurt", "london"][int(random() * 3)]
+    unmapped.retry_count = int(random() * 4)
+    if random() < 0.5 {
+      unmapped.retry_count = string(unmapped.retry_count)
+    }
+  }
+  if _ctx.detail > 0.50 {
+    unmapped.cache_hit = random() < 0.8
+    unmapped.source_tags = ["production", "branch-office"]
+  }
+  if _ctx.detail > 0.80 {
+    unmapped.policy = {name: "workstation-default", revision: 3, enabled: true}
+  }
+}
+
+ocsf_generate::internal::coverage_profiles
+
+// Optional source details preserve compact events for half the observations.
+if _ctx.detail > 0.50 {
+  if category_uid in [1, 5] {
+    ocsf_generate::internal::fields_endpoint
+  } else if category_uid == 2 {
+    ocsf_generate::internal::fields_finding
+  } else if category_uid == 4 {
+    ocsf_generate::internal::fields_network
+  }
+}
+
+if _ctx.rich {
+  ocsf_generate::internal::objects_nested
+}
+
+if random() < $observables_probability {
+  ocsf_generate::internal::observables
+}
+
+if $raw != "none" {
+  _raw = {user: _ctx.user.name, host: _ctx.host.hostname, context: _ctx.source?,
+    native: ("generic" if _ctx.macos and _ctx.native? == "falcon" else _ctx.native?), user_index: _ctx.user_index, windows: _ctx.windows,
+    host_uid: _ctx.host.uid, host_ip: _ctx.host.ip, base_group: _ctx.base?.group?}
+  // Unmapped sources name their own reporting device and not always a user.
+  if _ctx.class_uid == 0 {
+    _raw.host = _ctx.base.host
+    _raw.user = _ctx.base.user?
+  }
+}
+drop _ctx
+if $raw != "none" {
+  ocsf_generate::internal::raw raw=$raw, raw_message=$raw_message
+  drop _raw
+}
+
+if "record_integrity" in (metadata.profiles? else []) {
+  ocsf_generate::internal::attest
+}
+
+// Corrupt normalized fields only after native renderers have read valid values.
+if $drift_probability > 0.0 or $unknown_probability > 0.0 or $vendor_probability > 0.0 {
+  ocsf_generate::internal::drift type_probability=$drift_probability,
+    unknown_probability=$unknown_probability, vendor_probability=$vendor_probability
+}

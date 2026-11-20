@@ -1,0 +1,286 @@
+---
+description: Render CrowdStrike Falcon FDR events and Event Streams detection summaries as JSON.
+---
+
+// FDR events are flat JSON objects whose values are mostly strings. The sensor
+// (aid) is stable per host; the customer (cid) is stable for the organization.
+// Only file, process, and detection telemetry follows the host's OS; the other
+// endpoint classes describe Linux paths and processes.
+_x = {
+  win: _raw.windows and class_uid in [1001, 1007, 2004],
+  ms: string(int(time.since_epoch().count_milliseconds())),
+  host: _raw.host,
+  platform: "Win" if _raw.windows and class_uid in [1001, 1007, 2004] else "Lin",
+}
+_x.secs = f"{_x.ms.slice(end=10)}.{_x.ms.slice(begin=10)}"
+_x.aid = hash_md5(_raw.host_uid)
+_x.short = _x.host.split(".")[0]
+_x.sid = f"S-1-5-21-3623811015-3361044348-30300820-{1100 + _raw.user_index}"
+_x.auth = string(100000 + int(random() * 9000000))
+// Windows image paths use the NT device namespace.
+_x.device_path = r"\Device\HarddiskVolume3"
+_x.base = {
+  aid: _x.aid,
+  aip: _raw.host_ip,
+  cid: "c0ffee00acde4d2ab5b1e0f0a1b2c3d4",
+  ComputerName: _x.short.to_upper() if _x.win else _x.short,
+  ConfigBuild: "1007.3.0019807.1" if _x.win else "1007.8.0019807.1",
+  ConfigStateHash: "1763245019",
+  ContextTimeStamp: _x.secs,
+  Entitlements: "15",
+  EffectiveTransmissionClass: "2",
+  event_platform: _x.platform,
+  EventOrigin: "1",
+  id: metadata.uid,
+  timestamp: _x.ms,
+  aipCount: "1",
+  aidCount: "1",
+  LocalAddressIP4: _raw.host_ip,
+  MAC: "00-50-56-" + hash_md5(_x.short).slice(end=2).to_upper() + "-" + hash_md5(_x.short).slice(begin=2, end=4).to_upper() + "-" + hash_md5(_x.short).slice(begin=4, end=6).to_upper(),
+  ProductType: "1",
+  SensorGroupingTags: "workstations,acme",
+  Tags: "12094627905582, 12094627906234, 12094628184871",
+  TreeId: "0",
+  OriginalEventTimeStamp: _x.ms,
+  RawProcessId: "0",
+  SessionId: "1" if _x.win else "0",
+  ConfigIDBase: "65994763",
+  ConfigIDBuild: "19807",
+  ConfigIDPlatform: "3" if _x.win else "8",
+  AgentLocalTime: _x.secs,
+  AgentVersion: "7.29.20108.0",
+  BootId: hash_md5(_raw.host_uid + "-boot").slice(end=8),
+  City: "Zurich",
+  Continent: "Europe",
+  Country: "Switzerland",
+  Timezone: "Europe/Zurich",
+  FirstSeen: "1735689600",
+  HostnameField: _x.short,
+  OU: "Workstations",
+  SiteName: "Zurich-HQ",
+  SystemManufacturer: "Dell Inc.",
+  SystemProductName: "Latitude 7450",
+  Version: "Windows 11" if _x.win else "Ubuntu 24.04",
+  ProductName: "Windows 11 Enterprise" if _x.win else "Ubuntu 24.04.1 LTS",
+  name: "",
+  event_simpleName: "",
+}
+match class_uid {
+  1007 => {
+    _x.image = (_x.device_path + process.file.path.slice(begin=2)) if _x.win else process.file.path
+    _x.parent_image = (_x.device_path + actor.process.file.path.slice(begin=2)) if _x.win else actor.process.file.path
+    _x.event = {
+      ..._x.base,
+      event_simpleName: ["ProcessRollup2", "EndOfProcess", "ProcessHandleOpDetectInfo"][activity_id - 1],
+      name: ["ProcessRollup2V19", "EndOfProcessV18", "ProcessHandleOpDetectInfoV2"][activity_id - 1],
+      RawProcessId: string(process.pid),
+      TargetProcessId: process.uid,
+      ContextProcessId: process.uid if activity_id == 2 else actor.process.uid,
+      ContextThreadId: string(100000000000 + int(random() * 899999999999)),
+      ParentProcessId: actor.process.uid if activity_id != 2 else string(100000000000 + int(random() * 899999999999)),
+      ParentBaseFileName: actor.process.name,
+      ImageFileName: _x.image,
+      CommandLine: process.cmd_line?,
+      SHA256HashData: process.file.hashes[1].value,
+      MD5HashData: process.file.hashes[0].value,
+      SHA1HashData: "0000000000000000000000000000000000000000",
+      UserName: _raw.user,
+      UserSid: _x.sid if _x.win else null,
+      UID: null if _x.win else string(1000 + _raw.user_index),
+      GID: null if _x.win else string(1000 + _raw.user_index),
+      AuthenticationId: _x.auth,
+      ParentAuthenticationId: _x.auth,
+      IntegrityLevel: "8192" if _x.win else null,
+      TokenType: "1",
+      ProcessStartTime: _x.secs,
+      ProcessEndTime: _x.secs if activity_id == 2 else "",
+      ProcessParameterFlags: "24577",
+      ProcessCreateFlags: "525332",
+      ProcessSxsFlags: "1600",
+      ImageSubsystem: "2" if _x.win else "0",
+      SourceProcessId: actor.process.uid,
+      SourceThreadId: string(100000000000 + int(random() * 899999999999)),
+      ExitCode: string(exit_code? else 0) if activity_id == 2 else null,
+      GrandParentBaseFileName: "userinit.exe" if _x.win else "sshd",
+      ParentImageFileName: _x.parent_image,
+      AuthenticodeHashData: hash_sha256(process.file.path) if _x.win else null,
+      SignInfoFlags: "8683538" if _x.win else null,
+      ZoneIdentifier: "0",
+      ReferrerUrl: "",
+      ProcessGroupId: _x.ms.slice(begin=3),
+      MD5HashDataCount: "1",
+      Cpu: "Intel(R) Core(TM) i7-1365U",
+      CycleTime: string(int(random() * 900000000)),
+      DesiredAccess: "1052928" if activity_id == 3 else null,
+      ConHostProcessId: string(100000000000 + int(random() * 899999999999)) if _x.win else null,
+      RpcClientProcessId: "0" if _x.win else null,
+      UserIsAdmin: "0",
+      UserLogonFlags: "0" if _x.win else null,
+      LogonType: "2" if _x.win else null,
+      CreateProcessType: "0",
+      WindowFlags: "1" if _x.win else null,
+      ShowWindowFlags: "1" if _x.win else null,
+      ImageFileNameOriginal: process.file.name,
+      ParentProcessCreateTime: _x.secs,
+      EffectiveUID: null if _x.win else string(1000 + _raw.user_index),
+      RUID: null if _x.win else string(1000 + _raw.user_index),
+      SVUID: null if _x.win else string(1000 + _raw.user_index),
+      TtyName: null if _x.win else "pts/0",
+      HandleCreated: "1" if activity_id == 3 else null,
+    }
+  }
+  1001 => {
+    _x.target = (_x.device_path + file.path.slice(begin=2)) if _x.win else file.path
+    _x.event = {
+      ..._x.base,
+      event_simpleName: ["GenericFileWritten", "", "GenericFileWritten", "FileDeleteInfo"][activity_id - 1],
+      name: ["GenericFileWrittenV22", "", "GenericFileWrittenV22", "FileDeleteInfoV4"][activity_id - 1],
+      RawProcessId: string(actor.process.pid),
+      ContextProcessId: actor.process.uid,
+      ContextThreadId: string(100000000000 + int(random() * 899999999999)),
+      ContextBaseFileName: actor.process.name,
+      ContextImageFileName: (_x.device_path + actor.process.file.path.slice(begin=2)) if _x.win else actor.process.file.path,
+      TargetFileName: _x.target,
+      FileObject: string(int(random() * 18446744073709)),
+      Size: string(file.size?) if file.size? != null else null,
+      DesiredAccess: ["1180054", "1179785", "1180063", "65536"][activity_id - 1],
+      FileAttributes: "128" if _x.win else "33188",
+      FileIdentifier: hash_md5(file.path),
+      IrpFlags: "2052",
+      MajorFunction: "0",
+      MinorFunction: "0",
+      OperationFlags: "0",
+      IsOnRemovableDisk: "0",
+      IsOnNetwork: "0",
+      DiskParentDeviceInstanceId: r"PCI\VEN_144D&DEV_A80A&SUBSYS_0A0C144D&REV_00\4&2f2ba4c3&0&0018" if _x.win else null,
+      VolumeDeviceType: "7" if _x.win else null,
+      UserName: _raw.user,
+      UserSid: _x.sid if _x.win else null,
+      UID: null if _x.win else string(1000 + _raw.user_index),
+      AuthenticationId: _x.auth,
+      SHA256HashData: hash_sha256("synthetic-fixture-" + file.name) if activity_id == 3 else null,
+      TemporaryFileName: null,
+      ZoneIdentifier: "0",
+      FileEcpBitmask: "0",
+      ContentType: "0",
+      FileCategory: "0",
+      FileSubType: "0",
+      WrittenFileClosed: "1" if activity_id == 3 else null,
+      ProcessGroupId: _x.ms.slice(begin=3),
+    }
+  }
+  2004 => {
+    // Event Streams wraps a detection summary in delivery metadata.
+    _x.process = ({name: "powershell.exe", path: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", dir: r"C:\Windows\System32\WindowsPowerShell\v1.0", cmd: "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA"}
+      if _x.win else {name: "python3", path: "/usr/bin/python3", dir: "/usr/bin", cmd: "python3 -c import socket,subprocess,os"})
+    _x.event = {
+      metadata: {
+        customerIDString: "c0ffee00acde4d2ab5b1e0f0a1b2c3d4",
+        offset: int(random() * 90000000),
+        eventType: "DetectionSummaryEvent",
+        eventCreationTime: int(_x.ms),
+        version: "1.0",
+      },
+      event: {
+        ProcessStartTime: int(_x.ms.slice(end=10)) - 30,
+        ProcessEndTime: 0,
+        ProcessId: int(random() * 899999999999) + 100000000000,
+        ParentProcessId: int(random() * 899999999999) + 100000000000,
+        ComputerName: _x.short.to_upper() if _x.win else _x.short,
+        UserName: _raw.user,
+        DetectName: finding_info.title,
+        DetectDescription: finding_info.desc,
+        Severity: severity_id,
+        SeverityName: ["Unknown", "Informational", "Low", "Medium", "High", "Critical"][severity_id],
+        FileName: _x.process.name,
+        FilePath: _x.process.dir,
+        CommandLine: _x.process.cmd,
+        SHA256String: hash_sha256(f"synthetic-binary-{_x.process.path}"),
+        MD5String: hash_md5(f"synthetic-binary-{_x.process.path}"),
+        SHA1String: "0000000000000000000000000000000000000000",
+        MachineDomain: "ACME" if _x.win else "",
+        DetectId: finding_info.uid,
+        FalconHostLink: f"https://falcon.eu-1.crowdstrike.com/activity/detections/detail/{_x.aid}/{finding_info.uid.split(":")[2]}",
+        SensorId: _x.aid,
+        IOCType: "hash_sha256",
+        IOCValue: hash_sha256(f"synthetic-binary-{_x.process.path}"),
+        LocalIP: _raw.host_ip,
+        MACAddress: "00-50-56-" + hash_md5(_x.short).slice(end=2) + "-" + hash_md5(_x.short).slice(begin=2, end=4) + "-" + hash_md5(_x.short).slice(begin=4, end=6),
+        PatternDispositionValue: 0 if severity_id < 4 else 16,
+        PatternDispositionDescription: "Detection, standard detection." if severity_id < 4 else "Prevention, operation blocked.",
+        PatternDispositionFlags: {
+          Indicator: false, Detect: severity_id < 4, InddetMask: false, SensorOnly: false, Rooting: false,
+          KillProcess: false, KillSubProcess: false, QuarantineMachine: false, QuarantineFile: false,
+          PolicyDisabled: false, KillParent: false, OperationBlocked: severity_id >= 4,
+          ProcessBlocked: false, RegistryOperationBlocked: false, CriticalProcessDisabled: false,
+          BootupSafeguardEnabled: false, FsOperationBlocked: false, HandleOperationDowngraded: false,
+          KillActionFailed: false, BlockingUnsupportedOrDisabled: false, SuspendProcess: false, SuspendParent: false,
+        },
+        ParentImageFileName: r"C:\Windows\explorer.exe" if _x.win else "/usr/bin/bash",
+        ParentCommandLine: r"C:\Windows\Explorer.EXE" if _x.win else "-bash",
+        GrandparentImageFileName: r"C:\Windows\System32\userinit.exe" if _x.win else "/usr/sbin/sshd",
+        GrandparentCommandLine: r"C:\Windows\system32\userinit.exe" if _x.win else "sshd: " + _raw.user + " [priv]",
+        Tactic: "Credential Access" if finding_info.types[0] == "Authentication anomaly" else "Discovery" if finding_info.types[0] == "Cloud anomaly" else "Execution",
+        Technique: "Brute Force" if finding_info.types[0] == "Authentication anomaly" else "PowerShell" if _x.win else "Command and Scripting Interpreter",
+        Objective: "Falcon Detection Method",
+      },
+    }
+  }
+  _ => {
+    if class_uid >= 7001 {
+      // Response actions are console audit events in Event Streams.
+      _x.target = (file?.path? if class_uid == 7002 else process?.name? if class_uid == 7003
+        else connection_info?.uid? if class_uid == 7004 else _raw.host)
+      _x.operation = ["", "isolate", "evict", "restore", "harden", "detect"][activity_id] + ["_host", "_file", "_process", "_network"][class_uid - 7001]
+      _x.event = {
+        metadata: {
+          customerIDString: "c0ffee00acde4d2ab5b1e0f0a1b2c3d4",
+          offset: int(random() * 90000000),
+          eventType: "UserActivityAuditEvent",
+          eventCreationTime: int(_x.ms),
+          version: "1.0",
+        },
+        event: {
+          UserId: "soc-automation@acme.example",
+          UserIp: "10.20.0.60",
+          OperationName: _x.operation + "_requested",
+          ServiceName: "real-time-response" if class_uid in [7002, 7003] else "hosts",
+          Success: status_id == 1,
+          UTCTimestamp: int(_x.ms.slice(end=10)),
+          AuditKeyValues: [
+            {Key: "device_id", ValueString: _x.aid},
+            {Key: "hostname", ValueString: _x.short},
+            {Key: "command_id", ValueString: command_uid},
+            {Key: "target", ValueString: _x.target},
+            {Key: "description", ValueString: message},
+            {Key: "status", ValueString: "completed" if status_id == 1 else "failed"},
+            {Key: "status_detail", ValueString: status_detail? else ""},
+          ],
+        },
+      }
+    } else {
+      // Only module loads reach this branch; other observations use generic JSON.
+      _x.event = {
+        ..._x.base,
+        event_simpleName: "ClassifiedModuleLoad",
+        ContextProcessId: actor?.process?.uid?,
+        ContextThreadId: string(100000000000 + int(random() * 899999999999)),
+        ContextBaseFileName: actor?.process?.name?,
+        ContextImageFileName: actor?.process?.file?.path?,
+        RawProcessId: string(actor?.process?.pid? else 0),
+        UserName: _raw.user,
+        UID: string(1000 + _raw.user_index),
+        ImageFileName: _raw.context?.module_path?,
+        SHA256HashData: hash_sha256(_raw.context?.module_path? else ""),
+        ModuleLoadTelemetryClassification: "1",
+        FunctionName: _raw.context?.function_name?,
+        StatusDetail: status_detail?,
+        Status: string(status_id),
+      }
+      _x.event.name = _x.event.event_simpleName + "V3"
+    }
+  }
+}
+// FDR omits fields that do not apply to the platform or event.
+raw_data = print_ndjson(_x.event, strip_null_fields=true)
+drop _x

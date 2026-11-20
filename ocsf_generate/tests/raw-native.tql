@@ -1,0 +1,134 @@
+// Each product's native record parses with a standard parser and repeats the
+// normalized event's values.
+ocsf_generate::generate count=16384
+assert raw_data != null
+match metadata.log_format {
+  "windows-xml" => {
+    _x = raw_data.parse_xml()[0]
+    assert _x.System.TimeCreated["@SystemTime"] == f"{time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=23)}0000Z"
+    _data = _x.EventData.Data
+    if class_uid == 3002 {
+      assert _x.System.Computer == "dc-01.acme.example"
+      // Logoff events (4634) carry no network information.
+      if activity_id == 1 {
+        assert _data.where(d => d["@Name"] == "IpAddress")[0]["#text"] == string(src_endpoint.ip)
+        assert _data.where(d => d["@Name"] == "IpPort")[0]["#text"] == string(src_endpoint.port)
+      }
+      assert _data.where(d => d["@Name"] == "TargetUserName")[0]["#text"] == user.name
+    } else if class_uid == 1007 and not (activity_id == 3 and metadata.product.name == "Windows Security") {
+      // A handle request (4656) names the requesting process; the others name the target.
+      _image = _data.where(d => d["@Name"] in ["Image", "NewProcessName", "ProcessName", "TargetImage"])
+      assert _image[_image.length() - 1]["#text"] == process.file.path
+      if activity_id == 1 {
+        assert _data.where(d => d["@Name"] == "CommandLine")[0]["#text"] == process.cmd_line
+      }
+    } else if class_uid == 1001 {
+      assert _data.where(d => d["@Name"] in ["TargetFilename", "ObjectName"])[0]["#text"] == file.path
+    } else if class_uid == 4001 {
+      assert _data.where(d => d["@Name"] == "DestinationIp")[0]["#text"] == string(dst_endpoint.ip)
+      assert _data.where(d => d["@Name"] == "SourcePort")[0]["#text"] == string(src_endpoint.port)
+    } else if class_uid == 4003 {
+      assert _data.where(d => d["@Name"] == "QueryName")[0]["#text"] == query.hostname
+    } else if class_uid == 1009 {
+      // Entities round-trip the script block; parse_xml drops its line breaks.
+      assert _data.where(d => d["@Name"] == "ScriptBlockText")[0]["#text"] == script.script_content.value.replace("\n", "")
+      assert _data.where(d => d["@Name"] == "ScriptBlockId")[0]["#text"] == script.uid
+    }
+  }
+  "zeek-tsv" => {
+    _z = raw_data.split("\t")
+    assert _z[1] == connection_info.uid
+    // dhcp.log has no connection tuple; the other logs start with one.
+    if class_uid != 4004 {
+      assert _z[2] == string(src_endpoint.ip) and _z[3] == string(src_endpoint.port)
+      assert _z[4] == string(dst_endpoint.ip) and _z[5] == string(dst_endpoint.port)
+    }
+    if class_uid == 4003 {
+      assert _z[9] == query.hostname
+    } else if class_uid == 4002 {
+      assert _z[8] == http_request.url.hostname and _z[16] == string(http_response.code)
+      assert dst_endpoint.port == 80 and http_request.url.scheme == "http"
+    }
+  }
+  "eve-json" => {
+    _e = raw_data.parse_json()
+    if class_uid == 2004 {
+      assert string(_e.flow_id) == finding_info.uid
+      assert _e.alert.signature == finding_info.title
+    } else {
+      assert string(_e.flow_id) == connection_info.uid
+      assert _e.src_ip == src_endpoint.ip and _e.dest_port == dst_endpoint.port
+    }
+    if class_uid == 4003 {
+      assert _e.dns.rrname == query.hostname
+    } else if class_uid == 4002 {
+      assert _e.http.status == http_response.code
+      assert dst_endpoint.port == 80 and http_request.url.scheme == "http"
+    }
+  }
+  "pan-os-csv" => {
+    // Fields before the first quoted value contain no commas.
+    _p = raw_data.split(",")
+    if class_uid == 2004 {
+      assert _p[7] == string(evidences[0].src_endpoint.ip)
+    } else {
+      assert _p[7] == string(src_endpoint.ip) and _p[8] == string(dst_endpoint.ip)
+      assert _p[22] == connection_info.uid
+      assert _p[24] == string(src_endpoint.port) and _p[25] == string(dst_endpoint.port)
+    }
+  }
+  "fortigate-kv" => {
+    _k = raw_data.parse_kv()
+    assert _k.srcip == src_endpoint.ip and _k.dstport == dst_endpoint.port
+    assert string(_k.sessionid) == connection_info.uid
+  }
+  "combined" => {
+    _c = raw_data.split(" ")
+    assert _c[0] == string(src_endpoint.ip)
+    assert _c[5] == f"\"{http_request.http_method}"
+    assert _c[8] == string(http_response.code) and _c[9] == string(http_response.length)
+  }
+  "nginx-error" => {
+    assert metadata.log_name == "error.log" and class_uid == 6008
+    assert raw_data.starts_with(time.format_time("%Y/%m/%d %H:%M:%S").slice(end=19) + " [error] ")
+    assert raw_data.ends_with(message)
+  }
+  "syslog-rfc3164" => {
+    _s = raw_data.parse_syslog()
+    assert _s.app_name == "sshd" and _s.hostname == "bastion-01"
+    _peer = _s.content.replace_regex(r"^.*?([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) port ([0-9]+).*$", "\\1 \\2")
+    assert _peer == f"{src_endpoint.ip} {src_endpoint.port}"
+  }
+  "cloudtrail-json" => {
+    _t = raw_data.parse_json()
+    assert _t.eventID == metadata.uid and _t.eventName == api.operation
+    assert _t.sourceIPAddress == src_endpoint.ip and _t.userAgent == http_request.user_agent
+    assert _t.requestID == (api.request?.uid? else _t.requestID)
+  }
+  "falcon-json" => {
+    _f = raw_data.parse_json()
+    if class_uid == 1007 {
+      assert _f.TargetProcessId == process.uid
+      assert _f.SHA256HashData == process.file.hashes[1].value
+    } else if class_uid == 1001 {
+      assert _f.ContextProcessId == actor.process.uid
+      assert _f.TargetFileName.ends_with(file.name)
+    } else if class_uid == 2004 {
+      assert _f.event.DetectId == finding_info.uid
+    } else if class_uid >= 7001 {
+      assert _f.metadata.eventType == "UserActivityAuditEvent"
+    } else {
+      assert _f.id == metadata.uid
+    }
+  }
+  "asff-json" => {
+    _a = raw_data.parse_json()
+    assert _a.id == metadata.uid
+    assert _a.detail.findings[0].Title == finding_info.title
+    if class_uid == 2002 {
+      assert _a.detail.findings[0].Vulnerabilities[0].Id == vulnerabilities[0].cve.uid
+    }
+  }
+  _ => { pass }
+}
+summarize events=count(), formats=count_distinct(metadata.log_format)

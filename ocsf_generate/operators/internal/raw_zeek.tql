@@ -1,0 +1,72 @@
+---
+description: Render Zeek conn.log, dns.log, and http.log records as tab-separated lines.
+---
+
+// Zeek writes epoch timestamps with microseconds, "-" for unset fields, and
+// "(empty)" for empty sets. Values here never contain tabs or newlines.
+_z = {us: int(time.since_epoch().count_microseconds())}
+_z.secs = int(_z.us / 1000000)
+_z.ts = f"{_z.secs}.{string(1000000 + _z.us - _z.secs * 1000000).slice(begin=1)}"
+_z.id = f"{connection_info.uid}\t{src_endpoint.ip}\t{src_endpoint.port}\t{dst_endpoint.ip}\t{dst_endpoint.port}"
+match class_uid {
+  4001 => {
+    _z.service = "ssl" if dst_endpoint.port == 443 else "smtp" if dst_endpoint.port in [25, 587] else "smb" if dst_endpoint.port == 445 else "ssh" if dst_endpoint.port == 22 else "-"
+    if traffic? != null {
+      _z.duration_ms = duration? else 0
+      _z.duration = f"{int(_z.duration_ms / 1000)}.{string(1000 + _z.duration_ms - int(_z.duration_ms / 1000) * 1000).slice(begin=1)}{string(1000 + int(random() * 1000)).slice(begin=1)}"
+      _z.orig_pkts = traffic.packets_out? else 2 + int(traffic.bytes_out / 1200)
+      _z.resp_pkts = traffic.packets_in? else 2 + int(traffic.bytes_in / 1400)
+      _z.state = "SF" if activity_id == 6 else "RSTO"
+      _z.history = "ShADadFf" if activity_id == 6 else "ShADadR"
+      raw_data = f"{_z.ts}\t{_z.id}\ttcp\t{_z.service}\t{_z.duration}\t{traffic.bytes_out}\t{traffic.bytes_in}\t{_z.state}\tT\tT\t0\t{_z.history}\t{_z.orig_pkts}\t{traffic.bytes_out + _z.orig_pkts * 52}\t{_z.resp_pkts}\t{traffic.bytes_in + _z.resp_pkts * 52}\t(empty)"
+    } else if activity_id == 5 {
+      raw_data = f"{_z.ts}\t{_z.id}\ttcp\t-\t0.000{string(1000 + int(random() * 1000)).slice(begin=1)}\t0\t0\tREJ\tT\tT\t0\tSr\t1\t60\t1\t40\t(empty)"
+    } else {
+      raw_data = f"{_z.ts}\t{_z.id}\ttcp\t-\t-\t-\t-\tS1\tT\tT\t0\tSh\t1\t60\t1\t60\t(empty)"
+    }
+  }
+  4003 => {
+    _z.qtype = "1\tA" if query.type == "A" else "28\tAAAA"
+    _z.rcode = "-\t-" if rcode_id? == null else "0\tNOERROR" if rcode_id == 0 else "3\tNXDOMAIN"
+    _z.rtt = "-" if response_time? == null else "0.005000"
+    _z.answers = "-\t-" if answers? == null else f"{answers[0].rdata}\t{answers[0].ttl}.000000"
+    _z.ra = "F" if activity_id == 1 else "T"
+    raw_data = f"{_z.ts}\t{_z.id}\tudp\t{query.packet_uid}\t{_z.rtt}\t{query.hostname}\t1\tC_INTERNET\t{_z.qtype}\t{_z.rcode}\tF\tF\tT\t{_z.ra}\t0\t{_z.answers}\tF"
+  }
+  4002 => {
+    _z.uri = http_request.url.path if http_request.url.query_string? == null else f"{http_request.url.path}?{http_request.url.query_string}"
+    _z.status_msg = "OK" if http_response.code == 200 else "Created" if http_response.code == 201 else "Not Found" if http_response.code == 404 else "Service Unavailable"
+    _z.body = 0 if http_request.http_method == "GET" else 200 + int(random() * 4000)
+    _z.fuid = f"F{encode_base64(decode_hex(hash_md5(metadata.uid + "-resp"))).replace("+", "x").replace("/", "Z").slice(end=17)}"
+    _z.mime = "text/html" if http_response.code != 201 else "application/json"
+    raw_data = f"{_z.ts}\t{_z.id}\t1\t{http_request.http_method}\t{http_request.url.hostname}\t{_z.uri}\t{http_request.referrer? else "-"}\t1.1\t{http_request.user_agent? else "-"}\t-\t{_z.body}\t{http_response.length}\t{http_response.code}\t{_z.status_msg}\t-\t-\t(empty)\t-\t-\t-\t-\t-\t-\t{_z.fuid}\t-\t{_z.mime}"
+  }
+  4004 => {
+    // dhcp.log names the client by its MAC address and lease exchange.
+    _z.mac = hash_md5(string(src_endpoint.ip))
+    _z.msg = "DISCOVER,OFFER,REQUEST,ACK" if activity_id == 5 else "REQUEST,ACK" if activity_id == 3 else "RELEASE" if activity_id == 7 else "REQUEST,NAK"
+    _z.host = src_endpoint.hostname? else "-"
+    _z.lease = "28800.000000" if lease_dur? != null else "-"
+    raw_data = f"{_z.ts}\t{connection_info.uid}\t{src_endpoint.ip}\t{dst_endpoint.ip}\t00:50:56:{_z.mac.slice(end=2)}:{_z.mac.slice(begin=2, end=4)}:{_z.mac.slice(begin=4, end=6)}\t{_z.host.split(".")[0]}\t{_z.host}\tacme.example\t{src_endpoint.ip}\t{src_endpoint.ip if activity_id in [3, 5] else "-"}\t{_z.lease}\t-\t{status_detail? else "-"}\t{_z.msg}\t0.0{string(100 + int(random() * 900))}00"
+  }
+  4005 => {
+    _z.result = "Success" if status_id == 1 else "encryption_negotiation_failure"
+    raw_data = f"{_z.ts}\t{_z.id}\t{user.name}\t{_z.result}\tHYBRID\trdpdr,rdpsnd,cliprdr,drdynvc\tEnglish - United States\tRDP 10.0\t{_raw.host.split(".")[0].to_upper()}\t-\t1920\t1080\t32bit\tX.509\t2\tF\tClient compatible\t128bit"
+  }
+  4006 => {
+    _z.action = "SMB::FILE_WRITE" if command == "SMB2_WRITE" else "SMB::FILE_OPEN"
+    raw_data = f"{_z.ts}\t{_z.id}\tF{encode_base64(decode_hex(hash_md5(file.path))).replace("+", "x").replace("/", "Z").slice(end=17)}\t{_z.action}\t{share}\t{file.name}\t{file.size? else 0}\t-\t{_z.secs - 86400}.000000\t{_z.secs}.000000\t{_z.secs - 604800}.000000\t{_z.secs - 86400}.000000\t-\t-\t-"
+  }
+  4008 => {
+    _z.reply = "Transfer complete." if codes[0] == 226 else "Failed to open file."
+    raw_data = f"{_z.ts}\t{_z.id}\t{_raw.user}\t<hidden>\t{command}\tftp://{dst_endpoint.ip}{file.path}\t{"text/csv" if command != "LIST" else "-"}\t-\t{codes[0]}\t{_z.reply}\tT\t{src_endpoint.ip}\t{dst_endpoint.ip}\t{port? else 40000 + int(random() * 20000)}\t-"
+  }
+  4013 => {
+    _z.root_delay = f"{int(delay / 1000)}.{string(1000 + delay - int(delay / 1000) * 1000).slice(begin=1)}000"
+    _z.dispersion = "0.001000" if dispersion? != null else "0.000488"
+    _z.ref = f"{_z.secs - 1024}.{string(1000000 + int(random() * 999999)).slice(begin=1)}"
+    raw_data = f"{_z.ts}\t{_z.id}\t{version}\t4\t{stratum_id}\t64.000000\t0.000001\t{_z.root_delay}\t{_z.dispersion}\t{"192.0.2.10" if stratum_id < 16 else "-"}\t{_z.ref}\t{_z.ts}\t{_z.ts}\t{_z.ts}\t0"
+  }
+  _ => { pass }
+}
+drop _z

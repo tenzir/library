@@ -1,0 +1,91 @@
+---
+description: Generate a finite historical workload with daily office and off-hours rates.
+args:
+  named:
+    - name: eps_office_hours
+      type: int
+      default: 1000
+    - name: eps_off
+      type: int
+      default: 100
+    - name: start
+      type: time
+      default: null
+    - name: days
+      type: int
+      default: 30
+    - name: class_uid
+      type: int
+      default: null
+    - name: base_event_share
+      type: float
+      default: 0.35
+    - name: raw
+      type: string
+      default: native
+    - name: raw_message
+      type: bool
+      default: false
+    - name: needle_ip_count
+      type: int
+      default: 0
+    - name: needle_dns_count
+      type: int
+      default: 0
+    - name: needle_command_count
+      type: int
+      default: 0
+    - name: observables_probability
+      type: float
+      default: 1.0
+    - name: drift_probability
+      type: float
+      default: 0.0
+    - name: unknown_probability
+      type: float
+      default: 0.0
+    - name: vendor_probability
+      type: float
+      default: 0.0
+---
+
+// Each UTC day contains nine office hours and fifteen off hours. Whole-day
+// intervals have the same count even when start is not midnight.
+let $begin = $start else now() - $days * 1d
+let $end = $begin + $days * 1d
+let $count = $days * (32400 * $eps_office_hours + 54000 * $eps_off)
+let $valid = ($days >= 0 and $eps_office_hours >= 0 and $eps_off >= 0
+  and ($eps_office_hours > 0 or $eps_off > 0))
+// Keep invalid requests nonempty until assert can report the bad arguments.
+let $safe_count = $count if $valid else 1
+ocsf_generate::internal::seed raw=$raw, class_uid=$class_uid, base_event_share=$base_event_share,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  observables_probability=$observables_probability,
+  drift_probability=$drift_probability,
+  unknown_probability=$unknown_probability,
+  vendor_probability=$vendor_probability
+assert $days >= 0, message="days must be nonnegative"
+assert $eps_office_hours >= 0 and $eps_off >= 0,
+  message="historical rates must be nonnegative"
+assert $eps_office_hours > 0 or $eps_off > 0,
+  message="at least one historical rate must be positive"
+assert ($needle_ip_count <= $safe_count and $needle_dns_count <= $safe_count - $needle_ip_count
+  and $needle_command_count <= $safe_count - $needle_ip_count - $needle_dns_count),
+  message="combined needle counts must not exceed the event count"
+repeat int(($safe_count + 131071) / 131072)
+head int(($safe_count + 3) / 4)
+enumerate _sequence
+ocsf_generate::internal::workload count=$safe_count, time_eps=null, end_time=$end,
+  historical_start=$begin, eps_office_hours=$eps_office_hours, eps_off=$eps_off,
+  class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
+  raw_message=$raw_message,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  observables_probability=$observables_probability,
+  drift_probability=$drift_probability,
+  unknown_probability=$unknown_probability,
+  vendor_probability=$vendor_probability
+head $safe_count
