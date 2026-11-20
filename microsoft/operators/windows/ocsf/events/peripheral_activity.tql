@@ -15,6 +15,14 @@ args:
     - name: status_id
       type: int
       description: The OCSF status identifier.
+    - name: action_id
+      type: int
+      description: The OCSF action of a security control, such as 2 (Denied).
+      default: null
+    - name: disposition_id
+      type: int
+      description: The OCSF disposition of a security control, such as 2 (Blocked).
+      default: null
 ---
 
 @name = "ocsf.peripheral_activity"
@@ -23,6 +31,12 @@ $ocsf.class_uid = 1010
 $ocsf.activity_id = $activity_id
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.status_id = $status_id
+// A device installation policy is a security control that decides the outcome.
+if $action_id != null or $disposition_id != null {
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
+  $ocsf.action_id = $action_id
+  $ocsf.disposition_id = $disposition_id
+}
 $ocsf.peripheral_device = {
   uid: move $windows.EventData.DeviceId?,
   name: move $windows.EventData.DeviceDescription?,

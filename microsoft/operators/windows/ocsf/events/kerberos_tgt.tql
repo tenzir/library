@@ -31,11 +31,15 @@ $ocsf.src_endpoint = {
 $ocsf.dst_endpoint = {
   hostname: $ocsf.device.hostname,
 }
+// The result code decides the outcome, where 0x0 means the KDC issued the
+// ticket. Without a result code, the audit keywords decide.
 $ocsf.status_code = move $windows.EventData.Status?
 if $ocsf.status_code == "0x0" {
   $ocsf.status_id = 1
-} else {
+} else if $ocsf.status_code != null {
   $ocsf.status_id = 2
+} else {
+  microsoft::windows::ocsf::audit_status $windows, $ocsf
 }
 $ocsf.authentication_token = {
   type_id: 1,

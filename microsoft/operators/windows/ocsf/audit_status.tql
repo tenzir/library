@@ -1,0 +1,34 @@
+---
+description: |
+  Sets the OCSF status of a Windows Security-Auditing event from its audit
+  keywords: Audit Failure is Failure, Audit Success is Success, and anything
+  else is Unknown.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The canonical Windows event to read the keywords from.
+    - name: ocsf
+      type: field
+      description: The OCSF event that receives the status.
+---
+
+// Windows defines the audit outcome as bits in StandardEventKeywords, and the
+// collector adapters canonicalize the keywords to a hex mask for every
+// collector. Other keyword bits can coexist with the outcome bits.
+// https://learn.microsoft.com/dotnet/api/system.diagnostics.eventing.reader.standardeventkeywords
+let $audit_failure = uint("0x0010000000000000", base=16)
+let $audit_success = uint("0x0020000000000000", base=16)
+let $audit_outcome = bit_or($audit_failure, $audit_success)
+// Neither or both outcome bits, and missing or malformed keywords, leave the
+// outcome unknown.
+$ocsf.status_id = 0
+if type_kind($windows.System.Keywords?) == "string" {
+  if $windows.System.Keywords.match_regex(r"^0[xX][0-9A-Fa-f]{1,16}$") {
+    if bit_and(uint($windows.System.Keywords, base=16), $audit_outcome) == $audit_failure {
+      $ocsf.status_id = 2
+    } else if bit_and(uint($windows.System.Keywords, base=16), $audit_outcome) == $audit_success {
+      $ocsf.status_id = 1
+    }
+  }
+}

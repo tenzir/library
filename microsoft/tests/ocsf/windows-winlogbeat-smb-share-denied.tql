@@ -1,0 +1,38 @@
+// Winlogbeat names the audit keywords and renders the AccessReason tokens of a
+// denied detailed file share access (5145). It maps to Failure with the reason
+// in status_detail, like the Windows Event XML.
+from {
+  "@timestamp": 2025-01-15T10:31:00Z,
+  winlog: {
+    provider_name: "Microsoft-Windows-Security-Auditing",
+    provider_guid: "{54849625-5478-4994-a5ba-3e3b0328c30d}",
+    event_id: "5145",
+    channel: "Security",
+    computer_name: "FS01.example.test",
+    record_id: "514502",
+    keywords: ["Audit Failure"],
+    event_data: {
+      SubjectUserSid: "S-1-5-21-1111111111-2222222222-3333333333-1105",
+      SubjectUserName: "bob",
+      SubjectDomainName: "EXAMPLE",
+      SubjectLogonId: "0x5c2a1",
+      ObjectType: "File",
+      IpAddress: "192.0.2.10",
+      IpPort: "50112",
+      ShareName: "\\\\*\\Finance",
+      ShareLocalPath: "\\??\\C:\\Shares\\Finance",
+      RelativeTargetName: "budget\\forecast.xlsx",
+      AccessMask: "0x2",
+      AccessList: "WriteData (or AddFile)",
+      AccessReason: "WriteData (or AddFile):\tNot granted",
+    },
+  },
+}
+microsoft::windows::ocsf::normalize
+this = {
+  event_code: metadata.event_code,
+  keywords: unmapped.System.Keywords?,
+  status_id: status_id,
+  status_detail: status_detail?,
+  access_reason: unmapped.EventData?.AccessReason?,
+}

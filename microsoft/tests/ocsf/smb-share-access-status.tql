@@ -1,0 +1,23 @@
+// The audit keywords decide the status of share access (5140) and detailed
+// file share access (5145). A denied 5145 is an Audit Failure, and its
+// AccessReason explains the denial. Without known keywords, the status is
+// Unknown.
+from_file f"{env("TENZIR_INPUTS")}/eid-514*.xml" {
+  read_all
+}
+windows = data.parse_winlog(raw=true)
+cases = [{keywords: windows.System.Keywords}]
+if windows.EventData.AccessReason? == "AccessReason-value" {
+  cases = [{keywords: windows.System.Keywords}, {keywords: null}]
+}
+unroll cases
+windows.System.Keywords = cases.keywords
+microsoft::windows::ocsf::normalize windows, into=ocsf
+this = {
+  event_code: ocsf.metadata.event_code,
+  keywords: cases.keywords,
+  status_id: ocsf.status_id,
+  status_detail: ocsf.status_detail?,
+  access_reason: ocsf.unmapped?.EventData?.AccessReason?,
+}
+sort event_code, keywords
