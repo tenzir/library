@@ -1,0 +1,25 @@
+// Defender lists the detected resources in Path. Files on disk become evidence:
+// container files, archive members as their container, and web downloads as
+// the downloaded file. Registry keys are no evidence. The paths are synthetic.
+from_file f"{env("TENZIR_INPUTS")}/eid-1116.xml" {
+  read_all
+}
+windows = data.parse_winlog()
+cases = [
+  {
+    name: "archive and download",
+    path: r"containerfile:_C:\Users\rchen\Downloads\tools.zip; file:_C:\Users\rchen\Downloads\tools.zip->(Zip:credtool.exe); webfile:_C:\Users\rchen\Downloads\setup.exe|https://downloads.example.test/setup.exe|pid:4312,ProcessStart:133725312000000000",
+  },
+  {
+    name: "registry key only",
+    path: r"regkey:_HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+  },
+]
+unroll cases
+windows.EventData.Path = cases.path
+microsoft::windows::ocsf::normalize windows, into=ocsf
+this = {
+  case: cases.name,
+  evidences: ocsf.evidences,
+  path: ocsf.unmapped.EventData.Path,
+}
