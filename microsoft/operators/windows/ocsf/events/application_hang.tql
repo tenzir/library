@@ -1,5 +1,5 @@
 ---
-description: Application Hang (EID 1002) → OCSF Process Activity (1007, Terminate)
+description: Application Hang (EID 1002) → OCSF Application Error (6008, General Error)
 args:
   positional:
     - name: windows
@@ -10,36 +10,22 @@ args:
       type: field
 ---
 
-@name = "ocsf.process_activity"
+// Windows closed or suspended an application that stopped responding. The
+// event does not say who closed it: the user, or Windows, for example when it
+// suspends an app (HangType Quiesce). The reporting process and the System
+// account in the header are those of Windows Error Reporting. Process Activity
+// requires an actor, so the hang maps to Application Error, as Windows Error
+// Reporting (1001) does. That class has no process object, so the hung
+// process (AppName, AppVersion, ProcessId, StartTime, ExeFileName) stays in
+// unmapped, together with TerminationTime, ReportId, PackageFullName, and
+// PackageRelativeAppId. HangType, such as Quiesce, details the error.
+@name = "ocsf.application_error"
 
-$ocsf.category_uid = 1
-$ocsf.class_uid = 1007
-$ocsf.activity_id = 2  // Terminate
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6008
+$ocsf.activity_id = 1  // General Error
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
 
-// param4 = faulting process ID (hex string, e.g. "0x1a4c")
-// param9 = full path to the hanging application
-// param2 = hanging application version
-$ocsf.process = {
-  pid: int(move $windows.EventData.param4?, base=16),
-  path: move $windows.EventData.param9?,
-}
-$ocsf.process.name = $ocsf.process.path?.split("\\")[-1]? else move $windows.EventData.param1?
-if $ocsf.process.name? != null {
-  $ocsf.process.file = {
-    name: $ocsf.process.name,
-    path: $ocsf.process.path,
-    type_id: 8,
-    version: (move $windows.EventData.param2?).string(),
-  }
-}
-
-// Hexadecimal FILETIME: 100 ns ticks since 1601-01-01.
-$ocsf.process.created_time = from_epoch(
-  (int(move $windows.EventData.param5?, base=16) - 116444736000000000) * 100ns,
-)
-// param3 is a PE timestamp, not a process start time.
-// param6/param7/param8 are the hang duration, hang flags, and WER report ID.
+$ocsf.status_detail = move $windows.EventData.HangType?

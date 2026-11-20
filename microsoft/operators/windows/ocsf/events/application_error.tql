@@ -19,10 +19,13 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.status_id = 2  // Failure
 $ocsf.severity_id = 3  // Medium — Windows Event Log Level 2 (Error)
-$ocsf.status_code = move $windows.EventData.ExceptionCode? else move $windows.EventData.param7?
+// Windows 10 and later name the event data; earlier versions write the same
+// values positionally (`param1` … `param13`).
+$ocsf.status_code = (move $windows.EventData.ExceptionCode? else move $windows.EventData.param7?).string()
 
 $ocsf.process = {
-  pid: int(move $windows.EventData.ProcessId? else move $windows.EventData.param9?, base=16),
+  // The parser reads hexadecimal values without letters as decimal integers.
+  pid: int((move $windows.EventData.ProcessId? else move $windows.EventData.param9?).string(), base=16),
   path: move $windows.EventData.AppPath? else move $windows.EventData.param11?,
 }
 $ocsf.process.name = $ocsf.process.path?.split("\\")[-1]? else move $windows.EventData.AppName? else move $windows.EventData.param1?
@@ -34,16 +37,25 @@ if $ocsf.process.name? != null {
     version: (move $windows.EventData.AppVersion? else move $windows.EventData.param2?).string(),
   }
 }
-
-// Process Activity has a module object for the faulting module.
-$ocsf.module.file = {
-  name: move $windows.EventData.param4?,
-  path: move $windows.EventData.param12?,
-  version: (move $windows.EventData.param5?).string(),
-  type_id: 8,
-}
+// Hexadecimal FILETIME: 100 ns ticks since 1601-01-01.
 $ocsf.process.created_time = from_epoch(
-  (int(move $windows.EventData.param10?, base=16) - 116444736000000000) * 100ns,
+  (int((move $windows.EventData.ProcessCreationTime? else move $windows.EventData.param10?).string(), base=16) - 116444736000000000) * 100ns,
 )
-// param3/param6 are PE timestamps, not process/module load times.
-// param8/param13 are the fault offset and WER report ID.
+// An unhandled exception in its own code terminated the process, so the
+// faulting process is also the actor.
+$ocsf.actor = {process: $ocsf.process}
+
+// Process Activity has a module object for the faulting module. The event
+// does not say how the module was loaded.
+$ocsf.module = {
+  file: {
+    name: move $windows.EventData.ModuleName? else move $windows.EventData.param4?,
+    path: move $windows.EventData.ModulePath? else move $windows.EventData.param12?,
+    version: (move $windows.EventData.ModuleVersion? else move $windows.EventData.param5?).string(),
+    type_id: 8,
+  },
+  load_type_id: 0,  // Unknown
+}
+// AppTimeStamp/ModuleTimeStamp (param3/param6) are PE link timestamps, not
+// process or module load times. FaultingOffset/IntegratorReportId
+// (param8/param13) are the fault offset and the WER report ID.
