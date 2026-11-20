@@ -1,0 +1,38 @@
+---
+description: |
+  Detects the attack chain of a SOC Prime High-Order Sigma (HoS) rule.
+
+  The operator matches the stage rules of the HoS rule with the `sigma`
+  operator, correlates their findings per host with `socprime::correlate`, and
+  models the chains as OCSF Detection Findings with `socprime::ocsf::finding`.
+  `socprime::hos::list` shows the available rules.
+args:
+  positional:
+    - name: name
+      type: string
+      description: The name of the HoS rule, such as `kimsuky_diplomats`.
+  named:
+    - name: timeframe
+      type: duration
+      default: null
+      description: |
+        The maximum time between two findings of a chain. Defaults to the
+        timeframe of the HoS rule.
+    - name: threshold
+      type: float
+      default: 0.6
+      description: The share of stages a host must cover, between 0 and 1.
+    - name: tolerance
+      type: duration
+      default: 1min
+      description: How far findings of a host may arrive out of time order.
+---
+
+let $hos = socprime::$hos[$name]
+sigma rules=$hos.rules.map(uid => socprime::$rules[uid])
+socprime::hos::stages stages=$hos.stages
+socprime::correlate stages=$hos.stages.keys(),
+  within=$timeframe else $hos.timeframe,
+  threshold=$threshold,
+  tolerance=$tolerance
+socprime::ocsf::finding uid=$hos.uid, name=$hos.name, level=$hos.level, tags=$hos.tags

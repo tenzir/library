@@ -1,0 +1,35 @@
+---
+description: |
+  Turns Sigma detection findings into stage records for `socprime::correlate`.
+
+  A finding becomes a record for the first stage whose Sigma rule IDs contain
+  `finding_info.analytic.uid`, keyed by the lowercase hostname of its source
+  event. Findings of other rules and findings without a hostname are dropped.
+  Each record carries `time`, `stage`, `entity`, the source event in `event`,
+  and a summary of the Detection Finding in `finding`.
+args:
+  named:
+    - name: stages
+      description: |
+        A record from stage name to the list of Sigma rule IDs that cover the
+        stage, such as `socprime::$hos.kimsuky_diplomats.stages`.
+---
+
+_stage = $stages.entries().where(stage => finding_info.analytic.uid in stage.value)[0].key
+where _stage != null
+this = {
+  time: evidences[0].data.time? else time,
+  stage: _stage,
+  entity: {host: evidences[0].data.device?.hostname?.to_lower()},
+  event: evidences[0].data,
+  finding: {
+    uid: finding_info.uid,
+    type_uid: type_uid,
+    title: finding_info.title,
+    analytic: finding_info.analytic,
+    severity_id: severity_id,
+    attacks: finding_info.attacks?,
+    observables: observables?,
+  },
+}
+where entity.host != null

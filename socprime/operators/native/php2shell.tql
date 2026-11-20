@@ -1,0 +1,112 @@
+---
+description: |
+  Detects PHP2Shell exploitation (CVE-2026-109618 and CVE-2026-109619) by
+  following the exploited process, not just the host.
+
+  A TQL-native take on the SOC Prime High-Order Sigma rule `php2shell`. It
+  combines three kinds of evidence in a single pipeline:
+
+  1. `crash`: A PHP worker crashes, as the SOC Prime Sigma rules for PHP
+     worker segfaults and memory exhaustion detect it.
+  2. `shell`: After the crash, a PHP worker spawns a shell. This is a plain
+     predicate on OCSF Process Activity.
+  3. `callout`: That shell, or a process it started, connects to a public
+     address. This links OCSF Network Activity to the shell by process UID.
+
+  Unlike chaining rule IDs by hostname, unrelated activity on a busy web
+  server cannot complete the chain: only the shell that followed the crash
+  counts. The operator emits OCSF Detection Findings like
+  `socprime::hos::detect`.
+args:
+  named:
+    - name: within
+      type: duration
+      default: 10min
+      description: The time span that the chain must fit into.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How far events may arrive out of time order.
+---
+
+fork_merge {
+  sigma rules=[
+    socprime::$rules["0b13c412-f141-490d-a99a-4579ae614795"],
+    socprime::$rules["42cd03f3-6b9f-49ea-9bf4-ce0caed6f772"],
+  ]
+  this = {
+    time: evidences[0].data.time,
+    stage: "crash",
+    entity: {host: evidences[0].data.device.hostname.to_lower()},
+    event: evidences[0].data,
+    finding: {
+      uid: finding_info.uid,
+      type_uid: type_uid,
+      title: finding_info.title,
+      analytic: finding_info.analytic,
+      severity_id: severity_id,
+      attacks: finding_info.attacks?,
+      observables: observables?,
+    },
+  }
+}, {
+  where class_uid == 1007 and activity_id == 1
+  where process.file.name in ["sh", "bash", "dash", "zsh"]
+  where process.parent_process.file.name.match_regex(r"^(php-fpm|php-cgi|lsphp|apache2|httpd)")
+  this = {
+    time: time,
+    stage: "shell",
+    entity: {host: device.hostname.to_lower()},
+    event: this,
+    pid: process.uid,
+  }
+}, {
+  where class_uid == 4001 and dst_endpoint.ip.is_global()
+  this = {
+    time: time,
+    stage: "callout",
+    entity: {host: device.hostname.to_lower()},
+    event: this,
+    pid: actor.process.uid,
+    ppid: actor.process.parent_process?.uid?,
+  }
+}
+group entity {
+  window size=$within, trailing=true, on=time, tolerance=$tolerance {
+    summarize crash=min(time if stage == "crash"),
+      shell=min(time if stage == "shell"),
+      shells=collect(pid if stage == "shell"),
+      records=collect(this)
+    // The callout must come from a shell that a PHP worker spawned after the
+    // crash, or from one of its children.
+    where crash < shell
+    _callouts = records.where(record => record.stage == "callout"
+      and (record.pid in shells or record.ppid in shells))
+    where _callouts.length() > 0
+    this = {
+      time: $window.event.time,
+      stage: $window.event.stage,
+      entity: $window.event.entity,
+      event: $window.event.event,
+      stages: ["crash", "shell", "callout"],
+      coverage: 1.0,
+      chain: {entity: $window.event.entity, start: crash},
+      new: true,
+      records: [...records.where(record => record.stage != "callout"), ..._callouts],
+    }
+  }
+}
+// One finding per chain: the first callout completes it.
+deduplicate chain, create_timeout=$within
+socprime::ocsf::finding uid="socprime::native::php2shell",
+  name="PHP2Shell exploitation followed by a callout from the spawned shell",
+  level="critical",
+  tags=["attack.t1190", "attack.t1505.003", "attack.t1059.004", "attack.t1095"],
+  // Carry the Active Threat of the SOC Prime HoS rule with `socprime::enrich`.
+  related_analytics=[{
+    uid: socprime::$hos.php2shell.uid,
+    name: socprime::$hos.php2shell.name,
+    category: "High-Order Sigma",
+    type: "Rule",
+    type_id: 1,
+  }]
