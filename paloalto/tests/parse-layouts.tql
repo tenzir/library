@@ -19,13 +19,17 @@
 //   article kA14u0000004LaOCAU), and once with two values beyond the
 //   documented columns.
 //   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// - URL Filtering: the 125 columns of PAN-OS 10.1 and later, with response
+//   headers and HTTP status code after the request headers.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
 from {content: r"1,2026/05/29 11:00:01,000700000042,AUTH,login,,2026/05/29 11:00:00,vsys1,192.0.2.30,alice,example\alice,portal-example,mfa-policy,1,4242,Example MFA,,ldap-example,Authentication succeeded,Authentication Portal,auth-success,1,7001,,,,,,,fw-example-1,,LDAP,,2026-05-29T11:00:00.250+00:00,,,,,,,,,,,,,"},
   {content: "1,2026/05/29 11:00:01,000700000042,START,start,,2026/05/29 11:00:00,192.0.2.40,198.51.100.40,,,inspect-gre,,,gre,,,,,,,,,,0,0,,,,gre,allow,informational,7002,,,,,,,,,fw-example-1,,,,,GRE,,,,,,,,,,,1,,,,2026/05/29 10:59:59,,,,,,,,,,,,,,,,,,,,,,"},
   {content: r"1,2026/05/29 11:00:01,000700000042,CORRELATION,,,2026/05/29 11:00:00,192.0.2.50,example\bob,vsys1,compromised-host,high,,,,,,fw-example-1,,Example Beacon Detection,6100,Host contacted an example command-and-control domain 12 times."},
   {content: r#"1,2026/05/29 11:00:01,000700000042,CONFIG,0,,2026/05/29 11:00:00,192.0.2.60,vsys1,edit,admin-example,Web,Succeeded, vsys vsys1 address example-host,example-host { ip-netmask 192.0.2.61; },"example-host { description ""edge, primary""; ip-netmask 192.0.2.62; }",7003,0x0,,,,,,fw-example-1,,,,"#},
   {content: "1,2026/05/29 11:00:01,000700000042,CONFIG,0,,2026/05/29 11:00:00,192.0.2.60,vsys1,commit,admin-example,Web,Submitted,,7004,0x0,,,,,,fw-example-1,,,,"},
   {content: "1,2026/05/29 11:00:01,000700000042,TRAFFIC,end,,2026/05/29 11:00:00,192.0.2.70,198.51.100.70,,,allow-sdwan,,,web-browsing,,,,,,,,,,50000,443,,,,tcp,allow,900,,,,,,,,7005,,,,,,,tcp-fin,,,,,,fw-example-1,,,,,,,,,,,,,,,,,{link-a, tag-a, ethernet1/1, 2026/05/29 10:59:58, 0, 0, N/A},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,general-internet,,,,,,,,,,,,,,,,,,,,,,,"},
-  {content: "1,2026/05/29 11:00:01,000700000042,TRAFFIC,end,,2026/05/29 11:00:00,192.0.2.70,198.51.100.70,,,allow-sdwan,,,web-browsing,,,,,,,,,,50000,443,,,,tcp,allow,900,,,,,,,,7006,,,,,,,tcp-fin,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,general-internet,,,,,,,,,,,,,,,,,,,,,,,,future-a,future-b"}
+  {content: "1,2026/05/29 11:00:01,000700000042,TRAFFIC,end,,2026/05/29 11:00:00,192.0.2.70,198.51.100.70,,,allow-sdwan,,,web-browsing,,,,,,,,,,50000,443,,,,tcp,allow,900,,,,,,,,7006,,,,,,,tcp-fin,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,general-internet,,,,,,,,,,,,,,,,,,,,,,,,future-a,future-b"},
+  {content: "1,2026/05/29 14:30:01,000700000042,THREAT,url,,2026/05/29 14:30:00,192.0.2.101,198.51.100.101,,,web-policy,,,web-browsing,,,,,,,,,,50310,443,,,,tcp,alert,www.example.test/status,(9999),news,informational,,7410,,,,,,,,,,,,,,,,,,,,,,,fw-example-1,,,,get,,,,,,,,,,,X-Example: request,X-Example: response,404,\"news,low-risk\",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"}
 paloalto::parse content, parsed
 this = {
   parser: @name,
@@ -44,4 +48,6 @@ this = {
   link_switches: parsed.link_switches?,
   application_category: parsed.application_category?,
   excess_values: parsed.excess_values?,
+  http_status_code: parsed.http_status_code?,
+  url_category_list: parsed.url_category_list?,
 }
