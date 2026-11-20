@@ -2,7 +2,7 @@
 description: |
   Maps a PAN-OS action to the OCSF security control action and disposition.
 
-  Known actions consume the source field. An unknown action becomes `Other`
+  Known actions consume the source field, except `sinkhole`. An unknown action becomes `Other`
   and keeps its PAN-OS spelling in `action` and `disposition`.
 args:
   positional:
@@ -17,7 +17,11 @@ args:
 if paloalto::$action_ids[$event.action?]? != null {
   $ocsf.action_id = paloalto::$action_ids[$event.action]
   $ocsf.disposition_id = paloalto::$disposition_ids[$event.action]
-  drop $event.action
+  // Sinkholing is a block that OCSF cannot tell apart from others, so its
+  // PAN-OS spelling stays in `unmapped`.
+  if $event.action != "sinkhole" {
+    drop $event.action
+  }
 } else if $event.action? != null {
   $ocsf.action_id = 99
   $ocsf.action = $event.action
