@@ -1,12 +1,17 @@
+---
+pre-compare: sort
+---
+
 // Synthetic PAN-OS Authentication records; every value is invented. The column
 // order follows the PAN-OS 11.1 Authentication log fields.
 // https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/authentication-log-fields
 // A successful first factor, a failed second factor of the same
 // authentication, and a timeout without user. The missing user of the timeout
 // stays missing.
-from {content: r"1,2026/05/29 19:00:01,000700000042,AUTHENTICATION,login,,2026/05/29 19:00:00,vsys1,192.0.2.140,example\dave,example\dave,example-portal,mfa-for-admin-apps,1,5001,,,ldap-example,Authentication succeeded for user example\dave,Authentication Portal,auth-success,1,7801,,,,,,,fw-example-1,,LDAP,00000000-0000-4000-8000-000000000001,2026-05-29T19:00:00.120+00:00,,,,,,,,,,,Mozilla/5.0 (Windows NT 10.0; Win64; x64),,"},
-  {content: r"1,2026/05/29 19:00:01,000700000042,AUTHENTICATION,login,,2026/05/29 19:00:00,vsys1,192.0.2.140,example\dave,example\dave,example-portal,mfa-for-admin-apps,1,5001,Example MFA,,mfa-example,Second factor rejected,Authentication Portal,auth-fail,2,7802,,,,,,,fw-example-1,,RADIUS,00000000-0000-4000-8000-000000000001,2026-05-29T19:00:00.120+00:00,,,,,,,,,,,Mozilla/5.0 (Windows NT 10.0; Win64; x64),,"},
-  {content: "1,2026/05/29 19:00:01,000700000042,AUTHENTICATION,login,,2026/05/29 19:00:00,vsys1,192.0.2.140,,,,mfa-for-admin-apps,1,5002,,,,No user activity after the credential prompt,Authentication Portal,auth-timeout,1,7803,,,,,,,fw-example-1,,,00000000-0000-4000-8000-000000000001,2026-05-29T19:00:00.120+00:00,,,,,,,,,,,Mozilla/5.0 (Windows NT 10.0; Win64; x64),,"}
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
 paloalto::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
 drop raw_data, raw_data_size

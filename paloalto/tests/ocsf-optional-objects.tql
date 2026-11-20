@@ -1,3 +1,7 @@
+---
+pre-compare: sort
+---
+
 // Synthetic PAN-OS Traffic records; every value is invented. The column order
 // follows the PAN-OS 11.1 Traffic log fields.
 // https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
@@ -5,8 +9,10 @@
 // port 0 means no NAT. Only a country code becomes a location; an internal
 // address range stays in `unmapped`. A record without a rule or user has no
 // rule or owner object.
-from {content: "1,2026/05/29 13:00:01,000700000042,TRAFFIC,end,,2026/05/29 13:00:00,192.0.2.90,198.51.100.90,203.0.113.9,0.0.0.0,allow-nat,,,ssl,,,,,,,,,,50200,443,40200,0,,tcp,allow,,,,,,,,,7301,,DE,192.168.0.0-192.168.255.255,,,,,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"},
-  {content: "1,2026/05/29 13:00:01,000700000042,TRAFFIC,end,,2026/05/29 13:00:00,192.0.2.90,198.51.100.90,0.0.0.0,0.0.0.0,,,,ssl,,,,,,,,,,50200,443,0,0,,tcp,allow,,,,,,,,,7302,,,,,,,,,,,,,fw-example-1,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"}
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
 paloalto::ocsf::normalize
 this = ocsf_cast(ocsf_derive(this))
 select metadata.sequence, src_endpoint, dst_endpoint, firewall_rule?, unmapped.destination_country?
