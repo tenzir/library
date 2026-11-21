@@ -1,8 +1,8 @@
 # Windows Event Log fixtures
 
-All Windows fixtures in this directory are synthetic. Each record keeps the
-structure that Windows and the collectors write for its event, and invents
-every value.
+All Windows fixtures in this directory, and the `.input` files next to the
+tests in `../ocsf`, are synthetic. Each record keeps the structure that Windows
+and the collectors write for its event, and invents every value.
 
 The structure that the fixtures keep:
 
@@ -23,8 +23,9 @@ The structure that the fixtures keep:
   message-table tokens, and status codes.
 
 The invented values use the `example.test` domain with the NetBIOS name
-`EXAMPLE`, documentation SIDs such as
-`S-1-5-21-1111111111-2222222222-3333333333-500`, documentation IP addresses,
+`EXAMPLE`, invented SIDs in the domains
+`S-1-5-21-1111111111-2222222222-3333333333` and
+`S-1-5-21-3871254096-1609437285-2794361058`, documentation IP addresses,
 and generated GUIDs, hashes, process IDs, record IDs, and times. Workgroup
 machines keep a bare host name, as Windows writes it for them.
 
