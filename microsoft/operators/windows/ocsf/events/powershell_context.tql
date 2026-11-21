@@ -16,8 +16,13 @@ args:
 // breaks do not survive every collector, so runs of whitespace separate the
 // entries. The complete block stays in unmapped because it contains
 // additional host, engine, runspace, pipeline, and shell details.
+// `parse_kv` reads backslash sequences such as `\t` in values as escapes, but
+// ContextInfo is not escaped, so paths such as `C:\temp` and accounts such as
+// `CORP\nora` would lose their backslashes. Doubling every backslash keeps
+// them. Remove the doubling once `parse_kv` can leave values as they are
+// (Linear TNZ-2183).
 if $windows.EventData.ContextInfo? != null {
-  _context = $windows.EventData.ContextInfo.trim().parse_kv(
+  _context = $windows.EventData.ContextInfo.trim().replace("\\", "\\\\").parse_kv(
     field_split=r"\s{2,}|\n",
     value_split=r"\s*=\s*",
   )
