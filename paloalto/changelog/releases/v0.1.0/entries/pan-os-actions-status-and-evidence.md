@@ -24,3 +24,4 @@ PAN-OS Traffic, URL Filtering, and Threat events now map actions, status, HTTP d
 | Finding title and analytic | Filename, subtype, whole column | Signature name and ID |
 | WildFire `benign` verdict | Alert | Not an alert |
 | NAT `0.0.0.0`, empty user, rule, or URL, location from a country name | Empty objects | Omitted; the value stays in `unmapped` |
+| GlobalProtect `0.0.0.0` for a missing client address | Kept as an address | Omitted |

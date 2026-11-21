@@ -83,6 +83,7 @@ PAN-OS Traffic, URL Filtering, and Threat events now map actions, status, HTTP d
 | Finding title and analytic                                             | Filename, subtype, whole column   | Signature name and ID                                                                                                        |
 | WildFire `benign` verdict                                              | Alert                             | Not an alert                                                                                                                 |
 | NAT `0.0.0.0`, empty user, rule, or URL, location from a country name  | Empty objects                     | Omitted; the value stays in `unmapped`                                                                                       |
+| GlobalProtect `0.0.0.0` for a missing client address                   | Kept as an address                | Omitted                                                                                                                      |
 
 *By @zedoraps.*
 
@@ -98,7 +99,7 @@ PAN-OS Traffic, URL Filtering, and Threat events now map actions, status, HTTP d
 - `AUTH`, `HIPMATCH`, Tunnel Inspection `START`/`END`, and lowercase `audit` records parse instead of yielding nothing.
 - Correlated Events have separate source address and user columns, so severity and evidence are no longer shifted.
 - Config records without change details, SD-WAN link switches with commas, and the 125-column URL Filtering layout of PAN-OS 10.1 and later keep every column in place.
-- Records with the documented column counts of PAN-OS 9.1 and 10.0 no longer warn; other short records still do. Extra columns land in `excess_values`.
+- Records with the documented column counts of PAN-OS 8.1, 9.1, and 10.0, such as 65 Traffic or 75 Threat columns, no longer warn; other short records still do. Extra columns land in `excess_values`.
 - Times with offsets, such as `2026-05-29T11:00:00.250+02:00`, parse with exact milliseconds; the Unix epoch placeholder of a missing high-resolution timestamp becomes null.
 - An RFC 3164 Syslog timestamp no longer becomes the event time; Syslog timestamps stay in `unmapped.timestamp`.
 
