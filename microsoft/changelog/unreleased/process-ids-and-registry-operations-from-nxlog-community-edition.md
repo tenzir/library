@@ -15,4 +15,6 @@ Windows events from NXLog Community Edition now keep the values that NXLog overw
 - 7045 keeps the service account.
 - 104 gets the cleared log and the user, and 1102 gets the subject.
 - XML escaping in event data is decoded, so `&lt;unknown process&gt;` becomes `<unknown process>`.
-- Values recovered from the message require English Windows.
+- The overwritten values are read back from the rendered event message. For now, this
+  works only when Windows renders the message in English; on other languages,
+  the values stay missing as before.
