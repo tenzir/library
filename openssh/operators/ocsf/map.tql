@@ -38,10 +38,14 @@ let $status_ids = {
 
 // --- OCSF: shared attributes ------------------
 
+// Syslog writes at most microseconds. Rounding to them undoes the
+// one-nanosecond error with which Tenzir 6.23 and 7.0.0-rc.6 parse some
+// fractions; remove it once every supported version parses times exactly
+// (Linear TNZ-2181).
 $ocsf = {
-  time: move $openssh.time? else $openssh.syslog?.timestamp?,
-  start_time: move $openssh.start_time?,
-  end_time: move $openssh.end_time?,
+  time: (move $openssh.time? else $openssh.syslog?.timestamp?).round(1us),
+  start_time: (move $openssh.start_time?).round(1us),
+  end_time: (move $openssh.end_time?).round(1us),
   duration: move $openssh.duration?,
   count: move $openssh.count?,
   severity_id: 1,
