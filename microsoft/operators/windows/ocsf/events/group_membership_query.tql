@@ -28,5 +28,29 @@ $ocsf.query_evidence = {
   },
 }
 
-// The class has no actor attribute. Preserve the subject and caller process in
-// unmapped so downstream detections can identify who performed the discovery.
+// The subject performed the query with the caller process, if Windows names
+// one. The host profile carries both.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+  }
+}
+// Without a caller process, Windows writes `0x0` and `-`.
+if $windows.EventData.CallerProcessName? != null {
+  $ocsf.actor.process = {
+    pid: int(move $windows.EventData.CallerProcessId?, base=16),
+    path: $windows.EventData.CallerProcessName,
+    name: $windows.EventData.CallerProcessName.split("\\")[-1],
+    file: {
+      type_id: 8,
+      name: $windows.EventData.CallerProcessName.split("\\")[-1],
+      path: $windows.EventData.CallerProcessName,
+    },
+  }
+  drop $windows.EventData.CallerProcessName
+}
