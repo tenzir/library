@@ -16,7 +16,12 @@ $ocsf.class_uid = 4006
 $ocsf.activity_id = 99
 $ocsf.activity_name = "Share Access"
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-$ocsf.status_id = 1
+// Both events log failures when the share denies access. A failed detailed
+// file share access (5145) names the reason for each requested access right.
+microsoft::windows::ocsf::audit_status $windows, $ocsf
+if $ocsf.status_id == 2 {
+  $ocsf.status_detail = move $windows.EventData.AccessReason?
+}
 $ocsf.share = move $windows.EventData.ShareName
 $ocsf.share_type_id = 1
 // Share access (5140) names no file, while detailed file share access (5145)
