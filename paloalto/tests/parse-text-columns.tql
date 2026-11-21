@@ -1,0 +1,33 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records. The column order follows the Traffic and Threat
+// syslog field descriptions for PAN-OS 11.1; every value is invented.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// Text columns keep their exact text: rule names and users with leading zeros,
+// a numeric-looking filename, and a user agent with `;`. Times with and without
+// an offset become times, and the Unix epoch placeholder becomes null. A
+// quoted empty column is absent.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+content = move line
+paloalto::parse content, parsed
+this = {
+  serial_number: parsed.serial_number,
+  generated_time: parsed.generated_time,
+  high_resolution_timestamp: parsed.high_resolution_timestamp,
+  source_address: parsed.source_address,
+  source_port: parsed.source_port,
+  rule_name: parsed.rule_name,
+  source_user: parsed.source_user?,
+  device_name: parsed.device_name?,
+  bytes: parsed.bytes?,
+  sequence_number: parsed.sequence_number,
+  url_filename: parsed.url_filename?,
+  threat_id: parsed.threat_id?,
+  user_agent: parsed.user_agent?,
+  x_forwarded_for: parsed.x_forwarded_for?,
+}

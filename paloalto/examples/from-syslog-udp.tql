@@ -1,12 +1,16 @@
 ---
 name: Onboard Palo Alto Networks syslog via UDP
 description: |
-  Reads Palo Alto Networks syslog over UDP, normalizes PAN-OS CSV payloads to
-  OCSF 1.9, and publishes them to the topic `ocsf`.
+  Reads Palo Alto Networks syslog over UDP in the RFC 3164 (BSD) or RFC 5424
+  (IETF) format, normalizes PAN-OS CSV payloads to OCSF 1.9, and publishes
+  them to the topic `ocsf`.
 ---
 
 accept_udp "0.0.0.0:514"
 this = data.parse_syslog()
-paloalto::ocsf::normalize
+// The firewall writes its local time without a zone. Set `timezone` only when
+// that time isn't UTC and the records lack `high_resolution_timestamp`, whose
+// offset the normalizer uses otherwise.
+paloalto::ocsf::normalize timezone="Europe/Zurich"
 this = ocsf_derive(this)
 publish "ocsf"

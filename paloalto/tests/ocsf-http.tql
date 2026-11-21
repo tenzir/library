@@ -1,0 +1,21 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS URL Filtering records; every value is invented. The column
+// order follows the PAN-OS 11.1 URL Filtering log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
+// Lowercase methods map to their activity, and an extension method becomes
+// `Other`. An X-Forwarded-For chain becomes a list of addresses; a chain with
+// a non-address token keeps its text in `unmapped`. PAN-DB categories with an
+// OCSF equivalent become category IDs, others become `Other` with their label;
+// risk ratings are no categories. A category can have two OCSF equivalents.
+// The labels stay in `unmapped`.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select metadata.sequence, activity_id, activity_name, http_request, unmapped.category, unmapped.url_category_list, unmapped.x_forwarded_for?
+drop_null_fields

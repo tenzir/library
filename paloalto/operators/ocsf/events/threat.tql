@@ -20,58 +20,70 @@ $ocsf.activity_id = 1
 $ocsf.type_uid = 200401
 drop $ocsf.activity_name?
 $ocsf.metadata.profiles = ["security_control"]
-$ocsf.is_alert = true
+// WildFire logs every analyzed file with its verdict in the category column.
+// A benign verdict is a finding, but not an alert.
+$ocsf.is_alert = not ($event.threat_content_type? in ["wildfire", "wildfire-virus"] and $event.category? == "benign")
+// The Threat/Content Name column holds the signature name followed by its
+// numeric ID in parentheses, such as `Example Exploit Attempt(41000)`, or only
+// the ID. The column stays in `unmapped`.
+$ocsf._signature = $event.threat_id?.string().trim()
+$ocsf._signature_name = $ocsf._signature.replace_regex(r"(^[0-9]+$|\([0-9]+\)$)", "").trim() else ""
+$ocsf._signature_uid = $ocsf._signature.replace_regex(r"^.*?\(?([0-9]+)\)?$", r"\1") if $ocsf._signature.match_regex(r"^(.*\([0-9]+\)|[0-9]+)$") else null
 $ocsf.finding_info = {
-  uid: ($event.sequence_number? else $event.threat_id?).string(),
-  title: $event.url_filename? else $event.threat_content_type? else "PAN-OS threat",
-  analytic: {
+  // The signature ID identifies the analytic, not this finding.
+  uid: $ocsf.metadata.uid?,
+  title: $ocsf._signature_name if $ocsf._signature_name != "" else $event.threat_content_type?,
+}
+if $ocsf._signature_uid != null or $ocsf._signature_name != "" {
+  $ocsf.finding_info.analytic = {
     type_id: 1,
-    uid: $event.threat_id?.string(),
-    name: $event.threat_content_type?,
-  },
+    uid: $ocsf._signature_uid,
+    name: $ocsf._signature_name if $ocsf._signature_name != "" else null,
+  }
 }
-$ocsf.evidences = [drop_null_fields({
-  src_endpoint: {
-    ip: move $event.source_address?,
-    port: move $event.source_port?,
-    zone: move $event.source_zone?,
-    interface_name: move $event.inbound_interface?,
-    hostname: move $event.source_hostname?,
-    mac: move $event.source_mac_address?,
-  },
-  dst_endpoint: {
-    ip: move $event.destination_address?,
-    port: move $event.destination_port?,
-    zone: move $event.destination_zone?,
-    interface_name: move $event.outbound_interface?,
-    hostname: move $event.destination_hostname?,
-    mac: move $event.destination_mac_address?,
-  },
-  connection_info: {
-    direction_id: 0,
-    protocol_name: move $event.ip_protocol?,
-    uid: (move $event.session_id?).string(),
-  },
-  url: {
-    url_string: move $event.url_filename?,
-  },
-  actor: {
-    user: {
-      name: move $event.source_user?,
-    },
-  },
-})]
-$ocsf.policy = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+drop $ocsf._signature, $ocsf._signature_name, $ocsf._signature_uid
+// The threat category classifies the signature, such as `code-execution`.
+if $event.threat_category? != null {
+  $ocsf.finding_info.types = [move $event.threat_category]
 }
-if paloalto::$action_ids[$event.action?]? != null {
-  $ocsf.action_id = paloalto::$action_ids[$event.action?]?
-  $ocsf.disposition_id = paloalto::$disposition_ids[$event.action?]?
-  drop $event.action
+paloalto::ocsf::endpoints $event, $ocsf
+paloalto::ocsf::connection_info $event, $ocsf
+$ocsf._evidence = {
+  src_endpoint: move $ocsf.src_endpoint,
+  dst_endpoint: move $ocsf.dst_endpoint,
+  connection_info: move $ocsf.connection_info,
 }
+if $ocsf._evidence.src_endpoint.owner? != null {
+  $ocsf._evidence.actor = {user: move $ocsf._evidence.src_endpoint.owner}
+}
+// The URL/Filename column holds a filename for file-based subtypes and a URL
+// otherwise.
+if $event.url_filename? != null and $event.threat_content_type? in ["file", "virus", "ml-virus", "wildfire", "wildfire-virus"] {
+  $ocsf._evidence.file = {
+    name: move $event.url_filename,
+    type_id: 1,
+  }
+  if $event.file_digest? != null {
+    $ocsf._evidence.file.hashes = [{algorithm_id: 3, value: move $event.file_digest}]
+  }
+} else if $event.url_filename? != null {
+  $ocsf._evidence.url = {url_string: move $event.url_filename}
+}
+// WildFire names the sender, recipient, and subject of an analyzed email.
+if $event.sender?.match_regex("@") or $event.recipient?.match_regex("@") {
+  $ocsf._evidence.email = {
+    from: move $event.sender if $event.sender?.match_regex("@") else null,
+    to: [move $event.recipient] if $event.recipient?.match_regex("@") else null,
+    subject: move $event.subject?,
+  }
+}
+$ocsf.evidences = [drop_null_fields(move $ocsf._evidence)]
+if ($event.rule_name? else $event.rule_uuid?) != null {
+  $ocsf.policy = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
+}
+paloalto::ocsf::action $event, $ocsf
 
-drop $event.type?
-drop $event.threat_content_type?
-drop $event.threat_id?
 drop $event.sequence_number?

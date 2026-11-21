@@ -17,26 +17,223 @@ let $severity_ids = {
   critical: 5,
 }
 
+// PAN-OS actions across the Traffic, Threat, and URL Filtering logs. Traffic
+// logs spell some actions with a space, such as `reset both`.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
 let $action_ids = {
   allow: 1,
   continue: 1,
+  override: 1,
+  alert: 3,
   block: 2,
   deny: 2,
+  "block-ip": 2,
+  "block-url": 2,
+  "block-continue": 2,
+  "block-override": 2,
+  "override-lockout": 2,
   drop: 2,
+  "drop-packet": 2,
+  "drop-all-packets": 2,
+  "drop ICMP": 2,
+  "drop-icmp": 2,
+  "random-drop": 2,
   "reset-client": 2,
   "reset-server": 2,
   "reset-both": 2,
-  alert: 3,
+  "reset client": 2,
+  "reset server": 2,
+  "reset both": 2,
+  // DNS sinkholing answers the query with the sinkhole address instead of the
+  // malicious one, which blocks access to the malicious host.
+  sinkhole: 2,
 }
 
 let $disposition_ids = {
   allow: 1,
   continue: 1,
+  override: 1,
+  alert: 19,
   block: 2,
   deny: 2,
+  "block-ip": 2,
+  "block-url": 2,
+  // The firewall shows a response page, which the user can confirm or unlock
+  // with a password.
+  "block-continue": 23,
+  "block-override": 23,
+  "override-lockout": 2,
   drop: 6,
+  "drop-packet": 6,
+  "drop-all-packets": 6,
+  "drop ICMP": 6,
+  "drop-icmp": 6,
+  "random-drop": 6,
   "reset-client": 21,
   "reset-server": 21,
   "reset-both": 21,
-  alert: 19,
+  "reset client": 21,
+  "reset server": 21,
+  "reset both": 21,
+  sinkhole: 2,
+}
+
+// PAN-DB URL categories and the OCSF URL category IDs with the same meaning.
+// Risk ratings, such as `low-risk`, are not content categories. Categories
+// without an OCSF equivalent, such as `cryptocurrency`, have no entry.
+// Source: https://docs.paloaltonetworks.com/advanced-url-filtering/administration/url-filtering-basics/url-categories
+let $url_category_ids = {
+  abortion: [16],
+  "abused-drugs": [25],
+  adult: [1],
+  "alcohol-and-tobacco": [23, 24],
+  auctions: [59],
+  "business-and-economy": [21],
+  "command-and-control": [44],
+  "compromised-website": [92],
+  "computer-and-internet-info": [38],
+  "content-delivery-networks": [97],
+  "copyright-infringement": [118],
+  dating: [47],
+  "dynamic-dns": [103],
+  "educational-institutions": [27],
+  "entertainment-and-arts": [20, 30],
+  extremism: [14],
+  "financial-services": [31],
+  gambling: [11],
+  games: [33],
+  government: [34],
+  grayware: [102],
+  hacking: [17],
+  "health-and-medicine": [37],
+  "home-and-garden": [61],
+  "hunting-and-fishing": [65],
+  "internet-communications-and-telephony": [110],
+  "internet-portals": [40],
+  "job-search": [45],
+  legal: [34],
+  malware: [43],
+  military: [35],
+  "motor-vehicles": [67],
+  news: [46],
+  "not-resolved": [0],
+  nudity: [6],
+  "online-storage-and-backup": [56],
+  parked: [98],
+  "peer-to-peer": [83],
+  "personal-sites-and-blogs": [63],
+  "philosophy-and-political-advocacy": [36],
+  phishing: [18],
+  "private-ip-addresses": [96],
+  "proxy-avoidance-and-anonymizers": [86],
+  questionable: [9],
+  ransomware: [43],
+  "real-estate": [60],
+  "recreation-and-hobbies": [65],
+  "reference-and-research": [49],
+  religion: [54],
+  "scanning-activity": [92],
+  "search-engines": [40],
+  "sex-education": [4],
+  "shareware-and-freeware": [71],
+  shopping: [58],
+  "social-networking": [55],
+  society: [61],
+  sports: [65],
+  "stock-advice-and-tools": [32],
+  "streaming-media": [114],
+  "swimsuits-and-intimate-apparel": [5],
+  "training-and-tools": [27],
+  translation: [95],
+  travel: [66],
+  unknown: [0],
+  weapons: [15],
+  "web-advertisements": [88],
+  "web-based-email": [52],
+  "web-hosting": [89],
+}
+
+// IANA numbers of the IP protocols that PAN-OS names.
+// Source: https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+let $protocol_numbers = {
+  icmp: 1,
+  igmp: 2,
+  tcp: 6,
+  udp: 17,
+  ipv6: 41,
+  gre: 47,
+  esp: 50,
+  ah: 51,
+  "ipv6-icmp": 58,
+  ospf: 89,
+  pim: 103,
+  vrrp: 112,
+  sctp: 132,
+}
+
+let $protocol_names = {
+  "1": "icmp",
+  "2": "igmp",
+  "6": "tcp",
+  "17": "udp",
+  "41": "ipv6",
+  "47": "gre",
+  "50": "esp",
+  "51": "ah",
+  "58": "ipv6-icmp",
+  "89": "ospf",
+  "103": "pim",
+  "112": "vrrp",
+  "132": "sctp",
+}
+
+let $url_risk_ratings = ["low-risk", "medium-risk", "high-risk"]
+
+// Authentication protocols that PAN-OS names, in lowercase.
+let $auth_protocol_ids = {
+  ntlm: 1,
+  kerberos: 2,
+  digest: 3,
+  openid: 4,
+  saml: 5,
+  oauth: 6,
+  pap: 7,
+  chap: 8,
+  eap: 9,
+  radius: 10,
+  basic: 11,
+  ldap: 12,
+}
+
+// OCSF operating system types of the OS families that PAN-OS names, in
+// lowercase.
+let $os_type_ids = {
+  windows: 100,
+  linux: 200,
+  android: 201,
+  mac: 300,
+  macos: 300,
+  "mac os": 300,
+  "mac os x": 300,
+  ios: 301,
+  ipados: 302,
+}
+
+// OCSF endpoint types of the Device-ID device categories that name one, in
+// lowercase. Other categories, such as `Printer`, stay in `unmapped`.
+let $endpoint_type_ids = {
+  server: 1,
+  desktop: 2,
+  laptop: 3,
+  tablet: 4,
+  "mobile phone": 5,
+  "smart phone": 5,
+  smartphone: 5,
+  mobile: 5,
+  "virtual machine": 6,
+  firewall: 9,
+  switch: 10,
+  router: 12,
 }

@@ -1,0 +1,18 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS Threat records; every value is invented. The column order
+// follows the PAN-OS 11.1 Threat log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// The URL/Filename column is a file for file-based subtypes and a URL
+// otherwise. The Threat/Content Name splits into the signature name and ID.
+// A benign WildFire verdict is not an alert.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {sequence: metadata.sequence, severity_id: severity_id, is_alert: is_alert, finding_info: finding_info, file: evidences[0].file?, url: evidences[0].url?, threat_id: unmapped.threat_id}
+drop_null_fields

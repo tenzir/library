@@ -1,0 +1,60 @@
+---
+description: |
+  Maps the user, client, and portal or gateway of a GlobalProtect record to
+  OCSF.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// PAN-OS writes users as `domain\user`; OCSF splits domain and name.
+if $event.source_user? != null {
+  $ocsf.user = {
+    name: $event.source_user.split("\\", max=1)[1]? else $event.source_user,
+    domain: $event.source_user.split("\\", max=1)[0] if $event.source_user.split("\\", max=1).length() == 2 else null,
+  }
+  drop $event.source_user
+}
+// The client connects from its public address, which is IPv4 or IPv6. PAN-OS
+// writes `0.0.0.0` when the client has no IPv4 address.
+// PAN-OS writes `0.0.0.0` for an address that a client doesn't have.
+if $event.public_ipv6? in [0.0.0.0, ::] {
+  drop $event.public_ipv6
+}
+if $event.private_ip? in [0.0.0.0, ::] {
+  drop $event.private_ip
+}
+if $event.private_ipv6? in [0.0.0.0, ::] {
+  drop $event.private_ipv6
+}
+if $event.public_ip? != null and $event.public_ip != 0.0.0.0 {
+  $ocsf.src_endpoint = {ip: move $event.public_ip}
+} else {
+  drop $event.public_ip?
+  $ocsf.src_endpoint = {ip: move $event.public_ipv6?}
+}
+$ocsf.src_endpoint.hostname = move $event.machine_name?
+// GlobalProtect identifies the client host and names its operating system.
+$ocsf.src_endpoint.uid = move $event.host_id?
+if $event.client_os? != null {
+  $ocsf.src_endpoint.os = {
+    name: $event.client_os,
+    version: move $event.client_os_version?,
+    type_id: paloalto::$os_type_ids[$event.client_os.to_lower()]? else 0,
+  }
+  drop $event.client_os
+}
+$ocsf.status_code = move $event.error_code?
+// The gateway column names the gateway of the client's configuration, and the
+// portal column the portal or gateway that the client logged in to. Both are
+// GlobalProtect configuration names, not hostnames.
+if not $event.event_id?.starts_with("portal-") and $event.gateway? != null {
+  $ocsf.dst_endpoint = {name: move $event.gateway}
+} else if $event.portal? != null {
+  $ocsf.dst_endpoint = {name: move $event.portal}
+}

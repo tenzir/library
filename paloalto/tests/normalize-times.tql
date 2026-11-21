@@ -1,0 +1,16 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records; every value is invented. The column order follows
+// the PAN-OS 11.1 System log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/system-log-fields
+// The event time is the generated time. The receive time becomes
+// `metadata.logged_time`, and the Syslog timestamp stays in `unmapped`. An
+// RFC 3164 timestamp without year or zone never becomes the event time.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+select time, metadata.logged_time, unmapped.timestamp, unmapped.high_resolution_timestamp?, raw_data
