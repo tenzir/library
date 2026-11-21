@@ -30,15 +30,18 @@ $ocsf.user = {
   domain: move $windows.EventData.TargetDomainName,
 }
 
-$ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid,
-    name: move $windows.EventData.SubjectUserName,
-    domain: move $windows.EventData.SubjectDomainName,
-  },
-  session: {
-    uid_alt: move $windows.EventData.SubjectLogonId,
-  },
+// Network logons have no subject: Windows writes the NULL SID and `-`.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {
+      uid_alt: move $windows.EventData.SubjectLogonId?,
+    },
+  }
 }
 
 $ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
