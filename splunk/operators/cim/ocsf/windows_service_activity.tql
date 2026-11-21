@@ -1,0 +1,68 @@
+---
+description: OCSF Windows Service Activity (201004) → Splunk CIM Endpoint Services
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid == 201004
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+$event.cim.tag = ["service", "report"]
+
+// --- CIM: occurrence and status attributes ----
+
+$event.cim._time = $event.ocsf.time
+// Creating a service installs it. A reconfiguration, pause, or continuation
+// reports no CIM status.
+match $event.ocsf.activity_id? {
+  1 => {
+    $event.cim.status = "installed"
+  }
+  3 => {
+    $event.cim.status = "started"
+  }
+  4 => {
+    $event.cim.status = "stopped"
+  }
+  _ => {}
+}
+// Boot and system start apply to drivers and have no CIM start mode.
+match $event.ocsf.win_service?.service_start_type_id? {
+  3 => {
+    $event.cim.start_mode = "auto"
+  }
+  4 => {
+    $event.cim.start_mode = "manual"
+  }
+  5 => {
+    $event.cim.start_mode = "disabled"
+  }
+  _ => {}
+}
+
+// --- CIM: endpoint attributes -----------------
+
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+
+// --- CIM: service attributes ------------------
+
+$event.cim.service_name = $event.ocsf.win_service?.name?
+$event.cim.service_path = $event.ocsf.win_service?.service_file?.path? else $event.ocsf.win_service?.cmd_line?
+$event.cim.service_exec = $event.ocsf.win_service?.service_file?.name?
+$event.cim.service_hash = [...$event.ocsf.win_service?.service_file?.hashes?.map(h => h.value)]
+// The service runs as its start account.
+$event.cim.user = $event.ocsf.win_service?.service_start_name?
+
+// --- CIM: product attributes ------------------
+
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

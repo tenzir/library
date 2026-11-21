@@ -1,0 +1,41 @@
+---
+description: OCSF Entity Management (3004) of a Windows permission change (4670) → Splunk CIM Endpoint Registry or Change
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid == 3004
+
+$event.cim = {}
+$event.cim._time = $event.ocsf.time
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+
+// A changed security descriptor of a registry key modifies the key. Other
+// objects, such as files or tokens, get changed access control lists.
+if $event.ocsf.entity?.data?.object_type? == "Key" {
+  $event.cim.tag = ["endpoint", "registry"]
+  $event.cim.action = "modified"
+  $event.cim.registry_path = $event.ocsf.entity?.name?
+  $event.cim.registry_key_name = $event.ocsf.entity?.name?.split("\\")[-1]?
+  $event.cim.process = $event.ocsf.actor?.process?.cmd_line? else $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.name?
+  $event.cim.process_id = $event.ocsf.actor?.process?.pid?
+  $event.cim.process_name = $event.ocsf.actor?.process?.name? else $event.ocsf.actor?.process?.file?.name?
+  $event.cim.process_path = $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.file?.path?
+} else {
+  $event.cim.tag = ["change"]
+  $event.cim.action = "acl_modified"
+  $event.cim.object = $event.ocsf.entity?.name?
+  $event.cim.object_category = $event.ocsf.entity?.data?.object_type?
+  $event.cim.user_name = $event.ocsf.actor?.user?.name?
+  $event.cim.command = $event.ocsf.actor?.process?.path?
+  $event.cim.dvc = $event.cim.dest
+}
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

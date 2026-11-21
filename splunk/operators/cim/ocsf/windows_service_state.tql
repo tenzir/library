@@ -1,0 +1,42 @@
+---
+description: OCSF Application Lifecycle (6002) and Event Log Activity (1008) of a Windows service → Splunk CIM Endpoint Services
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid in [6002, 1008]
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+$event.cim.tag = ["service", "report"]
+
+// --- CIM: occurrence and status attributes ----
+
+$event.cim._time = $event.ocsf.time
+// A failed start or a stop by failure, such as a crash, is critical.
+// Application Lifecycle starts with activity 3 and stops with 4, and Event
+// Log Activity stops with 7.
+$event.cim.status = (
+  "critical" if $event.ocsf.status_id? == 2 else (
+    "started" if $event.ocsf.class_uid == 6002 and $event.ocsf.activity_id? == 3 else (
+      "stopped" if ($event.ocsf.class_uid == 6002 and $event.ocsf.activity_id? == 4)
+        or ($event.ocsf.class_uid == 1008 and $event.ocsf.activity_id? == 7) else null
+    )
+  )
+)
+
+// --- CIM: endpoint and service attributes -----
+
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.service_name = $event.ocsf.application?.name?
+$event.cim.process_id = $event.ocsf.actor?.process?.pid?
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

@@ -1,0 +1,64 @@
+---
+description: OCSF Scheduled Job Activity (1006) changes → Splunk CIM Change
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid == 1006
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+$event.cim.tag = ["change", "endpoint"]
+
+// --- CIM: occurrence and action attributes ----
+
+$event.cim._time = $event.ocsf.time
+// Only changes to a job reach this mapping: Create, Update, Delete, Enable,
+// and Disable.
+match $event.ocsf.activity_id? {
+  1 => {
+    $event.cim.action = "created"
+  }
+  3 => {
+    $event.cim.action = "deleted"
+  }
+  _ => {
+    $event.cim.action = "modified"
+  }
+}
+match $event.ocsf.status_id? {
+  1 => {
+    $event.cim.status = "success"
+  }
+  2 => {
+    $event.cim.status = "failure"
+  }
+  _ => {}
+}
+$event.cim.result = $event.ocsf.status_detail?
+$event.cim.result_id = $event.ocsf.status_code?
+
+// --- CIM: object attributes -------------------
+
+$event.cim.object = $event.ocsf.job?.name?
+$event.cim.object_category = "scheduled_task"
+$event.cim.object_path = $event.ocsf.job?.file?.path?
+$event.cim.command = $event.ocsf.job?.cmd_line?
+
+// --- CIM: endpoint and user attributes --------
+
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.user_name = $event.ocsf.actor?.user?.name?
+$event.cim.user_type = $event.ocsf.actor?.user?.type?
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim
