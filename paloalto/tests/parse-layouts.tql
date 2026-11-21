@@ -1,0 +1,53 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records for layout variants; every value is invented. The
+// column order follows the PAN-OS 11.1 syslog field descriptions:
+// - AUTH: Authentication log fields; the Strata Logging Service Authentication
+//   syslog example writes the type as `AUTH`.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/authentication-log-fields
+// - START: Tunnel Inspection log fields, whose type column holds `START` or
+//   `END`.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/tunnel-inspection-log-fields
+// - CORRELATION: Correlated Events log fields, with separate source address
+//   and source user columns.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/correlated-events-log-fields
+// - CONFIG: Config log fields, once with the before and after change details
+//   and once without them, as in the Strata Logging Service Config syslog
+//   example.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/config-log-fields
+//   https://docs.paloaltonetworks.com/strata-logging-service/log-reference/common-logs/common-config-log/common-config-syslog-fields
+// - TRAFFIC: Traffic log fields, once with SD-WAN link switches that PAN-OS
+//   writes as an unquoted brace list with commas (Palo Alto knowledge base
+//   article kA14u0000004LaOCAU), and once with two values beyond the
+//   documented columns.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// - URL Filtering: the 125 columns of PAN-OS 10.1 and later, with response
+//   headers and HTTP status code after the request headers.
+//   https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+content = move line
+paloalto::parse content, parsed
+this = {
+  parser: @name,
+  type: parsed.type,
+  sequence_number: parsed.sequence_number?,
+  user: parsed.user? else parsed.source_user?,
+  source: parsed.source_ip? else parsed.source_address?,
+  virtual_system: parsed.virtual_system?,
+  severity: parsed.severity?,
+  device_name: parsed.device_name?,
+  object_name: parsed.object_name?,
+  evidence: parsed.evidence?,
+  result: parsed.result?,
+  before_change_detail: parsed.before_change_detail?,
+  after_change_detail: parsed.after_change_detail?,
+  link_switches: parsed.link_switches?,
+  application_category: parsed.application_category?,
+  excess_values: parsed.excess_values?,
+  http_status_code: parsed.http_status_code?,
+  url_category_list: parsed.url_category_list?,
+}

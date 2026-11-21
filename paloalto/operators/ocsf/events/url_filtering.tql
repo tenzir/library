@@ -27,62 +27,94 @@ let $activities = {
 
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4002
-$ocsf.activity_id = $activities[$event.http_method?]? else 0
-$ocsf.type_uid = 400200 + ($activities[$event.http_method?]? else 0)
 drop $ocsf.activity_name?
-$ocsf.status_id = 1
+// PAN-OS writes the HTTP method in lowercase. An extension method that has no
+// OCSF activity becomes `Other`; a record without method stays `Unknown`.
+$ocsf.activity_id = $activities[$event.http_method?.to_upper()]? else (0 if $event.http_method? == null else 99)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event.http_method.to_upper()
+}
+$ocsf.type_uid = 400200 + $ocsf.activity_id
 $ocsf.metadata.profiles = ["security_control"]
 $ocsf.app_name = move $event.application?
-$ocsf.src_endpoint = {
-  ip: move $event.source_address?,
-  port: move $event.source_port?,
-  zone: move $event.source_zone?,
-  interface_name: move $event.inbound_interface?,
-  hostname: move $event.source_hostname?,
-  mac: move $event.source_mac_address?,
-  owner: {
-    name: move $event.source_user?,
-  },
+paloalto::ocsf::endpoints $event, $ocsf
+// User-ID maps the source address to the user who initiated the session.
+if $ocsf.src_endpoint.owner? != null {
+  $ocsf.actor = {user: move $ocsf.src_endpoint.owner}
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "host"]
 }
-$ocsf.dst_endpoint = {
-  ip: move $event.destination_address?,
-  port: move $event.destination_port?,
-  zone: move $event.destination_zone?,
-  interface_name: move $event.outbound_interface?,
-  hostname: move $event.destination_hostname?,
-  mac: move $event.destination_mac_address?,
-  owner: {
-    name: move $event.destination_user?,
-  },
-}
-paloalto::ocsf::endpoint_locations $event, $ocsf
-$ocsf.connection_info = {
-  direction_id: 0,
-  protocol_name: move $event.ip_protocol?,
-  uid: (move $event.session_id?).string(),
-}
+paloalto::ocsf::connection_info $event, $ocsf
 $ocsf.http_request = {
-  http_method: move $event.http_method?,
+  http_method: (move $event.http_method?).to_upper(),
   user_agent: move $event.user_agent?,
   referrer: move $event.referer?,
-  x_forwarded_for: move $event.x_forwarded_for?,
-  url: {
-    url_string: move $event.url_filename?,
-  },
 }
-if $event.category? != null {
-  $ocsf.http_request.url.categories = [move $event.category]
+// The X-Forwarded-For value can be a comma-separated chain of addresses. Keep
+// the addresses; when the chain also holds other tokens, such as `unknown`,
+// the original text stays in `unmapped`.
+$ocsf._xff = ($event.x_forwarded_for? else $event.xff_address?).split(",").map(token => token.trim()).where(token => token != "")
+if $ocsf._xff.length() > 0 {
+  $ocsf.http_request.x_forwarded_for = $ocsf._xff.where(token => token.match_regex("^[0-9A-Fa-f:.]+$")).map(token => token.ip()).where(address => address != null)
+  if $ocsf.http_request.x_forwarded_for.length() == $ocsf._xff.length() {
+    if $event.x_forwarded_for? != null {
+      drop $event.x_forwarded_for
+    } else {
+      drop $event.xff_address
+    }
+  }
+  if $ocsf.http_request.x_forwarded_for.length() == 0 {
+    drop $ocsf.http_request.x_forwarded_for
+  }
 }
-$ocsf.firewall_rule = {
-  name: move $event.rule_name?,
-  uid: move $event.rule_uuid?,
+drop $ocsf._xff
+// PAN-OS 10.1 and later write the HTTP status code of the response. The
+// content type is the one of the response data.
+if $event.http_status_code?.match_regex("^[0-9]{3}$") {
+  $ocsf.http_response = {
+    code: (move $event.http_status_code).int(),
+    content_type: move $event.content_type?,
+  }
 }
-if paloalto::$action_ids[$event.action?]? != null {
-  $ocsf.action_id = paloalto::$action_ids[$event.action?]?
-  $ocsf.disposition_id = paloalto::$disposition_ids[$event.action?]?
-  $ocsf.is_alert = $event.action? == "alert"
-  drop $event.action
+if $event.url_filename? != null {
+  $ocsf.http_request.url = {url_string: move $event.url_filename}
+  // PAN-OS writes the PAN-DB category and, in newer versions, the full list of
+  // categories including a risk rating. Translate the categories that have an
+  // OCSF equivalent; other categories become `Other` with their PAN-DB label.
+  // The PAN-DB labels also stay in `unmapped`.
+  $ocsf._labels = ($event.url_category_list? else $event.category?).split(",").map(label => label.trim()).where(label => label != "" and label not in paloalto::$url_risk_ratings)
+  // A PAN-DB category can correspond to two OCSF categories, such as
+  // `alcohol-and-tobacco`.
+  $ocsf._categories = [
+    ...$ocsf._labels.map(label => {
+      id: paloalto::$url_category_ids[label]?[0]? else 99,
+      caption: null if paloalto::$url_category_ids.has(label) else label,
+    }),
+    ...$ocsf._labels.where(label => paloalto::$url_category_ids[label]?[1]? != null).map(label => {
+      id: paloalto::$url_category_ids[label][1],
+      caption: null,
+    }),
+  ].distinct()
+  drop $ocsf._labels
+  if $ocsf._categories.length() > 0 {
+    $ocsf.http_request.url.category_ids = $ocsf._categories.map(category => category.id)
+    // `ocsf_derive` fills in the captions of the translated categories.
+    if $ocsf._categories.where(category => category.caption != null).length() > 0 {
+      $ocsf.http_request.url.categories = $ocsf._categories.map(category => category.caption)
+    }
+  }
+  drop $ocsf._categories
+}
+if ($event.rule_name? else $event.rule_uuid?) != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule_name?,
+    uid: move $event.rule_uuid?,
+  }
+}
+paloalto::ocsf::action $event, $ocsf
+// A blocked request failed. PAN-OS does not record the HTTP response, so an
+// allowed request has an unknown outcome.
+$ocsf.status_id = 2 if $ocsf.action_id? == 2 else 0
+if $ocsf.action_id? != null {
+  $ocsf.is_alert = $ocsf.action_id == 3
 }
 
-drop $event.type?
-drop $event.threat_content_type?

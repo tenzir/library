@@ -1,0 +1,70 @@
+---
+description: Palo Alto Networks PAN-OS Decryption record -> OCSF Network Activity.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// The firewall writes a Decryption record for a TLS session that a decryption
+// policy matched, with the negotiated TLS parameters, the server certificate,
+// and the error that ended an unsuccessful handshake.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/decryption-log-fields
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.network_activity"
+
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 6
+$ocsf.type_uid = 400106
+drop $ocsf.activity_name?
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.app_name = move $event.application?
+paloalto::ocsf::endpoints $event, $ocsf
+if $ocsf.src_endpoint.owner? != null {
+  $ocsf.actor = {user: move $ocsf.src_endpoint.owner}
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "host"]
+}
+paloalto::ocsf::connection_info $event, $ocsf
+if ($event.rule? else $event.uuid_for_rule?) != null {
+  $ocsf.firewall_rule = {
+    name: move $event.rule?,
+    uid: move $event.uuid_for_rule?,
+  }
+}
+// The policy name is the decryption policy rule that matched the session.
+if $event.policy_name? != null {
+  $ocsf.policy = {name: move $event.policy_name}
+}
+// PAN-OS writes `Unknown` when the handshake did not negotiate a version.
+if $event.tls_version? not in [null, "Unknown", "N/A"] {
+  $ocsf.tls = {
+    version: move $event.tls_version,
+    sni: move $event.server_name_indication?,
+  }
+  if $event.certificate_serial_number? != null and $event.issuer_subject_common_name? != null {
+    $ocsf.tls.certificate = {
+      serial_number: move $event.certificate_serial_number,
+      issuer: move $event.issuer_subject_common_name,
+      subject: move $event.subject_common_name?,
+      created_time: move $event.certificate_start_date?,
+      expiration_time: move $event.certificate_end_date?,
+      version: move $event.certificate_version?,
+    }
+    // PAN-OS doesn't name the algorithm of the certificate fingerprint.
+    if $event.fingerprint? != null {
+      $ocsf.tls.certificate.fingerprints = [{algorithm_id: 0, value: move $event.fingerprint}]
+    }
+  }
+}
+// An error means that the TLS handshake failed. Without one, the record does
+// not tell whether the firewall decrypted the session.
+if $event.error? != null {
+  $ocsf.status_id = 2
+  $ocsf.status_detail = move $event.error
+}
+paloalto::ocsf::action $event, $ocsf

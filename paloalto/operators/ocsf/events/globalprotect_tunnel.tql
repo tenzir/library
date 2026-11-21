@@ -1,0 +1,49 @@
+---
+description: Palo Alto Networks GlobalProtect tunnel lifecycle -> OCSF Tunnel Activity.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// GlobalProtect logs when a client's tunnel to a gateway is established, when
+// it falls back from IPsec to SSL, and when the user logs out of the gateway.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/globalprotect-log-fields
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.tunnel_activity"
+
+let $activities = {
+  "gateway-connected": 1,
+  "gateway-logout": 2,
+}
+
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4014
+drop $ocsf.activity_name?
+$ocsf.activity_id = $activities[$event.event_id?]? else 99
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event.event_id
+}
+$ocsf.type_uid = 401400 + $ocsf.activity_id
+paloalto::ocsf::events::globalprotect_endpoints $event, $ocsf
+// The private address is the address that the gateway assigned to the client
+// inside the tunnel.
+if $event.private_ip? != null and $event.private_ip != 0.0.0.0 {
+  $ocsf.tunnel_interface = {ip: move $event.private_ip}
+} else if $event.private_ipv6? != null {
+  drop $event.private_ip?
+  $ocsf.tunnel_interface = {ip: move $event.private_ipv6}
+}
+// PAN-OS writes the login duration of a logout in seconds.
+if $event.login_duration? > 0 {
+  $ocsf.duration = (move $event.login_duration) * 1000
+}
+$ocsf.status_detail = move $event.reason? else move $event.error? else $ocsf.message?
+if paloalto::$status_ids[$event.status?]? != null {
+  $ocsf.status_id = paloalto::$status_ids[$event.status?]?
+  drop $event.status
+}

@@ -1,0 +1,23 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records; every value is invented. The column order follows
+// the Traffic and System log fields of PAN-OS 9.1 (75 and 23 columns) and
+// 10.0 (105 Traffic columns), which are prefixes of the later layouts.
+// https://docs.paloaltonetworks.com/pan-os/9-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/pan-os/10-0/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/pan-os/9-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/system-log-fields
+// These documented shorter layouts parse without a warning. The 60-column
+// Traffic record matches no documented layout and keeps the warning.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+content = move line
+paloalto::parse content, parsed
+this = {
+  type: parsed.type,
+  sequence_number: parsed.sequence_number,
+  device_name: parsed.device_name,
+  description: parsed.description?,
+}

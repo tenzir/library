@@ -1,0 +1,32 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records in RFC 3164 Syslog messages; every value is
+// invented. The column order follows the PAN-OS 8.1 Traffic (65 columns) and
+// Threat (75 columns) log fields, which are prefixes of the later layouts.
+// https://docs.paloaltonetworks.com/pan-os/8-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/pan-os/8-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// A denied session and a URL alert with doubled quotes in the URL map without
+// a short-row warning.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {
+  sequence: metadata.sequence,
+  class_uid: class_uid,
+  activity_id: activity_id,
+  status_id: status_id,
+  status_detail: status_detail?,
+  action_id: action_id,
+  disposition_id: disposition_id,
+  src_endpoint: src_endpoint,
+  dst_endpoint: dst_endpoint,
+  actor: actor?,
+  http_request: http_request?,
+  firewall_rule: firewall_rule?,
+}
+drop_null_fields

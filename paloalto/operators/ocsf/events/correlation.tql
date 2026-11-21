@@ -1,0 +1,52 @@
+---
+description: Palo Alto Networks PAN-OS Correlated Events record -> OCSF Detection Finding.
+args:
+  positional:
+    - name: event
+      description: The structured source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// The firewall writes a Correlated Events record when a correlation object
+// matches a pattern of logs that indicates a compromised host.
+// Source: https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/correlated-events-log-fields
+paloalto::ocsf::base $event, $ocsf
+@name = "ocsf.detection_finding"
+
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+$ocsf.activity_id = 1
+$ocsf.type_uid = 200401
+drop $ocsf.activity_name?
+$ocsf.is_alert = true
+// Correlated Events records have no sequence number, so the finding has no
+// identity of its own.
+$ocsf.finding_info = {
+  title: $event.object_name?,
+  desc: move $event.evidence?,
+}
+if $event.category? != null {
+  $ocsf.finding_info.types = [move $event.category]
+}
+if ($event.object_name? else $event.object_id?) != null {
+  $ocsf.finding_info.analytic = {
+    type_id: 1,
+    uid: move $event.object_id?,
+    name: move $event.object_name?,
+  }
+}
+// The source is the host that the correlation object reports as compromised.
+$ocsf._evidence = {src_endpoint: {ip: move $event.source_address?}}
+if $event.source_user? != null {
+  $ocsf._evidence.actor = {
+    user: {
+      name: $event.source_user.split("\\", max=1)[1]? else $event.source_user,
+      domain: $event.source_user.split("\\", max=1)[0] if $event.source_user.split("\\", max=1).length() == 2 else null,
+    },
+  }
+  drop $event.source_user
+}
+$ocsf.evidences = [drop_null_fields(move $ocsf._evidence)]

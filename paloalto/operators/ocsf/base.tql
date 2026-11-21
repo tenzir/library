@@ -14,7 +14,7 @@ args:
 
 
 $ocsf = {
-  time: $event.generated_time? else $event.generate_time? else $event.time? else $event.receive_time?,
+  time: $event.generated_time? else $event.generate_time? else $event.receive_time? else $event.time?,
   category_uid: 0,
   class_uid: 0,
   activity_id: 0,
@@ -27,7 +27,9 @@ $ocsf = {
     log_name: "PAN-OS",
     log_provider: "Palo Alto Networks",
     log_source: "PAN-OS Syslog",
-    logged_time: $event.receive_time?,
+    // The high-resolution timestamp is when the management plane received
+    // the record, like the receive time, but with milliseconds and offset.
+    logged_time: $event.high_resolution_timestamp? else $event.high_res_timestamp? else $event.receive_time?,
     sequence: int(move $event.sequence_number?),
     product: {
       name: "PAN-OS",
@@ -35,6 +37,21 @@ $ocsf = {
       uid: ($event.serial_number? else $event.serial?).string(),
     },
   },
+}
+
+// PAN-OS numbers the records of each log type per device, so the serial
+// number, log type, and sequence number identify a record.
+$ocsf._log_type = $event.type? else $event.threat_content_type?
+if $ocsf.metadata.product.uid != null and $ocsf._log_type != null and $ocsf.metadata.sequence != null {
+  $ocsf.metadata.uid = f"{$ocsf.metadata.product.uid}:{$ocsf._log_type}:{$ocsf.metadata.sequence}"
+}
+drop $ocsf._log_type
+// The device name is the hostname of the firewall that logged the record.
+if ($event.device_name? else $ocsf.metadata.product.uid) != null {
+  $ocsf.metadata.reporter = {
+    hostname: move $event.device_name?,
+    uid: $ocsf.metadata.product.uid,
+  }
 }
 
 if ($event.type? else $event.threat_content_type?) != null {
@@ -50,5 +67,6 @@ drop $event.generated_time?
 drop $event.generate_time?
 drop $event.time?
 drop $event.receive_time?
+drop $event.high_resolution_timestamp?, $event.high_res_timestamp?
 drop $event.serial_number?
 drop $event.serial?

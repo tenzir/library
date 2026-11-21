@@ -1,0 +1,23 @@
+// Synthetic PAN-OS System records; every value is invented. The column order
+// follows the PAN-OS 11.1 System log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/system-log-fields
+// Times without a zone are in the `timezone` argument, else in the offset of
+// the high-resolution timestamp, else in UTC. `Europe/Berlin` is UTC+1 in
+// January and UTC+2 in July; a fixed offset such as `+01:00` is not.
+from {
+  winter: "1,2026/01/15 10:00:01,000700000042,SYSTEM,general,,2026/01/15 10:00:00,,general,,,,general,informational,Example message,8401,0x0,,,,,,fw-example-1,,,",
+  summer: "1,2026/07/15 10:00:01,000700000042,SYSTEM,general,,2026/07/15 10:00:00,,general,,,,general,informational,Example message,8402,0x0,,,,,,fw-example-1,,,2026-07-15T10:00:01.250+02:00",
+}
+paloalto::parse winter, winter_berlin, timezone="Europe/Berlin"
+paloalto::parse summer, summer_berlin, timezone="Europe/Berlin"
+paloalto::parse summer, summer_offset, timezone="+01:00"
+paloalto::parse summer, summer_high_resolution
+paloalto::parse winter, winter_utc
+this = {
+  winter_berlin: winter_berlin.generated_time,
+  summer_berlin: summer_berlin.generated_time,
+  summer_offset: summer_offset.generated_time,
+  summer_high_resolution: summer_high_resolution.generated_time,
+  summer_high_resolution_receive: summer_high_resolution.receive_time,
+  winter_utc: winter_utc.generated_time,
+}

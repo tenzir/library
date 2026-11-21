@@ -1,0 +1,29 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records; every value is invented. The column order follows
+// the PAN-OS 11.1 Traffic, URL Filtering (125 columns), and Threat log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/url-filtering-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// Device-ID operating systems and device categories and VM UUIDs become
+// endpoint details, the HTTP status code and content type the HTTP response,
+// and the threat category and the email of a WildFire record the finding types
+// and email evidence.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {
+  sequence: metadata.sequence,
+  src_endpoint: src_endpoint?,
+  dst_endpoint: dst_endpoint?,
+  http_response: http_response?,
+  finding_types: finding_info?.types?,
+  email: evidences?[0]?.email?,
+  unmapped: unmapped,
+}
+drop_null_fields

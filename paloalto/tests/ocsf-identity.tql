@@ -1,0 +1,29 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records; every value is invented. The column order follows
+// the PAN-OS 11.1 Traffic and Threat log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/threat-log-fields
+// The firewall that logged a record is its reporter. Serial number, log type,
+// and sequence number identify the record and the finding. The elapsed time
+// becomes the duration, and the log type and subtype stay searchable.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {
+  metadata: metadata,
+  duration: duration?,
+  status_detail: status_detail?,
+  src_endpoint: src_endpoint?,
+  dst_endpoint: dst_endpoint?,
+  actor: actor?,
+  finding_uid: finding_info?.uid?,
+  evidences: evidences?,
+  unmapped: unmapped,
+}
+drop_null_fields

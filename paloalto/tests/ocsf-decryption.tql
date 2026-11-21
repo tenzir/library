@@ -1,0 +1,28 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS Decryption records; every value is invented. The column
+// order follows the PAN-OS 11.1 Decryption log fields.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/decryption-log-fields
+// A forward-proxied session with its TLS version and server certificate, a
+// failed handshake, and a session that a no-decrypt policy left uninspected.
+// Only the failed handshake has a known status.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+this = {
+  class_uid: class_uid,
+  activity_id: activity_id,
+  status_id: status_id,
+  status_detail: status_detail?,
+  tls: tls?,
+  policy: policy?,
+  firewall_rule: firewall_rule?,
+  actor: actor?,
+  unmapped: unmapped,
+}
+drop_null_fields

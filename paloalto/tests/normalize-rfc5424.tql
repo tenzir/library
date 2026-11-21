@@ -1,0 +1,18 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS System records in RFC 5424 and RFC 3164 Syslog messages;
+// every value is invented. The column order follows the PAN-OS 11.1 System log
+// fields, and PAN-OS forwards Syslog in either format.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/system-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/configure-syslog-monitoring
+// Both payloads are parsed and kept as `raw_data`. The zoned RFC 5424
+// timestamp stays typed in `unmapped.timestamp`.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select time, message, metadata.sequence, metadata.reporter, raw_data, unmapped
