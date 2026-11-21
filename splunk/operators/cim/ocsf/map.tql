@@ -9,6 +9,20 @@ args:
 ---
 $event = {...$event, ocsf: $event, cim: {}}
 
+// The mappings read captions, such as `activity_name`, `status`, `type_name`,
+// or `auth_protocol`, that OCSF producers may omit and leave to their IDs.
+// Derive them for the classes with a mapping, also when the event carries
+// some captions, because no caption proves the presence of the others.
+// Derivation keeps captions that match their ID and the caption of Other, and
+// keeps the event unchanged when it cannot derive it.
+let $mapped_classes = [
+  1001, 1007, 1008, 2001, 2002, 2004, 2006, 3001, 3002, 3004, 3005, 3006,
+  3007, 4001, 4002, 4003, 4009, 4014, 6001, 6003, 6004, 6005, 6006,
+]
+if $event.ocsf.class_uid? in $mapped_classes and $event.ocsf.metadata?.version? != null {
+  $event.ocsf = ocsf_derive($event.ocsf) else $event.ocsf
+}
+
 match $event.ocsf.class_uid {
   0 => {
     // OCSF Base Event has no single CIM data model dual.

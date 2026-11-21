@@ -45,9 +45,28 @@ $event.cim.object_attrs = $event.ocsf.privileges?
 $event.cim.src = $event.ocsf.actor?.process?.device?.hostname? else $event.ocsf.actor?.process?.device?.ip? else $event.ocsf.actor?.process?.device?.name?
 $event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 $event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
-$event.cim.user = $event.ocsf.users?[0]?.name? else $event.ocsf.user?.name? else $event.ocsf.users?[0]?.uid? else $event.ocsf.user?.uid?
-$event.cim.user_name = $event.ocsf.users?[0]?.name? else $event.ocsf.user?.name?
-$event.cim.user_type = $event.ocsf.users?[0]?.type? else $event.ocsf.user?.type?
+// The members are the changed accounts. OCSF 1.9 lists them in `users`, which
+// supersedes `user`. A legacy `user` counts too unless `users` lists the same
+// account: the same `uid`, or the same `name` when either lacks a `uid`. The
+// entry in `users` then stands for it. Like other multivalue CIM fields of
+// this package, the member fields are lists: `user` names every member by
+// name, or by ID without a name, while `user_name` and `user_type` list only
+// the names and types that exist.
+$event.members = [
+  ...$event.ocsf.users?,
+  ...([$event.ocsf.user] if $event.ocsf.user? != null and [...$event.ocsf.users?].where(member =>
+      (member.uid? != null and $event.ocsf.user.uid? != null and member.uid? == $event.ocsf.user.uid?)
+      or ((member.uid? == null or $event.ocsf.user.uid? == null) and member.name? != null and member.name? == $event.ocsf.user.name?)
+    ).length() == 0 else []),
+]
+$event.cim.user = $event.members.map(member => member.name? else member.uid?).where(x => x != null)
+$event.cim.user_name = $event.members.map(member => member.name?).where(x => x != null)
+$event.cim.user_type = $event.members.map(member => member.type?).where(x => x != null)
+drop $event.members
+// Events without members, such as a created group, name no user.
+$event.cim.user = $event.cim.user if $event.cim.user.length() > 0 else null
+$event.cim.user_name = $event.cim.user_name if $event.cim.user_name.length() > 0 else null
+$event.cim.user_type = $event.cim.user_type if $event.cim.user_type.length() > 0 else null
 $event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
 $event.cim.src_user_name = $event.ocsf.actor?.user?.name?
 $event.cim.src_user_type = $event.ocsf.actor?.user?.type?
@@ -55,6 +74,17 @@ $event.cim.user_agent = $event.ocsf.http_request?.user_agent?
 $event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
 $event.cim.vendor_region = $event.ocsf.cloud?.region?
 splunk::cim::ocsf::helpers::product event=$event
+
+// Windows Security events report the domain of the group as the target
+// domain, and the domain of the subject for an event without group. The source domain is the domain
+// of the subject. Both can hold an authority, such as `NT AUTHORITY`, or a
+// computer name.
+if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" {
+  $event.cim.dest_nt_domain = (
+    $event.ocsf.group?.domain? if $event.ocsf.group? != null else $event.ocsf.actor?.user?.domain?
+  )
+  $event.cim.src_nt_domain = $event.ocsf.actor?.user?.domain?
+}
 
 // --- Finalize ---------------------------------
 

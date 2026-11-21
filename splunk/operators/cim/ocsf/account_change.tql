@@ -59,6 +59,19 @@ $event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
 $event.cim.vendor_region = $event.ocsf.cloud?.region?
 splunk::cim::ocsf::helpers::product event=$event
 
+// Windows Security events report the domain of the changed account, or of the
+// caller computer for a lockout (4740), as the target domain, and the domain
+// of the subject for an event without changed account. The source domain is the domain of the subject. Both
+// can hold an authority, such as `NT AUTHORITY`, or a computer name.
+if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" {
+  $event.cim.dest_nt_domain = (
+    $event.ocsf.src_endpoint?.hostname? if $event.ocsf.metadata.event_code? == "4740" else (
+      $event.ocsf.user?.domain? if $event.ocsf.user? != null else $event.ocsf.actor?.user?.domain?
+    )
+  )
+  $event.cim.src_nt_domain = $event.ocsf.actor?.user?.domain?
+}
+
 // --- Finalize ---------------------------------
 
 $event = $event.cim

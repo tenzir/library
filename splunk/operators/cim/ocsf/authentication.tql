@@ -13,7 +13,10 @@ $event.cim = {}
 
 // --- CIM: data model attributes ---------------
 
-$event.cim.tag = ["authentication"]
+// A logoff ends a session and authenticates nobody, so it stays out of the
+// Authentication dataset, which counts sign-ins, and gets the tags `access`,
+// `stop`, and `logoff`.
+$event.cim.tag = ["access", "stop", "logoff"] if $event.ocsf.activity_id? == 2 else ["authentication"]
 
 // --- CIM: occurrence attributes ---------------
 
@@ -36,15 +39,51 @@ match $event.ocsf.status_id? {
   _ => {}
 }
 $event.cim.result = $event.cim.action
+// Windows records an explicit-credential logon (4648) as an audit success
+// without the outcome of the logon. Count an audited success as a
+// successful, privileged authentication.
+if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" and $event.ocsf.metadata.event_code? == "4648" {
+  $event.cim.tag = ["authentication", "privileged"]
+  if $event.ocsf.unmapped?.System?.Keywords? == "0x8020000000000000" {
+    $event.cim.action = "success"
+    $event.cim.result = "success"
+  }
+}
 $event.cim.reason = $event.ocsf.status_detail? else $event.ocsf.message?
 $event.cim.reason_id = $event.ocsf.status_code?
 
 // --- CIM: authentication attributes -----------
 
 $event.cim.app = $event.ocsf.actor?.app_name? else $event.ocsf.service?.name? else $event.ocsf.metadata.product.name?
-$event.cim.authentication_method = $event.ocsf.auth_protocol? else $event.ocsf.auth_protocol_id?.string()
+// An unknown protocol is no method, and OCSF protocol IDs are no CIM values.
+$event.cim.authentication_method = $event.ocsf.auth_protocol? if $event.ocsf.auth_protocol_id? != 0 else null
 $event.cim.authentication_service = $event.ocsf.service?.name? else $event.ocsf.service?.uid?
-$event.cim.session_id = $event.ocsf.session?.uid? else $event.ocsf.actor?.session?.uid?
+
+// --- CIM: Windows Security attributes ---------
+
+// Windows logons (4624) and failed logons (4625) report the Windows logon
+// type number as the method and the authentication package, such as
+// `Negotiate`, as the service. OCSF numbers the System logon type 1 instead
+// of the Windows 0. The target domain is the domain of the target account,
+// or the domain of the subject for an event without target account. The source domain is the domain of the subject,
+// except for a logoff (4634), which names only the target account. Both can
+// hold an authority, such as `NT AUTHORITY`, or a computer name.
+if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" {
+  if $event.ocsf.metadata.event_code? in ["4624", "4625"] {
+    $event.cim.authentication_method = (
+      "0" if $event.ocsf.logon_type_id? == 1 else $event.ocsf.logon_type_id?.string()
+    )
+    $event.cim.authentication_service = $event.ocsf.auth_protocol?
+  }
+  $event.cim.dest_nt_domain = (
+    $event.ocsf.user?.domain? if $event.ocsf.user? != null else $event.ocsf.actor?.user?.domain?
+  )
+  $event.cim.src_nt_domain = (
+    $event.ocsf.user?.domain? if $event.ocsf.metadata.event_code? == "4634" else $event.ocsf.actor?.user?.domain?
+  )
+}
+// The session belongs to the authenticated user, never to the actor.
+$event.cim.session_id = $event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?
 $event.cim.signature = $event.ocsf.type_name? else $event.ocsf.class_name?
 $event.cim.signature_id = $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
 
@@ -57,11 +96,9 @@ $event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpo
 
 $event.cim.user = $event.ocsf.user?.name? else $event.ocsf.user?.uid?
 $event.cim.user_id = $event.ocsf.user?.uid?
-$event.cim.user_role = $event.ocsf.user?.type?
 $event.cim.user_type = $event.ocsf.user?.type?
 $event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
 $event.cim.src_user_id = $event.ocsf.actor?.user?.uid?
-$event.cim.src_user_role = $event.ocsf.actor?.user?.type?
 $event.cim.src_user_type = $event.ocsf.actor?.user?.type?
 $event.cim.process = $event.ocsf.actor?.process?.cmd_line? else $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.name?
 $event.cim.user_agent = $event.ocsf.http_request?.user_agent?

@@ -19,6 +19,25 @@ $event.cim.tag = ["change", "audit"]
 
 $event.cim._time = $event.ocsf.time
 $event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+// CIM Change names the actions it shares with OCSF in the past tense.
+match $event.ocsf.activity_id? {
+  1 => {
+    $event.cim.action = "cleared"
+  }
+  2 => {
+    $event.cim.action = "deleted"
+  }
+  6 => {
+    $event.cim.action = "started"
+  }
+  7 => {
+    $event.cim.action = "stopped"
+  }
+  8 => {
+    $event.cim.action = "restarted"
+  }
+  _ => {}
+}
 $event.cim.change_type = "audit"
 $event.cim.command = $event.ocsf.log_provider?
 $event.cim.status = $event.ocsf.status?.to_lower()
@@ -44,7 +63,10 @@ $event.cim.object_path = $event.ocsf.file?.path?
 // --- CIM: endpoint and user attributes --------
 
 $event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
-$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name?
+// The change happens in the log of the device, unless the event names
+// another destination.
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else $event.ocsf.dst_endpoint?.name? else
+  $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 $event.cim.dvc = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
 $event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
 $event.cim.user_name = $event.ocsf.actor?.user?.name?
