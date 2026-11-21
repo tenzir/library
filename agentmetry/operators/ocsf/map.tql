@@ -119,7 +119,10 @@ if $agentmetry.action?.type? != null {
 
 // Preserve source time even when the action is missing. Convert timestamps
 // from record literals as well as timestamps inferred by a JSON reader.
-$ocsf.time = time(move $agentmetry.timestamp_utc?)
+// Agentmetry writes microseconds. Rounding to them undoes the one-nanosecond
+// error with which Tenzir 6.23 and 7.0.0-rc.6 parse some fractions; remove it
+// once every supported version parses times exactly (Linear TNZ-2181).
+$ocsf.time = time(move $agentmetry.timestamp_utc?).round(1us)
 
 match $ocsf.metadata.event_code? {
   "tool_called" | "approval_request" | "approval_response" => {
