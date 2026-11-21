@@ -16,7 +16,8 @@ The structure that the fixtures keep:
   in WMI-Activity 5861.
 - Collector shapes: Windows Event XML, Fluent Bit JSON with local timestamps,
   rendered messages, and string inserts, Winlogbeat JSON with the original XML,
-  and NXLog JSON.
+  and NXLog JSON, such as the flat fields, integer keywords, and rendered
+  messages of NXLog Community Edition.
 - Well-known values that carry meaning, such as built-in SIDs, audit
   subcategory GUIDs, device class GUIDs, attack surface reduction rule GUIDs,
   message-table tokens, and status codes.
