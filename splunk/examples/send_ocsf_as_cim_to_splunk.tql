@@ -1,0 +1,21 @@
+---
+name: Send OCSF as Splunk CIM
+description: |
+  Map OCSF events to Splunk CIM and send them to a Splunk HTTP Event
+  Collector. The CIM record becomes the HEC event, while the OCSF event next
+  to it supplies the HEC metadata, such as the time and the reporting host.
+---
+
+subscribe "ocsf"
+this = {ocsf: this}
+splunk::cim::from_ocsf ocsf, into=cim
+// The HEC metadata is not part of the CIM record. Bind it explicitly, and
+// choose a source type that your Splunk deployment configures for this data.
+to_splunk "https://localhost:8088",
+  hec_token=secret("SPLUNK_HEC_TOKEN"),
+  event=cim,
+  host=ocsf.device?.hostname?,
+  source=ocsf.metadata.log_name?,
+  sourcetype="_json",
+  index="main",
+  time=ocsf.time
