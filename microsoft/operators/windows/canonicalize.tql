@@ -34,6 +34,15 @@ if type_kind($input) == "string" {
 } else {
   $windows = null
 }
+// Windows records times in 100-nanosecond units. Some Tenzir versions parse
+// fractional seconds with a one-nanosecond error, such as `.491909` as
+// `.491908999`, so round to the precision that Windows writes.
+if type_kind($windows.System?.TimeCreated?.SystemTime?) == "time" {
+  $windows.System.TimeCreated.SystemTime = $windows.System.TimeCreated.SystemTime.round(100ns)
+}
+if type_kind($windows.Logger?.logged_time?) == "time" {
+  $windows.Logger.logged_time = $windows.Logger.logged_time.round(100ns)
+}
 // Collectors and JSON readers may deliver typed values, such as numbers from
 // NXLog or times inferred by `read_ndjson`. Convert them to strings, so that
 // the mappings see the same canonical event for every collector.
