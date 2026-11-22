@@ -1,0 +1,42 @@
+---
+description: Splunk CIM registry path → Splunk CIM registry hive
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+// CIM names the hive by its full root key and the system hives below
+// HKEY_LOCAL_MACHINE separately. Windows writes the root key in full, short,
+// such as `HKLM`, or in kernel form, such as `\REGISTRY\MACHINE`. A hive of
+// an account below HKEY_USERS, such as `HKU\S-1-5-21-…`, is the hive of a
+// user, like HKEY_CURRENT_USER, unless it is the default profile.
+let $root_keys = {
+  HKLM: "HKEY_LOCAL_MACHINE",
+  HKEY_LOCAL_MACHINE: "HKEY_LOCAL_MACHINE",
+  MACHINE: "HKEY_LOCAL_MACHINE",
+  HKCU: "HKEY_CURRENT_USER",
+  HKEY_CURRENT_USER: "HKEY_CURRENT_USER",
+  HKU: "HKEY_USERS",
+  HKEY_USERS: "HKEY_USERS",
+  USER: "HKEY_USERS",
+  HKCC: "HKEY_CURRENT_CONFIG",
+  HKEY_CURRENT_CONFIG: "HKEY_CURRENT_CONFIG",
+}
+let $machine_hives = {
+  SAM: "HKEY_LOCAL_MACHINE\\SAM",
+  SECURITY: "HKEY_LOCAL_MACHINE\\Security",
+  SOFTWARE: "HKEY_LOCAL_MACHINE\\Software",
+  SYSTEM: "HKEY_LOCAL_MACHINE\\System",
+}
+$event.registry_keys = $event.cim.registry_path?.to_upper().replace_regex(r"^\\REGISTRY\\", "").split("\\")
+$event.registry_root = $root_keys[$event.registry_keys[0]? else ""]?
+$event.cim.registry_hive = (
+  ($machine_hives[$event.registry_keys[1]? else ""]? else "HKEY_LOCAL_MACHINE")
+    if $event.registry_root == "HKEY_LOCAL_MACHINE" else (
+      ("HKEY_USERS\\.DEFAULT" if $event.registry_keys[1]? == ".DEFAULT" else "HKEY_CURRENT_USER")
+        if $event.registry_root == "HKEY_USERS" else $event.registry_root
+    )
+)
+drop $event.registry_keys, $event.registry_root

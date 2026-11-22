@@ -34,7 +34,15 @@ $ocsf.metadata = {
 $windows.System.EventID = $windows.System.EventID.int()
 
 $ocsf.severity_id = 1
-$ocsf.message = move $windows.RenderingInfo?.Message?
+// The first line of a rendered Windows message is the title of the event, such
+// as "An account was successfully logged on.". OCSF `message` holds the title
+// without its closing period or colon, and the full message stays in
+// unmapped when it says more than the title.
+$ocsf.message = $windows.RenderingInfo?.Message?.trim().split_regex(r"\s*\r?\n")[0]?.replace_regex(r"[.:]$", "")
+$ocsf.message = $ocsf.message if $ocsf.message != "" else null
+if $windows.RenderingInfo?.Message?.trim().replace_regex(r"[.:]$", "") == ($ocsf.message else "") {
+  drop $windows.RenderingInfo.Message
+}
 if $windows.RenderingInfo?.is_empty() == true {
   drop $windows.RenderingInfo
 }
@@ -56,6 +64,23 @@ replace $windows, what="-", with=null
 replace $windows, what="{00000000-0000-0000-0000-000000000000}", with=null
 // Collectors such as Fluent Bit render absent values as empty strings.
 replace $windows, what="", with=null
+// Windows writes the NULL SID `S-1-0-0` when an event has no account for a
+// SID field, such as the subject of a network logon or the target of a failed
+// logon with an unknown name. Collectors that translate SIDs render it as
+// `NULL SID`. Neither identifies an account in a SID field, whereas other
+// fields, such as account names, keep these values.
+replace $windows.EventData.SubjectUserSid, what="S-1-0-0", with=null
+replace $windows.EventData.SubjectUserSid, what="NULL SID", with=null
+replace $windows.EventData.TargetUserSid, what="S-1-0-0", with=null
+replace $windows.EventData.TargetUserSid, what="NULL SID", with=null
+replace $windows.EventData.TargetSid, what="S-1-0-0", with=null
+replace $windows.EventData.TargetSid, what="NULL SID", with=null
+replace $windows.EventData.MemberSid, what="S-1-0-0", with=null
+replace $windows.EventData.MemberSid, what="NULL SID", with=null
+replace $windows.EventData.ServiceSid, what="S-1-0-0", with=null
+replace $windows.EventData.ServiceSid, what="NULL SID", with=null
+replace $windows.UserData.LogFileCleared.SubjectUserSid, what="S-1-0-0", with=null
+replace $windows.UserData.LogFileCleared.SubjectUserSid, what="NULL SID", with=null
 
 $ocsf.metadata.correlation_uid = move $windows.System.Correlation?.ActivityID?
 
@@ -319,7 +344,22 @@ match (
         microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Service", type="Windows Service"
       }
       5033 => {
-        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Authorization Driver", type="Windows Driver"
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Driver", type="Windows Driver"
+      }
+      5025 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Service", type="Windows Service", activity_id=4
+      }
+      5030 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Service", type="Windows Service", status_id=2
+      }
+      5034 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Driver", type="Windows Driver", activity_id=4
+      }
+      5035 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="Windows Firewall Driver", type="Windows Driver", status_id=2
+      }
+      5478 => {
+        microsoft::windows::ocsf::events::firewall_start $windows, $ocsf, name="IPsec Services", type="Windows Service", product=""
       }
       4985 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Transaction" }
       5059 => { microsoft::windows::ocsf::events::entity_management $windows, $ocsf, activity_id=3, entity_type="Cryptographic Key" }
@@ -466,6 +506,11 @@ match (
     }
   }
   _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+}
+
+// Collectors that do not render messages leave the title to the event ID.
+if $ocsf.message == null {
+  $ocsf.message = microsoft::$windows_event_titles[$ocsf.metadata.product.name]?[$ocsf.metadata.event_code]?
 }
 
 drop $windows.System.Channel

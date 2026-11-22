@@ -1,0 +1,89 @@
+---
+description: OCSF Authorize Session (3003) → Splunk CIM Authentication
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid == 3003
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+// Assigning privileges or groups to a new session completes a privileged
+// sign-in.
+$event.cim.tag = ["authentication", "privileged"]
+
+// --- CIM: occurrence attributes ---------------
+
+$event.cim._time = $event.ocsf.time
+
+// --- CIM: result attributes -------------------
+
+$event.cim.action = $event.ocsf.status?.to_lower() else "unknown"
+match $event.ocsf.status_id? {
+  0 => {
+    $event.cim.action = "unknown"
+  }
+  1 => {
+    $event.cim.action = "success"
+  }
+  2 => {
+    $event.cim.action = "failure"
+  }
+  _ => {}
+}
+$event.cim.result = $event.cim.action
+$event.cim.reason = $event.ocsf.status_detail?
+$event.cim.reason_id = $event.ocsf.status_code?
+
+// --- CIM: authentication attributes -----------
+
+$event.cim.app = $event.ocsf.metadata.product.name?
+// Windows names a session by its logon ID in every logon event, as the
+// Authentication mapping does.
+$event.cim.session_id = (
+  ($event.ocsf.session?.uid_alt? else $event.ocsf.session?.uid?)
+    if $event.ocsf.metadata.product?.vendor_name? == "Microsoft"
+    else ($event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?)
+)
+$event.cim.signature = $event.ocsf.message? else $event.ocsf.type_name? else $event.ocsf.class_name?
+$event.cim.signature_id = $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
+
+// --- CIM: endpoint attributes -----------------
+
+$event.cim.src = $event.ocsf.src_endpoint?.hostname? else $event.ocsf.src_endpoint?.ip? else $event.ocsf.src_endpoint?.name?
+// The session and its privileges exist on the reporting device.
+$event.cim.dest = $event.ocsf.dst_endpoint?.hostname? else $event.ocsf.dst_endpoint?.ip? else
+  $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+
+// --- CIM: user attributes ---------------------
+
+$event.cim.user = $event.ocsf.user?.name? else $event.ocsf.user?.uid?
+$event.cim.user_id = $event.ocsf.user?.uid?
+$event.cim.user_type = $event.ocsf.user?.type?
+// Without a separate actor, the account that receives the privileges also
+// initiates the privileged logon.
+$event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid? else $event.cim.user
+$event.cim.src_user_id = $event.ocsf.actor?.user?.uid? if $event.ocsf.actor?.user? != null else $event.cim.user_id
+$event.cim.src_user_type = $event.ocsf.actor?.user?.type? if $event.ocsf.actor?.user? != null else $event.cim.user_type
+
+// --- CIM: Windows Security attributes ---------
+
+// The target domain of special privileges (4672) is the computer that
+// assigns them, and the source domain is the domain of the account.
+if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" {
+  $event.cim.dest_nt_domain = $event.ocsf.device?.hostname?
+  $event.cim.src_nt_domain = $event.ocsf.actor?.user?.domain? else $event.ocsf.user?.domain?
+}
+
+// --- CIM: cloud attributes --------------------
+
+$event.cim.vendor_account = $event.ocsf.cloud?.account?.uid?
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

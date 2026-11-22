@@ -23,6 +23,8 @@ $ocsf.class_uid = 3006
 
 $ocsf.activity_id = $activity_id
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The audit keywords tell whether the change succeeded.
+microsoft::windows::ocsf::audit_status $windows, $ocsf
 
 $ocsf.actor = {
   user: {
@@ -50,12 +52,23 @@ if $windows.EventData.GroupTypeChange? != null {
   drop _group_types
 }
 
-// Member fields are present on add/remove events.
+// Member fields are present on add/remove events. Domain controllers name
+// the member by its distinguished name, such as
+// `CN=carol,CN=Users,DC=example,DC=test`, whose common name names the account
+// and which belongs to the LDAP person of the account.
 if $windows.EventData.MemberSid? != null {
-  $ocsf.users = [{
-    uid: move $windows.EventData.MemberSid,
-    name: move $windows.EventData.MemberName,
-  }]
+  if $windows.EventData.MemberName?.match_regex(r"^(?i)CN=(?:\\.|[^,\\])+,") == true {
+    $ocsf.users = [{
+      uid: move $windows.EventData.MemberSid,
+      name: $windows.EventData.MemberName.replace_regex(r"^(?i)CN=((?:\\.|[^,\\])+),.*$", r"\1").replace_regex(r"\\(.)", r"\1"),
+      ldap_person: {ldap_dn: move $windows.EventData.MemberName},
+    }]
+  } else {
+    $ocsf.users = [{
+      uid: move $windows.EventData.MemberSid,
+      name: move $windows.EventData.MemberName?,
+    }]
+  }
 }
 
 // PrivilegeList is always "-" on these events; drop to keep unmapped clean.

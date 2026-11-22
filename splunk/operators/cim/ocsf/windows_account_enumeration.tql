@@ -1,0 +1,60 @@
+---
+description: OCSF Live Evidence Info (5040) of a Windows account or group enumeration (4797/4798/4799) → Splunk CIM Change and Change Account Management
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid == 5040
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+// 4797 and 4798 query an account, which CIM Account Management reports as the
+// user, with the querying account as the source user. 4799 enumerates the
+// members of a group: the querying account reads an object and changes no
+// account, so it belongs to the Change dataset only.
+$event.cim.tag = ["change"] if $event.ocsf.query_evidence?.group? != null else ["change", "account"]
+
+// --- CIM: occurrence and action attributes ----
+
+$event.cim._time = $event.ocsf.time
+$event.cim.action = "read"
+splunk::cim::ocsf::helpers::status event=$event
+
+// --- CIM: object and user attributes ----------
+
+if $event.ocsf.query_evidence?.group? != null {
+  $event.cim.object = $event.ocsf.query_evidence.group.name?
+  $event.cim.object_id = $event.ocsf.query_evidence.group.uid?
+  $event.cim.object_category = "group"
+  $event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+  $event.cim.user_name = $event.ocsf.actor?.user?.name?
+  $event.cim.user_type = $event.ocsf.actor?.user?.type?
+} else {
+  $event.cim.object = $event.ocsf.query_evidence?.user?.name?
+  $event.cim.object_id = $event.ocsf.query_evidence?.user?.uid?
+  $event.cim.object_category = "user"
+  $event.cim.user = $event.cim.object else $event.cim.object_id
+  $event.cim.user_name = $event.cim.object
+  $event.cim.dest_nt_domain = $event.ocsf.query_evidence?.user?.domain?
+  $event.cim.src_user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+  $event.cim.src_user_name = $event.ocsf.actor?.user?.name?
+  $event.cim.src_user_type = $event.ocsf.actor?.user?.type?
+  $event.cim.src_nt_domain = $event.ocsf.actor?.user?.domain?
+}
+
+// --- CIM: endpoint attributes -----------------
+
+// CIM Change has no process fields, so the caller process is the command.
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+$event.cim.dvc = $event.cim.dest
+$event.cim.command = $event.ocsf.actor?.process?.path?
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

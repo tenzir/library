@@ -9,6 +9,21 @@ args:
 ---
 $event = {...$event, ocsf: $event, cim: {}}
 
+// The mappings read captions, such as `activity_name`, `status`, `type_name`,
+// or `auth_protocol`, that OCSF producers may omit and leave to their IDs.
+// Derive them for the classes with a mapping, also when the event carries
+// some captions, because no caption proves the presence of the others.
+// Derivation keeps captions that match their ID and the caption of Other, and
+// keeps the event unchanged when it cannot derive it.
+let $mapped_classes = [
+  1001, 1007, 1008, 2001, 2002, 2004, 2006, 3001, 3002, 3003, 3004, 3005,
+  3006, 3007, 4001, 4002, 4003, 4009, 4014, 6001, 6003, 6004, 6005, 6006,
+  201001, 201002, 201004,
+]
+if $event.ocsf.class_uid? in $mapped_classes and $event.ocsf.metadata?.version? != null {
+  $event.ocsf = ocsf_derive($event.ocsf) else $event.ocsf
+}
+
 match $event.ocsf.class_uid {
   0 => {
     // OCSF Base Event has no single CIM data model dual.
@@ -16,11 +31,22 @@ match $event.ocsf.class_uid {
   1001 => {
     splunk::cim::ocsf::file_activity event=$event
   }
+  1006 => {
+    // A run of a job changes nothing.
+    if $event.ocsf.activity_id? in [1, 2, 3, 4, 5] {
+      splunk::cim::ocsf::scheduled_job_activity event=$event
+    }
+  }
   1007 => {
     splunk::cim::ocsf::process_activity event=$event
   }
   1008 => {
-    splunk::cim::ocsf::event_log_activity event=$event
+    // Windows reports the shutdown of its event log service (1100).
+    if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Eventlog" and $event.ocsf.metadata.event_code? == "1100" {
+      splunk::cim::ocsf::windows_service_state event=$event
+    } else {
+      splunk::cim::ocsf::event_log_activity event=$event
+    }
   }
   2001 => {
     splunk::cim::ocsf::alerts_finding event=$event
@@ -29,7 +55,15 @@ match $event.ocsf.class_uid {
     splunk::cim::ocsf::vulnerability_finding event=$event
   }
   2004 => {
-    splunk::cim::ocsf::alerts_finding event=$event
+    // Microsoft Defender reports malware detections (1116/1117) and changes
+    // of its configuration (5007).
+    if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Windows Defender" and $event.ocsf.metadata.event_code? in ["1116", "1117"] {
+      splunk::cim::ocsf::malware_attack event=$event
+    } else if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Windows Defender" and $event.ocsf.metadata.event_code? == "5007" {
+      splunk::cim::ocsf::malware_operations event=$event
+    } else {
+      splunk::cim::ocsf::alerts_finding event=$event
+    }
   }
   2006 => {
     splunk::cim::ocsf::alerts_finding event=$event
@@ -40,8 +74,16 @@ match $event.ocsf.class_uid {
   3002 => {
     splunk::cim::ocsf::authentication event=$event
   }
+  3003 => {
+    splunk::cim::ocsf::authorize_session event=$event
+  }
   3004 => {
-    splunk::cim::ocsf::entity_management event=$event
+    // Windows reports changed permissions of an object (4670).
+    if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" and $event.ocsf.metadata.event_code? == "4670" {
+      splunk::cim::ocsf::windows_permissions_change event=$event
+    } else {
+      splunk::cim::ocsf::entity_management event=$event
+    }
   }
   3005 => {
     splunk::cim::ocsf::user_access event=$event
@@ -78,6 +120,30 @@ match $event.ocsf.class_uid {
   }
   6006 => {
     splunk::cim::ocsf::file_hosting event=$event
+  }
+  5040 => {
+    // Windows reports account and group enumerations (4797/4798/4799). Other
+    // evidence has no CIM dataset.
+    if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" and $event.ocsf.metadata.event_code? in ["4797", "4798", "4799"] {
+      splunk::cim::ocsf::windows_account_enumeration event=$event
+    }
+  }
+  6002 => {
+    // Windows services and firewall components report their state. Other
+    // applications have no CIM dataset.
+    let $service_events = {
+      "Service Control Manager": ["7023", "7034", "7036"],
+      "Microsoft-Windows-Security-Auditing": ["5024", "5025", "5030", "5033", "5034", "5035", "5478"],
+    }
+    if $event.ocsf.metadata.event_code? in ($service_events[$event.ocsf.metadata.product?.name? else ""]? else []) {
+      splunk::cim::ocsf::windows_service_state event=$event
+    }
+  }
+  201001 | 201002 => {
+    splunk::cim::ocsf::registry_activity event=$event
+  }
+  201004 => {
+    splunk::cim::ocsf::windows_service_activity event=$event
   }
   _ => {}
 }

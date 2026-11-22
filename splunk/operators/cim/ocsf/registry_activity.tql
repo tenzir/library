@@ -1,0 +1,85 @@
+---
+description: OCSF Registry Key (201001) and Registry Value (201002) Activity → Splunk CIM Endpoint Registry
+args:
+  named:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+---
+
+assert $event.ocsf.class_uid in [201001, 201002]
+
+$event.cim = {}
+
+// --- CIM: data model attributes ---------------
+
+$event.cim.tag = ["endpoint", "registry"]
+
+// --- CIM: occurrence and action attributes ----
+
+$event.cim._time = $event.ocsf.time
+// Registry Key Activity: Create, Read, Modify, Delete, Rename, Set Security.
+// Registry Value Activity: Get, Set, Modify, Delete.
+let $key_actions = {
+  "1": "created",
+  "2": "read",
+  "3": "modified",
+  "4": "deleted",
+  "5": "modified",
+  "6": "modified",
+}
+let $value_actions = {
+  "1": "read",
+  "2": "modified",
+  "3": "modified",
+  "4": "deleted",
+}
+$event.cim.action = (
+  $key_actions[$event.ocsf.activity_id?.string()]? if $event.ocsf.class_uid == 201001
+    else $value_actions[$event.ocsf.activity_id?.string()]?
+)
+match $event.ocsf.status_id? {
+  1 => {
+    $event.cim.status = "success"
+  }
+  2 => {
+    $event.cim.status = "failure"
+  }
+  _ => {}
+}
+
+// --- CIM: endpoint attributes -----------------
+
+$event.cim.dest = $event.ocsf.device?.hostname? else $event.ocsf.device?.ip? else $event.ocsf.device?.name?
+
+// --- CIM: registry attributes -----------------
+
+// A value lives in the key of its path.
+$event.cim.registry_key_name = ($event.ocsf.reg_key?.path? else $event.ocsf.reg_value?.path?).split("\\")[-1]?
+$event.cim.registry_path = (
+  $event.ocsf.reg_key?.path? if $event.ocsf.class_uid == 201001
+    else ($event.ocsf.reg_value?.path? + "\\" + $event.ocsf.reg_value?.name? if $event.ocsf.reg_value?.name? != null
+      else $event.ocsf.reg_value?.path?)
+)
+splunk::cim::ocsf::helpers::registry_hive event=$event
+$event.cim.registry_value_name = $event.ocsf.reg_value?.name?
+$event.cim.registry_value_data = $event.ocsf.reg_value?.data?
+$event.cim.registry_value_type = $event.ocsf.reg_value?.type?
+
+// --- CIM: process attributes ------------------
+
+$event.cim.process = $event.ocsf.actor?.process?.cmd_line? else $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.name?
+$event.cim.process_exec = $event.ocsf.actor?.process?.file?.name? else $event.ocsf.actor?.process?.name?
+$event.cim.process_guid = $event.ocsf.actor?.process?.uid?
+$event.cim.process_id = $event.ocsf.actor?.process?.pid?
+$event.cim.process_name = $event.ocsf.actor?.process?.name? else $event.ocsf.actor?.process?.file?.name?
+$event.cim.process_path = $event.ocsf.actor?.process?.path? else $event.ocsf.actor?.process?.file?.path?
+
+// --- CIM: user and product attributes ---------
+
+$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+splunk::cim::ocsf::helpers::product event=$event
+
+// --- Finalize ---------------------------------
+
+$event = $event.cim

@@ -27,21 +27,28 @@ $ocsf.status_detail = move $windows.EventData.FailureReason
 $ocsf.logon_type_id = (move $windows.EventData.LogonType).int()
 $ocsf.logon_type_id = 1 if $ocsf.logon_type_id == 0 else $ocsf.logon_type_id
 
-$ocsf.user = {
-  uid: move $windows.EventData.TargetUserSid,
-  name: move $windows.EventData.TargetUserName,
-  domain: move $windows.EventData.TargetDomainName,
+// Some failures, such as a clock skew before the account is known, report
+// neither a name nor a SID for the target account.
+if $windows.EventData.TargetUserSid? != null or $windows.EventData.TargetUserName? != null {
+  $ocsf.user = {
+    uid: move $windows.EventData.TargetUserSid?,
+    name: move $windows.EventData.TargetUserName?,
+    domain: move $windows.EventData.TargetDomainName?,
+  }
 }
 
-$ocsf.actor = {
-  user: {
-    uid: move $windows.EventData.SubjectUserSid,
-    name: move $windows.EventData.SubjectUserName,
-    domain: move $windows.EventData.SubjectDomainName,
-  },
-  session: {
-    uid_alt: move $windows.EventData.SubjectLogonId,
-  },
+// Network logons have no subject: Windows writes the NULL SID and `-`.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {
+      uid_alt: move $windows.EventData.SubjectLogonId?,
+    },
+  }
 }
 
 $ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}

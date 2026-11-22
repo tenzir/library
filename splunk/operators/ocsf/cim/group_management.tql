@@ -10,7 +10,17 @@ args:
 
 // --- OCSF: classification attributes ----------
 
+// CIM reports created and deleted groups, and every other change, such as a
+// new member, as modified, which maps to Other. A membership change names the
+// member as object, so it maps back to Account Change without its group. The
+// OCSF activity names of earlier releases of this package map back as well.
 match $event.cim.action? {
+  "created" => {
+    $event.ocsf.activity_id = 6
+  }
+  "deleted" => {
+    $event.ocsf.activity_id = 5
+  }
   "assign_privileges" => {
     $event.ocsf.activity_id = 1
   }
@@ -52,9 +62,24 @@ $event.ocsf.group = {
   uid: move $event.cim.object_id?,
 }
 $event.ocsf.privileges = move $event.cim.object_attrs?
-$event.ocsf.user = {
-  name: move $event.cim.user_name? else move $event.cim.user?,
-  type: move $event.cim.user_type?,
+// A CIM record can list several members, one value per member, or name one.
+// `user` names every member, by name or else by ID, and `user_name` lists the
+// names among them, so a value outside `user_name` is an ID. Types belong to
+// members only when every member has one.
+if type_kind($event.cim.user?) == "list" {
+  $event.ocsf.users = $event.cim.user.map(member => {
+    name: member if member in [...$event.cim.user_name?] else null,
+    uid: member if member not in [...$event.cim.user_name?] else null,
+  })
+  if [...$event.cim.user_type?].length() == $event.ocsf.users.length() {
+    $event.ocsf.users = zip($event.ocsf.users, $event.cim.user_type).map(pair => {...pair.left, type: pair.right})
+  }
+  drop $event.cim.user, $event.cim.user_name?, $event.cim.user_type?
+} else {
+  $event.ocsf.user = {
+    name: move $event.cim.user_name? else move $event.cim.user?,
+    type: move $event.cim.user_type?,
+  }
 }
 $event.ocsf.actor = {
   user: {

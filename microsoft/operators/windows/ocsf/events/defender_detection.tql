@@ -47,6 +47,9 @@ $ocsf.disposition_id = $dispositions[$windows.EventData["Action ID"]?]? else (
 $ocsf.disposition = $windows.EventData["Action Name"]? if $ocsf.disposition_id == 99 else null
 drop $windows.EventData["Action ID"]?
 
+// The Defender platform reports its version.
+$ocsf.metadata.product.version = move $windows.EventData["Product Version"]?
+
 // Threat name is copied into finding_info.title then moved into malware.name.
 $ocsf.finding_info = {
   title: $windows.EventData["Threat Name"],
@@ -56,6 +59,7 @@ $ocsf.finding_info = {
 // OCSF requires a classification; Defender reports the threat category.
 $ocsf.malware = [{
   name: move $windows.EventData["Threat Name"],
+  uid: move $windows.EventData["Threat ID"]?,
   classification_ids: [
     microsoft::$defender_malware_classes[$ocsf.finding_info.types[0]?]?
       else (99 if $ocsf.finding_info.types[0]? != null else 0),

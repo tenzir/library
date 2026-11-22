@@ -19,11 +19,13 @@ $ocsf.category_uid = 5
 $ocsf.class_uid = 5040
 $ocsf.activity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The audit keywords tell whether the change succeeded.
+microsoft::windows::ocsf::audit_status $windows, $ocsf
 $ocsf.query_result_id = $result_id
 $ocsf.query_evidence = {
   query_type_id: 13,
   user: {
-    uid: move $windows.EventData.TargetUserSid?,
+    uid: move $windows.EventData.TargetSid?,
     name: move $windows.EventData.TargetUserName?,
     domain: move $windows.EventData.TargetDomainName?,
   },
@@ -32,5 +34,29 @@ if $windows.EventData.MemberName? != null {
   $ocsf.query_result = move $windows.EventData.MemberName
 }
 
-// CallerProcessId and CallerProcessName identify the process that performed
-// the query, not query results. Preserve them in unmapped.
+// The subject performed the query with the caller process, if Windows names
+// one. The host profile carries both.
+if $windows.EventData.SubjectUserSid? != null or $windows.EventData.SubjectUserName? != null {
+  $ocsf.actor = {
+    user: {
+      uid: move $windows.EventData.SubjectUserSid?,
+      name: move $windows.EventData.SubjectUserName?,
+      domain: move $windows.EventData.SubjectDomainName?,
+    },
+    session: {uid_alt: move $windows.EventData.SubjectLogonId?},
+  }
+}
+// Without a caller process, Windows writes `0x0` and `-`.
+if $windows.EventData.CallerProcessName? != null {
+  $ocsf.actor.process = {
+    pid: int(move $windows.EventData.CallerProcessId?, base=16),
+    path: $windows.EventData.CallerProcessName,
+    name: $windows.EventData.CallerProcessName.split("\\")[-1],
+    file: {
+      type_id: 8,
+      name: $windows.EventData.CallerProcessName.split("\\")[-1],
+      path: $windows.EventData.CallerProcessName,
+    },
+  }
+  drop $windows.EventData.CallerProcessName
+}
