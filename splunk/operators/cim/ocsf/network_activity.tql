@@ -23,8 +23,23 @@ $event.cim.duration = $event.ocsf.duration?.milliseconds().count_seconds() else
 
 // --- CIM: action and application attributes ---
 
+// A security control decides by its action or disposition. A connection that
+// an endpoint or sensor observed without a decision was allowed, except for
+// a refused one, and a closed connection is torn down. Activity names are
+// no CIM actions.
 splunk::cim::ocsf::helpers::action event=$event
-$event.cim.app = $event.ocsf.app_name? else $event.ocsf.app_protocol_name?
+if ($event.ocsf.action_id? not in [0, 1, 2, 3, 4] and $event.ocsf.action? == null
+    and $event.ocsf.disposition_id? not in [1, 2, 3, 4, 5, 6, 15, 16, 17, 26] and $event.ocsf.disposition? == null) {
+  $event.cim.action = (
+    "blocked" if $event.ocsf.activity_id? == 5 else (
+      "teardown" if $event.ocsf.activity_id? == 2 else "allowed"
+    )
+  )
+}
+// The process that opened the connection, such as the image of a Sysmon 3,
+// names the application.
+$event.cim.app = $event.ocsf.app_name? else $event.ocsf.actor?.process?.name? else
+  $event.ocsf.actor?.process?.file?.name? else $event.ocsf.app_protocol_name?
 
 // --- CIM: traffic attributes ------------------
 
@@ -37,8 +52,18 @@ $event.cim.packets_out = $event.ocsf.traffic?.packets_out?
 $event.cim.flow_id = $event.ocsf.connection_info?.community_uid? else $event.ocsf.connection_info?.uid?
 $event.cim.session_id = $event.ocsf.connection_info?.session?.uid?
 $event.cim.direction = $event.ocsf.connection_info?.direction?.to_lower()
-$event.cim.protocol = $event.ocsf.app_protocol_name? else $event.ocsf.connection_info?.protocol_name?
-$event.cim.protocol_version = $event.ocsf.connection_info?.protocol_ver?
+// CIM names the network layer protocol and its version, and the transport
+// protocol separately. OCSF reports the IP version, or the endpoint addresses
+// tell it.
+$event.cim.protocol_version = (
+  "ipv4" if $event.ocsf.connection_info?.protocol_ver_id? == 4 else (
+    "ipv6" if $event.ocsf.connection_info?.protocol_ver_id? == 6 else (
+      ("ipv6" if ($event.ocsf.src_endpoint?.ip? else $event.ocsf.dst_endpoint?.ip?).is_v6() else "ipv4")
+        if ($event.ocsf.src_endpoint?.ip? else $event.ocsf.dst_endpoint?.ip?) != null else null
+    )
+  )
+)
+$event.cim.protocol = "ip" if $event.cim.protocol_version != null else null
 $event.cim.tcp_flag = $event.ocsf.connection_info?.tcp_flags?
 
 // --- CIM: endpoint attributes -----------------

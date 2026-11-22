@@ -52,7 +52,9 @@ $event.cim.process_path = $event.ocsf.process?.path? else $event.ocsf.process?.f
 $event.cim.original_file_name = $event.ocsf.process?.file?.internal_name?
 $event.cim.process_current_directory = $event.ocsf.process?.working_directory?
 
-$event.cim.parent_process = $event.ocsf.process?.parent_process?.cmd_line?
+// Without a command line, such as in a Windows 4688, the path of the parent
+// stands in, as it does for the process.
+$event.cim.parent_process = $event.ocsf.process?.parent_process?.cmd_line? else $event.ocsf.process?.parent_process?.path? else $event.ocsf.process?.parent_process?.name?
 $event.cim.parent_process_exec = $event.ocsf.process?.parent_process?.file?.name? else $event.ocsf.process?.parent_process?.name?
 $event.cim.parent_process_guid = $event.ocsf.process?.parent_process?.uid?
 $event.cim.parent_process_hash = [...$event.ocsf.process?.parent_process?.file?.hashes?.map(h => h.value)]
@@ -63,13 +65,12 @@ $event.cim.parent_user = $event.ocsf.process?.parent_process?.user?.name?
 
 // --- CIM: user and product attributes ---------
 
-// CIM names the account that spawned the process, which OCSF reports as the
-// actor, such as the subject of a Windows 4688. Without an actor, the account
-// of the process stands in, such as the Sysmon 1 user. CIM has no field for an
-// execution account that differs from the creator.
-$event.cim.user = $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid? else
-  $event.ocsf.process?.user?.name? else $event.ocsf.process?.user?.uid?
-$event.cim.user_id = $event.ocsf.actor?.user?.uid? if $event.ocsf.actor?.user? != null else $event.ocsf.process?.user?.uid?
+// CIM names the account that the process runs as, such as the Sysmon 1 user
+// or the target account of a Windows 4688. Without one, the process runs as
+// the actor that created it, such as the subject of a Windows 4688.
+$event.cim.user = $event.ocsf.process?.user?.name? else $event.ocsf.process?.user?.uid? else
+  $event.ocsf.actor?.user?.name? else $event.ocsf.actor?.user?.uid?
+$event.cim.user_id = $event.ocsf.process?.user?.uid? if $event.ocsf.process?.user? != null else $event.ocsf.actor?.user?.uid?
 splunk::cim::ocsf::helpers::product event=$event
 
 // --- Finalize ---------------------------------

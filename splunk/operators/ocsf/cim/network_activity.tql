@@ -14,7 +14,7 @@ match $event.cim.action? {
   "open" | "allowed" => {
     $event.ocsf.activity_id = 1
   }
-  "close" | "closed" => {
+  "close" | "closed" | "teardown" => {
     $event.ocsf.activity_id = 2
   }
   "reset" => {
@@ -51,14 +51,29 @@ $event.ocsf.traffic = {
   packets_in: move $event.cim.packets_in?,
   packets_out: move $event.cim.packets_out?,
 }
+// CIM `protocol` names the network layer, such as `ip`, and only stands in
+// for a missing transport when it names another protocol.
+$event.protocol = move $event.cim.protocol?
 $event.ocsf.connection_info = {
   community_uid: move $event.cim.flow_id?,
-  protocol_name: move $event.cim.transport? else move $event.cim.protocol?,
+  protocol_name: move $event.cim.transport? else ($event.protocol if $event.protocol != "ip" else null),
   protocol_ver: move $event.cim.protocol_version?,
   session: {
     uid: move $event.cim.session_id?,
   },
   tcp_flags: move $event.cim.tcp_flag?,
+}
+drop $event.protocol
+match $event.ocsf.connection_info.protocol_ver?.to_lower() {
+  "ipv4" => {
+    $event.ocsf.connection_info.protocol_ver_id = 4
+    $event.ocsf.connection_info.protocol_ver = "Internet Protocol version 4 (IPv4)"
+  }
+  "ipv6" => {
+    $event.ocsf.connection_info.protocol_ver_id = 6
+    $event.ocsf.connection_info.protocol_ver = "Internet Protocol version 6 (IPv6)"
+  }
+  _ => {}
 }
 match $event.cim.direction?.to_lower() {
   "inbound" => {
