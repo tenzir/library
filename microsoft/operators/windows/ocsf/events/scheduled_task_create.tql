@@ -20,6 +20,8 @@ $ocsf.category_uid = 1
 $ocsf.class_uid = 1006
 $ocsf.activity_id = $activity_id
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The audit keywords tell whether the change succeeded.
+microsoft::windows::ocsf::audit_status $windows, $ocsf
 
 // The process that made the Task Scheduler RPC call.
 $ocsf.actor = {
@@ -42,8 +44,21 @@ $ocsf.job = {
   name: move $windows.EventData.TaskName,
 }
 
-// TaskContent is an XML string describing triggers and actions. It is
-// intentionally left in unmapped — parsing it would require an XML operator
-// and downstream consumers can parse it if needed.
-// ClientProcessStartKey, ParentProcessId, RpcCallClientLocality, FQDN also
-// remain in unmapped.
+// The task definition is an XML string with the triggers and actions of the
+// task, which 4702 reports as TaskContentNew. The command line of the task is
+// the command of its first Exec action with its arguments. The definition
+// stays in unmapped, as do ClientProcessStartKey, ParentProcessId,
+// RpcCallClientLocality, and FQDN.
+_task = $windows.EventData.TaskContent? else $windows.EventData.TaskContentNew?
+if _task.match_regex(r"<Exec(\s[^>]*)?>[\s\S]*?<Command>") == true {
+  _exec = _task.replace_regex(r"^[\s\S]*?<Exec(?:\s[^>]*)?>([\s\S]*?)</Exec>[\s\S]*$", r"\1")
+  _command = _exec.replace_regex(r"^[\s\S]*?<Command>([\s\S]*?)</Command>[\s\S]*$", r"\1").trim()
+  _arguments = _exec.replace_regex(r"^[\s\S]*?<Arguments>([\s\S]*?)</Arguments>[\s\S]*$", r"\1").trim() if _exec.match_regex(r"<Arguments>") else ""
+  // Windows escapes the definition as XML. A command with spaces needs
+  // quotes to stay one word of the command line.
+  _decoded = [_command, _arguments].map(x => x.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&"))
+  _command = f"\"{_decoded[0]}\"" if _decoded[0].match_regex(r"\s") and not _decoded[0].starts_with("\"") else _decoded[0]
+  $ocsf.job.cmd_line = _command + " " + _decoded[1] if _decoded[1] != "" else _command
+  drop _exec, _command, _arguments, _decoded
+}
+drop _task
