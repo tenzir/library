@@ -18,7 +18,15 @@ $event.cim.tag = ["change", "account"]
 // --- CIM: occurrence and action attributes ----
 
 $event.cim._time = $event.ocsf.time
-$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+// CIM knows created and deleted groups, and counts every other change, such
+// as a new member or new privileges, as modified.
+$event.cim.action = (
+  "created" if $event.ocsf.activity_id? == 6 else (
+    "deleted" if $event.ocsf.activity_id? == 5 else (
+      "unknown" if $event.ocsf.activity_id? in [null, 0, 99] else "modified"
+    )
+  )
+)
 $event.cim.change_type = "AAA"
 $event.cim.status = $event.ocsf.status?.to_lower()
 match $event.ocsf.status_id? {
@@ -62,6 +70,17 @@ $event.members = [
 $event.cim.user = $event.members.map(member => member.name? else member.uid?).where(x => x != null)
 $event.cim.user_name = $event.members.map(member => member.name?).where(x => x != null)
 $event.cim.user_type = $event.members.map(member => member.type?).where(x => x != null)
+// Adding or removing a member (activities 3 and 4) changes the membership of
+// the member account, which CIM reports as the changed object, with the group
+// as the attribute that changed. CIM Change has no field for the group
+// itself.
+if $event.ocsf.activity_id? in [3, 4] and $event.members.length() > 0 {
+  $event.cim.object = $event.members.map(member => member.name? else member.uid?).where(x => x != null)
+  $event.cim.object_id = $event.members.map(member => member.uid?).where(x => x != null)
+  $event.cim.object_id = $event.cim.object_id if $event.cim.object_id.length() > 0 else null
+  $event.cim.object_category = "user"
+  $event.cim.object_attrs = [$event.ocsf.group?.name? else $event.ocsf.group?.uid?].where(x => x != null)
+}
 drop $event.members
 // Events without members, such as a created group, name no user.
 $event.cim.user = $event.cim.user if $event.cim.user.length() > 0 else null

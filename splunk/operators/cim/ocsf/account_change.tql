@@ -18,7 +18,18 @@ $event.cim.tag = ["change", "account"]
 // --- CIM: occurrence and action attributes ----
 
 $event.cim._time = $event.ocsf.time
-$event.cim.action = $event.ocsf.activity_name?.to_lower().replace(" ", "_") else "unknown"
+// CIM knows created, deleted, locked-out, and unlocked accounts, and counts
+// every other change, such as an enabled account, a new password, or a new
+// policy, as modified. Account Change (3001) and User Management (3007)
+// number their activities differently.
+let $actions = {
+  "3001": {"1": "created", "6": "deleted", "9": "lockout", "12": "unlocked"},
+  "3007": {"1": "created", "3": "deleted", "6": "lockout", "7": "unlocked"},
+}
+$event.cim.action = (
+  "unknown" if $event.ocsf.activity_id? in [null, 0, 99]
+    else ($actions[$event.ocsf.class_uid.string()][$event.ocsf.activity_id.string()]? else "modified")
+)
 $event.cim.change_type = "AAA"
 $event.cim.status = $event.ocsf.status?.to_lower()
 match $event.ocsf.status_id? {

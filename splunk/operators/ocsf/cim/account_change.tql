@@ -10,7 +10,23 @@ args:
 
 // --- OCSF: classification attributes ----------
 
+// CIM reports created, deleted, locked-out, and unlocked accounts, and every
+// other change as modified, which can be any other OCSF activity, such as an
+// enabled account or a new password, and so maps to Other. The OCSF activity
+// names of earlier releases of this package map back as well.
 match $event.cim.action? {
+  "created" => {
+    $event.ocsf.activity_id = 1
+  }
+  "deleted" => {
+    $event.ocsf.activity_id = 6
+  }
+  "lockout" => {
+    $event.ocsf.activity_id = 9
+  }
+  "unlocked" => {
+    $event.ocsf.activity_id = 12
+  }
   "create" => {
     $event.ocsf.activity_id = 1
   }
@@ -58,11 +74,17 @@ splunk::ocsf::cim::helpers::status event=$event
 
 // --- OCSF: account attributes -----------------
 
+// A group membership change lists its members, and names the group only in
+// `object_attrs`. It maps back as an Account Change of its first member, and
+// the group stays in unmapped.
 $event.ocsf.user = {
   name: move $event.cim.user_name? else move $event.cim.object?,
   type: move $event.cim.user_type? else move $event.cim.object_category?,
   uid: move $event.cim.object_id?,
 }
+$event.ocsf.user.name = $event.ocsf.user.name[0]? if type_kind($event.ocsf.user.name) == "list" else $event.ocsf.user.name
+$event.ocsf.user.type = $event.ocsf.user.type[0]? if type_kind($event.ocsf.user.type) == "list" else $event.ocsf.user.type
+$event.ocsf.user.uid = $event.ocsf.user.uid[0]? if type_kind($event.ocsf.user.uid) == "list" else $event.ocsf.user.uid
 $event.ocsf.user_result = {
   name: $event.ocsf.user.name?,
   type: $event.ocsf.user.type?,
