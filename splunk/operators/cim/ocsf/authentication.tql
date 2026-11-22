@@ -54,7 +54,21 @@ $event.cim.reason_id = $event.ocsf.status_code?
 
 // --- CIM: authentication attributes -----------
 
-$event.cim.app = $event.ocsf.actor?.app_name? else $event.ocsf.service?.name? else $event.ocsf.metadata.product.name?
+$event.cim.app = $event.ocsf.actor?.app_name? else $event.ocsf.service?.name?
+// A Windows logon names no application, so the logon type tells whether the
+// account signed in at the computer or over the network. A logon from the
+// loopback address or to `localhost` stays on the computer, and an
+// explicit-credential logon (4648) prepares access to another computer.
+if $event.cim.app == null and $event.ocsf.metadata.product?.vendor_name? == "Microsoft" {
+  $event.cim.app = (
+    "win:local" if $event.ocsf.src_endpoint?.ip? in [127.0.0.1, ::1] or $event.ocsf.dst_endpoint?.hostname?.to_lower() == "localhost" else (
+      "win:remote" if $event.ocsf.metadata.event_code? == "4648" or $event.ocsf.logon_type_id? in [3, 8, 10] else (
+        "win:local" if $event.ocsf.logon_type_id? in [2, 4, 5, 7, 9, 11] else "win:unknown"
+      )
+    )
+  )
+}
+$event.cim.app = $event.cim.app else $event.ocsf.metadata.product.name?
 // An unknown protocol is no method, and OCSF protocol IDs are no CIM values.
 $event.cim.authentication_method = $event.ocsf.auth_protocol? if $event.ocsf.auth_protocol_id? != 0 else null
 $event.cim.authentication_service = $event.ocsf.service?.name? else $event.ocsf.service?.uid?
@@ -82,8 +96,14 @@ if $event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing" 
     $event.ocsf.user?.domain? if $event.ocsf.metadata.event_code? == "4634" else $event.ocsf.actor?.user?.domain?
   )
 }
-// The session belongs to the authenticated user, never to the actor.
-$event.cim.session_id = $event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?
+// The session belongs to the authenticated user, never to the actor. Windows
+// names a session by its logon ID in every logon and logoff event, but by its
+// logon GUID only in some, so the logon ID links a logon to its logoff.
+$event.cim.session_id = (
+  ($event.ocsf.session?.uid_alt? else $event.ocsf.session?.uid?)
+    if $event.ocsf.metadata.product?.vendor_name? == "Microsoft"
+    else ($event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?)
+)
 // The event title, such as "An account was successfully logged on", names
 // the signature best.
 $event.cim.signature = $event.ocsf.message? else $event.ocsf.type_name? else $event.ocsf.class_name?

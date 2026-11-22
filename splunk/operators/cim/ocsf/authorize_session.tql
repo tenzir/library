@@ -36,13 +36,6 @@ match $event.ocsf.status_id? {
   }
   _ => {}
 }
-// Windows records the special privileges of a new logon (4672) as an audit
-// success.
-if ($event.ocsf.metadata.product?.name? == "Microsoft-Windows-Security-Auditing"
-    and $event.ocsf.status_id? == null
-    and $event.ocsf.unmapped?.System?.Keywords? == "0x8020000000000000") {
-  $event.cim.action = "success"
-}
 $event.cim.result = $event.cim.action
 $event.cim.reason = $event.ocsf.status_detail?
 $event.cim.reason_id = $event.ocsf.status_code?
@@ -50,7 +43,13 @@ $event.cim.reason_id = $event.ocsf.status_code?
 // --- CIM: authentication attributes -----------
 
 $event.cim.app = $event.ocsf.metadata.product.name?
-$event.cim.session_id = $event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?
+// Windows names a session by its logon ID in every logon event, as the
+// Authentication mapping does.
+$event.cim.session_id = (
+  ($event.ocsf.session?.uid_alt? else $event.ocsf.session?.uid?)
+    if $event.ocsf.metadata.product?.vendor_name? == "Microsoft"
+    else ($event.ocsf.session?.uid? else $event.ocsf.session?.uid_alt?)
+)
 $event.cim.signature = $event.ocsf.message? else $event.ocsf.type_name? else $event.ocsf.class_name?
 $event.cim.signature_id = $event.ocsf.metadata.event_code? else $event.ocsf.type_uid?.string()
 
