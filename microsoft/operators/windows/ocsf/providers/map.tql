@@ -34,7 +34,15 @@ $ocsf.metadata = {
 $windows.System.EventID = $windows.System.EventID.int()
 
 $ocsf.severity_id = 1
-$ocsf.message = move $windows.RenderingInfo?.Message?
+// The first line of a rendered Windows message is the title of the event, such
+// as "An account was successfully logged on.". OCSF `message` holds the title
+// without its closing period or colon, and the full message stays in
+// unmapped when it says more than the title.
+$ocsf.message = $windows.RenderingInfo?.Message?.trim().split_regex(r"\s*\r?\n")[0]?.replace_regex(r"[.:]$", "")
+$ocsf.message = $ocsf.message if $ocsf.message != "" else null
+if $windows.RenderingInfo?.Message?.trim().replace_regex(r"[.:]$", "") == ($ocsf.message else "") {
+  drop $windows.RenderingInfo.Message
+}
 if $windows.RenderingInfo?.is_empty() == true {
   drop $windows.RenderingInfo
 }
@@ -498,6 +506,11 @@ match (
     }
   }
   _ => { microsoft::windows::ocsf::base $windows, $ocsf }
+}
+
+// Collectors that do not render messages leave the title to the event ID.
+if $ocsf.message == null {
+  $ocsf.message = microsoft::$windows_event_titles[$ocsf.metadata.product.name]?[$ocsf.metadata.event_code]?
 }
 
 drop $windows.System.Channel

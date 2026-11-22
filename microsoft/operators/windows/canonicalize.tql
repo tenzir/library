@@ -19,6 +19,11 @@ args:
 // mappings convert the values that an OCSF field needs explicitly.
 if type_kind($input) == "string" {
   $windows = $input.parse_winlog(raw=true)
+  // `parse_winlog` drops the line breaks of a rendered message, which separate
+  // its title from the details, so read the message from the XML text.
+  if $windows.RenderingInfo?.Message? != null and $input.match_regex(r"<Message>[\s\S]*?</Message>") {
+    $windows.RenderingInfo.Message = $input.replace_regex(r"^[\s\S]*?<Message>([\s\S]*?)</Message>[\s\S]*$", r"\1").replace_regex(r"&#(13|x[dD]);", "\r").replace_regex(r"&#(10|x[aA]);", "\n").replace_regex(r"&#(9|x9);", "\t").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+  }
   microsoft::windows::adapters::windows_event_log $windows
 } else if type_kind($input.System?) == "string" {
   microsoft::windows::adapters::fluent_bit $input, $windows
