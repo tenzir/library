@@ -3,10 +3,12 @@ title: Example for sending CIM with Splunk metadata
 type: feature
 authors:
   - zedoraps
-created: 2026-11-20T19:42:03.402861Z
+prs:
+  - 261
+created: 2026-11-22T12:00:10.788561Z
 ---
 
-A new example sends CIM to Splunk HEC with metadata from the OCSF event, because the CIM record carries no `host`, `source`, `sourcetype`, or `time`:
+A new example sends CIM to Splunk HEC and takes `host` and `time` from the OCSF event, since the CIM record carries no Splunk metadata:
 
 ```tql
 this = {ocsf: this}
