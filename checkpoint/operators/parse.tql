@@ -8,6 +8,14 @@ replace what="", with=null
 // Harmony Endpoint writes a single space for an empty value.
 replace what=" ", with=null
 
+// Some Log Exporter keys end in a colon, such as `scheme:` or `methods:`.
+// Strip it unless the record already has a field of that name.
+_keys = this.keys()
+if _keys.map(k => k.ends_with(":")).any() {
+  this = this.map_keys(k => k.trim_end(":") if k.ends_with(":") and not (k.trim_end(":") in _keys) else k)
+}
+drop _keys
+
 if action? == null and Action? != null {
   action = move Action
 }
@@ -92,6 +100,13 @@ if user? == null and administrator? != null {
 if user? == null and src_user_name? != null {
   user = move src_user_name
 }
+// User names can carry leading or trailing spaces.
+if type_kind(user?) == "string" {
+  user = user.trim()
+}
+if type_kind(src_user_name?) == "string" {
+  src_user_name = src_user_name.trim()
+}
 // Harmony Endpoint numbers its firewall rules.
 if rule_uid? == null and ep_rule_id? != null {
   rule_uid = (move ep_rule_id).string()
@@ -133,9 +148,6 @@ if packets_in? == null and packetsin? != null {
 }
 if packets_out? == null and packetsout? != null {
   packets_out = move packetsout
-}
-if duration? == null and seconds? != null {
-  duration = move seconds
 }
 if threat_name? == null and threatname? != null {
   threat_name = move threatname

@@ -31,6 +31,17 @@ if $event.proto? != null {
 if $event.protocol_name? != null {
   $ocsf.connection_info.protocol_name = move $event.protocol_name
 }
+// Check Point names the TCP flags, such as FIN-ACK. Only names that are TCP
+// control bits become the bitmask; others stay in `unmapped`.
+if type_kind($event.tcp_flags?) == "string" {
+  let $tcp_bits = {FIN: 1, SYN: 2, RST: 4, PSH: 8, ACK: 16, URG: 32, ECE: 64, CWR: 128}
+  _bits = $event.tcp_flags.split("-").map(x => $tcp_bits[x.trim().to_upper()]?)
+  if not _bits.contains_null() {
+    $ocsf.connection_info.tcp_flags = _bits.distinct().sum()
+    drop $event.tcp_flags
+  }
+  drop _bits
+}
 
 let $connection_direction_ids = {
   Incoming: 1,
@@ -56,7 +67,14 @@ if $event.src? != null or $event.sname? != null {
     ip: move $event.src?,
     port: move $event.s_port?,
     hostname: move $event.sname?,
-    zone: move $event.inzone?,
+    zone: $event.security_inzone? else $event.inzone?,
+  }
+  // The security zone names the zone; inzone only tells whether it is
+  // internal or external.
+  if $event.security_inzone? != null {
+    drop $event.security_inzone
+  } else {
+    drop $event.inzone?
   }
   if $event.snatip? != null {
     $ocsf.src_endpoint.proxy_endpoint = {
@@ -65,14 +83,21 @@ if $event.src? != null or $event.sname? != null {
     }
   }
 }
-if $event.dst? != null or $event.dname? != null or $event.dst_domain_name? != null {
+// A record can name the service without the destination address.
+if $event.dst? != null or $event.dname? != null or $event.dst_domain_name? != null or
+   $event.service? != null or $event.service_id? != null {
   $ocsf.dst_endpoint = {
     ip: move $event.dst?,
     port: move $event.service?,
     svc_name: move $event.service_id?,
     hostname: move $event.dname?,
     domain: move $event.dst_domain_name?,
-    zone: move $event.outzone?,
+    zone: $event.security_outzone? else $event.outzone?,
+  }
+  if $event.security_outzone? != null {
+    drop $event.security_outzone
+  } else {
+    drop $event.outzone?
   }
   if $event.dnatip? != null {
     $ocsf.dst_endpoint.proxy_endpoint = {
@@ -137,6 +162,7 @@ if ($ocsf.src_endpoint?.ip? != null and $ocsf.src_endpoint.ip.is_v6()) or
 if $ocsf.connection_info.protocol_num? == null and
    $ocsf.connection_info.protocol_name? == null and
    $ocsf.connection_info.protocol_ver_id? == null and
+   $ocsf.connection_info.tcp_flags? == null and
    $ocsf.connection_info.direction_id == 0 {
   drop $ocsf.connection_info
 }
