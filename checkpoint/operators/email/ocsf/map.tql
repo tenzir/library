@@ -1,0 +1,247 @@
+---
+description: Maps a Harmony Email & Collaboration security event to OCSF 1.9.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The security event from `checkpoint::email::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+$ocsf = {}
+
+if @name != "checkpoint.email.event" {
+  @name = "ocsf.base_event"
+  $ocsf = {
+    category_uid: 0,
+    class_uid: 0,
+    activity_id: 0,
+    type_uid: 0,
+    severity_id: 0,
+    metadata: {
+      product: {
+        vendor_name: "Check Point",
+        name: "Harmony Email & Collaboration",
+      },
+      version: "1.9.0",
+    },
+    unmapped: move $event,
+  }
+} else {
+  // DLP events are data security findings; phishing, malware, malicious URLs,
+  // spam, user reports, anomalies, and shadow IT are detection findings.
+  _dlp = $event.type? == "dlp"
+  if _dlp {
+    @name = "ocsf.data_security_finding"
+    $ocsf.class_uid = 2006
+  } else {
+    @name = "ocsf.detection_finding"
+    $ocsf.class_uid = 2004
+  }
+  $ocsf.category_uid = 2
+  // Each event is the current state of a finding that Harmony Email &
+  // Collaboration keeps updating.
+  $ocsf.activity_id = 1 if $event.state? in [null, "new", "detected"] else 2
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+  $ocsf.metadata = {
+    product: {
+      vendor_name: "Check Point",
+      name: "Harmony Email & Collaboration",
+    },
+    profiles: ["security_control"],
+    version: "1.9.0",
+    original_event_uid: $event.event_id?,
+    event_code: $event.type?,
+    tenant_uid: move $event.customer_id?,
+  }
+  $ocsf.time = $event.created?
+
+  // Severity runs from 1 (Lowest) to 5 (Critical).
+  $ocsf.severity_id = 0
+  if $event.severity? in [1, 2, 3, 4, 5] {
+    $ocsf.severity_id = move $event.severity
+  }
+  $ocsf.is_alert = not ($event.type? in ["spam", "graymail"])
+
+  // Notifications accompany a remediation; the latest remediation decides the
+  // outcome.
+  _remediations = ($event.actions? else []).where(x => not ((x.type? else "").starts_with("send_email_to") or x.type? == "phishing_found_event"))
+  _last_action = _remediations.last() if _remediations.length() > 0 else $event.actions?.last()
+  drop _remediations
+  $ocsf.finding_info = {
+    uid: move $event.event_id?,
+    uid_alt: move $event.aggregation_id?,
+    title: move $event.description?,
+    types: [$event.type] if $event.type? != null else null,
+    created_time: move $event.created?,
+    modified_time: move $event.modified? else _last_action?.time?,
+    // The link opens the event in the Harmony Email & Collaboration portal.
+    src_url: move $event.entity_link?,
+  }
+  if $event.matched_security_tool? != null or $event.scan_engine? != null {
+    $ocsf.finding_info.analytic = {
+      name: $event.matched_security_tool? else $event.scan_engine?,
+      type_id: 0,
+    }
+    drop $event.matched_security_tool?, $event.scan_engine?
+  }
+
+  let $states = {
+    new: 1,
+    detected: 1,
+    pending: 2,
+    remediated: 4,
+    dismissed: 3,
+    exception: 3,
+  }
+  if $states[$event.state?]? != null {
+    $ocsf.status_id = $states[$event.state]
+    drop $event.state
+  }
+
+  // The confidence indicator names how certain the detection is.
+  if $event.confidence_indicator? != null {
+    _confidence = $event.confidence_indicator.to_lower()
+    if _confidence.starts_with("malicious") {
+      $ocsf.confidence_id = 3
+    } else if _confidence.starts_with("suspicious") {
+      $ocsf.confidence_id = 2
+    } else {
+      $ocsf.confidence_id = 99
+      $ocsf.confidence = $event.confidence_indicator
+    }
+    drop _confidence, $event.confidence_indicator
+  }
+  if $event.confidence_level? != null {
+    $ocsf.confidence_score = int(move $event.confidence_level)
+  }
+
+  // The latest remediation action decides the outcome. Without one the event
+  // is only a detection.
+  _action = (_last_action?.type? else "").to_lower()
+  if _action in ["quarantine_email", "quarantine_file"] {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 3
+  } else if _action == "block_user" {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 24
+  } else if _action in ["restore_email", "auto_restore"] {
+    $ocsf.action_id = 1
+    $ocsf.disposition_id = 9
+  } else if _action == "move_to_spam" {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 7
+  } else if _action in ["add_spam_header", "add_graymail_header", "add_smart_banner",
+                        "subject_body_change_set"] or _action.ends_with("_change_subject") {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 18
+  } else if _action == "inline_attachment_change" {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 11
+  } else if _action == "phishing_found_event" or _action.starts_with("send_email_to") {
+    $ocsf.action_id = 3
+    $ocsf.disposition_id = 19
+  } else if _action == "" {
+    $ocsf.action_id = 3
+    $ocsf.disposition_id = 15
+  }
+  drop _action, _last_action
+
+  if $event.policy_rule_id? != null {
+    $ocsf.policy.uid = (move $event.policy_rule_id).string()
+  }
+
+  // The email or file and the mailbox user the event concerns.
+  _email = move $event.email? else {}
+  _user = move $event.mailbox_user?
+  _evidence = {}
+  // Anomalies concern a login and shadow IT an application, not an email.
+  // Data Security Finding has no evidence, so the email of a DLP event stays
+  // in `unmapped` as the source wrote it.
+  if not _dlp and not ($event.type? in ["anomaly", "shadow_it"]) and
+     (_email.from_email? != null or _email.to? != null or
+      $event.sender_address? != null or $event.subject? != null) {
+    _evidence.email = {
+      message_uid: move _email.internet_message_id?,
+      subject: move _email.subject? else $event.subject?,
+      from: move _email.from_email? else $event.sender_address? else $event.sender?,
+      to: move _email.to?,
+      cc: move _email.cc?,
+      reply_to: move _email.reply_to_email?,
+      return_path: move _email.return_path?,
+      size: move _email.size?,
+    }
+    // Check Point documents the sender client IP as the IP address of the
+    // sender's client, not as an X-Originating-IP header.
+    let $ip = "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*$"
+    if _email.sender_client_ip?.string().match_regex($ip) {
+      _evidence.src_endpoint.ip = ip(move _email.sender_client_ip)
+    }
+    if _email.email_links? != null {
+      _evidence.email.urls = (move _email.email_links).map(x => {url_string: x})
+    }
+    if _email.attachments? != null {
+      _evidence.email.files = (move _email.attachments).map(x => {
+        name: x.name,
+        uid: x.entity_id?,
+        mime_type: x.mimetype?,
+        size: x.size?,
+        type_id: 1,
+        hashes: [{algorithm_id: 1, value: x.MD5}] if x.MD5? != null else null,
+      })
+    }
+    drop $event.sender_address?, $event.subject?, $event.sender?
+  }
+  // The data template of a DLP event may name no subject or sender.
+  if _dlp and $event.subject? == null {
+    drop $event.subject?
+  }
+  if _dlp and $event.sender? == null {
+    drop $event.sender?
+  }
+  _user_mapped = false
+  if _user != null {
+    _evidence.user = {
+      name: _user.label? else _user.full_name?,
+      full_name: _user.full_name?,
+      email_addr: _user.email?,
+      uid: _user.entity_id?,
+    }
+  }
+  // The mailbox user sent an outgoing email and is the actor of its DLP
+  // event.
+  if _dlp {
+    if _evidence.user? != null and _email.is_outgoing? == true {
+      $ocsf.actor.user = _evidence.user
+      _user_mapped = true
+    }
+  } else if _evidence != {} {
+    $ocsf.evidences = [_evidence]
+    _user_mapped = _evidence.user? != null
+  }
+  if _user_mapped {
+    drop _user.label?, _user.full_name?, _user.email?, _user.entity_id?
+  }
+  if _user != null and _user != {} {
+    $event.mailbox_user = _user
+  }
+  if _email != {} {
+    $event.email = _email
+  }
+  drop _email, _user, _user_mapped, _evidence
+
+  if _dlp {
+    $ocsf.data_security = {
+      detection_system_id: 6 if ($event.saas? else "").ends_with("_emails") or $event.saas? == "google_mail" else 8,
+      detection_pattern: $event.dlp_detections.distinct().join(", ") if $event.dlp_detections? != null else null,
+      total: $event.dlp_detections?.length(),
+    }
+    drop $event.dlp_detections?
+  }
+  drop _dlp, $event.type?
+
+  $ocsf.unmapped = move $event
+}

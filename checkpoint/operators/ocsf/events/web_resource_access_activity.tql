@@ -17,14 +17,46 @@ $ocsf.metadata.profiles = ["host", "security_control"]
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4002
 
-$ocsf.activity_id = 0
-checkpoint::ocsf::security_control_outcome $event, $ocsf
+let $methods = {
+  CONNECT: 1,
+  DELETE: 2,
+  GET: 3,
+  HEAD: 4,
+  OPTIONS: 5,
+  POST: 6,
+  PUT: 7,
+  TRACE: 8,
+  PATCH: 9,
+}
+$ocsf.activity_id = $methods[$event.method?.to_upper()]? else 0
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-drop $event.action?
-
-$ocsf.http_request.url.url_string = move $event.url?
+// The match-table rule is chosen by the action, so read the context first.
 checkpoint::ocsf::security_context $event, $ocsf
+checkpoint::ocsf::security_control_outcome $event, $ocsf
+checkpoint::ocsf::policy $event, $ocsf
+
+_categories = [
+  move $event.matched_category?,
+  move $event.category?,
+].where(x => x != null)
+if $event.url? != null {
+  $ocsf.http_request.url.url_string = move $event.url
+  if _categories.length() > 0 {
+    $ocsf.http_request.url.categories = _categories
+  }
+  // The HTTP host is the domain of the server that the request is sent to.
+  if $event.http_host? != null {
+    $ocsf.http_request.url.hostname = move $event.http_host
+  }
+}
+drop _categories
+if $event.method? != null {
+  $ocsf.http_request.http_method = move $event.method
+}
+// The web client type names a browser, not the user agent; it stays in
+// `unmapped`.
+if $event.user_agent? != null {
+  $ocsf.http_request.user_agent = move $event.user_agent
+}
 checkpoint::ocsf::traffic $event, $ocsf
-$ocsf.http_request.url.categories = [move $event.category?].collect()
 $ocsf.status_detail = move $event.reason?

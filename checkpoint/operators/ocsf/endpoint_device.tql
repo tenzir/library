@@ -1,0 +1,82 @@
+---
+description: Apply the Harmony Endpoint computer as OCSF device
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// For incoming firewall traffic, the source and its machine name are the
+// remote host, and the endpoint is the destination.
+_incoming = $event.conn_direction? == "Incoming" and
+  ($ocsf.metadata.product.name? else "").to_lower() in ["firewall", "application control"]
+if _incoming and $event.src_machine_name? != null {
+  $event.sname = move $event.src_machine_name
+}
+let $device_types = {desktop: 2, laptop: 3}
+$ocsf.device = {
+  hostname: move $event.src_machine_name?,
+  ip: $event.dst? if _incoming else $event.src?,
+  type_id: $device_types[($event.host_type? else "").to_lower()]? else 0,
+}
+if $event.machine_guid? != null {
+  $ocsf.device.uid = move $event.machine_guid
+}
+// A detection without a remote peer only concerns the endpoint itself.
+if @name == "checkpoint.firewall.threat" and $event.dst? == null {
+  drop $event.src?
+}
+if $ocsf.device.type_id != 0 {
+  drop $event.host_type
+}
+if $event.os_name? != null {
+  _os = $event.os_name.to_lower()
+  $ocsf.device.os = {
+    name: move $event.os_name,
+    version: move $event.os_version?,
+    type_id: 100 if _os.search("windows") else 300 if _os.search("mac") else 200 if _os.search("linux") else 0,
+  }
+  drop _os
+}
+if $event.client_name? != null or $event.client_version? != null {
+  // The Endpoint Security Client is an EDR agent; Capsule Docs is not.
+  $ocsf.device.agent_list = [{
+    name: $event.client_name?,
+    version: move $event.client_version?,
+    vendor_name: "Check Point",
+    type_id: 1 if $event.client_name?.search("Endpoint Security") else null,
+  }]
+  drop $event.client_name?
+}
+// The user is the one logged on to the endpoint, not necessarily the one
+// who started the activity. src_user_name is the short name and user_name
+// carries the domain, as DOMAIN\user.
+_domain = $event.user_name.split("\\")[0] if $event.user_name?.match_regex("^[^\\\\]+\\\\") else null
+_name = $event.user? else ($event.user_name.split("\\")[1] if _domain != null else $event.user_name?)
+if _name != null or $event.user_sid? != null {
+  $ocsf.device.owner = {
+    name: _name,
+    uid: move $event.user_sid?,
+    domain: _domain,
+  }
+  if _domain != null or $event.user? == null {
+    drop $event.user_name?
+  }
+  drop $event.user?
+}
+drop _domain, _name
+// URL Filtering names the requested website, not an application.
+if ($ocsf.metadata.product.name? else "").to_lower() == "url filtering" and $event.app_name? != null {
+  $event.appi_name = move $event.app_name
+}
+// Anti-Bot names the owner of the process that triggered the detection.
+if $event.process_username? != null or $event.Process_Username? != null {
+  $ocsf.actor.user.name = move $event.process_username? else $event.Process_Username?
+  drop $event.Process_Username?
+}
+$ocsf.metadata.tenant_uid = move $event.tenant_id?
+drop _incoming

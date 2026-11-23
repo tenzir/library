@@ -14,16 +14,81 @@ $ocsf.traffic = {
   bytes: move $event.bytes?,
   bytes_in: move $event.bytes_in?,
   bytes_out: move $event.bytes_out?,
-  packets: move $event.packets?,
+  packets: null,
   packets_in: move $event.packets_in?,
   packets_out: move $event.packets_out?,
+}
+// Sent and received bytes count from the source to the destination and back.
+if $ocsf.traffic.bytes_out == null and
+   $event.sent_bytes?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.bytes_out = int(move $event.sent_bytes)
+}
+if $ocsf.traffic.bytes_in == null and
+   $event.received_bytes?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.bytes_in = int(move $event.received_bytes)
+}
+// The client-side counters are relative to the gateway: inbound is what the
+// client sent to the gateway, and outbound what the gateway passed on to the
+// client. This follows the counters of real records, not the field
+// descriptions in sk144192.
+if $ocsf.traffic.bytes_out == null and
+   $event.client_inbound_bytes?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.bytes_out = int(move $event.client_inbound_bytes)
+}
+if $ocsf.traffic.bytes_in == null and
+   $event.client_outbound_bytes?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.bytes_in = int(move $event.client_outbound_bytes)
+}
+if $ocsf.traffic.packets_out == null and
+   $event.client_inbound_packets?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.packets_out = int(move $event.client_inbound_packets)
+}
+if $ocsf.traffic.packets_in == null and
+   $event.client_outbound_packets?.string().match_regex("^[0-9]+$") {
+  $ocsf.traffic.packets_in = int(move $event.client_outbound_packets)
+}
+// Only a counter is a packet count. Sampled packet tuples stay in `unmapped`.
+if type_kind($event.packets?) == "int" {
+  $ocsf.traffic.packets = move $event.packets
 }
 $ocsf.traffic.bytes = $ocsf.traffic.bytes? else
   $ocsf.traffic.bytes_in? + $ocsf.traffic.bytes_out?
 $ocsf.traffic.packets = $ocsf.traffic.packets? else
   $ocsf.traffic.packets_in? + $ocsf.traffic.packets_out?
 
-if $event.duration? != null and $ocsf.time? != null {
-  $ocsf.traffic.end_time = $ocsf.time
-  $ocsf.traffic.start_time = $ocsf.time - (move $event.duration)
+if $ocsf.traffic.bytes? == null and $ocsf.traffic.packets? == null and
+   $ocsf.traffic.bytes_in? == null and $ocsf.traffic.bytes_out? == null and
+   $ocsf.traffic.packets_in? == null and $ocsf.traffic.packets_out? == null {
+  drop $ocsf.traffic
 }
+// An aggregated log stands for several logs from its creation time to its
+// last hit. The number of connections stays in `unmapped`, because OCSF
+// counts the aggregated events.
+_aggregate = false
+if $event.aggregated_log_count?.string().match_regex("^[0-9]+$") and
+   type_kind($event.creation_time?) == "time" and
+   type_kind($event.last_hit_time?) == "time" {
+  _aggregate = int($event.aggregated_log_count.string()) > 1
+}
+if _aggregate {
+  $ocsf.count = int(move $event.aggregated_log_count)
+  $ocsf.start_time = move $event.creation_time
+  $ocsf.end_time = move $event.last_hit_time
+}
+if $ocsf.start_time? == null and type_kind($event.start_time?) == "time" {
+  $ocsf.start_time = move $event.start_time
+}
+// The elapsed time takes precedence over the connection duration in seconds.
+if type_kind($event.elapsed?) == "duration" {
+  $ocsf.duration = int(move $event.elapsed / 1ms)
+} else if $event.during_sec?.string().match_regex("^[0-9]+$") {
+  $ocsf.duration = int(move $event.during_sec) * 1000
+}
+// The duration of an aggregated log is its aggregation window when it spans
+// exactly from the creation time to the last hit.
+if _aggregate and $ocsf.duration? == null and
+   type_kind($event.duration?) == "duration" and
+   $event.duration == $ocsf.end_time - $ocsf.start_time {
+  $ocsf.duration = int(move $event.duration / 1ms)
+}
+drop _aggregate

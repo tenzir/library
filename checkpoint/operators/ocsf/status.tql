@@ -10,13 +10,16 @@ args:
       type: field
 ---
 
-match $event.status? {
+// `audit_status` is the outcome of a management operation or login. It can be
+// Failure while the exporter `action` is Accept.
+match ($event.audit_status? else $event.status?) {
   "Success" => {
     $ocsf.status_id = 1
+    drop $event.audit_status?, $event.status?
   }
   "Failure" => {
     $ocsf.status_id = 2
+    drop $event.audit_status?, $event.status?
   }
   _ => {}
 }
-drop $event.status?

@@ -1,0 +1,64 @@
+---
+description: "Check Point → OCSF Scan Activity (6007)"
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+@name = "ocsf.scan_activity"
+
+$ocsf.metadata.profiles = ["host"]
+
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6007
+// Harmony Endpoint Anti-Malware logs the start and the end of a scan; the end
+// tells whether it finished, paused, or was canceled.
+let $scan_ends = {
+  Finished: 2,
+  Canceled: 3,
+  Paused: 7,
+}
+if $event.event_type == "Scan Start" {
+  $ocsf.activity_id = 1
+} else if $scan_ends[$event.action_details?]? != null {
+  $ocsf.activity_id = $scan_ends[$event.action_details]
+  drop $event.action_details
+} else if $event.action_details? != null {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = move $event.action_details
+} else {
+  $ocsf.activity_id = 0
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// A Scan Stop record tells how long the scan ran, so the scan started that
+// long before the record.
+if $event.event_type == "Scan Stop" and type_kind($event.duration?) == "duration" {
+  $ocsf.duration = int($event.duration / 1ms)
+  if $ocsf.time? != null {
+    $ocsf.end_time = $ocsf.time
+    $ocsf.start_time = $ocsf.time - $event.duration
+  }
+  drop $event.duration
+}
+drop $event.event_type
+$ocsf.message = move $event.description? else $ocsf.message?
+
+let $scan_types = {
+  Manual: 1,
+  Scheduled: 2,
+}
+$ocsf.scan = {
+  type_id: $scan_types[$event.integrity_av_invoke_type?]? else 0,
+}
+if $ocsf.scan.type_id != 0 {
+  drop $event.integrity_av_invoke_type
+}
+$ocsf.num_files = int(move $event.items_scanned?)
+$ocsf.num_detections = int(move $event.items_detected?)
+$ocsf.num_resolutions = int(move $event.items_treated?)
+checkpoint::ocsf::policy $event, $ocsf

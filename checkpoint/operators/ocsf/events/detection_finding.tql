@@ -19,54 +19,179 @@ $ocsf.class_uid = 2004
 $ocsf.activity_id = 1  // Create
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.is_alert = true
-$ocsf.action_id = 3
-$ocsf.disposition_id = 15
+// Detection Finding has no application name attribute.
+if $ocsf.app_name? != null {
+  $event.app_name = move $ocsf.app_name
+}
+checkpoint::ocsf::security_control_outcome $event, $ocsf
 
+// The protection, such as an IPS signature or a malware protection, is the
+// analytic. The threat or attack name titles the finding.
 $ocsf.finding_info = {
-  title: "Check Point detection",
-  desc: $ocsf.message?,
-  uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
-  analytic: {
-    name: "Check Point detection",
+  uid: $ocsf.metadata.original_event_uid?,
+  title: $event.threat_name? else $event.protection_name? else $ocsf.message?,
+  desc: move $event.attack_info?,
+}
+if $ocsf.finding_info.desc == null and $event.description? != null {
+  $ocsf.finding_info.desc = move $event.description
+}
+// Harmony Endpoint reports how it treated an infected file.
+match $event.action_details? {
+  "Quarantined" => {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 3
+    drop $event.action_details
+  }
+  "Deleted" => {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 5
+    drop $event.action_details
+  }
+  "Cleaned" | "Cured" => {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 11
+    drop $event.action_details
+  }
+  _ => {}
+}
+checkpoint::ocsf::policy $event, $ocsf
+if $event.protection_name? != null or $event.protection_id? != null {
+  $ocsf.finding_info.analytic = {
+    name: move $event.protection_name?,
+    uid: (move $event.protection_id?).string(),
     type_id: 1,
-    uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
-  },
+  }
 }
-
-if $ocsf.message? != null {
-  $ocsf.finding_info.title = $ocsf.message
-  $ocsf.finding_info.analytic.name = $ocsf.message
+if $event.protection_type? != null {
+  $ocsf.finding_info.types = [move $event.protection_type]
 }
-if $event.threat_name? != null {
-  $ocsf.finding_info.title = $event.threat_name
-  $ocsf.finding_info.analytic.name = move $event.threat_name
+// Anti-Malware and Anti-Virus protections name the malware they detected, and
+// Harmony Endpoint adds its infection category. The malware family has no
+// OCSF attribute and stays in `unmapped`.
+if ($ocsf.metadata.product.name? else "").to_lower() in
+     ["anti-malware", "anti malware", "anti-virus", "anti virus"] and
+   $ocsf.finding_info.analytic? != null {
+  let $malware_classes = {
+    adware: 1,
+    trojan: 18,
+    virus: 19,
+    unknown: 0,
+  }
+  _malware = {
+    name: $ocsf.finding_info.analytic.name,
+    uid: $ocsf.finding_info.analytic.uid,
+    classification_ids: [0],
+  }
+  if $event.infection_category? != null {
+    _class = $malware_classes[$event.infection_category.to_lower()]?
+    if _class != null {
+      _malware.classification_ids = [_class]
+    } else {
+      _malware.classification_ids = [99]
+      _malware.classifications = [$event.infection_category]
+    }
+    drop $event.infection_category, _class
+  }
+  $ocsf.malware = [move _malware]
 }
-if $event.protection_name? != null {
-  $ocsf.finding_info.desc = $event.protection_name
-  $ocsf.finding_info.analytic.name = move $event.protection_name
-}
+drop $event.threat_name?
+// Check Point rates confidence from 1 (Low) over 3 (Medium) to 5 (High), or by
+// name. Medium-Low (2) and Medium-High (4) have no OCSF level and become
+// Other; 0 (N/A) tells nothing and stays in `unmapped`.
 if $event.confidence_level? != null {
-  let $confidence = {
-    Low: 1,
-    Medium: 2,
-    High: 3,
+  let $confidences = {
+    "1": 1,
+    "3": 2,
+    "5": 3,
+    low: 1,
+    medium: 2,
+    high: 3,
   }
-  $ocsf.confidence_id = $confidence[$event.confidence_level]? else 99
-  if $ocsf.confidence_id == 99 {
-    $ocsf.confidence = $event.confidence_level
+  let $other_confidences = {
+    "2": "Medium-Low",
+    "4": "Medium-High",
+    "medium-low": "Medium-Low",
+    "low-medium": "Medium-Low",
+    "medium-high": "Medium-High",
   }
-  drop $event.confidence_level
+  _confidence = $event.confidence_level.string().to_lower()
+  if $confidences[_confidence]? != null {
+    $ocsf.confidence_id = $confidences[_confidence]
+    drop $event.confidence_level
+  } else if $other_confidences[_confidence]? != null {
+    $ocsf.confidence_id = 99
+    $ocsf.confidence = $other_confidences[_confidence]
+    drop $event.confidence_level
+  }
+  drop _confidence
 }
-if $event.policy? != null {
+if $event.policy? != null and $ocsf.finding_info.analytic? != null {
   $ocsf.finding_info.analytic.category = move $event.policy
 }
 
-$ocsf.evidences = [{
-  src_endpoint: move $ocsf.src_endpoint?,
-  dst_endpoint: move $ocsf.dst_endpoint?,
-  connection_info: move $ocsf.connection_info?,
-}]
-
-if $event.action? == "Detect" {
-  drop $event.action
+// The file a Harmony Endpoint blade detected, with its hashes. The resource
+// is its path on the endpoint, or the URL or domain it came from.
+_path = $event.url? if $event.url?.match_regex("^([A-Za-z]:\\\\|/)") else null
+if $event.file_name? != null or _path != null {
+  _file = {
+    name: $event.file_name? else _path.split("\\").last().split("/").last(),
+    path: _path,
+    type_id: 1,
+  }
+  drop $event.file_name?
+  if _path != null {
+    drop $event.url
+  }
+  if $event.file_size?.string().match_regex("^[0-9]+$") {
+    _file.size = int(move $event.file_size)
+  }
+  // Placeholders such as no-sha1 stay in `unmapped`.
+  _hashes = []
+  if $event.file_md5?.match_regex("^[0-9A-Fa-f]{32}$") {
+    _hashes = [..._hashes, {algorithm_id: 1, value: move $event.file_md5}]
+  }
+  if $event.file_sha1?.match_regex("^[0-9A-Fa-f]{40}$") {
+    _hashes = [..._hashes, {algorithm_id: 2, value: move $event.file_sha1}]
+  }
+  if $event.file_sha256?.match_regex("^[0-9A-Fa-f]{64}$") {
+    _hashes = [..._hashes, {algorithm_id: 3, value: move $event.file_sha256}]
+  }
+  if _hashes.length() > 0 {
+    _file.hashes = _hashes
+  }
+  drop _hashes
 }
+drop _path
+if $ocsf.src_endpoint? != null or $ocsf.dst_endpoint? != null or
+   $ocsf.connection_info? != null or $event.url? != null or _file? != null {
+  _evidence = {
+    src_endpoint: move $ocsf.src_endpoint?,
+    dst_endpoint: move $ocsf.dst_endpoint?,
+    connection_info: move $ocsf.connection_info?,
+  }
+  if $event.url?.match_regex("^[A-Za-z][A-Za-z0-9+.-]*://") {
+    _evidence.url.url_string = move $event.url
+  } else if $event.url?.match_regex("^[A-Za-z0-9.-]+$") {
+    // A domain alone, such as the command and control server Anti-Bot
+    // blocked, names the remote host.
+    _evidence.dst_endpoint.hostname = move $event.url
+  } else if $event.url? != null {
+    _evidence.url.url_string = move $event.url
+  }
+  // The HTTP method belongs to the request for that URL. Some blades write
+  // the method as a number, which stays in `unmapped`.
+  if _evidence.url? != null and $event.method?.string().match_regex("^[A-Za-z]+$") {
+    _evidence.http_request.http_method = move $event.method
+  }
+  if _evidence.url? != null and $event.http_host? != null {
+    _evidence.url.hostname = move $event.http_host
+  }
+  if _evidence.url? != null and $event.user_agent? != null {
+    _evidence.http_request.user_agent = move $event.user_agent
+  }
+  if _file? != null {
+    _evidence.file = move _file
+  }
+  $ocsf.evidences = [move _evidence]
+}
+drop _file?

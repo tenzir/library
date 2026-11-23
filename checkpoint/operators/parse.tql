@@ -5,6 +5,8 @@ description: Normalize Check Point firewall fields
 // Check Point uses these as sentinels for missing values.
 replace what="N/A", with=null
 replace what="", with=null
+// Harmony Endpoint writes a single space for an empty value.
+replace what=" ", with=null
 
 if action? == null and Action? != null {
   action = move Action
@@ -26,6 +28,23 @@ if product? == null and blade? != null {
 }
 if product_family? == null and ProductFamily? != null {
   product_family = move ProductFamily
+}
+// Harmony Endpoint documents some fields capitalized.
+if dst? == null and Dst? != null {
+  dst = move Dst
+}
+if severity? == null and Severity? != null {
+  severity = move Severity
+}
+if resource? == null and Resource? != null {
+  resource = move Resource
+}
+if duration? == null and Duration? != null {
+  duration = move Duration
+}
+if conn_direction? == null and Direction? != null {
+  conn_direction = {Inbound: "Incoming", Outbound: "Outgoing"}[Direction]? else Direction
+  drop Direction
 }
 
 // Some Log Exporter formats call the Check Point log version `version`.
@@ -70,6 +89,27 @@ if user? == null and account? != null {
 if user? == null and administrator? != null {
   user = move administrator
 }
+if user? == null and src_user_name? != null {
+  user = move src_user_name
+}
+// Harmony Endpoint numbers its firewall rules.
+if rule_uid? == null and ep_rule_id? != null {
+  rule_uid = (move ep_rule_id).string()
+}
+// Log Exporter writes NAT translations as xlatesrc, xlatedst, xlatesport,
+// and xlatedport, with 0.0.0.0 and 0 for an untranslated address or port.
+if snatip? == null and xlatesrc? != null and xlatesrc.string() != "0.0.0.0" {
+  snatip = move xlatesrc
+}
+if dnatip? == null and xlatedst? != null and xlatedst.string() != "0.0.0.0" {
+  dnatip = move xlatedst
+}
+if snatport? == null and xlatesport? != null and xlatesport.string() != "0" {
+  snatport = move xlatesport
+}
+if dnatport? == null and xlatedport? != null and xlatedport.string() != "0" {
+  dnatport = move xlatedport
+}
 if src? == null and client_ip? != null {
   src = move client_ip
 }
@@ -109,6 +149,12 @@ if threat_name? == null and attack? != null {
 if protection_name? == null and protection? != null {
   protection_name = move protection
 }
+if url? == null and resource? != null {
+  url = move resource
+}
+if object? == null and objectname? != null {
+  object = move objectname
+}
 if data_type? == null and dlp_data_type? != null {
   data_type = move dlp_data_type
 }
@@ -137,121 +183,195 @@ if this.has("layer_uuid_._._match_table") and layer_uuid? == null {
   layer_uuid = move this["layer_uuid_._._match_table"]
 }
 
+// Log Exporter writes epoch seconds, or epoch milliseconds when its
+// `time_in_milli` option is on. JSON exports can carry ISO 8601 strings.
+// Keep any other value in `time_raw` instead of guessing its unit.
 if time? != null and type_kind(time) != "time" {
-  time = int(time).seconds().from_epoch()
+  _time = time.string()
+  if _time.match_regex("^[0-9]{13}$") {
+    time = int(_time).milliseconds().from_epoch()
+  } else if _time.match_regex("^[0-9]{1,10}$") {
+    time = int(_time).seconds().from_epoch()
+  } else if _time.match_regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T") {
+    time = time(_time)
+  } else {
+    time_raw = move time
+  }
+  drop _time
 }
 
-if log_delay? != null {
-  log_delay = int(log_delay).seconds()
+// Connection logs carry the session start in epoch seconds and the time
+// passed since then as seconds or H:MM:SS.
+if start_time? != null and type_kind(start_time) != "time" and
+   start_time.string().match_regex("^[0-9]{1,10}$") {
+  start_time = int(start_time.string()).seconds().from_epoch()
+}
+// Aggregated connection logs carry the time of their first and their last
+// connection in epoch seconds.
+if creation_time?.string().match_regex("^[0-9]{1,10}$") {
+  creation_time = int(creation_time.string()).seconds().from_epoch()
+}
+if last_hit_time?.string().match_regex("^[0-9]{1,10}$") {
+  last_hit_time = int(last_hit_time.string()).seconds().from_epoch()
+}
+if elapsed? != null and type_kind(elapsed) != "duration" {
+  _elapsed = elapsed.string()
+  if _elapsed.match_regex("^[0-9]+$") {
+    elapsed = int(_elapsed).seconds()
+  } else if _elapsed.match_regex("^[0-9]+:[0-9]{2}:[0-9]{2}$") {
+    _parts = _elapsed.split(":")
+    elapsed = (int(_parts[0]) * 3600 + int(_parts[1]) * 60 + int(_parts[2])).seconds()
+    drop _parts
+  }
+  drop _elapsed
 }
 
-if duration? != null and type_kind(duration) != "duration" {
+// Convert durations, addresses, ports, and counters only when they parse, so
+// that a value of another form survives as it is.
+let $ip = "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])[.]){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*$"
+let $count = "^[0-9]+$"
+
+// Log Delay stays as written: real records carry an epoch time there, not the
+// elapsed time that sk144192 describes.
+if duration? != null and type_kind(duration) != "duration" and
+   duration.string().match_regex($count) {
   duration = int(duration).seconds()
 }
 
-if src? != null {
+// Some exports name the hosts or the service instead of their address or
+// port.
+if src?.string().match_regex($ip) {
   src = ip(src)
+} else if src? != null and sname? == null {
+  sname = move src
 }
-if dst? != null {
+if dst?.string().match_regex($ip) {
   dst = ip(dst)
+} else if dst? != null and dname? == null {
+  dname = move dst
 }
-if origin? != null {
+if service?.string().match_regex($count) {
+  service = int(service)
+} else if service? != null and service_id? == null {
+  service_id = move service
+}
+if origin?.string().match_regex($ip) {
   origin = ip(origin)
 }
-if s_port? != null {
+if snatip?.string().match_regex($ip) {
+  snatip = ip(snatip)
+}
+if dnatip?.string().match_regex($ip) {
+  dnatip = ip(dnatip)
+}
+if s_port?.string().match_regex($count) {
   s_port = int(s_port)
 }
-if service? != null {
-  service = int(service)
+// Harmony Endpoint firewall records name the protocol instead of its number.
+if proto? != null and not proto.string().match_regex($count) {
+  protocol_name = proto.string().to_lower()
+  proto = {tcp: 6, udp: 17, icmp: 1}[protocol_name]?
 }
 if proto? != null {
   proto = int(proto)
 }
-if snatport? != null {
+if snatport?.string().match_regex($count) {
   snatport = int(snatport)
 }
-if dnatport? != null {
+if dnatport?.string().match_regex($count) {
   dnatport = int(dnatport)
 }
-if snatip? != null {
-  snatip = ip(snatip)
-}
-if dnatip? != null {
-  dnatip = ip(dnatip)
-}
-if bytes? != null {
+if bytes?.string().match_regex($count) {
   bytes = int(bytes)
 }
-if bytes_in? != null {
+if bytes_in?.string().match_regex($count) {
   bytes_in = int(bytes_in)
 }
-if bytes_out? != null {
+if bytes_out?.string().match_regex($count) {
   bytes_out = int(bytes_out)
 }
-if packets? != null {
+// SecureXL drop summaries reuse `packets` for a list of sampled packet tuples
+// such as `<src,sport,dst,dport,proto;ifname>`. Keep those as they are.
+if packets?.string().match_regex($count) {
   packets = int(packets)
 }
-if packets_in? != null {
+if packets_in?.string().match_regex($count) {
   packets_in = int(packets_in)
 }
-if packets_out? != null {
+if packets_out?.string().match_regex($count) {
   packets_out = int(packets_out)
 }
-if size? != null {
+if size?.string().match_regex($count) {
   size = int(size)
 }
 
 // Product identifies the Software Blade. Product family remains a separate,
 // broader signal; event_type and type describe other dimensions of the log.
+// Logins and logouts are authentication events whichever blade or client
+// reported them, so the operation takes precedence over the product.
 _product = (product? else "").string().to_lower()
 _product_family = (product_family? else "").string().to_lower()
+_operation = (operation? else action? else "").string().to_lower()
 
-match _product {
-  "web_api" | "web api" => {
-    @name = "checkpoint.management.api"
-  }
-  "smartconsole" | "smartdashboard" | "smartview" | "smartupdate" |
-  "web-ui" | "web ui" => {
-    @name = "checkpoint.management.audit"
-  }
-  "dlp" | "content awareness" => {
-    @name = "checkpoint.firewall.dlp"
-  }
-  "mta" | "anti-spam" | "anti-spam and email security" |
-  "anti phishing" | "email" => {
-    @name = "checkpoint.firewall.email"
-  }
-  "url filtering" | "endpoint url filtering" | "application control" |
-  "https inspection" => {
-    @name = "checkpoint.firewall.web_resource"
-  }
-  _ => {
-    if vendorinfo?.string().to_lower() == "management api" {
-      @name = "checkpoint.management.api"
-    } else if data_type? != null {
-      @name = "checkpoint.firewall.dlp"
-    } else if sender? != null or recipient? != null {
-      @name = "checkpoint.firewall.email"
-    } else if vpn_feature? != null or
-              (_product in ["mobile access", "connectra"] and session? != null) {
-      @name = "checkpoint.firewall.vpn"
-    } else if _product_family == "threat" or
-              threat_name? != null or
-              protection_name? != null or
-              attack_info? != null or
-              action? == "Detect" or
-              message_info? != null {
-      @name = "checkpoint.firewall.threat"
-    } else if url? != null {
-      @name = "checkpoint.firewall.web_resource"
-    } else if operation? != null or operation_number? != null {
-      @name = "checkpoint.management.audit"
-    } else if action? != null and
-              (src? != null or dst? != null or proto? != null) {
-      @name = "checkpoint.firewall.network"
-    } else {
-      @name = "checkpoint.firewall"
-    }
-  }
+if _operation in ["log in", "log out", "failed log in"] {
+  @name = "checkpoint.authentication"
+} else if _product_family == "endpoint" and
+          event_type? in ["Scan Start", "Scan Stop"] {
+  @name = "checkpoint.endpoint.scan"
+} else if _product_family == "endpoint" and
+          (_product == "url filtering" or event_type? == "URLF Info Event") and
+          url? != null {
+  @name = "checkpoint.firewall.web_resource"
+} else if _product_family == "endpoint" and
+          ((_product == "anti-malware" and
+            (event_type? == "Infection" or (event_type? == null and protection_name? != null))) or
+           (_product in ["anti-bot", "threat emulation", "threat extraction",
+                         "zero phishing", "anti-exploit", "anti-ransomware",
+                         "behavioral guard", "forensics"] and
+            event_type? != "TE Info Event")) {
+  @name = "checkpoint.firewall.threat"
+} else if _product_family == "endpoint" and _product in ["dlp", "endpoint dlp"] {
+  @name = "checkpoint.firewall.dlp"
+} else if _product_family == "endpoint" and
+          not (_product in ["firewall", "application control"]) {
+  // Compliance, Media Encryption & Port Protection, Full Disk Encryption,
+  // SSL Inspection, signature updates, quarantine restores, and
+  // infrastructure records are not mapped yet.
+  @name = "checkpoint.endpoint"
+} else if _product in ["web_api", "web api"] or
+          vendorinfo?.string().to_lower() == "management api" {
+  @name = "checkpoint.management.api"
+} else if _product in ["smartconsole", "smartdashboard", "smartview",
+                       "smartupdate", "web-ui", "web ui"] {
+  @name = "checkpoint.management.audit"
+} else if _product in ["dlp", "content awareness"] or data_type? != null {
+  @name = "checkpoint.firewall.dlp"
+} else if _product in ["mta", "anti-spam", "anti-spam and email security",
+                       "anti phishing", "email"] or
+          sender? != null or recipient? != null {
+  @name = "checkpoint.firewall.email"
+} else if action? == "Key Install" {
+  // IKE key installation for a VPN tunnel. VPN traffic itself carries the
+  // Encrypt or Decrypt action and remains network activity.
+  @name = "checkpoint.firewall.vpn"
+} else if _product_family == "threat" or
+          threat_name? != null or
+          protection_name? != null or
+          attack_info? != null or
+          action? == "Detect" or
+          message_info? != null {
+  @name = "checkpoint.firewall.threat"
+} else if url? != null {
+  // URL Filtering, Application Control, and HTTPS Inspection also log
+  // connections and database updates without a URL, which are no HTTP
+  // activity.
+  @name = "checkpoint.firewall.web_resource"
+} else if operation? != null or operation_number? != null {
+  @name = "checkpoint.management.audit"
+} else if action? != null and
+          (src? != null or dst? != null or proto? != null or packets? != null) {
+  @name = "checkpoint.firewall.network"
+} else {
+  @name = "checkpoint.firewall"
 }
-drop _product, _product_family
+drop _product, _product_family, _operation
