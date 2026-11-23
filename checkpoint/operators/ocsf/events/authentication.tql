@@ -60,10 +60,20 @@ if $event.user_dn? != null {
   $ocsf.user.uid = $ocsf.user?.uid? else $event.user_dn
   $ocsf.user.ldap_person.ldap_dn = move $event.user_dn
 }
-// Remote access logins name the group the user belongs to upon login.
+// Remote access logins name the group the user belongs to upon login, and
+// Identity Awareness lists the groups of the source user.
 if $event.user_group? != null {
   $ocsf.user.groups = [{name: move $event.user_group}]
+} else if type_kind($event.src_user_group?) == "string" {
+  $ocsf.user.groups = $event.src_user_group.split(";").map(x => x.trim()).where(x => x != "").map(x => {name: x})
+  drop $event.src_user_group
 }
+// Identity Awareness repeats the user as the source user.
+if $event.src_user_name? != null and $event.src_user_name == $ocsf.user?.name? {
+  drop $event.src_user_name
+}
+// A remote access VPN login describes the client computer and its VPN client.
+_remote_access = $event.tunnel_protocol? != null
 if $event.src? != null or $event.src_machine_name? != null or $event.sname? != null {
   $ocsf.src_endpoint = {
     ip: move $event.src?,
@@ -82,8 +92,32 @@ if $event.src? != null or $event.src_machine_name? != null or $event.sname? != n
       name: move $event.os_name,
       version: move $event.os_version?,
       type_id: 100 if _os.search("windows") else 300 if _os.search("mac") else 200 if _os.search("linux") else 0,
+      edition: move $event.os_edition?,
+      build: (move $event.os_build?).string(),
     }
     drop _os
+    if $event.os_bits?.string().match_regex("^[0-9]+ ?bits?$") {
+      $ocsf.src_endpoint.os.cpu_bits = int((move $event.os_bits).string().replace("bits", "").replace("bit", "").trim())
+    }
+  }
+  if $event.mac_address?.string().match_regex("^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$") {
+    $ocsf.src_endpoint.mac = move $event.mac_address
+  }
+  if _remote_access {
+    $ocsf.src_endpoint.uid = (move $event.device_identification?).string()
+    // OCSF has no endpoint type for the host type, such as PC.
+    if $event.host_type? != null {
+      $ocsf.src_endpoint.type_id = 99
+      $ocsf.src_endpoint.type = move $event.host_type
+    }
+    // The VPN client gives network access, not remote access to the device,
+    // so it has no OCSF agent type.
+    if $event.client_name? != null {
+      $ocsf.src_endpoint.agent_list = [{
+        name: move $event.client_name,
+        version: move $event.client_version?,
+      }]
+    }
   }
 }
 // Management, Expert shell, and Mobile Access logins authenticate against the
@@ -114,6 +148,9 @@ if $event.dst? != null or $event.dname? != null {
 if $event.session_uid? != null {
   $ocsf.session.uid = (move $event.session_uid).string()
 }
+if $event.login_timestamp?.string().match_regex("^[0-9]{1,10}$") {
+  $ocsf.session.created_time = int((move $event.login_timestamp).string()).seconds().from_epoch()
+}
 if $event.auth_method? != null {
   let $auth_protocols = {
     kerberos: 2,
@@ -130,3 +167,17 @@ if $event.auth_method? != null {
     drop $event.auth_method
   }
 }
+// The authentication methods of a remote access login are its factors; a
+// second method makes it a multi-factor login.
+if _remote_access and $event.auth_method? != null {
+  $ocsf.auth_factors = [
+    {factor_type_id: 11} if $event.auth_method == "Password"
+    else {factor_type_id: 99, factor_type: $event.auth_method},
+  ]
+  drop $event.auth_method
+  if $event.auth_method2? != null {
+    $ocsf.auth_factors = [...$ocsf.auth_factors, {factor_type_id: 99, factor_type: move $event.auth_method2}]
+    $ocsf.is_mfa = true
+  }
+}
+drop _remote_access

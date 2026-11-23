@@ -35,15 +35,11 @@ if $event.event_type == "Scan Start" {
   $ocsf.activity_id = 0
 }
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-// A Scan Stop record tells how long the scan ran, so the scan started that
-// long before the record.
+// A Scan Stop record tells how long the scan ran. Check Point does not
+// document the record time as the end of the scan, so the scan job keeps no
+// start or end time.
 if $event.event_type == "Scan Stop" and type_kind($event.duration?) == "duration" {
-  $ocsf.duration = int($event.duration / 1ms)
-  if $ocsf.time? != null {
-    $ocsf.end_time = $ocsf.time
-    $ocsf.start_time = $ocsf.time - $event.duration
-  }
-  drop $event.duration
+  $ocsf.duration = int(move $event.duration / 1ms)
 }
 drop $event.event_type
 $ocsf.message = move $event.description? else $ocsf.message?
