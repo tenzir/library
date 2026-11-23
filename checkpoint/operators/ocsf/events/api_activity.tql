@@ -1,5 +1,5 @@
 ---
-description: "Check Point WEB_API → OCSF API Activity (6003)"
+description: "Check Point → OCSF API Activity (6003)"
 args:
   positional:
     - name: event
@@ -16,28 +16,19 @@ $ocsf.metadata.profiles = ["host"]
 
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6003
-let $activities = {
-  Create: 1,
-  Read: 2,
-  Update: 3,
-  Delete: 4,
+// The Management API operation is the API call. The subject describes the
+// audit record and a session UID is no request identifier.
+if $event.operation? != null {
+  $ocsf.api.operation = $event.operation
 }
-$ocsf.activity_id = $activities[$event.action?]? else 0
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+checkpoint::ocsf::management_activity $event, $ocsf
+drop $event.operation?
+drop $event.session_uid?
 
-$ocsf.api = {
-  operation: $event.action? else $event.subject? else "unknown",
-}
-drop $event.action?
-
-checkpoint::ocsf::status $event, $ocsf
-
-$ocsf.actor.user.name = move $event.user?
-$ocsf.src_endpoint.ip = move $event.src?
-if $event.object? != null or $event.objecttype? != null {
+if $event.object? != null or $event.uid? != null {
   $ocsf.resources = [{
     name: move $event.object?,
+    uid: (move $event.uid?).string(),
     type: move $event.objecttype?,
   }]
 }
-$ocsf.api.request.uid = move $event.subject?

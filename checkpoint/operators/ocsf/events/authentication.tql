@@ -1,0 +1,132 @@
+---
+description: "Check Point → OCSF Authentication (3002)"
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+@name = "ocsf.authentication"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+// Log In and Failed Log In are logon attempts, Log Out is a logoff.
+_operation = ($event.operation? else $event.action? else "").string().to_lower()
+$ocsf.activity_id = 2 if _operation == "log out" else 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// The exporter writes `action=Accept` for management logins even when the
+// login failed. The outcome comes from the audit or authentication status.
+checkpoint::ocsf::status $event, $ocsf
+if $ocsf.status_id? == null {
+  match $event.auth_status? {
+    "Successful Login" => {
+      $ocsf.status_id = 1
+    }
+    "Failed Login" => {
+      $ocsf.status_id = 2
+    }
+    _ => {}
+  }
+}
+if _operation == "failed log in" {
+  $ocsf.status_id = 2
+}
+$ocsf.status_detail = move $event.reason?
+drop _operation
+if $event.operation? != null {
+  drop $event.action?
+}
+drop $event.auth_status?
+
+$ocsf.message = move $event.subject? else $ocsf.message?
+if $event.user? != null {
+  $ocsf.user.name = move $event.user
+} else if $ocsf.device?.owner? != null {
+  // Harmony Endpoint names the user logged on to the endpoint as the device
+  // owner, which is the user of a login on the endpoint.
+  $ocsf.user = $ocsf.device.owner
+} else if $event.dst_user_name? != null {
+  // Remote access logins can name the user only as the connected user of the
+  // destination, padded with spaces.
+  $ocsf.user.name = (move $event.dst_user_name).string().trim()
+}
+// The distinguished name identifies the user in the directory.
+if $event.user_dn? != null {
+  $ocsf.user.uid = $ocsf.user?.uid? else $event.user_dn
+  $ocsf.user.ldap_person.ldap_dn = move $event.user_dn
+}
+// Remote access logins name the group the user belongs to upon login.
+if $event.user_group? != null {
+  $ocsf.user.groups = [{name: move $event.user_group}]
+}
+if $event.src? != null or $event.src_machine_name? != null or $event.sname? != null {
+  $ocsf.src_endpoint = {
+    ip: move $event.src?,
+    port: move $event.s_port?,
+    hostname: $event.src_machine_name? else $event.sname?,
+  }
+  if $event.src_machine_name? != null {
+    drop $event.src_machine_name
+  } else {
+    drop $event.sname?
+  }
+  // The OS of the computer that logs in.
+  if $event.os_name? != null {
+    _os = $event.os_name.to_lower()
+    $ocsf.src_endpoint.os = {
+      name: move $event.os_name,
+      version: move $event.os_version?,
+      type_id: 100 if _os.search("windows") else 300 if _os.search("mac") else 200 if _os.search("linux") else 0,
+    }
+    drop _os
+  }
+}
+// Management, Expert shell, and Mobile Access logins authenticate against the
+// logging server or gateway itself. Identity Awareness only reports a login
+// that it learned from an identity source, so its origin is not the target.
+// The device of a Harmony Endpoint record is the endpoint, whose address is
+// the source.
+if $event.dst? != null or $event.dname? != null {
+  $ocsf.dst_endpoint = {
+    ip: move $event.dst?,
+    port: move $event.service?,
+    hostname: $event.device_name? else $event.dname?,
+  }
+  if $event.device_name? != null {
+    drop $event.device_name
+  } else {
+    drop $event.dname?
+  }
+} else if ($ocsf.metadata.product.name? else "").to_lower() != "identity awareness" and
+          ($event.product_family? else "").string().to_lower() != "endpoint" and
+          ($ocsf.device?.ip? != null or $event.device_name? != null) {
+  $ocsf.dst_endpoint = {
+    ip: $ocsf.device?.ip? if $event.device_name? == null else null,
+    port: move $event.service?,
+    hostname: move $event.device_name?,
+  }
+}
+if $event.session_uid? != null {
+  $ocsf.session.uid = (move $event.session_uid).string()
+}
+if $event.auth_method? != null {
+  let $auth_protocols = {
+    kerberos: 2,
+    // The VPN password authentication protocols.
+    pap: 7,
+    eap: 9,
+    radius: 10,
+    ldap: 12,
+  }
+  // Other methods, such as Password, are no authentication protocol and stay
+  // in `unmapped`.
+  if $auth_protocols[$event.auth_method.to_lower()]? != null {
+    $ocsf.auth_protocol_id = $auth_protocols[$event.auth_method.to_lower()]
+    drop $event.auth_method
+  }
+}

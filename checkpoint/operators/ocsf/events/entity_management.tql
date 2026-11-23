@@ -1,5 +1,5 @@
 ---
-description: "Check Point management audit → OCSF Entity Management (3004)"
+description: "Check Point → OCSF Entity Management (3004)"
 args:
   positional:
     - name: event
@@ -16,35 +16,57 @@ $ocsf.metadata.profiles = ["host"]
 
 $ocsf.category_uid = 3
 $ocsf.class_uid = 3004
-let $activities = {
-  Create: 1,
-  Read: 2,
-  Update: 3,
-  Delete: 4,
-  Move: 5,
-  Enable: 8,
-  Disable: 9,
-}
-$ocsf.activity_id = $activities[$event.action?]? else 0
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-drop $event.action?
+checkpoint::ocsf::management_activity $event, $ocsf
 
-checkpoint::ocsf::status $event, $ocsf
-
-$ocsf.actor.user.name = move $event.user?
-$ocsf.src_endpoint.ip = move $event.src?
-
-$ocsf.entity = {
-  name: move $event.object?,
+// The managed object is the entity: a policy, or another management object
+// such as a rule, host, or network with its object type. Install Policy names
+// the target gateway, and Publish applies a management session.
+_operation = ($event.operation? else "").string().to_lower()
+if $event.object? != null or $event.uid? != null {
+  $ocsf.entity = {
+    name: move $event.object?,
+    uid: (move $event.uid?).string(),
+  }
+  if _operation == "install policy" and $event.objecttype? == null {
+    $ocsf.entity.type_id = 1
+    $ocsf.entity.device = {name: $ocsf.entity.name, type_id: 0}
+  } else if $event.objecttype?.to_lower().search("policy") {
+    $ocsf.entity.type_id = 5
+    $ocsf.entity.policy = {
+      name: $ocsf.entity.name,
+      uid: $ocsf.entity.uid,
+      type: move $event.objecttype,
+    }
+  } else if $event.objecttype? != null {
+    // OCSF has no entity type for a rule. A changed policy rule is an Other
+    // entity, and also the firewall rule of the event.
+    if $event.objecttype.to_lower().search("rule") {
+      $ocsf.metadata.profiles = ["host", "security_control"]
+      $ocsf.firewall_rule = {
+        name: $ocsf.entity.name,
+        uid: $ocsf.entity.uid,
+        type: $event.objecttype,
+      }
+    }
+    $ocsf.entity.type_id = 99
+    $ocsf.entity.type = move $event.objecttype
+  }
+} else if _operation == "publish" and $event.session_uid? != null {
+  $ocsf.entity = {
+    uid: $event.session_uid.string(),
+    name: move $event.session_name?,
+    type_id: 99,
+    type: "Session",
+  }
 }
-if $event.objecttype?.to_lower().search("rule") or
-   $event.objecttype?.to_lower().search("policy") {
-  $ocsf.entity.type_id = 5
-  $ocsf.entity.policy.name = $ocsf.entity.name
-  $ocsf.entity.policy.desc = move $event.objecttype
-} else {
-  $ocsf.entity.type_id = 1
-  $ocsf.entity.device.name = $ocsf.entity.name
-  $ocsf.entity.device.desc = move $event.objecttype?
+drop _operation
+// The administrator describes the session in which the change was published,
+// such as with a ticket number. OCSF sessions have no name, so the session
+// name of another operation than Publish stays in `unmapped`.
+if $event.session_description? != null {
+  $ocsf.comment = move $event.session_description
 }
-$ocsf.comment = move $event.subject?
+if $ocsf.activity_id == 99 {
+  drop $event.operation
+}
+drop $event.session_uid?

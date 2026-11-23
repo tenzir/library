@@ -28,26 +28,36 @@ let $direction_ids = {
   Outgoing: 2,
 }
 $ocsf.direction_id = $direction_ids[$event.direction?]? else $direction_ids[$event.conn_direction?]? else 0
-drop $event.direction?
-drop $event.conn_direction?
-
-$ocsf.email = {
-  from: move $event.sender?,
-  to: [move $event.recipient?],
-  subject: move $event.subject?,
-  size: move $event.size?,
+if $direction_ids[$event.direction?]? != null {
+  drop $event.direction
+} else if $direction_ids[$event.conn_direction?]? != null {
+  drop $event.conn_direction
 }
 
-$ocsf.src_endpoint = {
-  ip: move $event.src?,
-  port: move $event.s_port?,
+if $event.sender? != null or $event.recipient? != null or
+   $event.subject? != null or $event.email_message_id? != null {
+  $ocsf.email = {
+    from: move $event.sender?,
+    to: [move $event.recipient?] if $event.recipient? != null else null,
+    subject: move $event.subject?,
+    size: move $event.size?,
+    message_uid: move $event.email_message_id?,
+  }
 }
-$ocsf.dst_endpoint = {
-  ip: move $event.dst?,
-  port: move $event.service?,
+
+if $event.src? != null or $event.sname? != null {
+  $ocsf.src_endpoint = {
+    ip: move $event.src?,
+    port: move $event.s_port?,
+    hostname: move $event.sname?,
+  }
+}
+if $event.dst? != null or $event.dname? != null {
+  $ocsf.dst_endpoint = {
+    ip: move $event.dst?,
+    port: move $event.service?,
+    hostname: move $event.dname?,
+  }
 }
 $ocsf.protocol_name = move $event.service_id?
-if $ocsf.protocol_name == null and $ocsf.dst_endpoint.port == 25 {
-  $ocsf.protocol_name = "SMTP"
-}
 $ocsf.status_detail = move $event.status?

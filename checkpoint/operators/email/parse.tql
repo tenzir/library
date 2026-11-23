@@ -1,0 +1,84 @@
+---
+description: Normalize a Harmony Email & Collaboration security event
+---
+
+// The REST API returns a flat security event. The SIEM JSON format nests the
+// security event and the email or file it concerns. Both become one record;
+// fields without a counterpart stay where they were.
+if event?.security_event? != null {
+  event_id = move event.security_event.entity_info?.entity_id?
+  customer_id = move event.security_event.entity_info?.customer_domain?
+  created = move event.security_event.entity_info?.entity_created?
+  saas = move event.security_event.entity_payload?.saas?
+  entity_id = move event.security_event.saas_info?.entity_id?
+  state = move event.security_event.entity_payload?.current_state?
+  type = move event.security_event.entity_payload?.category?
+  severity = move event.security_event.entity_payload?.severity?
+  confidence_indicator = move event.security_event.entity_payload?.confidence_indicator?
+  confidence_level = move event.security_event.entity_payload?.confidence_level?
+  description = move event.security_event.entity_payload?.description_text?
+  data = move event.security_event.entity_payload?.description?
+  modified = move event.security_event.entity_payload?.latest_change_time?
+  matched_security_tool = move event.security_event.entity_payload?.matched_security_tool?
+  aggregation_id = move event.security_event.entity_payload?.aggregation_id?
+  policy_rule_id = move event.security_event.entity_payload?.policy_rule_id?
+  sender_address = move event.security_event.entity_payload?.event_metadata?.sender_address?
+  dlp_detections = move event.security_event.entity_payload?.event_metadata?.dlp_detections?
+  mailbox_user = move event.security_event.saas_info?.saas_actor_payload?
+  actions = move event.security_event.security_event_action?
+  email = move event.entity?.entity_payload?
+  siem = move event
+  if actions != null {
+    actions = actions.map(x => {
+      type: x.action_type?,
+      time: x.create_time?,
+      actor: x.actor?,
+      security_event_id: x.sec_event_id?,
+      error: x.error?,
+    })
+  }
+} else if eventId? != null {
+  event_id = move eventId
+  customer_id = move customerId?
+  entity_id = move entityId?
+  confidence_indicator = move confidenceIndicator?
+  created = move eventCreated?
+  sender_address = move senderAddress?
+  entity_link = move entityLink?
+  available_actions = move availableEventActions?
+  additional_data = move additionalData?
+  if actions? != null {
+    actions = actions.map(x => {type: x.actionType?, time: x.createTime?, entity_id: x.relatedEntityId?})
+  }
+}
+
+if created? != null and type_kind(created) != "time" {
+  created = time(created)
+}
+if modified? != null and type_kind(modified) != "time" {
+  modified = int((float(modified) * 1000000).round()).microseconds().from_epoch()
+}
+if severity? != null {
+  severity = int(severity)
+}
+if actions? != null {
+  actions = actions.map(x => {...x, time: time(x.time) if x.time != null else null})
+}
+
+// The data template marks the scan, sender, email, and mailbox user with
+// tokens such as #{"entity_id": "…", "entity_type": "avanan_ap_scan",
+// "label": "Phishing"}.
+if data? != null {
+  _parts = data.split("#{").where(x => x.starts_with("\"entity_id\""))
+  _parts = _parts.map(x => x.split("}")[0]).where(x => not x.search("tooltip_fields"))
+  _tokens = _parts.map(x => ("{" + x + "}").parse_json())
+  scan_engine = _tokens.where(x => x.entity_type? in ["avanan_ap_scan", "avanan_dlp", "clicktime_protection_scan", "ms_defender_scan"]).first().entity_type?
+  subject = _tokens.where(x => x.entity_type?.ends_with("_email")).first().label?
+  _users = _tokens.where(x => x.entity_type?.ends_with("_user"))
+  sender = _users.where(x => x.entity_id?.starts_with("ext:") or x.disable_link? == true).first().label?
+  mailbox_user = mailbox_user? else _users.where(x => not (x.entity_id?.starts_with("ext:") or x.disable_link? == true)).last()
+  drop _parts, _tokens, _users
+}
+
+// Other records, such as entity records, are no security events.
+@name = "checkpoint.email.event" if event_id? != null else "checkpoint.email"

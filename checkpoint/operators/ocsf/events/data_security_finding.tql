@@ -22,39 +22,65 @@ $ocsf.is_alert = true
 
 checkpoint::ocsf::security_control_outcome $event, $ocsf
 
+// The DLP incident is the finding and the DLP rule its analytic.
 $ocsf.finding_info = {
-  title: $event.data_type? else $event.reason? else $ocsf.message? else "Check Point DLP finding",
+  title: $event.data_type? else $event.dlp_rule_name? else $event.reason? else $ocsf.message?,
   desc: $event.reason?,
-  uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
-  analytic: {
-    name: $event.policy? else "Check Point DLP",
+  uid: (move $event.dlp_incident_uid? else $ocsf.metadata.original_event_uid?).string(),
+}
+if $event.dlp_rule_name? != null or $event.dlp_rule_uid? != null or $event.policy? != null {
+  $ocsf.finding_info.analytic = {
+    name: move $event.dlp_rule_name? else $event.policy?,
+    uid: (move $event.dlp_rule_uid?).string(),
     type_id: 1,
-    uid: $ocsf.metadata.uid? else $ocsf.metadata.original_event_uid?,
-  },
+  }
 }
 
+// The gateway inspects data in transit. Harmony Endpoint DLP runs on the
+// endpoint, and its record does not tell the state of the data.
+_endpoint = ($event.product_family? else "").string().to_lower() == "endpoint"
 $ocsf.data_security = {
-  data_lifecycle_state_id: 2,
-  detection_system_id: 2,
+  data_lifecycle_state_id: 0 if _endpoint else 2,
+  detection_system_id: 1 if _endpoint else 2,
   detection_pattern: move $event.data_type?,
 }
-$ocsf.data_security.policy.name = move $event.policy?
-$ocsf.file = {
-  type_id: 1 if $event.object? != null,
-  name: move $event.object?,
-  size: move $event.size?,
+drop _endpoint
+if $event.policy? != null {
+  $ocsf.data_security.policy.name = move $event.policy
 }
-if $event.objecttype? != null {
-  $ocsf.file.type_id = 99
-  $ocsf.file.type = move $event.objecttype
+if $event.object? != null or $event.dlp_file_name? != null {
+  $ocsf.file = {
+    name: $event.dlp_file_name? else $event.object?,
+    size: move $event.size?,
+    type_id: 1,
+  }
+  if $event.dlp_file_name? != null {
+    drop $event.dlp_file_name
+  } else {
+    drop $event.object
+  }
+  if $event.objecttype? != null {
+    $ocsf.file.type_id = 99
+    $ocsf.file.type = move $event.objecttype
+  }
 }
-$ocsf.src_endpoint.ip = move $event.src?
-$ocsf.dst_endpoint = {
-  ip: move $event.dst?,
-  port: move $event.service?,
+if $event.src? != null or $event.sname? != null {
+  $ocsf.src_endpoint = {
+    ip: move $event.src?,
+    hostname: move $event.sname?,
+  }
 }
-$ocsf.actor.user = {
-  name: move $event.user?,
-  email_addr: move $event.sender?,
+if $event.dst? != null or $event.dname? != null {
+  $ocsf.dst_endpoint = {
+    ip: move $event.dst?,
+    port: move $event.service?,
+    hostname: move $event.dname?,
+  }
+}
+if $event.user? != null or $event.sender? != null {
+  $ocsf.actor.user = {
+    name: move $event.user? else $event.sender?,
+    email_addr: move $event.sender?,
+  }
 }
 $ocsf.status_detail = move $event.reason?

@@ -1,0 +1,49 @@
+---
+description: Apply shared Check Point management operation context
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// The management operation, such as `Create Object` or `Install Policy`,
+// names the activity. The exporter `action` is Accept for every audit record
+// and says nothing about the operation or its outcome.
+_operation = ($event.operation? else "").string()
+$ocsf.activity_id = 0
+if _operation.to_lower().match_regex("^(create|add)( |$)") {
+  $ocsf.activity_id = 1
+} else if _operation.to_lower().match_regex("^(read|show|get)( |$)") {
+  $ocsf.activity_id = 2
+} else if _operation.to_lower().match_regex("^(modify|set|edit|update)( |$)") {
+  $ocsf.activity_id = 3
+} else if _operation.to_lower().match_regex("^(delete|remove)( |$)") {
+  $ocsf.activity_id = 4
+} else if _operation != "" {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = _operation
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+drop _operation
+if $event.operation? != null and $event.action? == "Accept" {
+  drop $event.action
+}
+
+checkpoint::ocsf::status $event, $ocsf
+
+// The subject describes the kind of audit record, such as
+// `Object Manipulation`.
+$ocsf.message = move $event.subject? else $ocsf.message?
+if $event.user? != null {
+  $ocsf.actor.user.name = move $event.user
+}
+if $event.session_uid? != null {
+  $ocsf.actor.session.uid = $event.session_uid.string()
+}
+if $event.src? != null {
+  $ocsf.src_endpoint.ip = move $event.src
+}

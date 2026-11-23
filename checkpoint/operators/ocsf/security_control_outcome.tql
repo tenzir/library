@@ -10,26 +10,60 @@ args:
       type: field
 ---
 
+// The Check Point action is the security decision. Detect observes, Prevent,
+// Block, Drop, Reject, Restrict, and Quarantine stop the activity, Inform User
+// lets it pass with an alert, and the VPN and HTTPS inspection actions let it
+// pass. Harmony Endpoint also reports the treatment of an infected file, and
+// Threat Extraction removes content from a file.
 match $event.action? {
-  "Accept" => {
+  "Accept" | "Allow" | "Encrypt" | "Decrypt" | "Bypass" | "HTTPS Bypass" |
+  "Inspect" | "HTTPS Inspect" => {
     $ocsf.action_id = 1
     $ocsf.disposition_id = 1
-    $ocsf.status_id = 1
   }
   "Detect" => {
     $ocsf.action_id = 3
     $ocsf.disposition_id = 15
-    $ocsf.status_id = 1
   }
-  "Drop" | "Prevent" | "Reject" => {
+  "Prevent" | "Block" => {
     $ocsf.action_id = 2
     $ocsf.disposition_id = 2
-    $ocsf.status_id = 2
   }
-  _ => {
-    $ocsf.action_id = 0
-    $ocsf.disposition_id = 0
-    $ocsf.status_id = 0
+  "Drop" => {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 6
+  }
+  "Reject" => {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 25
+  }
+  "Quarantine" | "Quarantined" => {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 3
+  }
+  "Restrict" => {
+    $ocsf.action_id = 2
+    $ocsf.disposition_id = 2
+  }
+  "Inform User" | "Warn User" => {
+    $ocsf.action_id = 1
+    $ocsf.disposition_id = 19
+  }
+  "Extract" | "Cleaned" | "Cured" => {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 11
+  }
+  "Deleted" => {
+    $ocsf.action_id = 4
+    $ocsf.disposition_id = 5
+  }
+  _ => {}
+}
+if $ocsf.action_id? != null {
+  drop $event.action
+  // In activity classes, a stopped activity failed. Findings use `status_id`
+  // for their own lifecycle, which the action does not tell.
+  if $ocsf.category_uid != 2 {
+    $ocsf.status_id = 2 if $ocsf.action_id == 2 else 1
   }
 }
-drop $event.action?
