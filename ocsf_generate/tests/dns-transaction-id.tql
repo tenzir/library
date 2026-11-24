@@ -1,0 +1,11 @@
+// DNS events carry the transaction ID at the top level; OCSF 1.9 deprecates
+// query.packet_uid. Zeek's dns.log has it in the trans_id column.
+ocsf_generate::generate count=512, class_uid=4003
+assert transaction_id >= 0 and transaction_id < 65536
+assert not query.has("packet_uid")
+if metadata.log_format == "zeek-tsv" {
+  assert raw_data.split("\t")[7] == string(transaction_id)
+}
+// A query without a response has no response time, not a null one.
+assert not this.has("response_time") or (activity_id != 1 and response_time >= query_time)
+summarize events=count()

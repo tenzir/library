@@ -1,0 +1,22 @@
+// A user's name, mail address, workstation, and subnet derive from one index,
+// so they stay related across classes and runs.
+ocsf_generate::generate count=4096, class_uid=3002, raw="none"
+_number = user.uid.replace("user-", "")
+_index = int(_number) - 1
+_division = int(_index / 20)
+assert _index >= 0 and _index < 2000
+_domain = "acme.example" if _division == 0 else f"division-{_division + 1}.acme.example"
+// Windows reports the NetBIOS domain instead of the DNS domain.
+assert user.domain == ("ACME" if metadata.product.name == "Windows Security" else _domain)
+assert user.email_addr? == null or user.email_addr == f"{user.name}@{_domain}"
+// Windows network logons have no subject and thus no actor.
+assert actor? == null or (actor.user.uid == user.uid and actor.user.name == user.name)
+assert src_endpoint.ip == ip(f"10.10.{_division + 1}.{10 + _index - _division * 20}")
+assert src_endpoint.hostname? == null or src_endpoint.hostname == f"ws-{_number}.{_domain}"
+summarize events=count(), users=count_distinct(user.uid), names=count_distinct(user.name),
+  workstations=count_distinct(src_endpoint.ip)
+// Names are unique, and every user owns exactly one workstation.
+assert users == names and users == workstations
+// 4,096 uniform draws from 2,000 users leave about 258 unseen.
+assert users > 1650 and users <= 2000
+this = {events: events, related_identities: "passed"}

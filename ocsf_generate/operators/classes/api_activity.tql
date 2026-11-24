@@ -1,0 +1,43 @@
+@name = "ocsf.api_activity"
+class_uid = 6003
+category_uid = 6
+metadata.log_name = "cloud-audit"
+metadata.product = {name: "CloudTrail", vendor_name: "Amazon Web Services"}
+dst_endpoint = {ip: 10.20.0.40, hostname: "api.acme.example", port: 443}
+activity_id = 2
+api = {operation: "ListObjectsV2", service: {name: "s3.amazonaws.com"}}
+if _ctx.variant >= 70 and _ctx.variant < 80 {
+  activity_id = 1
+  api.operation = "PutObject"
+} else if _ctx.variant >= 80 and _ctx.variant < 95 {
+  activity_id = 4
+  api.operation = "DeleteObject"
+} else if _ctx.variant >= 95 {
+  status_id = 2
+  status_detail = "AccessDenied"
+}
+resources = [{uid: "arn:aws:s3:::team-documents", name: "team-documents", type: "Bucket"}]
+message = f"{_ctx.user.name} called {api.operation} on team-documents"
+if _ctx.detail > 0.65 {
+  api.request.uid = metadata.uid
+}
+// CloudTrail records the SDK or console agent and a request ID for every call.
+_ctx.native = "cloudtrail"
+_ctx.request_id = hash_md5(metadata.uid).slice(end=16).to_upper()
+if api.request? != null {
+  api.request.uid = _ctx.request_id
+}
+// The client names follow the product/version convention of AWS tools; the
+// versions are invented.
+http_request.user_agent = [
+  "aws-cli/2.40.1",
+  "Boto3/1.50.2 Botocore/1.50.2",
+  "S3Console/0.4",
+  "aws-sdk-go-v2/1.50.0",
+][int(random() * 4)]
+if api.operation != "ListObjectsV2" {
+  resources = resources.append({
+    uid: f"arn:aws:s3:::team-documents/{_ctx.user.name}/{time.format_time("%Y-%m-%d")}/{hash_md5(metadata.uid).slice(begin=16)}.parquet",
+    type: "Object",
+  })
+}

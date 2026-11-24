@@ -1,0 +1,36 @@
+---
+description: Add context to profiles and resources after their final construction.
+---
+
+if resources? != null {
+  resources = resources.map(r => {...r, owner: _ctx.user, criticality_id: 3})
+}
+if process?.container? != null {
+  process.container.runtime = "containerd"
+  process.container.orchestrator = "Kubernetes"
+  process.container.pod_uuid = uuid()
+  process.container.image.labels = ["app=acme-worker", "version=2.4.0"]
+}
+if class_uid == 6003 {
+  api.response = {code: 403 if status_id == 2 else 201 if activity_id == 1 else 204 if activity_id == 4 else 200}
+  api.service.version = "1.0-fixture"
+  if status_id == 2 {
+    api.response.error = "AccessDenied"
+    api.response.error_message = "The synthetic access policy denied this request."
+  }
+}
+if trace? != null {
+  trace.span.parent_uid = f"request-{trace.uid}"
+  trace.span.status_code = string(api.response.code)
+  trace.span.service.version = api.service.version
+}
+if class_uid == 2002 {
+  // The CVE IDs are real, so the events make no claims about scores, affected
+  // versions, or fixed versions.
+  vulnerabilities = vulnerabilities.map(v => {...v,
+    remediation: {desc: "Update the package to a fixed version."},
+  })
+}
+// Native collector types belong to the free-form source context. OCSF's
+// duration fields themselves remain integer milliseconds.
+unmapped.collector = {sequence: uint(_ctx.event_index), latency: 5ms}
