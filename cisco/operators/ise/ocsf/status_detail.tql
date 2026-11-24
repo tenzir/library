@@ -2,9 +2,9 @@
 description: "Sets the reason that ISE gives for an outcome."
 args:
   positional:
-    - name: event
+    - name: ise
       type: field
-      description: The event from `cisco::ise::parse`.
+      description: The structured ISE event to read.
     - name: ocsf
       type: field
       description: The field that receives the OCSF event.
@@ -13,19 +13,19 @@ args:
 // ISE writes the reason as the code and text of a catalog message. Without a
 // reason, the text or the error of the operation describes the outcome. Alarms
 // spell the names with spaces.
-if $event.attributes["Failure Reason"]? != null {
-  $event.attributes.FailureReason = move $event.attributes["Failure Reason"]
+if $ise.attributes["Failure Reason"]? != null {
+  $ise.attributes.FailureReason = move $ise.attributes["Failure Reason"]
 }
-if $event.attributes.FailureReason?.match_regex(r"^\d{4,5} ") {
-  $ocsf.status_code = $event.attributes.FailureReason.split(" ", max=1)[0]
-  $ocsf.status_detail = (move $event.attributes.FailureReason).split(" ", max=1)[1]
+if $ise.attributes.FailureReason?.match_regex(r"^\d{4,5} ") {
+  $ocsf.status_code = $ise.attributes.FailureReason.split(" ", max=1)[0]
+  $ocsf.status_detail = (move $ise.attributes.FailureReason).split(" ", max=1)[1]
 } else {
   let $names = ["FailureReason", "OperationMessageText", "Error Message", "AD-Error-Details", "LogErrorMessage", "DetailedInfo", "Details", "Cause", "OpenSSLErrorMessage"]
-  _detail = $event.attributes.entries().where(x => x.key in $names)
+  _detail = $ise.attributes.entries().where(x => x.key in $names)
   if _detail != [] {
     _detail = $names.map(x => _detail.where(y => y.key == x)[0]?).where(x => x != null)[0]
     $ocsf.status_detail = _detail.value
-    $event.attributes = $event.attributes.entries().where(x => x.key != _detail.key).collect_record()
+    $ise.attributes = $ise.attributes.entries().where(x => x.key != _detail.key).collect_record()
   }
   drop _detail
 }

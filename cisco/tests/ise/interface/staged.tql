@@ -1,0 +1,24 @@
+// Each step by itself gives the same event as `normalize`.
+// Synthetic ISE record; every value is invented.
+from_file env("TENZIR_INPUT") {
+  read_syslog accept_pri_only=true
+}
+this = {syslog: this, at: 2026-05-11T06:14:21Z}
+message = syslog.content? else syslog.message?
+fork_merge {
+  cisco::ise::reassemble message, reassembly, category=syslog.app_name?, origin=syslog.hostname, on=at, span=1s
+  cisco::ise::parse reassembly.message, ise, category=syslog.app_name?, reassembly=reassembly
+  where ise != null
+  ise.syslog = syslog
+  drop ise.syslog.content?, ise.syslog.message?
+  cisco::ise::ocsf::map ise, ocsf
+  ocsf.raw_data = reassembly.message
+  ocsf.raw_data_size = reassembly.message.length_bytes()
+  select ocsf, call="staged"
+}, {
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  where ocsf.metadata.log_name? != null
+  select ocsf, call="normalize"
+}
+summarize raw_data=ocsf.raw_data, events=count_distinct(ocsf.hash_xxh3()), calls=count()
+sort raw_data

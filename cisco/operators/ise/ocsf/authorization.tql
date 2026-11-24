@@ -2,9 +2,9 @@
 description: "Maps the authorization policy result of a request."
 args:
   positional:
-    - name: event
+    - name: ise
       type: field
-      description: The event from `cisco::ise::parse`.
+      description: The structured ISE event to read.
     - name: ocsf
       type: field
       description: The field that receives the OCSF event.
@@ -12,8 +12,8 @@ args:
 
 // Network access selects authorization profiles, device administration selects
 // a shell profile.
-_profiles = ($event.repeated.SelectedAuthorizationProfiles? else [$event.attributes.SelectedAuthorizationProfiles?]).append($event.attributes.SelectedShellProfile?).where(x => x != null).distinct()
-drop $event.repeated.SelectedAuthorizationProfiles?, $event.attributes.SelectedAuthorizationProfiles?, $event.attributes.SelectedShellProfile?
+_profiles = ($ise.repeated.SelectedAuthorizationProfiles? else [$ise.attributes.SelectedAuthorizationProfiles?]).append($ise.attributes.SelectedShellProfile?).where(x => x != null).distinct()
+drop $ise.repeated.SelectedAuthorizationProfiles?, $ise.attributes.SelectedAuthorizationProfiles?, $ise.attributes.SelectedShellProfile?
 
 // The status tells the outcome that the message code states, for example of the
 // authentication. The authorization has an own outcome: the action, the
@@ -41,7 +41,7 @@ if _decision == "Allowed" {
 } else if _decision == "Denied" {
   $ocsf.action_id = 2
   $ocsf.disposition_id = 26
-} else if [$event.attributes.Response?].concatenate($event.repeated.Response? else []).where(x => x?.search("RadiusPacketType=AccessReject")) != [] {
+} else if [$ise.attributes.Response?].concatenate($ise.repeated.Response? else []).where(x => x?.search("RadiusPacketType=AccessReject")) != [] {
   $ocsf.action_id = 2
   $ocsf.disposition_id = 2
 }
@@ -52,9 +52,9 @@ if _profiles.length() == 1 {
   $ocsf.authorizations = _profiles.map(x => {decision: "Denied" if x == "DenyAccess" else null, policy: {name: x}})
 }
 drop _profiles, _decision
-if $event.attributes.AuthorizationPolicyMatchedRule? != null {
-  $ocsf.policy = {name: move $event.attributes.AuthorizationPolicyMatchedRule}
-  if $event.attributes.ISEPolicySetName? != null {
-    $ocsf.policy.group = {name: move $event.attributes.ISEPolicySetName}
+if $ise.attributes.AuthorizationPolicyMatchedRule? != null {
+  $ocsf.policy = {name: move $ise.attributes.AuthorizationPolicyMatchedRule}
+  if $ise.attributes.ISEPolicySetName? != null {
+    $ocsf.policy.group = {name: move $ise.attributes.ISEPolicySetName}
   }
 }

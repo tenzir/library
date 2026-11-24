@@ -2,9 +2,9 @@
 description: "Maps the identity that asks for access to an OCSF user."
 args:
   positional:
-    - name: event
+    - name: ise
       type: field
-      description: The event from `cisco::ise::parse`.
+      description: The structured ISE event to read.
     - name: ocsf
       type: field
       description: The field that receives the user.
@@ -14,27 +14,27 @@ args:
 let $hidden = ["INVALID", "USERNAME"]
 
 _name = [
-  $event.attributes.UserName?,
-  $event.attributes["User-Name"]?,
-  $event.attributes.User?,
-  $event.attributes.GuestUserName?,
+  $ise.attributes.UserName?,
+  $ise.attributes["User-Name"]?,
+  $ise.attributes.User?,
+  $ise.attributes.GuestUserName?,
 ].where(x => x != null and not x in $hidden).first()
 if _name != null {
-  if $event.attributes.UserName? == _name {
-    drop $event.attributes.UserName
+  if $ise.attributes.UserName? == _name {
+    drop $ise.attributes.UserName
   }
-  if $event.attributes["User-Name"]? == _name {
-    drop $event.attributes["User-Name"]
+  if $ise.attributes["User-Name"]? == _name {
+    drop $ise.attributes["User-Name"]
   }
-  if $event.attributes.User? == _name {
-    drop $event.attributes.User
+  if $ise.attributes.User? == _name {
+    drop $ise.attributes.User
   }
-  if $event.attributes.GuestUserName? == _name {
-    drop $event.attributes.GuestUserName
+  if $ise.attributes.GuestUserName? == _name {
+    drop $ise.attributes.GuestUserName
   }
   $ocsf = {
     name: _name,
-    domain: $event.attributes["AD-User-DNS-Domain"]? else $event.attributes.ADDomain?,
+    domain: $ise.attributes["AD-User-DNS-Domain"]? else $ise.attributes.ADDomain?,
   }
   // Windows identities come as `DOMAIN\user`, sometimes with the backslash
   // escaped.
@@ -42,45 +42,45 @@ if _name != null {
     $ocsf.name = _name.split("\\").last()
     $ocsf.domain = _name.split("\\")[0]
   } else {
-    if $event.attributes["AD-User-DNS-Domain"]? == $ocsf.domain {
-      drop $event.attributes["AD-User-DNS-Domain"]?
+    if $ise.attributes["AD-User-DNS-Domain"]? == $ocsf.domain {
+      drop $ise.attributes["AD-User-DNS-Domain"]?
     }
-    if $event.attributes.ADDomain? == $ocsf.domain {
-      drop $event.attributes.ADDomain?
+    if $ise.attributes.ADDomain? == $ocsf.domain {
+      drop $ise.attributes.ADDomain?
     }
   }
   // A host identity, as in MAC Authentication Bypass, is no OCSF user type.
-  match $event.attributes.UserType? {
+  match $ise.attributes.UserType? {
     "User" => { $ocsf.type_id = 1 }
     null => {}
     _ => {
       $ocsf.type_id = 99
-      $ocsf.type = $event.attributes.UserType
+      $ocsf.type = $ise.attributes.UserType
     }
   }
-  drop $event.attributes.UserType?
+  drop $ise.attributes.UserType?
   // Endpoint identity groups are groups of the endpoint, not of the user.
-  _group = $event.attributes.IdentityGroup?
+  _group = $ise.attributes.IdentityGroup?
   _groups = []
   if _group != null and not _group in ["Any", "Unknown"] and not _group.starts_with("Endpoint Identity Groups:") {
     _groups = [_group]
-    drop $event.attributes.IdentityGroup
+    drop $ise.attributes.IdentityGroup
   }
   _groups = (_groups
-    .concatenate($event.repeated.ExternalGroups? else [$event.attributes.ExternalGroups?])
-    .concatenate($event.repeated["AD-Groups-Names"]? else [$event.attributes["AD-Groups-Names"]?])
+    .concatenate($ise.repeated.ExternalGroups? else [$ise.attributes.ExternalGroups?])
+    .concatenate($ise.repeated["AD-Groups-Names"]? else [$ise.attributes["AD-Groups-Names"]?])
     .where(x => x != null))
-  drop $event.repeated.ExternalGroups?, $event.attributes.ExternalGroups?
-  drop $event.repeated["AD-Groups-Names"]?, $event.attributes["AD-Groups-Names"]?
+  drop $ise.repeated.ExternalGroups?, $ise.attributes.ExternalGroups?
+  drop $ise.repeated["AD-Groups-Names"]?, $ise.attributes["AD-Groups-Names"]?
   if _groups != [] {
     $ocsf.groups = _groups.distinct().map(x => {uid: x} if x.starts_with("S-1-") else {name: x})
   }
   // The resolved identity is the user principal name.
-  if $event.attributes["AD-User-Resolved-Identities"]? != null {
-    $ocsf.uid_alt = move $event.attributes["AD-User-Resolved-Identities"]
+  if $ise.attributes["AD-User-Resolved-Identities"]? != null {
+    $ocsf.uid_alt = move $ise.attributes["AD-User-Resolved-Identities"]
   }
-  if $event.attributes["AD-User-Resolved-DNs"]? != null {
-    $ocsf.ldap_person = {ldap_dn: (move $event.attributes["AD-User-Resolved-DNs"]).replace_regex(r"\\+,", ",")}
+  if $ise.attributes["AD-User-Resolved-DNs"]? != null {
+    $ocsf.ldap_person = {ldap_dn: (move $ise.attributes["AD-User-Resolved-DNs"]).replace_regex(r"\\+,", ",")}
   }
   drop _group, _groups
 }

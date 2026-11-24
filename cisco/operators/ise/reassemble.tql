@@ -3,22 +3,37 @@ description: |
   Reassembles Cisco ISE messages that a logging target received in numbered
   segments.
 
+  The first field holds the raw message body, not the full Syslog envelope, and
+  the second receives the joined body in `message`, next to the ISE node in
+  `origin` and the outcome:
+
+  ```tql
+  cisco::ise::reassemble message, reassembly
+  cisco::ise::parse reassembly.message, ise, reassembly=reassembly
+  ```
+
+  `cisco::ise::ocsf::normalize` does this implicitly. Call the operator on a
+  stream of segments, because it turns all segments of a message into one event.
+  The event around the first segment survives as it is.
+
   Segments belong together when they carry the same message ID and come from
-  the same ISE node. The operator writes the joined body back to `message` and
-  describes the result in `reassembly`. Single-segment and unnumbered messages
-  pass through without delay, and a segmented message leaves with the segment
-  that completes it. A message whose segments are missing, contradictory, or out
-  of range leaves later, with `reassembly.complete == false` and all of its
-  segments.
+  the same ISE node. Single-segment and unnumbered messages, as well as other
+  input, pass through without delay, and a segmented message leaves with the
+  segment that completes it. A message whose segments are missing,
+  contradictory, or out of range leaves later, with `complete: false` and all of
+  its segments.
 
   Segments that contradict a message after it left follow as an incomplete
   message with the issue `segments after completion`.
 args:
-  named:
-    - name: message
-      description: The field that holds the ISE message body.
+  positional:
+    - name: input
+      description: The field that holds the raw ISE message body.
       type: field
-      default: message
+    - name: reassembly
+      description: The field that receives the joined body and the outcome.
+      type: field
+  named:
     - name: origin
       description: |
         The ISE node that sent the segment. Provide the preserved node identity
@@ -60,7 +75,7 @@ let $frame = r"(?s)^\s*(?:(?:(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}(?:\.\d+
 // message. Then the body holds several segments.
 let $glued = r"\n.*CISE_\S+\s+\d+\s+\d+\s+\d+\s"
 
-select context=this, body=$message, origin=string($origin), category=$category, observed=$on else now(), replay=$on != null
+select context=this, body=$input, origin=string($origin), category=$category, observed=$on else now(), replay=$on != null
 _frame = body.parse_grok($frame, raw=true)
 origin = _frame.host? else origin
 if _frame.tag? == null and category?.starts_with("CISE_") and not body.starts_with("CISE_") {
@@ -201,8 +216,5 @@ if body.match_regex($glued) {
   }
 }
 
-if reassembly? != null {
-  context.reassembly = reassembly
-}
-this = {...context, _body: body}
-$message = move _body
+this = {...context, _reassembly: {message: body, ...reassembly?}}
+$reassembly = move _reassembly

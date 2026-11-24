@@ -7,13 +7,16 @@ description: |
 
 accept_udp "0.0.0.0:514"
 // A datagram with a priority but an unusual header is still a segment.
-this = data.parse_syslog(accept_pri_only=true)
-body = move content? else message?
-category = app_name? if app_name?.starts_with("CISE_")
-where body != null
+syslog = data.parse_syslog(accept_pri_only=true)
+where syslog != null
+select syslog
+message = syslog.content? else syslog.message?
 // Segments arrive one by one. Batches keep up with many messages per second.
 batch timeout=250ms
-cisco::ise::reassemble message=body, category=category
-drop category
-cisco::ise::parse message=body
+// RFC 3164 keeps the category tag in the content. RFC 5424 can carry it as
+// application name.
+cisco::ise::reassemble message, reassembly, category=syslog.app_name?, origin=syslog.hostname?
+cisco::ise::parse reassembly.message, ise, category=syslog.app_name?, reassembly=reassembly
+where ise != null
+select syslog, message=reassembly.message, ise
 publish "cisco"

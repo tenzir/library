@@ -14,8 +14,6 @@ The `cisco` package reassembles and parses Cisco Identity Services Engine (ISE) 
 accept_tcp "0.0.0.0:514" {
   read_syslog accept_pri_only=true
 }
-cisco::ise::reassemble message=content
-cisco::ise::parse message=content
 cisco::ise::ocsf::normalize
 ```
 

@@ -1,10 +1,27 @@
 ---
-description: "Maps a structured Cisco ISE event to OCSF 1.9."
+description: |
+  Cisco ISE events → OCSF.
+
+  Reads a structured ISE event, as `cisco::ise::parse` produces it, and builds
+  the corresponding OCSF event in the second field:
+
+  ```tql
+  cisco::ise::ocsf::map ise, ocsf
+  ```
+
+  A `null` event, which is what the parser yields for input that is no ISE
+  message, becomes an OCSF Base Event. So does an incomplete message.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event. Callers can add the
+  Syslog envelope as `ise.syslog` before mapping. Its `hostname` and `timestamp`
+  stand in for a missing ISE node and a missing message time. The operator does
+  not preserve the original log record.
 args:
   positional:
-    - name: event
+    - name: ise
       type: field
-      description: The event from `cisco::ise::parse`.
+      description: The structured ISE event to read.
     - name: ocsf
       type: field
       description: The field that receives the OCSF event.
@@ -17,6 +34,9 @@ args:
         without an own time need them, such as alarms. Defaults to UTC.
 ---
 
+if $ise == null {
+  $ise = {}
+}
 $ocsf = {
   metadata: {
     product: {
@@ -24,34 +44,36 @@ $ocsf = {
       name: "Identity Services Engine",
     },
     version: "1.9.0",
-    log_name: move $event.category?,
-    type: move $event.message_class?,
-    log_level: move $event.severity?,
-    event_code: (move $event.message_code?).string(),
-    original_event_uid: (move $event.message_id?).string(),
-    sequence: move $event.sequence_number?,
-    original_time: move $event.original_time?,
+    log_name: move $ise.category?,
+    type: move $ise.message_class?,
+    log_level: move $ise.severity?,
+    event_code: (move $ise.message_code?).string(),
+    original_event_uid: (move $ise.message_id?).string(),
+    sequence: move $ise.sequence_number?,
+    original_time: move $ise.original_time?,
   },
 }
-_complete = @name != "cisco.ise.incomplete"
+// Input that is no ISE message is not incomplete either.
+_complete = $ise.complete? != false
+drop $ise.complete?
 
 // The header time names its offset. Without a header, as in alarms and
 // segments without their first one, the syslog time or the arrival time is the
 // best evidence.
-if $event.timestamp? != null {
-  $ocsf.time = move $event.timestamp
-  $ocsf.timezone_offset = move $event.timezone_offset?
-} else if type_kind($event.syslog?.timestamp?) == "time" {
-  $ocsf.time = $event.syslog.timestamp
+if $ise.timestamp? != null {
+  $ocsf.time = move $ise.timestamp
+  $ocsf.timezone_offset = move $ise.timezone_offset?
+} else if type_kind($ise.syslog?.timestamp?) == "time" {
+  $ocsf.time = $ise.syslog.timestamp
   $ocsf.metadata.debug = ["time is the syslog header time"]
-} else if $event.reassembly?.observed? != null {
-  $ocsf.time = $event.reassembly.observed
+} else if $ise.reassembly?.observed? != null {
+  $ocsf.time = $ise.reassembly.observed
   $ocsf.metadata.debug = ["time is the arrival time of the segment"]
-} else if $event.syslog?.timestamp?.string().match_regex(r"^[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}$") {
-  $ocsf.time = $event.syslog.timestamp.parse_time("%b %e %H:%M:%S", reference=now(), timezone=$timezone else "UTC")
+} else if $ise.syslog?.timestamp?.string().match_regex(r"^[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}$") {
+  $ocsf.time = $ise.syslog.timestamp.parse_time("%b %e %H:%M:%S", reference=now(), timezone=$timezone else "UTC")
   $ocsf.metadata.debug = ["time is the syslog header time without year and offset"]
 }
-drop $event.timestamp?, $event.timezone_offset?
+drop $ise.timestamp?, $ise.timezone_offset?
 
 $ocsf.severity_id = 0
 match $ocsf.metadata.log_level {
@@ -62,13 +84,13 @@ match $ocsf.metadata.log_level {
   "FATAL" | "EMERGENCY" => { $ocsf.severity_id = 6 }
   _ => {}
 }
-$ocsf.message = move $event.message_text?
+$ocsf.message = move $ise.message_text?
 
 // The ISE node reports the event. A relay in between is a hop of the pipeline.
 let $address = "^([0-9]{1,3}[.]){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$"
-_header_host = $event.syslog?.hostname?.string()
-_node = $event.reassembly?.origin?.string() else _header_host
-drop $event.syslog?.hostname?, $event.reassembly?.origin?
+_header_host = $ise.syslog?.hostname?.string()
+_node = $ise.origin?.string() else _header_host
+drop $ise.syslog?.hostname?, $ise.origin?
 if _node != null and _node != "" {
   $ocsf.metadata.reporter = {
     hostname: _node if not _node.match_regex($address) else null,
@@ -78,7 +100,7 @@ if _node != null and _node != "" {
 if _header_host != null and _header_host != "" and _header_host != _node {
   $ocsf.metadata.loggers = [{
     name: _header_host,
-    logged_time: $event.syslog?.timestamp? if type_kind($event.syslog?.timestamp?) == "time" else null,
+    logged_time: $ise.syslog?.timestamp? if type_kind($ise.syslog?.timestamp?) == "time" else null,
   }]
 }
 drop _header_host, _node
@@ -87,33 +109,31 @@ if not _complete {
   $ocsf.metadata.is_truncated = true
   $ocsf.metadata.labels = ["cisco.ise.incomplete"]
 }
-$ocsf.raw_data = move $event.raw?
-$ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
 
 // ISE repeats names. Equal values count once, and names without a value drop
 // out. Some attributes have several values by nature. Otherwise the first value
 // counts, because ISE writes its own attributes before those of the request, and
 // the others stay next to it in `unmapped`.
 let $multivalued = ["Step", "StepData", "cisco-av-pair", "AVPair", "NetworkDeviceGroups", "SelectedAuthorizationProfiles", "ExternalGroups", "AD-Groups-Names", "MatchedCommandSet", "SelectedCommandSet", "CmdSet"]
-_values = (($event.attributes? else {})
+_values = (($ise.attributes? else {})
   .entries()
   .map(x => {key: x.key, values: x.value if type_kind(x.value) == "list" else [x.value]})
   .map(x => {key: x.key, values: x.values.where(y => y != null).distinct()})
   .where(x => x.values != []))
-$event.attributes = _values.where(x => x.values.length() == 1 or not x.key in $multivalued).map(x => {key: x.key, value: x.values[0]}).collect_record()
-$event.repeated = _values.where(x => x.values.length() > 1).map(x => {key: x.key, value: x.values if x.key in $multivalued else x.values.where(y => y != x.values[0])}).collect_record()
+$ise.attributes = _values.where(x => x.values.length() == 1 or not x.key in $multivalued).map(x => {key: x.key, value: x.values[0]}).collect_record()
+$ise.repeated = _values.where(x => x.values.length() > 1).map(x => {key: x.key, value: x.values if x.key in $multivalued else x.values.where(y => y != x.values[0])}).collect_record()
 drop _values
 
 // The network device generates the audit session ID, which the authentications,
 // authorizations, and accounting records of an endpoint session share. The
 // messages of one request share the session ID of the policy service node, and
 // those of one operation its ID.
-$ocsf.metadata.correlation_uid = $event.attributes.CPMSessionID? else $event.attributes.AcsSessionID? else $event.attributes.OperationID?
+$ocsf.metadata.correlation_uid = $ise.attributes.CPMSessionID? else $ise.attributes.AcsSessionID? else $ise.attributes.OperationID?
 
 // The message codes are unique across all categories.
 // Source: https://www.cisco.com/c/en/us/td/docs/security/ise/syslog/Cisco_ISE_Syslogs/m_SyslogsList.html
 if not _complete {
-  cisco::ise::ocsf::base $event, $ocsf
+  cisco::ise::ocsf::base $ise, $ocsf
 } else {
   match $ocsf.metadata.event_code {
     // RADIUS, TACACS+, MDM, and guest portal authentication.
@@ -121,7 +141,7 @@ if not _complete {
     | "5400" | "5401" | "5405" | "5411" | "5412" | "5416" | "5418" | "5423" | "5434" | "5435" | "5440" | "5441"
     | "5442" | "5443" | "5448" | "5449" | "5451" | "5452"
     | "86010" | "86011" | "86014" => {
-      cisco::ise::ocsf::events::authentication $event, $ocsf
+      cisco::ise::ocsf::events::authentication $ise, $ocsf
     }
     // Administrators, sponsors, and My Devices users that log in to ISE.
     "51000" | "51001" | "51002" | "51003" | "51004" | "51005" | "51006" | "51007" | "51008" | "51009"
@@ -129,58 +149,58 @@ if not _complete {
     | "60075" | "60076" | "60077" | "60078" | "60080" | "60081" | "60082" | "60115" | "60116" | "60117" | "60124"
     | "60184" | "60185" | "60186" | "60204" | "60205" | "60206" | "61076" | "61077"
     | "10005" | "10006" | "10007" => {
-      cisco::ise::ocsf::events::login $event, $ocsf
+      cisco::ise::ocsf::events::login $ise, $ocsf
     }
     "5202" | "5402" | "5408" | "3300" => {
-      cisco::ise::ocsf::events::script_activity $event, $ocsf
+      cisco::ise::ocsf::events::script_activity $ise, $ocsf
     }
     "5203" | "5236" | "5403" | "5409" | "5422" => {
-      cisco::ise::ocsf::events::authorize_session $event, $ocsf
+      cisco::ise::ocsf::events::authorize_session $ise, $ocsf
     }
     // These codes leave open whether they concern a session or a command.
     "5404" | "5407" | "5410" => {
-      if $event.attributes.Action? == "Command" or $event.attributes.CmdSet? != null or $event.repeated.CmdSet? != null {
-        cisco::ise::ocsf::events::script_activity $event, $ocsf
+      if $ise.attributes.Action? == "Command" or $ise.attributes.CmdSet? != null or $ise.repeated.CmdSet? != null {
+        cisco::ise::ocsf::events::script_activity $ise, $ocsf
       } else {
-        cisco::ise::ocsf::events::authorize_session $event, $ocsf
+        cisco::ise::ocsf::events::authorize_session $ise, $ocsf
       }
     }
     // Accounting also covers other services, such as a reload of the system.
     "3301" | "3302" => {
-      if $event.attributes["Service-Argument"]? == "shell" {
-        cisco::ise::ocsf::events::authentication $event, $ocsf
+      if $ise.attributes["Service-Argument"]? == "shell" {
+        cisco::ise::ocsf::events::authentication $ise, $ocsf
       } else {
-        cisco::ise::ocsf::base $event, $ocsf
+        cisco::ise::ocsf::base $ise, $ocsf
       }
     }
     "3000" | "3001" | "3002" => {
-      cisco::ise::ocsf::events::network_activity $event, $ocsf
+      cisco::ise::ocsf::events::network_activity $ise, $ocsf
     }
     "5204" | "5415"
     | "51023" | "51100" | "51101" | "51102" | "51103" | "51104" | "51105" | "51107" | "51115" | "51116"
     | "86002" | "86003" | "86004" | "86006" | "86007" | "86008" => {
-      cisco::ise::ocsf::events::user_management $event, $ocsf
+      cisco::ise::ocsf::events::user_management $ise, $ocsf
     }
     "52000" | "52001" | "52002"
     | "60083" | "60084" | "60085" | "60086" | "60087" | "60088" | "60089" | "60090" | "60091" | "60092"
     | "88000" | "88001" | "88002" | "88003" | "88004" | "88005" | "88006" | "88007" | "88008" | "88009"
     | "88010" | "88011" => {
-      cisco::ise::ocsf::events::entity_management $event, $ocsf
+      cisco::ise::ocsf::events::entity_management $ise, $ocsf
     }
     "57000" | "58015" | "59100" | "59101" | "59102" | "59103" | "59203" | "59204" | "59205" | "59206" | "59207" | "59208" => {
-      cisco::ise::ocsf::events::event_log_activity $event, $ocsf
+      cisco::ise::ocsf::events::event_log_activity $ise, $ocsf
     }
     "58001" | "58002" | "58003" | "58004" | "58005" => {
-      cisco::ise::ocsf::events::application_lifecycle $event, $ocsf
+      cisco::ise::ocsf::events::application_lifecycle $ise, $ocsf
     }
     "60113" | "60114" => {
-      cisco::ise::ocsf::events::device_power_state_activity $event, $ocsf
+      cisco::ise::ocsf::events::device_power_state_activity $ise, $ocsf
     }
     "80001" | "80002" => {
-      cisco::ise::ocsf::events::device_inventory_info $event, $ocsf
+      cisco::ise::ocsf::events::device_inventory_info $ise, $ocsf
     }
     _ => {
-      cisco::ise::ocsf::base $event, $ocsf
+      cisco::ise::ocsf::base $ise, $ocsf
     }
   }
 }
@@ -196,29 +216,29 @@ if $ocsf.action_id? != null or $ocsf.authorizations? != null or $ocsf.policy? !=
 
 if $ocsf.metadata.is_truncated? != true {
   // The node names itself and the own address that received the request.
-  _instance = $event.attributes.AcsInstance? else $event.attributes.PsnHostName?
+  _instance = $ise.attributes.AcsInstance? else $ise.attributes.PsnHostName?
   if _instance != null and $ocsf.metadata.reporter? != null {
     if _instance != $ocsf.metadata.reporter.hostname? {
       $ocsf.metadata.reporter.name = _instance
     }
-    drop $event.attributes.AcsInstance?, $event.attributes.PsnHostName?
+    drop $ise.attributes.AcsInstance?, $ise.attributes.PsnHostName?
   }
   drop _instance
-  if $event.attributes.DestinationIPAddress?.match_regex($address) and $ocsf.metadata.reporter?.ip? == null {
-    $ocsf.metadata.reporter.ip = ip(move $event.attributes.DestinationIPAddress)
+  if $ise.attributes.DestinationIPAddress?.match_regex($address) and $ocsf.metadata.reporter?.ip? == null {
+    $ocsf.metadata.reporter.ip = ip(move $ise.attributes.DestinationIPAddress)
   }
-  $event.attributes = $event.attributes.entries().where(x => not (x.key in ["CPMSessionID", "AcsSessionID", "OperationID"] and x.value == $ocsf.metadata.correlation_uid)).collect_record()
+  $ise.attributes = $ise.attributes.entries().where(x => not (x.key in ["CPMSessionID", "AcsSessionID", "OperationID"] and x.value == $ocsf.metadata.correlation_uid)).collect_record()
 }
 // The counters of a complete message have served their purpose.
 if $ocsf.metadata.is_truncated? != true {
-  drop $event.segment_total?, $event.segment_number?, $event.reassembly?
+  drop $ise.segment_total?, $ise.segment_number?, $ise.reassembly?
 }
-if $event.reassembly? == {} {
-  drop $event.reassembly
+if $ise.reassembly? == {} {
+  drop $ise.reassembly
 }
-if $event.syslog? == {} {
-  drop $event.syslog
+if $ise.syslog? == {} {
+  drop $ise.syslog
 }
-$event.repeated = $event.repeated.entries().map(x => {key: x.key, value: [$event.attributes[x.key]?].where(y => y != null).concatenate(x.value)}).collect_record()
-$ocsf.unmapped = {...$event, ...$event.attributes, ...$event.repeated}
-drop $ocsf.unmapped.attributes, $ocsf.unmapped.repeated, $event
+$ise.repeated = $ise.repeated.entries().map(x => {key: x.key, value: [$ise.attributes[x.key]?].where(y => y != null).concatenate(x.value)}).collect_record()
+$ocsf.unmapped = {...$ise, ...$ise.attributes, ...$ise.repeated}
+drop $ocsf.unmapped.attributes, $ocsf.unmapped.repeated, $ise

@@ -1,0 +1,39 @@
+// Every field that can hold the message gives the same event.
+// Synthetic ISE record; every value is invented.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = {line: line, parsed: line.parse_syslog(), at: 2026-05-11T06:14:21Z}
+fork_merge {
+  cisco::ise::ocsf::normalize parsed, into=ocsf, on=at, span=1s
+  select ocsf, message="content"
+}, {
+  parsed.raw = line
+  cisco::ise::ocsf::normalize parsed, into=ocsf, on=at, span=1s
+  select ocsf, message="content and raw"
+}, {
+  syslog = {message: line}
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, message="message"
+}, {
+  syslog = {line: line}
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, message="line"
+}, {
+  syslog = {data: line}
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, message="data"
+}, {
+  syslog = {syslog_message: line}
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, message="syslog_message"
+}, {
+  syslog = {raw: line}
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, message="raw"
+}, {
+  cisco::ise::ocsf::normalize line, into=ocsf, on=at, span=1s
+  select ocsf, message="string"
+}
+summarize raw_data=ocsf.raw_data, events=count_distinct(ocsf.hash_xxh3()), messages=collect(message)
+messages = messages.sort()

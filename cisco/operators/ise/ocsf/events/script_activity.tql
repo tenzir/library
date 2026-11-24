@@ -2,9 +2,9 @@
 description: "Cisco ISE command authorization and command accounting → OCSF Script Activity (1009)"
 args:
   positional:
-    - name: event
+    - name: ise
       type: field
-      description: The event from `cisco::ise::parse`.
+      description: The structured ISE event to read.
     - name: ocsf
       type: field
       description: The field that receives the OCSF event.
@@ -28,7 +28,7 @@ if _code == "3300" {
   $ocsf.status_id = 1 if _code == "5202" else 2
 }
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-cisco::ise::ocsf::status_detail $event, $ocsf
+cisco::ise::ocsf::status_detail $ise, $ocsf
 
 // 5408 and 5410 report errors instead of a decision.
 if _code in ["5202", "5402", "5404", "5407"] {
@@ -37,12 +37,12 @@ if _code in ["5202", "5402", "5404", "5407"] {
   $ocsf.disposition_id = 1 if _code == "5202" else 26
   // The command set that matched holds the decision. If none did, ISE names
   // those that it evaluated, and reason 13025 rejects the command in all.
-  _sets = ($event.repeated.MatchedCommandSet? else [$event.attributes.MatchedCommandSet?]).where(x => x != null).distinct()
+  _sets = ($ise.repeated.MatchedCommandSet? else [$ise.attributes.MatchedCommandSet?]).where(x => x != null).distinct()
   if _sets == [] {
-    _sets = ($event.repeated.SelectedCommandSet? else [$event.attributes.SelectedCommandSet?]).where(x => x != null).distinct()
-    drop $event.repeated.SelectedCommandSet?, $event.attributes.SelectedCommandSet?
+    _sets = ($ise.repeated.SelectedCommandSet? else [$ise.attributes.SelectedCommandSet?]).where(x => x != null).distinct()
+    drop $ise.repeated.SelectedCommandSet?, $ise.attributes.SelectedCommandSet?
   } else {
-    drop $event.repeated.MatchedCommandSet?, $event.attributes.MatchedCommandSet?
+    drop $ise.repeated.MatchedCommandSet?, $ise.attributes.MatchedCommandSet?
   }
   if _sets == [] {
     $ocsf.authorizations = [{decision: _decision}]
@@ -51,22 +51,22 @@ if _code in ["5202", "5402", "5404", "5407"] {
   } else {
     $ocsf.authorizations = [{decision: _decision}].concatenate(_sets.map(x => {policy: {name: x}}))
   }
-  if $event.attributes.AuthorizationPolicyMatchedRule? != null {
-    $ocsf.policy = {name: move $event.attributes.AuthorizationPolicyMatchedRule}
-    if $event.attributes.ISEPolicySetName? != null {
-      $ocsf.policy.group = {name: move $event.attributes.ISEPolicySetName}
+  if $ise.attributes.AuthorizationPolicyMatchedRule? != null {
+    $ocsf.policy = {name: move $ise.attributes.AuthorizationPolicyMatchedRule}
+    if $ise.attributes.ISEPolicySetName? != null {
+      $ocsf.policy.group = {name: move $ise.attributes.ISEPolicySetName}
     }
   }
   drop _decision, _sets
 }
 
-cisco::ise::ocsf::device $event, $ocsf
-cisco::ise::ocsf::user $event, $ocsf.actor.user
-cisco::ise::ocsf::session $event, $ocsf.actor.session
+cisco::ise::ocsf::device $ise, $ocsf
+cisco::ise::ocsf::user $ise, $ocsf.actor.user
+cisco::ise::ocsf::session $ise, $ocsf.actor.session
 
 // ISE writes a command as `[ CmdAV=show CmdArgAV=clock CmdArgAV=<cr> ]` or as
 // `[ CmdAV=show clock <cr> ]`. The last argument is the return key.
-_sets = ($event.repeated.CmdSet? else [$event.attributes.CmdSet?]).where(x => x != null).distinct()
+_sets = ($ise.repeated.CmdSet? else [$ise.attributes.CmdSet?]).where(x => x != null).distinct()
 _command = (_sets
   .map(x => x.trim().trim_start("[").replace_regex(r"\s*\]$", ""))
   .map(x => x.replace_regex(r"(?:^|\s+)CmdAV=", "\x1e").replace_regex(r"\s+CmdArgAV=", " "))
@@ -79,17 +79,17 @@ _command = (_sets
   .replace_regex(r"\\+([,;{}])", r"\1"))
 if _command != "" {
   $ocsf.script = {
-    uid: ($event.repeated.AVPair? else [$event.attributes.AVPair?]).where(x => x != null).where(x => x.starts_with("task_id="))[0]?.replace("task_id=", ""),
+    uid: ($ise.repeated.AVPair? else [$ise.attributes.AVPair?]).where(x => x != null).where(x => x.starts_with("task_id="))[0]?.replace("task_id=", ""),
     script_content: {value: _command},
     type_id: 0,
   }
   if _sets.where(x => not x.trim().ends_with("]")) != [] {
     $ocsf.script.script_content.is_truncated = true
   }
-  if $event.attributes["Service-Argument"]?.to_lower() == "shell" or $event.attributes.Service?.to_lower() == "shell" {
+  if $ise.attributes["Service-Argument"]?.to_lower() == "shell" or $ise.attributes.Service?.to_lower() == "shell" {
     $ocsf.script.type_id = 99
     $ocsf.script.type = "Shell"
   }
-  drop $event.attributes.CmdSet?, $event.repeated.CmdSet?
+  drop $ise.attributes.CmdSet?, $ise.repeated.CmdSet?
 }
 drop _code, _sets, _command
