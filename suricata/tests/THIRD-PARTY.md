@@ -7,25 +7,28 @@ test inputs are synthetic.
 
 Source: [M57-Patents scenario](https://digitalcorpora.org/corpora/scenarios/m57-patents-scenario/)
 by Digital Corpora. License:
-[CC0 1.0](https://digitalcorpora.org/about-digitalcorpora/terms-of-use/).
+[CC0 1.0](https://digitalcorpora.org/about-digitalcorpora/terms-of-use/). The
+license statement excludes material that explicitly claims a copyright,
+including in packet dumps.
 
-The following files hold Suricata EVE records that Suricata wrote for the
-scenario's network captures. They contain event metadata only, no captured
-payloads.
+The following files hold Suricata EVE records of the scenario's network
+captures from November 2009. They contain event metadata only, no payload or
+packet fields.
 
 | File | Changes |
 |---|---|
-| `inputs/alert.json` | None |
-| `inputs/anomaly.json` | None |
-| `inputs/dhcp.json` | None |
-| `inputs/dns.json` | None |
-| `inputs/fileinfo.json` | None |
-| `inputs/flow.json` | None |
-| `inputs/ftp.json` | None |
-| `inputs/http.json` | None |
-| `inputs/smb.json` | None |
-| `inputs/smtp.json` | None |
-| `inputs/tls.json` | None |
-| `ocsf/tls-sslv3-certificate.input` | Timestamps shifted |
-| `ocsf/tls-sslv2-certificate.input` | Timestamps shifted, TLS version changed to SSLv2 |
-| `ocsf/tls-ip-server-name-handshake.input` | Timestamps shifted, server address added as SNI |
+| `inputs/alert.json` | Times written with `Z` |
+| `inputs/anomaly.json` | Times written with `Z` |
+| `inputs/dhcp.json` | Times written with `Z` |
+| `inputs/dns.json` | Times written with `Z` |
+| `inputs/fileinfo.json` | Times written with `Z` |
+| `inputs/flow.json` | Times written with `Z`; one is off by a nanosecond |
+| `inputs/ftp.json` | Times written with `Z` |
+| `inputs/http.json` | Times written with `Z` |
+| `inputs/smb.json` | Times written with `Z` |
+| `inputs/smtp.json` | Times written with `Z` |
+| `inputs/tls.json` | Times written with `Z`; one is off by a nanosecond |
+
+The table lists the differences from Suricata's EVE format that the files
+themselves show. The records were not compared with the captures. The files
+have not changed since they joined this repository.
