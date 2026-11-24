@@ -1,0 +1,43 @@
+---
+description: Derive the recurring user, workstation, and service from their indexes.
+---
+
+let $division_size = demo::$ocsf_division_size
+let $first_names = demo::$ocsf_first_names
+let $last_names = demo::$ocsf_last_names
+let $services = demo::$ocsf_services
+
+// Every 20 divisions share a block of first names, and each division rotates
+// through the last names, so every name is unique.
+_ctx.division = int(_ctx.user_index / $division_size)
+_ctx.seat = _ctx.user_index - _ctx.division * $division_size
+_ctx.surname = _ctx.seat + _ctx.division
+_ctx.surname = _ctx.surname - int(_ctx.surname / $last_names.length()) * $last_names.length()
+_ctx.number = string(_ctx.user_index + 1).pad_start(3, "0")
+_ctx.name = f"{$first_names[_ctx.seat + int(_ctx.division / 20) * 20]}.{$last_names[_ctx.surname]}"
+_ctx.domain = "acme.example" if _ctx.division == 0 else f"division-{_ctx.division + 1}.acme.example"
+_ctx.user = {
+  uid: f"user-{_ctx.number}",
+  name: _ctx.name,
+  email_addr: f"{_ctx.name}@{_ctx.domain}",
+  domain: _ctx.domain,
+  type_id: 1,
+}
+_ctx.host = {
+  uid: f"workstation-{_ctx.number}",
+  hostname: f"ws-{_ctx.number}.{_ctx.domain}",
+  ip: f"10.10.{_ctx.division + 1}.{10 + _ctx.seat}",
+}
+// Every division runs the same services in its own subnet.
+_ctx.service_division = int(_ctx.service_index / $services.length())
+_ctx.service_kind = _ctx.service_index - _ctx.service_division * $services.length()
+_ctx.service_domain = ("acme.example" if _ctx.service_division == 0
+  else f"division-{_ctx.service_division + 1}.acme.example")
+// Addresses stay strings here; the class builders convert them where OCSF wants an IP.
+_ctx.service = {
+  hostname: f"{$services[_ctx.service_kind].name}.{_ctx.service_domain}",
+  ip: f"10.20.{_ctx.service_division}.{$services[_ctx.service_kind].host}",
+  ipv6: f"2001:db8:20:{_ctx.service_division}::{$services[_ctx.service_kind].host}",
+  port: $services[_ctx.service_kind].port,
+}
+drop _ctx.seat, _ctx.surname, _ctx.number, _ctx.name, _ctx.domain, _ctx.service_division, _ctx.service_kind

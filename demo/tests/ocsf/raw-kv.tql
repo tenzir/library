@@ -1,0 +1,15 @@
+demo::ocsf::generate count=1024, raw="kv"
+_source = raw_data.parse_kv(unflatten_separator=".")
+assert string(_source.event_id) == metadata.uid
+assert _source.product == metadata.product.name
+assert _source.message == message
+assert (_source.outcome? else "") == ("success" if status_id? == 1 else "failure" if status_id? == 2 else "")
+assert int(_source.timestamp) == int(round(time.since_epoch().count_milliseconds()))
+if class_uid != 0 {
+  assert string(_source.extra.observed_host) == string(unmapped.observed_host)
+} else {
+}
+if class_uid == 4002 {
+  assert _source.url == http_request.url.url_string
+}
+summarize events=count()

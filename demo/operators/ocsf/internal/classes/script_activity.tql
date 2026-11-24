@@ -1,0 +1,102 @@
+// PowerShell functions written for this package; scripts take a contiguous run
+// of them.
+let $ps_function_blocks = [
+  "function Write-JobLog {\n    param([string]$Text, [string]$Level = 'INFO')\n    $stamp = (Get-Date).ToUniversalTime().ToString('o')\n    Add-Content -Path 'C:\\ProgramData\\Acme\\jobs.log' -Value \"$stamp $Level $Text\"\n}",
+  "function Read-JobSettings {\n    $file = 'C:\\ProgramData\\Acme\\settings.json'\n    if (-not (Test-Path $file)) { throw \"Missing settings file $file\" }\n    Get-Content $file -Raw | ConvertFrom-Json\n}",
+  "function Get-FreeSpace {\n    Get-PSDrive -PSProvider FileSystem | ForEach-Object {\n        [pscustomobject]@{ Drive = $_.Name; FreeGB = [math]::Round($_.Free / 1GB, 1) }\n    }\n}",
+  "function Test-PortalReachable {\n    param([string]$Server = 'portal.acme.example')\n    $check = Test-NetConnection -ComputerName $Server -Port 443 -WarningAction SilentlyContinue\n    return $check.TcpTestSucceeded\n}",
+  "function Send-JobResult {\n    param([hashtable]$Result)\n    $body = $Result | ConvertTo-Json -Depth 4\n    Invoke-RestMethod -Uri 'https://api.acme.example/v1/jobs/results' -Method Post -Body $body -ContentType 'application/json'\n}",
+  "function Remove-OldReports {\n    param([int]$KeepDays = 30)\n    $limit = (Get-Date).AddDays(-$KeepDays)\n    Get-ChildItem 'C:\\ProgramData\\Acme\\Reports' -File | Where-Object LastWriteTime -lt $limit | Remove-Item\n}",
+  "function Copy-TeamDocuments {\n    param([string]$Share = '\\\\files.acme.example\\team-documents')\n    $source = Join-Path $env:USERPROFILE 'Documents'\n    Copy-Item -Path $source -Destination (Join-Path $Share $env:USERNAME) -Recurse -Force\n}",
+  "function Get-ServiceSummary {\n    Get-Service | Group-Object Status | ForEach-Object {\n        [pscustomobject]@{ Status = $_.Name; Count = $_.Count }\n    }\n}",
+]
+let $ps_blocks = [
+  ...$ps_function_blocks, ...$ps_function_blocks, ...$ps_function_blocks,
+  ...$ps_function_blocks, ...$ps_function_blocks,
+]
+// OCSF 1.9.0: script_activity; independently sampled source scenarios.
+@name = "ocsf.script_activity"
+class_uid = 1009
+category_uid = 1
+demo::ocsf::internal::system_base
+activity_id = 1
+script = {uid: metadata.uid, name: ["daily-report", "inventory", "deployment", "backup"][_ctx.scenario], type_id: 6, script_content: {value: ["/usr/local/bin/daily-report --format csv", "/usr/local/bin/inventory --packages", "/usr/local/bin/deploy --environment production", "/usr/local/bin/backup --verify"][_ctx.scenario]}}
+actor.process = {uid: uuid(), name: "bash", pid: 1000 + int(random() * 30000), file: {name: "bash", path: "/usr/bin/bash", type_id: 8}}
+if _ctx.scenario == 3 { status_id = 2 }
+message = f"Executed script {script.name} on {_ctx.host.hostname}"
+_ctx.source.script_name = script.name
+_ctx.source.script_content = script.script_content.value
+
+// Windows workstations run the same jobs as PowerShell scripts with script
+// block logging enabled (event 4104). Script bodies are reused function blocks,
+// so most are a few kilobytes, with a long tail of large modules and an
+// occasional embedded base64 payload.
+if _ctx.windows {
+  _ctx.native = "powershell"
+  metadata.product = {name: "PowerShell", vendor_name: "Microsoft", version: "5.1.26100.4652"}
+  metadata.log_name = "Microsoft-Windows-PowerShell/Operational"
+  actor.process = {
+    uid: uuid(),
+    name: "powershell.exe",
+    pid: actor.process.pid,
+    file: {name: "powershell.exe", path: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", type_id: 8},
+  }
+  _ctx.ps = {draw: random(), start: int(random() * 8)}
+  _ctx.ps.blocks = 1 + int(23 * _ctx.ps.draw * _ctx.ps.draw * _ctx.ps.draw)
+  // Concatenating a fixed number of optional terms is much faster than list lambdas.
+  _ctx.ps.body = ($ps_blocks[_ctx.ps.start]
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 1] if _ctx.ps.blocks > 1 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 2] if _ctx.ps.blocks > 2 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 3] if _ctx.ps.blocks > 3 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 4] if _ctx.ps.blocks > 4 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 5] if _ctx.ps.blocks > 5 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 6] if _ctx.ps.blocks > 6 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 7] if _ctx.ps.blocks > 7 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 8] if _ctx.ps.blocks > 8 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 9] if _ctx.ps.blocks > 9 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 10] if _ctx.ps.blocks > 10 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 11] if _ctx.ps.blocks > 11 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 12] if _ctx.ps.blocks > 12 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 13] if _ctx.ps.blocks > 13 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 14] if _ctx.ps.blocks > 14 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 15] if _ctx.ps.blocks > 15 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 16] if _ctx.ps.blocks > 16 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 17] if _ctx.ps.blocks > 17 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 18] if _ctx.ps.blocks > 18 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 19] if _ctx.ps.blocks > 19 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 20] if _ctx.ps.blocks > 20 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 21] if _ctx.ps.blocks > 21 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 22] if _ctx.ps.blocks > 22 else "")
+    + ("\n\n" + $ps_blocks[_ctx.ps.start + 23] if _ctx.ps.blocks > 23 else ""))
+  _ctx.ps.text = f"# {script.name} job for {_ctx.host.hostname}, run by {_ctx.user.name}\nparam([string]$Job = '{script.name}')\n$ErrorActionPreference = 'Stop'\n\n{_ctx.ps.body}"
+  if random() < 0.3 {
+    _ctx.ps.chunks = 1 + int(random() * 16)
+    _ctx.ps.blob = encode_base64(decode_hex(hash_sha512(metadata.uid)
+      + (hash_sha512(metadata.uid + "-1") if _ctx.ps.chunks > 1 else "")
+      + (hash_sha512(metadata.uid + "-2") if _ctx.ps.chunks > 2 else "")
+      + (hash_sha512(metadata.uid + "-3") if _ctx.ps.chunks > 3 else "")
+      + (hash_sha512(metadata.uid + "-4") if _ctx.ps.chunks > 4 else "")
+      + (hash_sha512(metadata.uid + "-5") if _ctx.ps.chunks > 5 else "")
+      + (hash_sha512(metadata.uid + "-6") if _ctx.ps.chunks > 6 else "")
+      + (hash_sha512(metadata.uid + "-7") if _ctx.ps.chunks > 7 else "")
+      + (hash_sha512(metadata.uid + "-8") if _ctx.ps.chunks > 8 else "")
+      + (hash_sha512(metadata.uid + "-9") if _ctx.ps.chunks > 9 else "")
+      + (hash_sha512(metadata.uid + "-10") if _ctx.ps.chunks > 10 else "")
+      + (hash_sha512(metadata.uid + "-11") if _ctx.ps.chunks > 11 else "")
+      + (hash_sha512(metadata.uid + "-12") if _ctx.ps.chunks > 12 else "")
+      + (hash_sha512(metadata.uid + "-13") if _ctx.ps.chunks > 13 else "")
+      + (hash_sha512(metadata.uid + "-14") if _ctx.ps.chunks > 14 else "")
+      + (hash_sha512(metadata.uid + "-15") if _ctx.ps.chunks > 15 else "")))
+    _ctx.ps.text = f"{_ctx.ps.text}\n\n$Archive = [Convert]::FromBase64String('{_ctx.ps.blob}')\n[IO.File]::WriteAllBytes((Join-Path $env:TEMP 'job-data.bin'), $Archive)"
+  }
+  _ctx.ps.text = f"{_ctx.ps.text}\n\nWrite-JobLog -Text \"Finished $Job\"\n"
+  script = {
+    uid: script.uid,
+    name: script.name,
+    type_id: 2,
+    file: {name: f"{script.name}.ps1", path: f"C:\\Program Files\\Acme\\Scripts\\{script.name}.ps1", type_id: 1},
+    script_content: {value: _ctx.ps.text},
+  }
+  _ctx.source.script_content = script.script_content.value
+  drop _ctx.ps
+}
