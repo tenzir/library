@@ -1,11 +1,12 @@
 ---
-name: "Okta System Log: HTTP Receiver"
+name: "Okta System Log: API Polling"
 description: >-
-  Polls the Okta System Log API for new events.
+  Polls the Okta System Log API and publishes the events on the `okta` topic.
 ---
 
-let $domain = "example.okta.com"
-every 30s {
-  okta::fetch $domain, bearer_token=secret("OKTA_BEARER_TOKEN")
-}
+// The pipeline starts one hour in the past and then follows the cursor that
+// Okta returns. The cursor lives only as long as the pipeline: after a
+// restart, the events of the last hour arrive again. The `uuid` of an event
+// identifies such duplicates.
+okta::fetch "example.okta.com", token=secret("OKTA_ACCESS_TOKEN")
 publish "okta"

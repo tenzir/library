@@ -1,10 +1,172 @@
 // Package-wide constants shared across the Okta OCSF event mappers.
 
-// OCSF `status_id` for Okta `outcome.result` values.
-let $status_ids = {
-  SUCCESS: 1,
-  ALLOW: 1,
-  FAILURE: 2,
-  DENY: 2,
-  CHALLENGE: 99,
+// Placeholder strings that Okta writes where it has no value.
+let $placeholders = ["unknown", "Unknown", "UNKNOWN", "null", "None"]
+
+// The OCSF class and activity of each Okta event type, following the meaning
+// that the Okta event type catalog gives the event. Event types that this
+// table does not list become a Base Event.
+// https://developer.okta.com/docs/reference/api/event-types/
+let $event_types = {
+  // --- Authentication (3002) ---------------------------------------------
+  // A sign-in to Okta or to an app asks for a session, and a sign-out ends
+  // one. The other events report single steps of a sign-in, which are no
+  // logon of their own.
+  "user.session.start": {class_uid: 3002, activity_id: 1},
+  "user.session.access_admin_app": {class_uid: 3002, activity_id: 1},
+  "user.authentication.sso": {class_uid: 3002, activity_id: 1},
+  "user.authentication.auth_via_radius": {class_uid: 3002, activity_id: 1},
+  "app.generic.unauth_app_access_attempt": {class_uid: 3002, activity_id: 1},
+  "application.policy.sign_on.deny_access": {class_uid: 3002, activity_id: 1},
+  "user.session.end": {class_uid: 3002, activity_id: 2},
+  "user.session.expire": {class_uid: 3002, activity_id: 2},
+  "user.session.clear": {class_uid: 3002, activity_id: 2},
+  "user.authentication.slo": {class_uid: 3002, activity_id: 2},
+  "user.session.impersonation.end": {class_uid: 3002, activity_id: 2},
+  // Okta Support acts in the org as one of its admins.
+  "user.session.impersonation.initiate": {class_uid: 3002, activity_id: 7},
+  // Okta sends the challenge of a factor before the user answers it.
+  "system.push.send_factor_verify_push": {class_uid: 3002, activity_id: 6},
+  "system.sms.send_factor_verify_message": {class_uid: 3002, activity_id: 6},
+  "system.voice.send_mfa_challenge_call": {class_uid: 3002, activity_id: 6},
+  "system.email.send_factor_verify_message": {class_uid: 3002, activity_id: 6},
+  "policy.evaluate_sign_on": {class_uid: 3002, activity_id: 99, activity_name: "Policy Evaluation"},
+  "user.authentication.auth_via_mfa": {class_uid: 3002, activity_id: 99, activity_name: "Factor Verification"},
+  "user.mfa.okta_verify": {class_uid: 3002, activity_id: 99, activity_name: "Factor Verification"},
+  "user.mfa.okta_verify.deny_push": {class_uid: 3002, activity_id: 99, activity_name: "Factor Verification"},
+  "user.authentication.verify": {class_uid: 3002, activity_id: 99, activity_name: "Flow Verification"},
+  "user.authentication.auth_via_AD_agent": {class_uid: 3002, activity_id: 99, activity_name: "Delegated Authentication"},
+  "user.authentication.auth_via_LDAP_agent": {class_uid: 3002, activity_id: 99, activity_name: "Delegated Authentication"},
+  "user.authentication.auth_via_iwa": {class_uid: 3002, activity_id: 99, activity_name: "Delegated Authentication"},
+  "user.authentication.auth_via_inbound_delauth": {class_uid: 3002, activity_id: 99, activity_name: "Delegated Authentication"},
+  "user.authentication.auth_via_IDP": {class_uid: 3002, activity_id: 99, activity_name: "Federated Authentication"},
+  "user.authentication.auth_via_social": {class_uid: 3002, activity_id: 99, activity_name: "Federated Authentication"},
+  "user.authentication.auth_via_inbound_SAML": {class_uid: 3002, activity_id: 99, activity_name: "Federated Authentication"},
+  // The org and the custom authorization servers issue and revoke tokens.
+  "app.oauth2.authorize": {class_uid: 3002, activity_id: 99, activity_name: "Authorization Request"},
+  "app.oauth2.authorize.code": {class_uid: 3002, activity_id: 99, activity_name: "Authorization Request"},
+  "app.oauth2.as.authorize": {class_uid: 3002, activity_id: 99, activity_name: "Authorization Request"},
+  "app.oauth2.as.authorize.code": {class_uid: 3002, activity_id: 99, activity_name: "Authorization Request"},
+  "app.oauth2.token.grant": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.token.grant.access_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.token.grant.id_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.token.grant.refresh_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.as.token.grant": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.as.token.grant.access_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.as.token.grant.id_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.as.token.grant.refresh_token": {class_uid: 3002, activity_id: 99, activity_name: "Token Grant"},
+  "app.oauth2.token.revoke": {class_uid: 3002, activity_id: 99, activity_name: "Token Revocation"},
+  "app.oauth2.as.token.revoke": {class_uid: 3002, activity_id: 99, activity_name: "Token Revocation"},
+
+  // --- User Management (3007) --------------------------------------------
+  "user.lifecycle.create": {class_uid: 3007, activity_id: 1},
+  "user.account.update_profile": {class_uid: 3007, activity_id: 2},
+  "user.account.update_primary_email": {class_uid: 3007, activity_id: 2},
+  "user.account.update_secondary_email": {class_uid: 3007, activity_id: 2},
+  "user.account.update_user_type": {class_uid: 3007, activity_id: 2},
+  "user.lifecycle.delete.initiated": {class_uid: 3007, activity_id: 3},
+  "user.lifecycle.delete.completed": {class_uid: 3007, activity_id: 3},
+  "user.lifecycle.activate": {class_uid: 3007, activity_id: 4},
+  "user.lifecycle.reactivate": {class_uid: 3007, activity_id: 4},
+  "user.lifecycle.unsuspend": {class_uid: 3007, activity_id: 4},
+  "user.lifecycle.deactivate": {class_uid: 3007, activity_id: 5},
+  "user.lifecycle.suspend": {class_uid: 3007, activity_id: 5},
+  "user.account.lock": {class_uid: 3007, activity_id: 6},
+  "user.account.lock.limit": {class_uid: 3007, activity_id: 6},
+  "user.account.unlock": {class_uid: 3007, activity_id: 7},
+  "user.account.unlock_by_admin": {class_uid: 3007, activity_id: 7},
+  "user.account.update_password": {class_uid: 3007, activity_id: 8},
+  "user.account.reset_password": {class_uid: 3007, activity_id: 9},
+  "user.mfa.factor.activate": {class_uid: 3007, activity_id: 12},
+  "user.mfa.factor.unsuspend": {class_uid: 3007, activity_id: 12},
+  "user.mfa.factor.deactivate": {class_uid: 3007, activity_id: 13},
+  "user.mfa.factor.suspend": {class_uid: 3007, activity_id: 13},
+  "user.mfa.factor.reset_all": {class_uid: 3007, activity_id: 13},
+  // Okta calls the admin roles of a user its privileges.
+  "user.account.privilege.grant": {class_uid: 3007, activity_id: 14},
+  "user.account.privilege.revoke": {class_uid: 3007, activity_id: 15},
+  // An API token acts with the permissions of the admin who created it.
+  "system.api_token.create": {class_uid: 3007, activity_id: 18},
+  "system.api_token.revoke": {class_uid: 3007, activity_id: 19},
+  "user.account.expire_password": {class_uid: 3007, activity_id: 99, activity_name: "Password Expiry"},
+  "application.user_membership.add": {class_uid: 3007, activity_id: 99, activity_name: "Application Assignment"},
+  "application.user_membership.remove": {class_uid: 3007, activity_id: 99, activity_name: "Application Unassignment"},
+
+  // --- Group Management (3006) -------------------------------------------
+  "group.privilege.grant": {class_uid: 3006, activity_id: 1},
+  "group.privilege.revoke": {class_uid: 3006, activity_id: 2},
+  "group.user_membership.add": {class_uid: 3006, activity_id: 3},
+  "group.user_membership.remove": {class_uid: 3006, activity_id: 4},
+  "group.lifecycle.delete": {class_uid: 3006, activity_id: 5},
+  "group.lifecycle.create": {class_uid: 3006, activity_id: 6},
+  "group.profile.update": {class_uid: 3006, activity_id: 9},
+  "group.application_assignment.add": {class_uid: 3006, activity_id: 99, activity_name: "Application Assignment"},
+  "group.application_assignment.remove": {class_uid: 3006, activity_id: 99, activity_name: "Application Unassignment"},
+
+  // --- Entity Management (3004) ------------------------------------------
+  // Changes to the configuration of the org. The first target is the entity.
+  "application.lifecycle.create": {class_uid: 3004, activity_id: 1},
+  "application.lifecycle.update": {class_uid: 3004, activity_id: 3},
+  "application.lifecycle.delete": {class_uid: 3004, activity_id: 4},
+  "application.lifecycle.activate": {class_uid: 3004, activity_id: 10},
+  "application.lifecycle.deactivate": {class_uid: 3004, activity_id: 11},
+  "application.configuration.read_client_secret": {class_uid: 3004, activity_id: 2},
+  "app.oauth2.client.read_client_secret": {class_uid: 3004, activity_id: 2},
+  "policy.lifecycle.create": {class_uid: 3004, activity_id: 1},
+  "policy.lifecycle.update": {class_uid: 3004, activity_id: 3},
+  "policy.lifecycle.delete": {class_uid: 3004, activity_id: 4},
+  "policy.lifecycle.activate": {class_uid: 3004, activity_id: 10},
+  "policy.lifecycle.deactivate": {class_uid: 3004, activity_id: 11},
+  "policy.rule.add": {class_uid: 3004, activity_id: 1},
+  "policy.rule.update": {class_uid: 3004, activity_id: 3},
+  "policy.rule.delete": {class_uid: 3004, activity_id: 4},
+  "policy.rule.activate": {class_uid: 3004, activity_id: 10},
+  "policy.rule.deactivate": {class_uid: 3004, activity_id: 11},
+  "zone.create": {class_uid: 3004, activity_id: 1},
+  "zone.update": {class_uid: 3004, activity_id: 3},
+  "zone.delete": {class_uid: 3004, activity_id: 4},
+  "zone.activate": {class_uid: 3004, activity_id: 10},
+  "zone.deactivate": {class_uid: 3004, activity_id: 11},
+  "security.trusted_origin.create": {class_uid: 3004, activity_id: 1},
+  "security.trusted_origin.update": {class_uid: 3004, activity_id: 3},
+  "security.trusted_origin.delete": {class_uid: 3004, activity_id: 4},
+  "security.trusted_origin.activate": {class_uid: 3004, activity_id: 10},
+  "security.trusted_origin.deactivate": {class_uid: 3004, activity_id: 11},
+  "system.idp.lifecycle.create": {class_uid: 3004, activity_id: 1},
+  "system.idp.lifecycle.read_client_secret": {class_uid: 3004, activity_id: 2},
+  "system.idp.lifecycle.update": {class_uid: 3004, activity_id: 3},
+  "system.idp.lifecycle.delete": {class_uid: 3004, activity_id: 4},
+  "system.idp.lifecycle.activate": {class_uid: 3004, activity_id: 10},
+  "system.idp.lifecycle.deactivate": {class_uid: 3004, activity_id: 11},
+  "system.log_stream.lifecycle.create": {class_uid: 3004, activity_id: 1},
+  "system.log_stream.lifecycle.update": {class_uid: 3004, activity_id: 3},
+  "system.log_stream.lifecycle.delete": {class_uid: 3004, activity_id: 4},
+  "system.log_stream.lifecycle.activate": {class_uid: 3004, activity_id: 10},
+  "system.log_stream.lifecycle.deactivate": {class_uid: 3004, activity_id: 11},
+  "device.enrollment.create": {class_uid: 3004, activity_id: 6},
+  "device.lifecycle.delete": {class_uid: 3004, activity_id: 4},
+  "device.lifecycle.activate": {class_uid: 3004, activity_id: 10},
+  "device.lifecycle.deactivate": {class_uid: 3004, activity_id: 11},
+  "device.lifecycle.suspend": {class_uid: 3004, activity_id: 12},
+  "device.lifecycle.unsuspend": {class_uid: 3004, activity_id: 13},
+  "device.user.add": {class_uid: 3004, activity_id: 99, activity_name: "User Assignment"},
+  "device.user.remove": {class_uid: 3004, activity_id: 99, activity_name: "User Unassignment"},
+
+  // --- Detection Finding (2004) ------------------------------------------
+  "security.threat.detected": {class_uid: 2004, activity_id: 1},
+  "security.threat.ioc.detect": {class_uid: 2004, activity_id: 1},
+  "security.breached_credential.detected": {class_uid: 2004, activity_id: 1},
+  "security.session.detect_client_roaming": {class_uid: 2004, activity_id: 1},
+  "security.attack.start": {class_uid: 2004, activity_id: 1},
+  "user.risk.detect": {class_uid: 2004, activity_id: 1},
+  "user.mfa.attempt_bypass": {class_uid: 2004, activity_id: 1},
+  "user.account.report_suspicious_activity_by_enduser": {class_uid: 2004, activity_id: 1},
+
+  // --- API Activity (6003) -----------------------------------------------
+  // Okta reports the API endpoint whose rate limit a caller approaches or
+  // exceeds.
+  "system.org.rate_limit.warning": {class_uid: 6003, activity_id: 99, activity_name: "Rate Limit Warning"},
+  "system.org.rate_limit.violation": {class_uid: 6003, activity_id: 99, activity_name: "Rate Limit Violation"},
+  "system.operation.rate_limit.warning": {class_uid: 6003, activity_id: 99, activity_name: "Rate Limit Warning"},
+  "system.operation.rate_limit.violation": {class_uid: 6003, activity_id: 99, activity_name: "Rate Limit Violation"},
 }

@@ -10,43 +10,53 @@ args:
       type: field
 ---
 
-// --- OCSF: classification attributes ----------
-
-let $activity_map = {
-  "group.lifecycle.create": 1,
-  "group.user_membership.add": 3,
-  "group.user_membership.remove": 4,
-  "group.lifecycle.delete": 5,
-  "group.privilege.grant": 99,
-  "group.application_assignment.add": 99,
-  "group.application_assignment.remove": 99,
-  "group.application_assignment.update": 99,
-  "group.user_membership.rule.add_exclusion": 99,
-}
-$ocsf.activity_id = $activity_map[$ocsf.metadata.event_code]? else 99
-$ocsf.category_uid = 3
-$ocsf.class_uid = 3006
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-$ocsf.status_id = okta::$status_ids[$event.outcome.result?]? else 0
-$ocsf.status_detail = move $event.outcome.reason?
-drop $event.outcome?
-
-// --- OCSF: group and user from target[] -------
-
-if $event.target? != null {
-  $ocsf.group = $event.target.where(t => t.type == "UserGroup").map(t => {
-    uid: t.id,
-    name: t.displayName,
-  })[0]?
-  $ocsf.group.privileges = move $event.debugContext.debugData.privilegeGranted?
-  $ocsf.user = $event.target.where(t => t.type == "User").map(t => {
-    uid: t.id,
-    name: t.alternateId?.split("@")[0]?,
-    full_name: string(t.displayName?),
-    email_addr: t.alternateId,
-    type_id: 1,
-  })[0]?
-}
-
 @name = "ocsf.group_management"
+
+$ocsf.category_uid = 3
+
+// The UserGroup target is the group that the actor manages.
+$event._group = $event.target?.where(t => t.type? == "UserGroup")[0]?
+if $event._group?.id? != null or $event._group?.displayName? != null {
+  $ocsf.group = {
+    uid: $event._group.id?,
+    name: $event._group.displayName?,
+  }
+}
+$event._mapped = [$event._group?]
+drop $event._group?
+
+// The User targets are the members that the actor adds or removes.
+$event._users = $event.target?.where(t => t.type? == "User" and (t.id? != null or t.alternateId? != null))
+if $event._users? != null and $event._users? != [] {
+  $ocsf.users = $event._users.map(t => {
+    uid: t.id?,
+    name: t.alternateId?.split("@")[0]?,
+    domain: t.alternateId?.split("@")[1]?,
+    email_addr: t.alternateId? if t.alternateId?.match_regex("@") else null,
+    full_name: t.displayName?,
+    type_id: 1,
+  })
+  $event._mapped = [...$event._mapped, ...$event._users]
+}
+drop $event._users?
+
+// Okta lists the admin roles of the group, separated by commas.
+if $ocsf.activity_id == 1 and $event.debugContext?.debugData?.privilegeGranted? != null {
+  $ocsf.privileges = (move $event.debugContext.debugData.privilegeGranted).split(",").map(x => x.trim())
+} else if $ocsf.activity_id == 2 and $event.debugContext?.debugData?.privilegeRevoked? != null {
+  $ocsf.privileges = (move $event.debugContext.debugData.privilegeRevoked).split(",").map(x => x.trim())
+}
+
+// The app that the actor assigns to the group or takes away.
+$event._app = $event.target?.where(t => t.type? == "AppInstance")[0]?
+if $event._app?.id? != null or $event._app?.displayName? != null {
+  $ocsf.resources = [{
+    uid: $event._app.id?,
+    name: $event._app.displayName?,
+    type: "AppInstance",
+  }]
+  if $event._app.alternateId? == null or $event._app.alternateId? == $event._app.displayName? {
+    $event._mapped = [...$event._mapped, $event._app]
+  }
+}
+drop $event._app?

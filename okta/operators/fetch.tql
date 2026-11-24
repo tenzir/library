@@ -1,28 +1,47 @@
 ---
-description: Fetches Okta system logs via HTTP
+description: Fetches Okta System Log events and keeps polling for new ones
 args:
   positional:
-   - name: domain
-     type: string
+    - name: domain
+      type: string
+      description: The Okta domain of the org, such as `example.okta.com`.
   named:
-   - name: limit
-     type: int
-     default: 200
-   - name: bearer_token
-     type: secret
-     default: null
-   - name: swss_token
-     type: secret
-     default: null
+    - name: lookback
+      type: duration
+      default: 1h
+      description: How far back the first request starts.
+    - name: interval
+      type: duration
+      default: 5s
+      description: The time to wait between two requests.
+    - name: limit
+      type: int
+      default: 1000
+      description: The number of events per request, up to 1000.
+    - name: token
+      type: secret
+      description: An OAuth 2.0 access token with the scope `okta.logs.read`, or an Okta API token.
+    - name: scheme
+      type: string
+      default: Bearer
+      description: The authorization scheme, `Bearer` for an access token and `SSWS` for an API token.
 ---
 
-// See:
-// - https://developer.okta.com/docs/api/
-// - https://developer.okta.com/docs/api/openapi/okta-management/guides/overview/
+// The first request starts in the past and asks for ascending order without
+// an end, which makes it a polling request: every response carries a `next`
+// link with an opaque cursor, also when it has no events yet. Following the
+// links returns every event once, in the order in which Okta stored it.
+// https://developer.okta.com/docs/reference/system-log-query/
+// Okta takes the start time with whole seconds.
+let $since = (now() - $lookback).format_time("%Y-%m-%dT%H:%M:%S").slice(end=19)
+let $endpoint = f"https://{$domain}/api/v1/logs?since={$since}Z&sortOrder=ASCENDING&limit={$limit}"
 
-let $endpoint = f"https://{$domain}/api/v1/logs?limit={$limit}"
-let $auth = f"Bearer {$bearer_token}" if $bearer_token != null else f"SSWS {$swss_token}"
-
-from_http $endpoint, headers={Authorization: $auth}, paginate="link" {
+// Okta answers with status 429 once the org exceeds its rate limit, which
+// resets every minute. The retries of a request span two minutes.
+from_http $endpoint,
+  headers={Authorization: f"{$scheme} {$token}"},
+  paginate="link",
+  paginate_delay=$interval,
+  retry_delay=4s {
   okta::read arrays_of_objects=true
 }
