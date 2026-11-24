@@ -2,10 +2,11 @@
 name: Onboard Cisco ASA logs via syslog UDP
 description: |
   Receives Cisco Secure Firewall ASA logs over UDP syslog, one message per
-  datagram, parses them, and publishes the events to the `cisco` topic.
+  datagram, normalizes them to OCSF 1.9, and publishes them to the `ocsf` topic.
 ---
 
 accept_udp "0.0.0.0:514"
 // ASA writes local times without a zone, except in the RFC 5424 format.
-cisco::asa::parse message=data, timezone="Europe/Berlin"
-publish "cisco"
+cisco::asa::ocsf::normalize timezone="Europe/Berlin"
+this = ocsf_cast(ocsf_derive(this))
+publish "ocsf"

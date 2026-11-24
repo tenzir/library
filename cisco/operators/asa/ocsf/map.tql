@@ -2,9 +2,12 @@
 description: |
   Maps a parsed Cisco Secure Firewall ASA event to OCSF 1.9.
 
-  The message ID determines the class. Messages without a mapping and messages
-  whose body the parser doesn't know become Base Events. Fields without an OCSF
-  target stay in `unmapped`.
+  The message ID determines the class. Messages without a mapping, messages
+  whose body the parser doesn't know, and a `null` event, which is what the
+  parser yields for input without an ASA frame, become Base Events.
+
+  The mapper consumes the source event: translated fields become OCSF, and the
+  remaining fields become `unmapped`. It does not preserve the original record.
 args:
   positional:
     - name: event
@@ -17,19 +20,26 @@ args:
 
 // ASA levels are those of syslog, from 0 (emergencies) to 7 (debugging). A
 // notification (5) reports a normal but significant condition.
-let $severities = [6, 5, 5, 4, 3, 1, 1, 1]
+let $severities = {
+  "0": 6,
+  "1": 5,
+  "2": 5,
+  "3": 4,
+  "4": 3,
+  "5": 1,
+  "6": 1,
+  "7": 1,
+}
 
 $ocsf = {
-  severity_id: $severities[move $event.severity],
+  severity_id: $severities[(move $event.severity?).string()]? else 0,
   // A message without a timestamp has no event time.
   time: $event.timestamp? if type_kind($event.timestamp?) == "time" else null,
-  message: move $event.text,
-  raw_data: $event.raw_message?,
-  raw_data_size: (move $event.raw_message?).length_bytes(),
+  message: move $event.text?,
   metadata: {
     version: "1.9.0",
     log_format: "syslog",
-    event_code: $event.message_id.string(),
+    event_code: $event.message_id?.string(),
     original_time: move $event.original_timestamp?,
     product: {
       name: "Secure Firewall ASA",
@@ -62,7 +72,7 @@ if $event.relay_hostname? != null {
   }
 }
 
-match $event.message_id {
+match $event.message_id? {
   _ if $event.body_parse_failed? == true => {
     cisco::asa::ocsf::base $event, $ocsf
   }
@@ -113,7 +123,7 @@ match $event.message_id {
   733100 | 733101 => {
     cisco::asa::ocsf::events::detection $event, $ocsf
   }
-  _ if $event.message_id >= 400000 and $event.message_id <= 400051 => {
+  _ if $event.message_id? >= 400000 and $event.message_id? <= 400051 => {
     cisco::asa::ocsf::events::detection $event, $ocsf
   }
   _ => {
@@ -122,6 +132,6 @@ match $event.message_id {
 }
 
 // The message ID is the event code, and the header's name is the reporter.
-drop $event.message_id, $event.hostname?
+drop $event.message_id?, $event.hostname?
 $ocsf.unmapped = move $event
 $ocsf = $ocsf.drop_null_fields()

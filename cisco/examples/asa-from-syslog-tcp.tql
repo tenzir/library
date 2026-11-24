@@ -2,11 +2,15 @@
 name: Onboard Cisco ASA logs via syslog TCP
 description: |
   Receives Cisco Secure Firewall ASA logs over TCP syslog, newline-delimited or
-  octet-counted, parses them, and publishes the events to the `cisco` topic.
+  octet-counted, normalizes them to OCSF 1.9, and publishes them to the `ocsf`
+  topic.
 ---
 
 accept_tcp "0.0.0.0:1470" {
-  // ASA writes local times without a zone, except in the RFC 5424 format.
-  cisco::asa::read timezone="Europe/Berlin"
+  // ASA writes headers without a hostname unless it logs a device ID.
+  read_syslog accept_pri_only=true, raw_message=raw
 }
-publish "cisco"
+// ASA writes local times without a zone, except in the RFC 5424 format.
+cisco::asa::ocsf::normalize timezone="Europe/Berlin"
+this = ocsf_cast(ocsf_derive(this))
+publish "ocsf"

@@ -1,7 +1,151 @@
 ---
-description: Normalize a parsed Cisco ASA event to OCSF 1.9.
+description: |
+  Normalizes a syslog event carrying a Cisco Secure Firewall ASA message to
+  OCSF 1.9.
+
+  The input is a raw syslog line or the record that `read_syslog`,
+  `parse_syslog`, or a log shipper makes of it. The operator parses the message,
+  takes what its header lacks from the syslog event, maps it, and preserves it
+  as provenance in `raw_data`. Input without an ASA frame becomes an OCSF Base
+  Event.
+
+  A record holds the message in `content`, `message`, `line`, `data`, or, as
+  `read_syslog` does with a line that it doesn't know, `syslog_message`. A raw
+  line in `raw` takes precedence:
+
+  ```tql
+  accept_tcp "0.0.0.0:1470" {
+    read_syslog accept_pri_only=true, raw_message=raw
+  }
+  cisco::asa::ocsf::normalize
+  ```
+
+  `accept_pri_only` is necessary for ASA headers without a hostname. For lines
+  without a priority, use `read_lines` instead of `read_syslog`, which appends
+  them to the previous event when it doesn't know their header.
+
+  When other products send to the same endpoint, select the ASA messages first,
+  for example by the source address or by the message:
+
+  ```tql
+  where raw.match_regex("%ASA-")
+  cisco::asa::ocsf::normalize
+  ```
+args:
+  positional:
+    - name: syslog
+      description: The syslog event or the raw line.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+    - name: timezone
+      description: |
+        The time zone of times without a zone, as an IANA name such as
+        `Europe/Berlin` or as a UTC offset such as `+01:00`. Defaults to UTC.
+      type: string
+      default: null
+    - name: reference
+      description: |
+        The time that timestamps without a year precede. Defaults to now. Set it
+        to the end of logs that are older than about a year.
+      type: time
+      default: null
 ---
 
-this = {event: this, ocsf: {}}
-cisco::asa::ocsf::map event, ocsf
-this = ocsf
+// Snapshot the carrier before writing so in-place and separate-field calls use
+// the same normalization path.
+$into = {source: $syslog}
+if type_kind($into.source) == "string" {
+  $into.source = {raw: $into.source}
+}
+$into.is_raw = $into.source.raw? != null
+if $into.is_raw {
+  // The raw line has the message.
+  $into.payload = move $into.source.raw
+  drop $into.source.content?, $into.source.message?, $into.source.syslog_message?
+} else if $into.source.app_name?.match_regex(r"^ASA-(\w+-)?[0-7]-[0-9]{6,7}$") {
+  // `parse_syslog` takes the frame of a message without device ID for the
+  // process tag.
+  $into.payload = f"%{$into.source.app_name}: {$into.source.content}"
+  drop $into.source.app_name, $into.source.content
+} else if $into.source.content? != null {
+  $into.payload = move $into.source.content
+} else if $into.source.message? != null {
+  $into.payload = move $into.source.message
+} else if $into.source.line? != null {
+  $into.payload = move $into.source.line
+} else if $into.source.data? != null {
+  $into.payload = move $into.source.data
+} else {
+  $into.payload = move $into.source.syslog_message?
+}
+
+// Put a textual timestamp back in front of a message that lacks one, because
+// its zone and year depend on the arguments. `parse_syslog` takes a zone, or a
+// device ID next to a colon, for the process tag.
+$into.line = $into.payload
+if not $into.is_raw and type_kind($into.source.timestamp?) == "string" and $into.payload.match_regex("%ASA-") and not $into.payload.match_regex("^(<[0-9]+>)?[: ]*([A-Z][a-z]{2} +[0-9]{1,2} |[0-9]{4}-[0-9]{2}-[0-9]{2}T)") {
+  if $into.source.hostname? == null and $into.source.process_id? == null and $into.source.app_name? != null {
+    $into.line = f"{$into.source.timestamp} {$into.source.app_name}: {$into.payload}"
+    drop $into.source.app_name
+  } else {
+    $into.line = f"{$into.source.timestamp}: {$into.payload}"
+  }
+  drop $into.source.timestamp
+}
+cisco::asa::parse $into.line, $into.asa, timezone=$timezone, reference=$reference
+
+// The header next to the frame is the device's own and takes precedence over
+// the envelope, which comes from the device or from a relay.
+if $into.asa == null {
+  $into.asa = {hostname: move $into.source.hostname?}
+  if type_kind($into.source.timestamp?) == "time" {
+    $into.asa.timestamp = move $into.source.timestamp
+  }
+} else {
+  drop $into.source.severity?
+  if $into.is_raw {
+    // The parser read the whole line, so what `read_syslog` made of it adds
+    // nothing.
+    drop $into.source.facility?, $into.source.app_name?, $into.source.process_id?
+    drop $into.source.version?, $into.source.message_id?, $into.source.structured_data?
+    if type_kind($into.source.timestamp?) == "string" {
+      drop $into.source.timestamp
+    }
+    if $into.source.hostname? != null and $into.source.hostname? in $into.payload {
+      drop $into.source.hostname
+    }
+  }
+  if $into.source.timestamp? != null {
+    if $into.asa.timestamp? == null and type_kind($into.source.timestamp) == "time" {
+      $into.asa.timestamp = $into.source.timestamp
+    } else if $into.source.timestamp not in [$into.asa.timestamp?, $into.asa.relay_timestamp?] {
+      $into.asa.relay_timestamp = $into.source.timestamp
+    }
+    drop $into.source.timestamp
+  }
+  if $into.source.hostname? != null {
+    if $into.asa.hostname? == null {
+      $into.asa.hostname = $into.source.hostname
+    } else if $into.asa.hostname != $into.source.hostname {
+      $into.asa.relay_hostname = $into.source.hostname
+    }
+    drop $into.source.hostname
+  }
+}
+cisco::asa::ocsf::map $into.asa, $into.ocsf
+
+if $into.ocsf.message? == null {
+  $into.ocsf.message = $into.payload
+}
+$into.ocsf.raw_data = $into.payload
+$into.ocsf.raw_data_size = $into.payload?.length_bytes()
+$into.ocsf.unmapped = {
+  ...$into.source.drop_null_fields(),
+  ...$into.ocsf.unmapped?,
+}
+$into = move $into.ocsf
