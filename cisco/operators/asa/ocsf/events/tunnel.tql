@@ -1,0 +1,80 @@
+---
+description: Cisco ASA VPN sessions → OCSF Tunnel Activity
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.tunnel_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4014
+let $activities = {
+  "113019": 2,
+  "722023": 2,
+  "722028": 2,
+  "722032": 3,
+  "722037": 2,
+}
+$ocsf.activity_id = $activities[$event.message_id.string()]? else 1
+$ocsf.type_uid = 401400 + $ocsf.activity_id
+$ocsf.status_id = 1
+$ocsf.status_detail = move $event.reason?
+
+// A LAN-to-LAN session has the address of its peer in place of a user.
+if $event.user? != null and $event.user != $event.src_host {
+  cisco::asa::ocsf::user $event.user, $ocsf.user
+}
+drop $event.user?
+
+// The source is the public address of the client or peer.
+cisco::asa::ocsf::network_endpoints $event, $ocsf
+if $ocsf.connection_info.protocol_name? == null {
+  drop $ocsf.connection_info
+}
+if $ocsf.metadata.reporter? != null {
+  $ocsf.device = {...$ocsf.metadata.reporter, type_id: 9}
+  if $ocsf.dst_endpoint? == null {
+    $ocsf.dst_endpoint = $ocsf.metadata.reporter
+  }
+}
+
+// ASA writes unspecified addresses when it assigns none of a family.
+if $event.assigned_ipv4?.ip() == 0.0.0.0 {
+  drop $event.assigned_ipv4
+}
+if $event.assigned_ipv6?.ip() == :: {
+  drop $event.assigned_ipv6
+}
+if $event.assigned_ipv4?.ip() != null {
+  $ocsf.tunnel_interface = {ip: (move $event.assigned_ipv4).ip()}
+} else if $event.assigned_ipv6?.ip() != null {
+  $ocsf.tunnel_interface = {ip: (move $event.assigned_ipv6).ip()}
+}
+// Cisco documents the group of these messages as the group policy. The group of
+// other messages can be the tunnel group.
+if $event.message_id in [722051, 751025] {
+  $ocsf.metadata.profiles = ["security_control"]
+  $ocsf.policy = {name: move $event.group}
+}
+
+// Other session types, such as AnyConnect-Parent, name no protocol.
+if $event.session_type?.to_lower().match_regex("^(ssl$|ipsec)") {
+  $ocsf.protocol_name = move $event.session_type
+}
+if $event.duration? != null {
+  $ocsf.duration = int(move $event.duration / 1ms)
+}
+// ASA counts the bytes that it transmitted to and received from the source.
+if $event.bytes_xmt? != null {
+  $ocsf.traffic = {
+    bytes: $event.bytes_xmt + $event.bytes_rcv,
+    bytes_in: $event.bytes_xmt,
+    bytes_out: $event.bytes_rcv,
+  }
+  drop $event.bytes_xmt, $event.bytes_rcv
+}

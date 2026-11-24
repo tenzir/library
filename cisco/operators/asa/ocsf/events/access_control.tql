@@ -1,0 +1,113 @@
+---
+description: Cisco ASA access decisions → OCSF Network Activity
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 6
+$ocsf.type_uid = 400106
+$ocsf.metadata.profiles = ["security_control"]
+$ocsf.status_detail = move $event.reason?
+
+cisco::asa::ocsf::network_endpoints $event, $ocsf
+if $event.interface? == $ocsf.src_endpoint?.interface_name? {
+  drop $event.interface?
+}
+
+// ASA adds the domain name of an address when it knows no user.
+if $event.message_id in [106010, 106023] {
+  if $event.src_tag?.match_regex(r"^[\w-]+(\.[\w-]+)+$") {
+    $ocsf.src_endpoint.hostname = move $event.src_tag
+  }
+  if $event.dst_tag?.match_regex(r"^[\w-]+(\.[\w-]+)+$") {
+    $ocsf.dst_endpoint.hostname = move $event.dst_tag
+  }
+}
+
+// Most messages report a denied packet. Those with an action report others.
+$ocsf.status_id = 2
+$ocsf.action_id = 2
+$ocsf.disposition_id = 2
+match $event.action? {
+  // A permitted packet can still lack a connection, for which ASA drops it
+  // later, so the outcome is unknown.
+  "permitted" => {
+    $ocsf.status_id = 0
+    $ocsf.action_id = 1
+    $ocsf.disposition_id = 1
+  }
+  // The access list denies the packet, but it belongs to an established
+  // connection, so ASA lets it pass.
+  "est-allowed" => {
+    $ocsf.status_id = 1
+    $ocsf.action_id = 1
+    $ocsf.disposition_id = 1
+    $ocsf.status_detail = $event.action
+  }
+  "monitored" => {
+    $ocsf.status_id = 0
+    $ocsf.action_id = 3
+    $ocsf.disposition_id = 15
+  }
+  "drop" => {
+    $ocsf.disposition_id = 6
+  }
+  "reset" => {
+    $ocsf.activity_id = 3
+    $ocsf.type_uid = 400103
+    $ocsf.disposition_id = 21
+  }
+  _ => {}
+}
+drop $event.action?
+// 434001 drops packets that the module can't inspect, and 710005 packets to
+// the device without a service or session.
+if $event.message_id in [434001, 710005] {
+  $ocsf.disposition_id = 6
+}
+
+if $event.acl_id? != null {
+  $ocsf.firewall_rule = {
+    name: move $event.acl_id,
+  }
+}
+// An access list that logs per interval writes the hits since its last message.
+if $event.interval? != null and $ocsf.time? != null {
+  $ocsf.start_time = $ocsf.time - $event.interval * 1s
+  $ocsf.end_time = $ocsf.time
+  drop $event.interval
+}
+
+let $tcp_flags = {FIN: 1, SYN: 2, RST: 4, PSH: 8, ACK: 16, URG: 32}
+if $event.tcp_flags?.match_regex("^((FIN|SYN|RST|PSH|ACK|URG) *)+$") {
+  $ocsf.connection_info.tcp_flags = (move $event.tcp_flags).trim().split(" ").map(flag => $tcp_flags[flag]).sum()
+}
+
+// The authorization of cut-through proxy users names who opened the
+// connection. The user of a VPN filter can be at either end of it.
+if $event.message_id in [109007, 109008, 109025] {
+  $ocsf.metadata.profiles = ["host", "security_control"]
+  cisco::asa::ocsf::user $event.user, $ocsf.actor.user
+}
+
+// The Botnet Traffic Filter alerts on listed addresses. The domain that
+// resolved to the address is the name of the listed endpoint.
+if $event.malicious_endpoint? != null {
+  $ocsf.is_alert = true
+  if $event.list_entry.search("/") {
+    // The entry of an address list is a network.
+  } else if $event.malicious_endpoint == "source" {
+    $ocsf.src_endpoint.hostname = move $event.list_entry
+  } else {
+    $ocsf.dst_endpoint.hostname = move $event.list_entry
+  }
+}

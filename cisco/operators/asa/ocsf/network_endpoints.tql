@@ -1,0 +1,111 @@
+---
+description: |
+  Maps the endpoints and the protocol of a parsed Cisco ASA event to OCSF.
+
+  A translated address or port becomes the proxy endpoint of the real endpoint,
+  and the identity firewall user of an address its owner. The security group of
+  an endpoint and the domain name in its tag stay in the event.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+let $protocol_nums = {
+  icmp: 1,
+  tcp: 6,
+  udp: 17,
+  gre: 47,
+  esp: 50,
+  ah: 51,
+  icmp6: 58,
+  "ipv6-icmp": 58,
+  eigrp: 88,
+  ospf: 89,
+  sctp: 132,
+}
+let $directions = {inbound: 1, outbound: 2}
+
+$ocsf._src_ip = $event.src_host?.ip()
+$ocsf._dst_ip = $event.dst_host?.ip()
+// `IP` in a message means any IP protocol.
+$ocsf._protocol = $event.protocol?.to_lower()
+$ocsf.connection_info = {
+  direction_id: $directions[$event.direction?.to_lower()]? else 0,
+  uid: (move $event.connection_id?).string(),
+  protocol_name: $ocsf._protocol if $ocsf._protocol != "ip" else null,
+  protocol_num: $event.protocol_num? else (58 if $ocsf._protocol == "icmp" and $ocsf._src_ip.is_v6() else $protocol_nums[$ocsf._protocol]?),
+  protocol_ver_id: 6 if ($ocsf._src_ip else $ocsf._dst_ip).is_v6() else (4 if ($ocsf._src_ip else $ocsf._dst_ip) != null else null),
+}
+drop $event.direction?, $event.protocol_num?
+if $ocsf._protocol != "ip" {
+  drop $event.protocol?
+}
+
+// ASA writes 0 or an ICMP identifier for the port of a protocol without ports.
+if ($ocsf.connection_info.protocol_num else 6) not in [6, 17, 132] {
+  if [$event.src_port?, $event.dst_port?, $event.src_xlate_port?, $event.dst_xlate_port?].max() > 0 {
+    $event.src_id = move $event.src_port?
+    $event.dst_id = move $event.dst_port?
+    $event.src_xlate_id = move $event.src_xlate_port?
+    $event.dst_xlate_id = move $event.dst_xlate_port?
+  } else {
+    drop $event.src_port?, $event.dst_port?, $event.src_xlate_port?, $event.dst_xlate_port?
+  }
+}
+
+if ($event.src_host? else $event.src_interface?) != null {
+  $ocsf.src_endpoint = {
+    ip: $ocsf._src_ip,
+    hostname: $event.src_host? if $ocsf._src_ip == null else null,
+    port: $event.src_port?,
+    interface_name: $event.src_interface?,
+  }
+  if $event.src_user? != null {
+    $ocsf.src_endpoint.owner = {
+      name: move $event.src_user,
+      domain: move $event.src_domain?,
+    }
+  }
+  if $event.src_xlate_host? != null and ($event.src_xlate_host != $event.src_host or $event.src_xlate_port? != $event.src_port?) {
+    $ocsf.src_endpoint.proxy_endpoint = {
+      ip: $event.src_xlate_host.ip(),
+      hostname: $event.src_xlate_host if $event.src_xlate_host.ip() == null else null,
+      port: $event.src_xlate_port?,
+      interface_name: move $event.src_xlate_interface?,
+    }
+  }
+  drop $event.src_host?, $event.src_port?, $event.src_interface?, $event.src_xlate_host?, $event.src_xlate_port?
+}
+if $event.dst_host? != null {
+  // Messages about connections to the device itself can name the service.
+  $ocsf.dst_endpoint = {
+    ip: $ocsf._dst_ip,
+    hostname: $event.dst_host if $ocsf._dst_ip == null else null,
+    port: $event.dst_port? else ($event.dst_service? if type_kind($event.dst_service?) == "int" else null),
+    svc_name: $event.dst_service? if type_kind($event.dst_service?) == "string" else null,
+    interface_name: $event.dst_interface?,
+  }
+  if $event.dst_user? != null {
+    $ocsf.dst_endpoint.owner = {
+      name: move $event.dst_user,
+      domain: move $event.dst_domain?,
+    }
+  }
+  if $event.dst_xlate_host? != null and ($event.dst_xlate_host != $event.dst_host or $event.dst_xlate_port? != $event.dst_port?) {
+    $ocsf.dst_endpoint.proxy_endpoint = {
+      ip: $event.dst_xlate_host.ip(),
+      hostname: $event.dst_xlate_host if $event.dst_xlate_host.ip() == null else null,
+      port: $event.dst_xlate_port?,
+    }
+  }
+  drop $event.dst_host, $event.dst_port?, $event.dst_interface?, $event.dst_service?, $event.dst_xlate_host?, $event.dst_xlate_port?
+}
+drop $ocsf._src_ip, $ocsf._dst_ip, $ocsf._protocol
+
+// The number of hits of an access list, or of repetitions in a relayed message.
+$ocsf.count = move $event.hit_count?

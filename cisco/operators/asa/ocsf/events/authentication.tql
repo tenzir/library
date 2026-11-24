@@ -1,0 +1,78 @@
+---
+description: Cisco ASA logins, logouts, and AAA results → OCSF Authentication
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 2 if $event.message_id in [315011, 611103, 716002, 746013] else 1
+$ocsf.type_uid = 300200 + $ocsf.activity_id
+
+let $results = {
+  successful: 1,
+  succeeded: 1,
+  permitted: 1,
+  rejected: 2,
+  failed: 2,
+  denied: 2,
+}
+// Messages without a result report the end or the start of a session, a login
+// that failed, or an authentication server that ASA couldn't reach. In the
+// last case, another server can still authenticate the user.
+let $statuses = {
+  "109002": 2,
+  "109003": 2,
+  "109010": 2,
+  "113014": 0,
+  "113021": 2,
+}
+$ocsf.status_id = $results[$event.result?.to_lower()]? else $statuses[$event.message_id.string()]? else 1
+drop $event.result?, $event.aaa_type?
+$ocsf.status_detail = move $event.reason?
+$ocsf.status_code = move $event.reason_code?
+
+if $event.user? != null {
+  cisco::asa::ocsf::user $event.user, $ocsf.user
+}
+if $ocsf.user? != null and $event.domain? != null {
+  $ocsf.user.domain = move $event.domain
+}
+
+// The service is named by the message or is the session type of the portal.
+if $event.dst_service? != null {
+  $ocsf.service = {name: $event.dst_service.string()}
+} else if $event.session_type? != null {
+  $ocsf.service = {name: move $event.session_type}
+} else if $event.message_id == 315011 {
+  $ocsf.service = {name: "ssh"}
+} else if $event.message_id == 746013 {
+  $ocsf.service = {name: "VPN" if $ocsf.status_detail.to_lower().starts_with("vpn") else "Cut-through proxy"}
+}
+// A user at the console is local, and one with a network address is remote.
+if $event.dst_service? == "console" {
+  $ocsf.is_remote = false
+  drop $event.dst_service
+} else if $event.src_host? != null and $event.message_id != 746013 {
+  $ocsf.is_remote = true
+}
+cisco::asa::ocsf::network_endpoints $event, $ocsf
+drop $ocsf.connection_info
+// Users log in to the firewall, unless the message names another host. A
+// mapping of an address to a user doesn't name where the user logged out.
+if $ocsf.dst_endpoint? == null and $ocsf.metadata.reporter? != null and $event.message_id != 746013 {
+  $ocsf.dst_endpoint = $ocsf.metadata.reporter
+}
+// Cisco documents the group of this message as the group policy. The group of
+// other messages can be the tunnel group.
+if $event.message_id == 716002 {
+  $ocsf.metadata.profiles = ["security_control"]
+  $ocsf.policy = {name: move $event.group}
+}

@@ -1,0 +1,331 @@
+---
+description: |
+  Parses a Cisco Secure Firewall ASA syslog message into a structured event.
+
+  The message is either a raw syslog line or what `parse_syslog`, `read_syslog`,
+  or a log shipper left of it. The operator consumes the header in front of the
+  `%ASA-<severity>-<message ID>:` frame and the body of supported messages. The
+  text of every message stays in `text` and the input in `raw_message`. A known
+  message ID with an unknown body sets `body_parse_failed`. Input without an ASA
+  frame is dropped with a warning.
+
+  ASA writes RFC 5424 timestamps in UTC and other timestamps in the time zone
+  of the device, optionally followed by the name of the zone. A timestamp
+  without a year is the most recent one up to two days after the reference,
+  which is now by default. The text of the timestamp stays in
+  `original_timestamp`.
+args:
+  named:
+    - name: message
+      type: field
+      default: content
+      description: The field with the message. The operator consumes it.
+    - name: event
+      type: field
+      default: this
+      description: |
+        The record that receives the parsed fields. It can hold the fields of
+        an already parsed syslog header, such as `timestamp` and `hostname`.
+    - name: timezone
+      type: string
+      default: null
+      description: |
+        The time zone of times without a zone, as an IANA name such as
+        `Europe/Berlin` or as a UTC offset such as `+01:00`. Defaults to UTC.
+    - name: reference
+      type: time
+      default: null
+      description: |
+        The time that timestamps without a year precede. Defaults to now. Set it
+        to the end of logs that are older than about a year.
+---
+
+// A header timestamp, a zone name that can follow it, and a device ID. The
+// device ID is a hostname, a context name, an interface address, or any text.
+let $zones = "UTC|GMT|WET|WEST|CET|CEST|MET|MEST|EET|EEST|BST|IST|MSK|EST|EDT|CST|CDT|MST|MDT|PST|PDT|AKST|AKDT|HST|BRT|ART|JST|KST|HKT|SGT|AWST|ACST|ACDT|AEST|AEDT|NZST|NZDT"
+let $header_patterns = {
+  TS: r"(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?|[A-Z][a-z]{2} +\d{1,2} +(?:\d{4} +)?\d{2}:\d{2}:\d{2}(?:\.\d+)?)",
+  TEXT_PRIORITY: r"\w+\.\w+",
+  TAG: r"[^ \[]+",
+  ZONE: "(?:" + $zones + ")(?=[ :])",
+  DEVICE: r"(?:[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,8}|[^:=[:space:]\[\]]+(?: [^:=[:space:]\[\]]+)*?)",
+}
+let $frame = r"%{DATA:prefix:string}%ASA-(?:%{WORD:message_class:string}-)?(?<severity>[0-7])-(?<message_id>[0-9]{6,7}): *%{GREEDYDATA:text:string}"
+// A syslog relay can put its own timestamp and the device in front of the
+// native header, or a process tag behind the device.
+let $native_header = r"(?:<%{INT:priority:int}>|%{TEXT_PRIORITY:text_priority:string}:)?:? *(?:(?:%{TS:relay_timestamp:string} +)?(?!%{TS})%{DEVICE:relay_hostname:string} ?:? +(?=%{TS}))?(?:%{TS:timestamp:string}(?: %{ZONE:timezone:string})?)?:? *(?:%{DEVICE:hostname:string}(?: %{TAG:app_name:string}\[%{INT:process_id:string}\])?)?(?: ?:)? *"
+// Keep a header that has none of these shapes as is.
+let $header = "(?:" + $native_header + "|(?:<%{INT:priority:int}>)?%{GREEDYDATA:header:string})"
+
+// `HOST` is an address or a name, because ASA can replace addresses with
+// names. The tag behind an endpoint names its user as `domain\user`, its
+// security group as `number:name`, or both. Other text stays in the tag.
+let $patterns = {
+  HOST: r"(?:[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f.]{0,15}){2,8}|[^:/ (),<>]+)",
+  INTERFACE: r"[^:/()]+?(?::[^:/()]+?)*?",
+  TAG: r"(?!type )[^()]*",
+  TAG_DOMAIN: r"[^\\()]+",
+  TAG_USER: r"[^,()]+",
+  SRC_TAG: r"(?:\((?:%{TAG_DOMAIN:src_domain:string}\\+%{TAG_USER:src_user:string}(?:, *%{NONNEGINT:src_security_group:int}(?::%{TAG:src_security_group_name:string})?)?|%{NONNEGINT:src_security_group:int}(?::%{TAG:src_security_group_name:string})?|%{TAG:src_tag:string})\))?",
+  DST_TAG: r"(?:\((?:%{TAG_DOMAIN:dst_domain:string}\\+%{TAG_USER:dst_user:string}(?:, *%{NONNEGINT:dst_security_group:int}(?::%{TAG:dst_security_group_name:string})?)?|%{NONNEGINT:dst_security_group:int}(?::%{TAG:dst_security_group_name:string})?|%{TAG:dst_tag:string})\))?",
+  PORT: r"[\w-]+",
+  CONSOLE: "console",
+  NOT_ACCESSIBLE: "server not accessible",
+  SRC: r"%{INTERFACE:src_interface:string}:%{HOST:src_host:string}/%{INT:src_port:int}%{SRC_TAG}",
+  DST: r"%{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}/%{INT:dst_port:int}%{DST_TAG}",
+  SRC_HOST: r"%{INTERFACE:src_interface:string}:%{HOST:src_host:string}(?:/%{INT:src_port:int})? ?%{SRC_TAG}",
+  DST_HOST: r"%{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}(?:/%{INT:dst_port:int})? ?%{DST_TAG}",
+  SRC_NAT: r"%{INTERFACE:src_interface:string}:%{HOST:src_host:string}/%{INT:src_port:int} ?\(%{HOST:src_xlate_host:string}/%{INT:src_xlate_port:int}\)+%{SRC_TAG}",
+  DST_NAT: r"%{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}/%{INT:dst_port:int} ?\(%{HOST:dst_xlate_host:string}/%{INT:dst_xlate_port:int}\)+%{DST_TAG}",
+  FROM_TO: r"from %{HOST:src_host:string}/%{INT:src_port:int} to %{HOST:dst_host:string}/%{INT:dst_port:int}",
+  ICMP_TYPE: r"type %{INT:icmp_type:int},? code %{INT:icmp_code:int}",
+  ICMP_TUPLE: r"faddr (?:%{INTERFACE:src_interface:string}:)??%{HOST:src_host:string}/%{INT:faddr_id:int}%{SRC_TAG} gaddr %{HOST:dst_xlate_host:string}/%{INT:gaddr_id:int} laddr (?:%{INTERFACE:dst_interface:string}:)??%{HOST:dst_host:string}/%{INT:laddr_id:int}%{DST_TAG}(?: \(%{TAG:user:string}\))?(?: %{ICMP_TYPE})?(?: +%{NOTSPACE:rx_interface:string})? *",
+  ACL_TUPLE: r"%{DATA:src_interface:string}/%{HOST:src_host:string}\(%{INT:src_port:int}\)%{SRC_TAG} -> %{DATA:dst_interface:string}/%{HOST:dst_host:string}\(%{INT:dst_port:int}\)%{DST_TAG} hit-cnt %{INT:hit_count:int} (?:first hit|%{INT:interval:int}-second interval)(?: \[%{DATA:ace_hashes:string}\])?.*",
+  USER_AT_END: r"(?: \(%{GREEDYDATA:user:string}\))? *",
+  TEARDOWN_REASON: r"(?!max-rate)[A-Za-z][^()]*?",
+  TEARDOWN: r"duration %{NOTSPACE:duration:string} bytes %{INT:bytes:int}(?: %{TEARDOWN_REASON:reason:string}(?: from %{TEARDOWN_REASON:teardown_initiator:string})?)?(?: %{INT:id_port_num:int} %{INT:rx_ring_num:int})?(?: max-rate %{NOTSPACE:max_rate:string}(?: Bps)?)?%{USER_AT_END}",
+  SESSION: r"Group <?%{DATA:group:string}>? User <?%{DATA:user:string}>? IP <?%{HOST:src_host:string}>?",
+  RATES: r"Current burst rate is %{INT:burst_rate:int} per second, max configured rate is %{INT:max_burst_rate:int}; Current average rate is %{INT:average_rate:int} per second, max configured rate is %{INT:max_average_rate:int}; Cumulative total count is %{INT:total_count:int}.*",
+}
+
+// Connections. 302303 and 302304 name the initiator first.
+let $built = r"Built %{WORD:direction:string}(?: *Probe)? %{WORD:protocol:string} connection %{INT:connection_id:int} for %{SRC_NAT} to %{DST_NAT}(?: %{INT:id_port_num:int} %{INT:rx_ring_num:int})?%{USER_AT_END}"
+let $built_gre = r"Built %{WORD:direction:string} %{WORD:protocol:string} connection %{INT:connection_id:int} from %{INTERFACE:src_interface:string}:%{HOST:src_host:string}(?:/%{INT:src_call_id:int})? \(%{HOST:src_xlate_host:string}(?:/%{INT:src_xlate_call_id:int})?\)%{SRC_TAG} to %{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}(?:/%{INT:dst_call_id:int})? \(%{HOST:dst_xlate_host:string}(?:/%{INT:dst_xlate_call_id:int})?\)%{DST_TAG}(?: %{INT:id_port_num:int} %{INT:rx_ring_num:int})?%{USER_AT_END}"
+let $built_bypass = r"Built %{WORD:protocol:string} state-bypass connection %{INT:connection_id:int} from %{SRC_NAT} to %{DST_NAT}.*"
+let $built_icmp = r"Built %{WORD:direction:string} %{WORD:protocol:string} connection for %{ICMP_TUPLE}"
+let $teardown = r"Teardown (?:Probe *)?%{WORD:protocol:string}(?: state-bypass)? connection %{INT:connection_id:int} (?:for|from) %{SRC}(?: %{DATA:src_tag:string})? to %{DST}(?: %{DATA:dst_tag:string})? %{TEARDOWN}"
+let $teardown_gre = r"Teardown %{WORD:protocol:string} connection %{INT:connection_id:int} from %{INTERFACE:src_interface:string}:%{HOST:src_host:string}(?:/%{INT:src_call_id:int})?%{SRC_TAG} to %{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}(?:/%{INT:dst_call_id:int})?%{DST_TAG} %{TEARDOWN}"
+let $teardown_icmp = r"Teardown %{WORD:protocol:string} connection for %{ICMP_TUPLE}"
+let $translation = r"%{WORD:operation:string} %{WORD:translation_type:string}(?: %{WORD:protocol:string})? translation from %{INTERFACE:src_interface:string}(?:\(%{TAG:acl_id:string}\))?:%{HOST:src_host:string}(?:/%{INT:src_port:int})?%{SRC_TAG} to %{INTERFACE:src_xlate_interface:string}:%{HOST:src_xlate_host:string}(?:/%{INT:src_xlate_port:int})?(?: duration +%{NOTSPACE:duration:string})? *"
+
+// Denied packets and access lists.
+let $deny = r#"Deny(?: (?<direction>inbound|outbound))? %{WORD:protocol:string}(?: %{INT:protocol_num:int})? src %{SRC_HOST} dst %{DST_HOST}(?: ?[\[(]?%{ICMP_TYPE}[\])]?,?)?(?:,? by access-group "%{DATA:acl_id:string}")?(?: \[%{DATA:ace_hashes:string}\])?(?:[ ,"].*)?"#
+let $deny_flags = r"(?:(?<direction>Inbound) %{WORD:protocol:string} connection denied|Deny %{WORD:protocol:string} \((?<reason>no connection)\)) %{FROM_TO} flags %{DATA:tcp_flags:string} +on interface %{DATA:src_interface:string}\.? *"
+let $deny_udp = r"Deny %{WORD:direction:string} %{WORD:protocol:string} %{FROM_TO} (?:on interface %{DATA:src_interface:string}|due to %{DATA:reason:string}) *"
+let $deny_ip = r#"Deny %{WORD:protocol:string}(?: (?:due to )?%{DATA:reason:string}(?: \(size = %{INT:fragment_size:int}, offset = %{INT:fragment_offset:int}\))?)? from \(?%{HOST:src_host:string}\)? to %{HOST:dst_host:string}(?: on interface %{DATA:src_interface:string}|, IP options: "?%{DATA:ip_options:string}"?)? *"#
+let $deny_outbound_icmp = r"(?<protocol>ICMP) packet type %{INT:icmp_type:int} denied by outbound list %{NOTSPACE:acl_id:string} src %{HOST:src_host:string} dest %{HOST:dst_host:string} *"
+let $acl = r"access-list %{DATA:acl_id:string} (?<action>permitted|denied|est-allowed) %{WORD:protocol:string}(?: for user '?%{DATA:user:string}'?)? %{ACL_TUPLE}"
+let $deny_icmp = r"Denied %{NOTSPACE:protocol:string} type=%{INT:icmp_type:int}, (?:code=%{INT:icmp_code:int} )?from (?:laddr )?%{HOST:src_host:string} on interface %{DATA:src_interface:string}(?: to %{HOST:dst_host:string}: %{DATA:reason:string})? *"
+let $deny_icmp_error = r"%{DATA:reason:string}: (?<protocol>icmp) src %{SRC_HOST} dst %{DST_HOST} \(%{ICMP_TYPE}\) on %{DATA:interface:string} interface\. +Original IP payload: %{DATA:original_payload:string}\.? *"
+let $deny_icmp_code = r"Denied (?<reason>invalid (?<protocol>ICMP) code) %{INT:icmp_code:int}, for %{SRC_NAT} to %{DST_NAT}(?: \(%{TAG:user:string}\))?, ICMP id %{INT:icmp_id:int}, ICMP type %{INT:icmp_type:int} *"
+let $deny_device = r"%{WORD:protocol:string} (?<reason>access denied by ACL|request discarded) from %{HOST:src_host:string}/%{INT:src_port:int} to %{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}/%{PORT:dst_service} *"
+let $deny_user = r"Authorization (?<action>permitted|denied)(?: \(acl=%{DATA:acl_id:string}\))? for user '?%{DATA:user:string}'? %{FROM_TO} on interface %{DATA:interface:string}(?: using %{WORD:protocol:string})? *"
+let $shunned = r"(?<reason>Shunned packet): %{HOST:src_host:string} ==> %{HOST:dst_host:string} on interface %{DATA:src_interface:string} *"
+let $module = r"SFR (?:requested to (?<action>drop|reset)|card not up and (?<reason>fail-close mode used), dropping) %{WORD:protocol:string} (?:packet|connection) from %{SRC} to %{DST} *"
+let $unroutable = r"(?<reason>Failed to locate egress interface|Routing failed to locate next hop) for %{WORD:protocol:string} from %{INTERFACE:src_interface:string}:%{HOST:src_host:string}/%{INT:src_port:int} to (?:%{INTERFACE:dst_interface:string}:)??%{HOST:dst_host:string}/%{INT:dst_port:int} *"
+let $duplicate_syn = r"(?<reason>Duplicate (?<protocol>TCP) SYN) from %{SRC} to %{DST} with .*"
+let $dynamic_filter = r"Dynamic [Ff]ilter %{WORD:action:string} (?<list_type>black|grey|white) ?listed %{WORD:protocol:string} traffic from %{SRC_NAT} to %{DST_NAT}, (?<malicious_endpoint>source|destination) %{DATA} resolved from %{WORD:list_source:string} list: %{DATA:list_entry:string}(?:, threat-level: %{DATA:threat_level:string}, category: %{DATA:threat_category:string})? *"
+
+// Authentication and VPN sessions.
+let $aaa_server = r"AAA user %{WORD:aaa_type:string} (?<result>Successful|Rejected) ?:(?: reason = %{DATA:reason:string} ?:)? (?:server = *%{DATA:aaa_server:string}|local database) ?[:,] [Uu]ser = *%{DATA:user:string}(?:[ :]+user IP = %{HOST:src_host:string})? *"
+let $aaa_rejected = r"AAA credentials (?<result>rejected) ?: reason = %{DATA:reason:string} ?: (?:server = *%{DATA:aaa_server:string}|local database) ?: user = *%{DATA:user:string}(?:[ :]+user IP = %{HOST:src_host:string})? *"
+let $aaa_error = r"AAA (?:unable to complete the request Error ?: reason = %{DATA:reason:string}|authentication %{NOT_ACCESSIBLE:reason:string} ?: server = *%{DATA:aaa_server:string}) ?: user = *%{DATA:user:string} *"
+let $console_denied = r"Attempted console login failed\.? [Uu]ser '?%{DATA:user:string}'? (?<reason>did NOT have appropriate Admin Rights)\.? *"
+let $locked_out = r"User '?%{DATA:user:string}'? locked out on exceeding '?%{INT:failed_attempts:int}'? successive failed authentication attempts *"
+let $cut_through = r"(?:Authentication (?<result>succeeded|failed) for user '?%{DATA:user:string}'?|Auth) %{FROM_TO}(?: failed \(%{DATA:reason:string}\))? on interface %{DATA:interface:string} *"
+let $login = r#"Login (?<result>permitted|denied) from (?:serial to %{CONSOLE:dst_service:string}|%{HOST:src_host:string}/%{INT:src_port:int} to %{INTERFACE:dst_interface:string}:%{HOST:dst_host:string}/%{PORT:dst_service}) for user [\\'"]*%{DATA:user:string}[\\'"]* *"#
+let $device_login = r"User (?:authentication (?<result>succeeded|failed):(?: IP address: %{HOST:src_host:string},+)?|logged out:) Uname: *%{DATA:user:string} *"
+let $ssh_end = r#"SSH session from (?:%{HOST:src_host:string} )?on interface %{DATA:src_interface:string} for user [\\'"]*%{DATA:user:string}[\\'"]* (?:terminated(?: normally)?|disconnected by SSH server, reason: [\\'"]*%{DATA:reason:string}[\\'"]*(?: \(%{WORD:reason_code:string}\))?)\.? *"#
+let $portal_session = r"(?:%{SESSION} Authentication: %{WORD:result:string}, |Authentication: %{WORD:result:string}, group = %{DATA:group:string} user = %{DATA:user:string} ?, )Session Type: %{DATA:session_type:string}\.? *"
+let $session_state = r"%{SESSION} (?<session_type>WebVPN|AnyConnect)[ _](?:parent )?session (?:started|terminated: %{DATA:reason:string})\.? *"
+let $tunnel_connection = r"%{SESSION} (?:(?:First|New|Stale) )?(?:%{WORD:protocol:string} )?SVC (?:connection|closing connection: %{DATA:reason:string}\.? *$)(?: (?:established|terminated) (?<compression>with|without) compression| established for SVC session| replacing old connection|, no existing connection| closed)?\.? *"
+let $tunnel_assigned = r"(?:%{SESSION}|Local: ?%{HOST:dst_host:string}:%{INT:dst_port:int} Remote: ?%{HOST:src_host:string}:%{INT:src_port:int} Username: ?%{DATA:user:string}(?: IKEv2)? Group: ?%{DATA:group:string}) IPv4 Address[ =]<?%{HOST:assigned_ipv4:string}>?(?:,? IPv6 address[ =]<?%{HOST:assigned_ipv6:string}>?)? assigned to session.*"
+let $tunnel_closed = r"Group = %{DATA:group:string}, Username = %{DATA:user:string}, IP = %{HOST:src_host:string}, Session disconnected\. Session Type: %{DATA:session_type:string}, Duration: %{DATA:duration:string}, Bytes xmt: %{INT:bytes_xmt:int}, Bytes rcv: %{INT:bytes_rcv:int}, Reason: %{DATA:reason:string} *"
+let $identity = r"user-identity: %{WORD:operation:string} IP-User mapping %{HOST:src_host:string} - (?:%{DATA:domain:string}\\+)?%{DATA:user:string} (?<result>Succeeded|Failed) - %{DATA:reason:string} *"
+
+// Administration.
+let $command = r"User '?%{DATA:user:string}'?(?: executed the '%{DATA:command:string}' command\.?| executed cmd: %{DATA:command:string}|, running '%{DATA:application:string}' from IP %{HOST:src_host:string}, executed '%{DATA:command:string}'\.?) *"
+let $local_user = r"(?:New user added to|User deleted from) local dbase: Uname: *%{DATA:user:string} +Priv: *%{INT:privilege_level:int}.*"
+
+// Threat detection.
+let $signature = r"IPS:%{INT:signature_id:int} %{DATA:signature:string} from %{HOST:src_host:string} to %{HOST:dst_host:string} on interface %{DATA:src_interface:string} *"
+let $drop_rate = r"\[ *%{DATA:object:string} *\] (?<rate>drop rate-\d+) exceeded\. %{RATES}"
+let $scanning = r"(?<host_type>Host|Subnet) %{HOST:host:string} is (?<host_role>attacking|targeted)\. %{RATES}"
+
+$event._asa = {line: $message.trim()}
+// `parse_syslog` moves the frame of a message without device ID to `app_name`.
+if $event.app_name?.match_regex(r"^ASA-(\w+-)?[0-7]-[0-9]{6,7}$") {
+  $event._asa.line = f"%{$event.app_name}: {$event._asa.line}"
+  drop $event.app_name
+}
+assert $event._asa.line != null and $event._asa.line.match_regex(r"%ASA-(\w+-)?[0-7]-[0-9]{6,7}:"), message="cisco::asa::parse: no %ASA-<severity>-<message ID> frame in the message field"
+drop $message
+if $event.raw_message? == null {
+  $event.raw_message = $event._asa.line
+}
+
+if $event._asa.line.match_regex("^<[0-9]{1,3}>1 ") {
+  $event._asa.syslog = $event._asa.line.parse_syslog()
+  if $event._asa.syslog?.message? != null {
+    $event._asa.line = move $event._asa.syslog.message
+    $event._asa.syslog.msgid = move $event._asa.syslog.message_id
+    $event = {...$event, ...$event._asa.syslog.drop_null_fields()}
+  }
+}
+$event._asa = $event._asa.line.parse_grok($frame)
+$event._asa.header = $event._asa.prefix.parse_grok($header, pattern_definitions=$header_patterns)
+@name = "cisco.asa"
+
+// The header next to the frame is the device's own and takes precedence over
+// the header of a relay.
+if ($event.timestamp? else $event.hostname? else $event.app_name? else $event._asa.header.relay_hostname) != null {
+  // Some syslog parsers take a zone name for the process tag.
+  if $event._asa.header.timezone == null and $event.app_name?.match_regex("^(" + $zones + ")$") {
+    $event._asa.header.timezone = move $event.app_name
+  }
+  if $event._asa.header.timestamp != null and $event.timestamp? != null {
+    $event.relay_timestamp = move $event.timestamp
+  }
+  if $event._asa.header.hostname == null and $event._asa.header.relay_hostname != null {
+    $event._asa.header.hostname = $event._asa.header.relay_hostname
+    $event._asa.header.relay_hostname = null
+  }
+  if $event._asa.header.hostname != null and $event.hostname? != null and $event._asa.header.hostname != $event.hostname? {
+    $event.relay_hostname = move $event.hostname
+  }
+}
+$event = {
+  ...$event,
+  ...$event._asa.header.drop_null_fields(),
+  message_id: int($event._asa.message_id),
+  severity: int($event._asa.severity),
+  text: $event._asa.text,
+}
+if $event._asa.message_class != null {
+  $event.message_class = $event._asa.message_class
+}
+if $event.priority? != null {
+  $event.facility = int($event.priority / 8)
+  // The level of the priority is the severity unless a relay changes it.
+  if $event.priority - $event.facility * 8 == $event.severity {
+    drop $event.priority
+  }
+}
+
+let $is_offset = $timezone.match_regex("^[+-][0-9]{2}:?[0-9]{2}$")
+let $zone_name = null if $is_offset else $timezone
+let $zone_shift = f"1970-01-01 00:00:00 {$timezone.replace(":", "")}".parse_time("%Y-%m-%d %H:%M:%S %z") - 1970-01-01T00:00:00Z if $is_offset else 0s
+if type_kind($event.timestamp?) == "string" {
+  $event._asa = {
+    ...$event._asa,
+    clock: $event.timestamp.replace_regex(r"\.[0-9]+", ""),
+    utc: $event.timezone? in ["UTC", "GMT"],
+  }
+  // `parse_time` picks the year that is closest to its reference. With half a
+  // year before the actual reference, that is the most recent date up to two
+  // days after it, so that the clock of a firewall can be ahead.
+  $event._asa.time = (
+    $event.timestamp.time() if $event.timestamp.match_regex(r"T[0-9:.]+(Z|[+-][0-9]{2}:?[0-9]{2})$") else (
+      $event._asa.clock.parse_time("%Y-%m-%dT%H:%M:%S", timezone="UTC" if $event._asa.utc else $zone_name) if $event._asa.clock.match_regex("^[0-9]{4}-") else (
+        $event._asa.clock.parse_time("%b %e %Y %H:%M:%S", timezone="UTC" if $event._asa.utc else $zone_name) if $event._asa.clock.match_regex("^[A-Z][a-z]{2} +[0-9]+ +[0-9]{4} ") else (
+          $event._asa.clock.parse_time("%b %e %H:%M:%S", reference=($reference else now()) - 180d, timezone="UTC" if $event._asa.utc else $zone_name) if $event._asa.clock.match_regex("^[A-Z][a-z]{2} +[0-9]+ ") else null
+        )
+      )
+    )
+  )
+  if $event._asa.time != null {
+    $event.original_timestamp = $event.timestamp if $event.timezone? == null else $event.timestamp + " " + $event.timezone
+    if not $event.timestamp.match_regex(r"T[0-9:.]+(Z|[+-][0-9]{2}:?[0-9]{2})$") {
+      if not $event._asa.utc {
+        $event._asa.time = $event._asa.time + $zone_shift
+      }
+      if $event.timestamp.match_regex(r"\.[0-9]+$") {
+        $event._asa.time = $event._asa.time + float($event.timestamp.replace_regex(r"^.*\.", "0.")) * 1s
+      }
+    }
+    $event.timestamp = $event._asa.time
+    drop $event.timezone?
+  }
+}
+
+// A relay writes the number of suppressed repetitions in front of the text.
+if $event.text.match_regex("^message repeated [0-9]+ times: ") {
+  $event._asa = {...$event._asa, ...$event.text.parse_grok(r"message repeated %{INT:count:int} times: \[? *%{DATA:text:string}\]? *")}
+  $event.hit_count = $event._asa.count
+}
+
+$event._asa.body = {}
+match $event.message_id {
+  302013 | 302015 | 302035 => { $event._asa.body = $event._asa.text.parse_grok($built, pattern_definitions=$patterns) }
+  302017 => { $event._asa.body = $event._asa.text.parse_grok($built_gre, pattern_definitions=$patterns) }
+  302020 => { $event._asa.body = $event._asa.text.parse_grok($built_icmp, pattern_definitions=$patterns) }
+  302303 => { $event._asa.body = $event._asa.text.parse_grok($built_bypass, pattern_definitions=$patterns) }
+  302014 | 302016 | 302036 | 302304 => { $event._asa.body = $event._asa.text.parse_grok($teardown, pattern_definitions=$patterns) }
+  302018 => { $event._asa.body = $event._asa.text.parse_grok($teardown_gre, pattern_definitions=$patterns) }
+  302021 => { $event._asa.body = $event._asa.text.parse_grok($teardown_icmp, pattern_definitions=$patterns) }
+  305009 | 305010 | 305011 | 305012 => { $event._asa.body = $event._asa.text.parse_grok($translation, pattern_definitions=$patterns) }
+  106010 | 106014 | 106023 => { $event._asa.body = $event._asa.text.parse_grok($deny, pattern_definitions=$patterns) }
+  106001 | 106015 => { $event._asa.body = $event._asa.text.parse_grok($deny_flags, pattern_definitions=$patterns) }
+  106006 | 106007 => { $event._asa.body = $event._asa.text.parse_grok($deny_udp, pattern_definitions=$patterns) }
+  106012 | 106016 | 106017 | 106020 | 106021 | 106022 => { $event._asa.body = $event._asa.text.parse_grok($deny_ip, pattern_definitions=$patterns) }
+  106018 => { $event._asa.body = $event._asa.text.parse_grok($deny_outbound_icmp, pattern_definitions=$patterns) }
+  106100 | 106102 | 106103 => { $event._asa.body = $event._asa.text.parse_grok($acl, pattern_definitions=$patterns) }
+  109007 | 109008 | 109025 => { $event._asa.body = $event._asa.text.parse_grok($deny_user, pattern_definitions=$patterns) }
+  313001 | 313004 | 313008 => { $event._asa.body = $event._asa.text.parse_grok($deny_icmp, pattern_definitions=$patterns) }
+  313005 => { $event._asa.body = $event._asa.text.parse_grok($deny_icmp_error, pattern_definitions=$patterns) }
+  313009 => { $event._asa.body = $event._asa.text.parse_grok($deny_icmp_code, pattern_definitions=$patterns) }
+  710003 | 710005 => { $event._asa.body = $event._asa.text.parse_grok($deny_device, pattern_definitions=$patterns) }
+  401004 => { $event._asa.body = $event._asa.text.parse_grok($shunned, pattern_definitions=$patterns) }
+  434001 | 434002 | 434003 => { $event._asa.body = $event._asa.text.parse_grok($module, pattern_definitions=$patterns) }
+  110002 | 110003 => { $event._asa.body = $event._asa.text.parse_grok($unroutable, pattern_definitions=$patterns) }
+  419002 => { $event._asa.body = $event._asa.text.parse_grok($duplicate_syn, pattern_definitions=$patterns) }
+  338001 | 338002 | 338003 | 338004 | 338005 | 338006 | 338007 | 338008 | 338201 | 338202 | 338203 | 338204 => { $event._asa.body = $event._asa.text.parse_grok($dynamic_filter, pattern_definitions=$patterns) }
+  113004 | 113005 | 113012 | 113015 => { $event._asa.body = $event._asa.text.parse_grok($aaa_server, pattern_definitions=$patterns) }
+  113016 | 113017 => { $event._asa.body = $event._asa.text.parse_grok($aaa_rejected, pattern_definitions=$patterns) }
+  113013 | 113014 => { $event._asa.body = $event._asa.text.parse_grok($aaa_error, pattern_definitions=$patterns) }
+  113006 => { $event._asa.body = $event._asa.text.parse_grok($locked_out, pattern_definitions=$patterns) }
+  113021 => { $event._asa.body = $event._asa.text.parse_grok($console_denied, pattern_definitions=$patterns) }
+  109002 | 109003 | 109005 | 109006 | 109010 => { $event._asa.body = $event._asa.text.parse_grok($cut_through, pattern_definitions=$patterns) }
+  605004 | 605005 => { $event._asa.body = $event._asa.text.parse_grok($login, pattern_definitions=$patterns) }
+  611101 | 611102 | 611103 => { $event._asa.body = $event._asa.text.parse_grok($device_login, pattern_definitions=$patterns) }
+  315011 => { $event._asa.body = $event._asa.text.parse_grok($ssh_end, pattern_definitions=$patterns) }
+  716038 | 716039 => { $event._asa.body = $event._asa.text.parse_grok($portal_session, pattern_definitions=$patterns) }
+  113039 | 716001 | 716002 => { $event._asa.body = $event._asa.text.parse_grok($session_state, pattern_definitions=$patterns) }
+  722022 | 722023 | 722028 | 722032 | 722033 | 722034 | 722037 => { $event._asa.body = $event._asa.text.parse_grok($tunnel_connection, pattern_definitions=$patterns) }
+  722051 | 751025 => { $event._asa.body = $event._asa.text.parse_grok($tunnel_assigned, pattern_definitions=$patterns) }
+  113019 => { $event._asa.body = $event._asa.text.parse_grok($tunnel_closed, pattern_definitions=$patterns) }
+  746012 | 746013 => { $event._asa.body = $event._asa.text.parse_grok($identity, pattern_definitions=$patterns) }
+  111008 | 111009 | 111010 => { $event._asa.body = $event._asa.text.parse_grok($command, pattern_definitions=$patterns) }
+  502101 | 502102 => { $event._asa.body = $event._asa.text.parse_grok($local_user, pattern_definitions=$patterns) }
+  733100 => { $event._asa.body = $event._asa.text.parse_grok($drop_rate, pattern_definitions=$patterns) }
+  733101 => { $event._asa.body = $event._asa.text.parse_grok($scanning, pattern_definitions=$patterns) }
+  _ if $event.message_id >= 400000 and $event.message_id <= 400051 => { $event._asa.body = $event._asa.text.parse_grok($signature, pattern_definitions=$patterns) }
+  _ => {}
+}
+if $event._asa.body == null {
+  $event.body_parse_failed = true
+} else {
+  $event = {...$event, ...$event._asa.body.drop_null_fields()}
+}
+
+match $event.message_id {
+  302014 | 302016 | 302018 | 302036 | 302304 | 305010 | 305012 | 113019 => {
+    if $event.duration?.match_regex(r"^([0-9]+d[ :]*)?[0-9]+h?:[0-9]+m?:[0-9]+s?$") {
+      $event._asa = $event.duration.parse_grok(r"(?:%{INT:days:int}d[ :]*)?%{INT:hours:int}h?:%{INT:minutes:int}m?:%{INT:seconds:int}s?")
+      $event.duration = ($event._asa.days else 0) * 1d + $event._asa.hours * 1h + $event._asa.minutes * 1min + $event._asa.seconds * 1s
+    }
+  }
+  106010 | 106014 | 106023 | 106100 | 106102 | 106103 => {
+    // An IP protocol without a name appears as its number, or as `protocol`
+    // followed by its number.
+    if $event.protocol?.match_regex("^[0-9]+$") {
+      $event.protocol_num = int(move $event.protocol)
+    } else if $event.protocol_num? != null {
+      drop $event.protocol?
+    }
+    // Access-list logs write the ICMP type and code in place of the ports.
+    if $event.message_id in [106100, 106102, 106103] and ($event.protocol?.to_lower() in ["icmp", "icmp6"] or $event.protocol_num? in [1, 58]) {
+      $event.icmp_type = move $event.src_port?
+      $event.icmp_code = move $event.dst_port?
+    }
+  }
+  _ => {}
+}
+drop $event._asa
+// ASA hides names of invalid or unknown users unless configured otherwise.
+if $event.user? in ["*****", ""] {
+  drop $event.user
+}
+// Operators downstream run per batch, and the steps above split the batches of
+// mixed messages.
+batch timeout=100ms

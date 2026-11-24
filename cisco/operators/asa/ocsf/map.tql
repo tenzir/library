@@ -1,0 +1,127 @@
+---
+description: |
+  Maps a parsed Cisco Secure Firewall ASA event to OCSF 1.9.
+
+  The message ID determines the class. Messages without a mapping and messages
+  whose body the parser doesn't know become Base Events. Fields without an OCSF
+  target stay in `unmapped`.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+// ASA levels are those of syslog, from 0 (emergencies) to 7 (debugging). A
+// notification (5) reports a normal but significant condition.
+let $severities = [6, 5, 5, 4, 3, 1, 1, 1]
+
+$ocsf = {
+  severity_id: $severities[move $event.severity],
+  // A message without a timestamp has no event time.
+  time: $event.timestamp? if type_kind($event.timestamp?) == "time" else null,
+  message: move $event.text,
+  raw_data: $event.raw_message?,
+  raw_data_size: (move $event.raw_message?).length_bytes(),
+  metadata: {
+    version: "1.9.0",
+    log_format: "syslog",
+    event_code: $event.message_id.string(),
+    original_time: move $event.original_timestamp?,
+    product: {
+      name: "Secure Firewall ASA",
+      vendor_name: "Cisco",
+    },
+  },
+}
+if type_kind($event.timestamp?) == "time" {
+  drop $event.timestamp
+}
+// The device ID in the header is a name or an address of the firewall.
+if $event.hostname? != null {
+  $ocsf.metadata.reporter = {
+    hostname: $event.hostname if $event.hostname.ip() == null else null,
+    ip: $event.hostname.ip(),
+  }
+}
+// The class in the EMBLEM format names a feature of the firewall.
+if $event.message_class? != null {
+  $ocsf.metadata.product.feature = {name: move $event.message_class}
+}
+// A relay that put its own header in front of the firewall's.
+if $event.relay_hostname? != null {
+  $ocsf.metadata.loggers = [{
+    name: move $event.relay_hostname,
+    logged_time: $event.relay_timestamp? if type_kind($event.relay_timestamp?) == "time" else null,
+  }]
+  if type_kind($event.relay_timestamp?) == "time" {
+    drop $event.relay_timestamp
+  }
+}
+
+match $event.message_id {
+  _ if $event.body_parse_failed? == true => {
+    cisco::asa::ocsf::base $event, $ocsf
+  }
+  302013 | 302015 | 302017 | 302020 | 302035 | 302303 => {
+    cisco::asa::ocsf::events::connection_open $event, $ocsf
+  }
+  302014 | 302016 | 302018 | 302021 | 302036 | 302304 => {
+    cisco::asa::ocsf::events::connection_close $event, $ocsf
+  }
+  305009 | 305010 | 305011 | 305012 => {
+    cisco::asa::ocsf::events::translation $event, $ocsf
+  }
+  106001 | 106006 | 106007 | 106010 | 106012 | 106014 | 106015 | 106016 |
+  106017 | 106018 | 106020 | 106021 | 106022 | 106023 | 106100 | 106102 |
+  106103 | 109007 | 109008 | 109025 | 313001 | 313004 | 313005 | 313008 |
+  313009 | 338001 | 338002 | 338003 | 338004 | 338005 | 338006 | 338007 |
+  338008 | 338201 | 338202 | 338203 | 338204 | 401004 | 434001 | 434002 |
+  434003 | 710003 | 710005 => {
+    cisco::asa::ocsf::events::access_control $event, $ocsf
+  }
+  110002 | 110003 | 419002 => {
+    cisco::asa::ocsf::events::traffic $event, $ocsf
+  }
+  109002 | 109003 | 109005 | 109006 | 109010 | 113005 | 113012 | 113014 |
+  113015 | 113016 | 113017 | 113021 | 113039 | 315011 | 605004 | 605005 |
+  611101 | 611102 | 611103 | 716001 | 716002 | 716038 | 716039 => {
+    cisco::asa::ocsf::events::authentication $event, $ocsf
+  }
+  // AAA servers also authorize users and account for them.
+  113004 if $event.aaa_type == "authentication" => {
+    cisco::asa::ocsf::events::authentication $event, $ocsf
+  }
+  // Other reasons for deleting a mapping, such as an inactivity timeout or a
+  // failed probe, don't tell that a user logged out.
+  746013 if $event.result == "Succeeded" and $event.reason.to_lower().ends_with("user logout") => {
+    cisco::asa::ocsf::events::authentication $event, $ocsf
+  }
+  113019 | 722022 | 722023 | 722028 | 722032 | 722033 | 722034 | 722037 |
+  722051 | 751025 => {
+    cisco::asa::ocsf::events::tunnel $event, $ocsf
+  }
+  111008 | 111009 | 111010 => {
+    cisco::asa::ocsf::events::command $event, $ocsf
+  }
+  113006 | 502101 | 502102 => {
+    cisco::asa::ocsf::events::user_management $event, $ocsf
+  }
+  733100 | 733101 => {
+    cisco::asa::ocsf::events::detection $event, $ocsf
+  }
+  _ if $event.message_id >= 400000 and $event.message_id <= 400051 => {
+    cisco::asa::ocsf::events::detection $event, $ocsf
+  }
+  _ => {
+    cisco::asa::ocsf::base $event, $ocsf
+  }
+}
+
+// The message ID is the event code, and the header's name is the reporter.
+drop $event.message_id, $event.hostname?
+$ocsf.unmapped = move $event
+$ocsf = $ocsf.drop_null_fields()
