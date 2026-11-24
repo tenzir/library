@@ -18,13 +18,14 @@ args:
       type: int
       default: 1000
       description: The number of events per request, up to 1000.
-    - name: token
+    - name: bearer_token
       type: secret
-      description: An OAuth 2.0 access token with the scope `okta.logs.read`, or an Okta API token.
-    - name: scheme
-      type: string
-      default: Bearer
-      description: The authorization scheme, `Bearer` for an access token and `SSWS` for an API token.
+      default: null
+      description: An OAuth 2.0 access token with the scope `okta.logs.read`.
+    - name: swss_token
+      type: secret
+      default: null
+      description: An Okta API token, used without `bearer_token`.
 ---
 
 // The first request starts in the past and asks for ascending order without
@@ -35,11 +36,12 @@ args:
 // Okta takes the start time with whole seconds.
 let $since = (now() - $lookback).format_time("%Y-%m-%dT%H:%M:%S").slice(end=19)
 let $endpoint = f"https://{$domain}/api/v1/logs?since={$since}Z&sortOrder=ASCENDING&limit={$limit}"
+let $auth = f"Bearer {$bearer_token}" if $bearer_token != null else f"SSWS {$swss_token}"
 
 // Okta answers with status 429 once the org exceeds its rate limit, which
 // resets every minute. The retries of a request span two minutes.
 from_http $endpoint,
-  headers={Authorization: f"{$scheme} {$token}"},
+  headers={Authorization: $auth},
   paginate="link",
   paginate_delay=$interval,
   retry_delay=4s {
