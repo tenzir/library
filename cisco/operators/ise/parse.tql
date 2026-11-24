@@ -1,0 +1,156 @@
+---
+description: |
+  Parses a Cisco ISE message body into a structured event.
+
+  The input is the body that follows the syslog envelope, as `read_syslog`
+  leaves it in `content` for the ISE remote-target format. All other fields of
+  the input move to `syslog`. A segment that `cisco::ise::reassemble` did not
+  complete becomes a `cisco.ise.incomplete` event.
+args:
+  named:
+    - name: message
+      description: The field that holds the ISE message body.
+      type: field
+      default: message
+    - name: category
+      description: |
+        A field that holds the `CISE_<Category>` tag when a shipper splits it
+        from the body, for example the RFC 5424 application name.
+      type: field
+      default: null
+---
+
+// Cisco documents the remote-target body as:
+//
+//   CISE_<Category> <msg_id> <total_seg> <seg_num> <date> <time> <offset>
+//   <sequence_num> <msg_code> <severity> <Class>: <text>, key=value, key=value
+//
+// Some categories, such as CISE_MONITORING_DATA_PURGE_AUDIT, omit the segment
+// counters. Alarms carry neither counters nor a message code:
+//
+//   CISE_Alarm <severity>: <text>: key=value; key=value
+//
+// Source: https://www.cisco.com/c/en/us/td/docs/security/ise/syslog/Cisco_ISE_Syslogs/m_IntrotoSyslogs.html
+// Some relays keep the header of the ISE node in front of the tag.
+let $frame = r"(?s)^\s*(?:(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?(?:(?<host>[^\s=,]+) )?(?<category>CISE_\S+)\s+)?(?:(?<id>\d+)\s+(?<total>\d+)\s+(?<index>\d+)(?:\s+(?<body>.*))?|(?<rest>.*))$"
+// A syslog reader appends a line without a recognized header to the previous
+// message. Then the body holds several segments.
+let $glued = r"\n.*CISE_\S+\s+\d+\s+\d+\s+\d+\s"
+let $header = r"(?s)^(?:(?<date>\d{4}-\d{2}-\d{2}) (?<clock>\d{2}:\d{2}:\d{2})(?:(?<point>[.:])(?<fraction>\d+))? (?<sign>[+-])(?<hours>\d{2})(?<colon>:)?(?<minutes>\d{2})\s+(?:(?<sequence>\d+)\s+)?(?<code>\d+)\s+(?<severity>[A-Z]+)\s+(?:(?<class>[A-Za-z][A-Za-z0-9 /+_-]*):\s+)?(?<text>.*?)(?:,[\s,]+(?<attributes>[[:alnum:]](?:[^,;:={}]*[^,;:={}\s])?=.*?))?[\s,]*|.*)$"
+let $alarm = r"(?s)^(?:(?<severity>[A-Z]+):\s+(?<text>.*?)(?:\s*:\s+(?<attributes>[[:alnum:]][^;=:]*=.*))?|.*)$"
+
+// A comma separates two attributes only when whitespace and the next name
+// follow and no backslash escapes it, because values can contain commas. Names
+// contain no punctuation of nested values. An even run of backslashes is data
+// that ISE escaped. If ISE escapes nothing, a value with a trailing backslash
+// is ambiguous and includes the next attribute. The run counts doubled, see
+// below.
+let $separator = r"(?:^|[^\\])(?:\\\\\\\\)*(,[\s,]+)[[:alnum:]](?:[^,;:={}]*[^,;:={}\s])?="
+let $alarm_separator = r"(?:^|[^\\])(?:\\\\\\\\)*(;\s+)[[:alnum:]][^;=]*="
+
+_frame = $message.parse_grok($frame, raw=true)
+_category = _frame.category? else $category
+_body = _frame.body? else _frame.rest?
+_header = _body.parse_grok($header, raw=true)
+// Three numbers alone are no segment of ISE. The tag or the header tell.
+if _category == null and _header.code? == null {
+  _frame = {host: _frame.host?}
+  _body = $message
+}
+if _header.code? == null and _category == "CISE_Alarm" and _frame.id? == null {
+  _alarm = _body.parse_grok($alarm, raw=true)
+} else {
+  _alarm = {}
+}
+// Only the first segment of a message carries the header.
+_complete = reassembly?.complete? else (_frame.total? == "1" and _frame.index? == "0")
+if _frame.id? == null {
+  // An unnumbered body is complete, unless it starts like damaged counters.
+  _complete = _header.code? != null or _category == null or not _body.match_regex(r"^(?:\w+\s+)?\d+(?:\s|$)")
+}
+if (_frame.id? != null and _header.code? == null) or $message.match_regex($glued) {
+  _complete = false
+}
+
+_ise = {
+  category: _category,
+  message_id: int(_frame.id?),
+  segment_total: int(_frame.total?),
+  segment_number: int(_frame.index?),
+  timestamp: null,
+  original_time: null,
+  sequence_number: int(_header.sequence?),
+  message_code: int(_header.code?),
+  severity: _header.severity? else _alarm.severity?,
+  message_class: _header.class?,
+  message_text: _header.text? else _alarm.text? else _body?.trim().trim_end(","),
+}
+if _ise.message_class == "null" {
+  _ise.message_class = null
+}
+if _header.code? != null {
+  // The header carries the local time of the ISE node with its UTC offset.
+  _ise.timestamp = time(f"{_header.date}T{_header.clock}.{_header.fraction? else "0"}{_header.sign}{_header.hours}:{_header.minutes}")
+  _ise.original_time = f"{_header.date} {_header.clock}{_header.point? else ""}{_header.fraction? else ""} {_header.sign}{_header.hours}{_header.colon? else ""}{_header.minutes}"
+  _ise.timezone_offset = int(_header.hours) * 60 + int(_header.minutes)
+  if _header.sign == "-" {
+    _ise.timezone_offset = -_ise.timezone_offset
+  }
+}
+
+// Values stay strings: ISE values are identifiers, such as MAC addresses and
+// session IDs. `parse_kv` unescapes backslash sequences that ISE does not
+// escape, so double the backslashes. It collects repeated names into a list.
+_attributes = _header.attributes?
+if _header.code? == null and _frame.id? != null and _body?.match_regex(r"^\s*[[:alnum:]](?:[^,;:={}]*[^,;:={}\s])?=") {
+  // A continuation segment without its header still names its attributes.
+  _attributes = _body.trim().trim_end(",")
+  _ise.message_text = null
+}
+// Nested values use the same separator as the attributes: sets in braces, and
+// the commands that an administrator typed, which can even look like further
+// attributes. Hide the separators within.
+_text = _attributes
+if _text?.search("CmdSet=[") {
+  _text = (_text
+    .split("CmdSet=[")
+    .map(x => x.split(" ], ", max=1, reverse=true)[0].replace(", ", "\x1f") + " ], " + x.split(" ], ", max=1, reverse=true)[1] if x.search(" ], ") else x.replace(", ", "\x1f") if x.trim().ends_with(" ]") else x)
+    .join("CmdSet=["))
+}
+if _text?.match_regex(r"\{[^{}]*,\s+[[:alnum:]][^,={}]*=") {
+  _text = (_text
+    .split("{")
+    .map(x => x.split("}", max=1)[0].replace(", ", "\x1f") + "}" + x.split("}", max=1)[1] if x.search("}") else x)
+    .join("{"))
+}
+if _alarm.attributes? != null {
+  _ise.attributes = _alarm.attributes.replace("\\", "\\\\").parse_kv(field_split=$alarm_separator, value_split="=\\s*", quotes="", raw=true)
+} else if _text != null {
+  _ise.attributes = _text.replace("\\", "\\\\").parse_kv(field_split=$separator, value_split="=", quotes="", raw=true)
+} else {
+  _ise.attributes = {}
+}
+if _text != _attributes {
+  _ise.attributes = _ise.attributes.entries().map(x => {
+    key: x.key,
+    value: x.value.map(y => y?.replace("\x1f", ", ")) if type_kind(x.value) == "list" else x.value?.replace("\x1f", ", "),
+  }).collect_record()
+}
+
+_ise.raw = move $message
+if _complete and _ise.category?.starts_with("CISE_") {
+  @name = "cisco.ise." + _ise.category.replace("CISE_", "").to_lower()
+} else if _complete {
+  @name = "cisco.ise.event"
+} else {
+  @name = "cisco.ise.incomplete"
+}
+if reassembly? != null {
+  _ise.reassembly = move reassembly
+}
+if _frame.host? != null {
+  _ise.reassembly.origin = _frame.host
+}
+drop _frame, _category, _body, _header, _alarm, _complete, _attributes, _text
+this = {..._ise, syslog: {...this}}
+drop syslog._ise

@@ -1,0 +1,89 @@
+---
+description: "Maps the network device that sent a request, or the ISE node itself, to the OCSF device."
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+let $address = "^([0-9]{1,3}[.]){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$"
+
+// Alarms spell the names with spaces.
+_nas = $event.attributes["NAS-IP-Address"]? else $event.attributes["NAS-IPv6-Address"]?
+_ip = $event.attributes["Device IP Address"]? else $event.attributes["Network device IP"]? else $event.attributes["NAD Address"]? else $event.attributes["NAS IP Address"]? else _nas
+_nad = $event.attributes.NetworkDeviceName? else $event.attributes["Network Device Name"]?
+if _ip?.match_regex($address) != true {
+  _ip = null
+}
+if _ip != null or _nad != null {
+  $ocsf.device = {
+    type_id: 0,
+    ip: ip(_ip),
+    name: _nad,
+    uid: move $event.attributes["NAS-Identifier"]?,
+    model: move $event.attributes["Model Name"]?,
+    interface_name: move $event.attributes["NAS-Port-Id"]?,
+    interface_uid: move $event.attributes["NAS-Port"]?,
+  }
+  if ($event.attributes["NAS Identifier"]? else "N/A") != "N/A" {
+    $ocsf.device.uid = move $event.attributes["NAS Identifier"]
+  }
+  // ISE writes Unknown for a network device without a model.
+  if $ocsf.device.model? == "Unknown" {
+    $ocsf.device.model = null
+  }
+
+  // The port of the network device that the endpoint connects to.
+  let $port_types = {Ethernet: 1, "Wireless - IEEE 802.11": 2}
+  _port_type = $event.attributes["NAS-Port-Type"]?
+  if _port_type != null and ($ocsf.device.interface_name? != null or $ocsf.device.interface_uid? != null) {
+    _port = {
+      name: $ocsf.device.interface_name?,
+      uid: $ocsf.device.interface_uid?,
+      type_id: $port_types[_port_type]? else 99,
+    }
+    if _port.type_id == 99 {
+      _port.type = _port_type
+    }
+    // On a switch, the called station is the address of the port. A wireless
+    // controller names an access point instead.
+    if _port_type == "Ethernet" and $event.attributes["Called-Station-ID"]?.match_regex("^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$") {
+      _port.mac = $event.attributes["Called-Station-ID"].replace("-", ":").to_upper()
+      // ISE repeats the called station as SSID.
+      if $event.attributes.SSID? == $event.attributes["Called-Station-ID"] {
+        drop $event.attributes.SSID
+      }
+      drop $event.attributes["Called-Station-ID"]
+    }
+    $ocsf.device.network_interfaces = [_port]
+    drop _port, $event.attributes["NAS-Port-Type"]
+  }
+  drop _port_type
+
+  // ISE lists the groups of the network device, and repeats each one under the
+  // name of its hierarchy, such as `Location=Location#All Locations#Harbor`.
+  _groups = ($event.repeated.NetworkDeviceGroups? else [$event.attributes.NetworkDeviceGroups?]).where(x => x != null)
+  _groups = _groups.concatenate($event.attributes.entries().where(x => x.value.starts_with(x.key + "#")).map(x => x.value)).distinct()
+  if _groups != [] {
+    $ocsf.device.groups = _groups.map(x => {name: x})
+    drop $event.repeated.NetworkDeviceGroups?, $event.attributes.NetworkDeviceGroups?
+    $event.attributes = $event.attributes.entries().where(x => not x.value in _groups).collect_record()
+  }
+  drop _groups
+
+  // The values that the device now holds. A proxy or a loopback can make the
+  // address of the NAS differ.
+  let $names = ["Device IP Address", "Network device IP", "NAD Address", "NAS IP Address", "NAS-IP-Address", "NAS-IPv6-Address", "NetworkDeviceName", "Network Device Name"]
+  $event.attributes = $event.attributes.entries().where(x => not (x.key in $names and (x.value == _ip or x.value == _nad))).collect_record()
+} else if $ocsf.metadata.reporter? != null {
+  $ocsf.device = {
+    type_id: 0,
+    hostname: $ocsf.metadata.reporter.hostname?,
+    ip: $ocsf.metadata.reporter.ip?,
+  }
+}
+drop _nas, _ip, _nad

@@ -1,0 +1,94 @@
+---
+description: "Cisco ISE network access and device administration → OCSF Authentication (3002)"
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authentication"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+_code = $ocsf.metadata.event_code
+_tacacs = $event.attributes.Protocol? == "Tacacs" or _code in ["3301", "3302"]
+// TACACS+ accounting reports the start and the end of a device session.
+$ocsf.activity_id = 2 if _code == "3302" else 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+if _code in ["5200", "5201", "5231", "5237", "5447", "3301", "3302"] {
+  $ocsf.status_id = 1
+} else {
+  $ocsf.status_id = 2
+}
+cisco::ise::ocsf::status_detail $event, $ocsf
+cisco::ise::ocsf::authorization $event, $ocsf
+// ISE drops a request, or rejects an endpoint after repeated failures, without
+// checking its credentials.
+if _code in ["5405", "5442", "5443", "5449"] {
+  $ocsf.action_id = 2
+  $ocsf.disposition_id = 2
+}
+
+cisco::ise::ocsf::device $event, $ocsf
+cisco::ise::ocsf::endpoint $event, $ocsf.src_endpoint
+cisco::ise::ocsf::user $event, $ocsf.user
+cisco::ise::ocsf::session $event, $ocsf.session
+
+// The portal, or the access service that ISE selected for the request.
+if $event.attributes.PortalName? != null {
+  $ocsf.service.name = move $event.attributes.PortalName
+} else if $event.attributes.SelectedAccessService? != null {
+  $ocsf.service.name = move $event.attributes.SelectedAccessService
+}
+// RADIUS and TACACS+ carry the protocol between the user and ISE. Host lookups
+// and certificates have none, so the carrier remains.
+let $auth_protocols = {
+  PAP: 7,
+  PAP_ASCII: 7,
+  CHAP: 8,
+  CHAP_MD5: 8,
+}
+_method = $event.attributes.AuthenticationMethod?
+if $event.attributes.EapAuthentication? != null or $event.attributes.EapTunnel? != null {
+  // The inner method and the tunnel stay next to the protocol.
+  $ocsf.auth_protocol_id = 9
+} else if $auth_protocols[$event.attributes["Authen-Type"]? else _method]? != null {
+  $ocsf.auth_protocol_id = $auth_protocols[$event.attributes["Authen-Type"]? else _method]
+} else if _method?.starts_with("MSCHAP") {
+  $ocsf.auth_protocol_id = 99
+  $ocsf.auth_protocol = move $event.attributes.AuthenticationMethod
+} else if $event.attributes.Protocol? == "Tacacs" or _code in ["3301", "3302"] {
+  $ocsf.auth_protocol_id = 99
+  $ocsf.auth_protocol = "TACACS+"
+  drop $event.attributes.Protocol?
+} else if $event.attributes.Protocol? == "Radius" {
+  $ocsf.auth_protocol_id = 10
+  drop $event.attributes.Protocol
+}
+drop _method
+
+let $address = "^([0-9]{1,3}[.]){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$"
+if _tacacs {
+  // Device administration logs in to the network device.
+  if $ocsf.device?.ip? != null or $ocsf.device?.name? != null {
+    $ocsf.dst_endpoint = {
+      ip: $ocsf.device.ip?,
+      name: $ocsf.device.name?,
+    }
+  }
+} else if $event.attributes.DestinationIPAddress?.match_regex($address) {
+  // Network access authenticates against the ISE node.
+  $ocsf.dst_endpoint.ip = ip(move $event.attributes.DestinationIPAddress)
+  if $event.attributes.DestinationPort?.match_regex("^[0-9]+$") {
+    $ocsf.dst_endpoint.port = int(move $event.attributes.DestinationPort)
+  }
+}
+// RADIUS reports remote access VPN as a virtual port.
+if $ocsf.device?.network_interfaces?[0]?.type? == "Virtual" or $event.attributes["NAS-Port-Type"]? == "Virtual" {
+  $ocsf.is_remote = true
+}
+drop _code, _tacacs

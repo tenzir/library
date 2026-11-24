@@ -1,0 +1,76 @@
+---
+description: "Cisco ISE administrator, sponsor, and portal logins → OCSF Authentication (3002)"
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authentication"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+_code = $ocsf.metadata.event_code
+$ocsf.activity_id = 2 if _code in ["51002", "51003", "60116", "60117", "60206", "61076", "61077"] else 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+if $ocsf.activity_id == 1 and not _code in ["51001", "60075", "60078", "60080", "60115", "60184", "60204", "60205", "10005"] {
+  $ocsf.status_id = 2
+}
+cisco::ise::ocsf::status_detail $event, $ocsf
+// 51004 rejects a client address that may not administer ISE.
+if _code == "51004" {
+  $ocsf.action_id = 2
+  $ocsf.disposition_id = 26
+}
+
+// The login targets the ISE node.
+cisco::ise::ocsf::device $event, $ocsf
+if $ocsf.device? != null {
+  $ocsf.dst_endpoint = {
+    ip: $ocsf.device.ip?,
+    hostname: $ocsf.device.hostname?,
+  }
+}
+
+// The codes of the SSH service quote the message of the SSH server.
+let $ssh = r"^(?:(?:Accepted|Failed) (?<method>\S+) for (?:invalid user )?(?<user>\S+) from (?<ip>[0-9A-Fa-f:.]+) port (?<port>\d+)(?: ssh2)?|(?s:.*))$"
+if _code in ["60080", "60081", "60082"] {
+  _ssh = $ocsf.status_detail?.parse_grok($ssh, raw=true)
+} else {
+  _ssh = null
+}
+
+cisco::ise::ocsf::administrator $event, $ocsf.user
+if $ocsf.user? == null and _ssh?.user? != null {
+  $ocsf.user.name = _ssh.user
+} else if $ocsf.user? == null {
+  // Sponsors and My Devices users are users of a portal.
+  cisco::ise::ocsf::user $event, $ocsf.user
+}
+cisco::ise::ocsf::endpoint $event, $ocsf.src_endpoint
+if $ocsf.src_endpoint? == null and _ssh?.ip? != null {
+  $ocsf.src_endpoint = {
+    ip: ip(_ssh.ip),
+    port: int(_ssh.port),
+  }
+}
+// The portal, or the interface of the node that administers it.
+if $event.attributes.PortalName? != null {
+  $ocsf.service.name = move $event.attributes.PortalName
+} else if ($event.attributes.AdminInterface? else "UNKNOWN") != "UNKNOWN" {
+  $ocsf.service.name = $event.attributes.AdminInterface
+}
+if _code in ["60184", "60185", "60186", "60205", "60206"] {
+  $ocsf.is_remote = false
+} else if _code in ["60080", "60081", "60082", "60115", "60116"] or $event.attributes.AdminInterface? in ["GUI", "ERS"] {
+  $ocsf.is_remote = true
+}
+if $ocsf.service?.name? == $event.attributes.AdminInterface? {
+  drop $event.attributes.AdminInterface?
+}
+drop _code, _ssh

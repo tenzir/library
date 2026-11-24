@@ -1,0 +1,66 @@
+---
+description: "Maps the endpoint that asks for access to an OCSF network endpoint."
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the endpoint.
+---
+
+let $address = "^([0-9]{1,3}[.]){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$"
+let $mac = "^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$|^([0-9A-Fa-f]{4}[.]){2}[0-9A-Fa-f]{4}$"
+
+// The calling station is a MAC address, the client address of a VPN, or a phone
+// number. Twelve digits without separators are no evidence of a MAC address.
+_calling = $event.attributes["Calling-Station-ID"]?
+_mac = [
+  $event.attributes.EndPointMACAddress?,
+  $event.attributes.EndpointMacAddress?,
+  $event.attributes.EPMacAddress?,
+  _calling if not _calling?.match_regex("^[0-9]{12}$") else null,
+].where(x => x?.match_regex($mac)).first()
+_ip = [
+  $event.attributes["Framed-IP-Address"]?,
+  $event.attributes.IpAddress?,
+  $event.attributes.AdminIPAddress?,
+  $event.attributes.EndPointIPAddress?,
+  $event.attributes.EndpointIPAddress?,
+  $event.attributes["Remote-Address"]?,
+  $event.attributes["Framed-IPv6-Address"]?,
+  _calling,
+].where(x => x?.match_regex($address) and not x?.match_regex($mac)).first()
+if _mac != null or _ip != null {
+  $ocsf = {}
+  if _ip != null {
+    $ocsf.ip = ip(_ip)
+  }
+  if _mac != null {
+    // The MAC address is the key of an endpoint in ISE. ISE writes it in several
+    // notations.
+    $ocsf.mac = _mac.replace_regex("[^0-9A-Fa-f]", "").to_upper().replace_regex("^(..)(..)(..)(..)(..)(..)$", r"\1:\2:\3:\4:\5:\6")
+    $ocsf.uid = $ocsf.mac
+  }
+  // The profile is the type that ISE assigned to the endpoint.
+  _profile = $event.attributes.EndPointMatchedProfile? else $event.attributes.EndpointMatchedPolicy? else $event.attributes.EndPointPolicy?
+  if _profile != null and _profile != "Unknown" {
+    $ocsf.type_id = 99
+    $ocsf.type = _profile
+    if $event.attributes.EndPointMatchedProfile? == _profile {
+      drop $event.attributes.EndPointMatchedProfile
+    }
+    if $event.attributes.EndpointMatchedPolicy? == _profile {
+      drop $event.attributes.EndpointMatchedPolicy
+    }
+    if $event.attributes.EndPointPolicy? == _profile {
+      drop $event.attributes.EndPointPolicy
+    }
+  }
+  drop _profile
+  // Other notations of the same addresses carry no further information.
+  let $names = ["EndPointMACAddress", "EndpointMacAddress", "EPMacAddress", "Calling-Station-ID", "Framed-IP-Address", "IpAddress", "AdminIPAddress", "EndPointIPAddress", "EndpointIPAddress", "Remote-Address", "Framed-IPv6-Address"]
+  $event.attributes = $event.attributes.entries().where(x => not (x.key in $names and (x.value == _ip or (_mac != null and x.value.replace_regex("[^0-9A-Fa-f]", "").to_lower() == _mac.replace_regex("[^0-9A-Fa-f]", "").to_lower())))).collect_record()
+}
+drop _calling, _mac, _ip

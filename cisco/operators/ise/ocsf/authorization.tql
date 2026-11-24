@@ -1,0 +1,60 @@
+---
+description: "Maps the authorization policy result of a request."
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+// Network access selects authorization profiles, device administration selects
+// a shell profile.
+_profiles = ($event.repeated.SelectedAuthorizationProfiles? else [$event.attributes.SelectedAuthorizationProfiles?]).append($event.attributes.SelectedShellProfile?).where(x => x != null).distinct()
+drop $event.repeated.SelectedAuthorizationProfiles?, $event.attributes.SelectedAuthorizationProfiles?, $event.attributes.SelectedShellProfile?
+
+// The status tells the outcome that the message code states, for example of the
+// authentication. The authorization has an own outcome: the action, the
+// disposition, and the decision of each profile. A user can authenticate and
+// still get no access.
+//
+// DenyAccess and PermitAccess are the built-in profiles. Other profiles can
+// redirect or restrict the session, so their names are no decision. Reason
+// 15039 is a rejection by the authorization profile. The authorization codes
+// state the decision, except for those that report an error.
+if $ocsf.class_uid == 3003 and $ocsf.status_id == 1 {
+  _decision = "Allowed"
+} else if $ocsf.class_uid == 3003 {
+  _decision = "Denied" if not $ocsf.metadata.event_code in ["5409", "5410"] else null
+} else if "DenyAccess" in _profiles or $ocsf.status_code? == "15039" {
+  _decision = "Denied"
+} else if _profiles == ["PermitAccess"] and $ocsf.status_id? == 1 {
+  _decision = "Allowed"
+} else {
+  _decision = null
+}
+if _decision == "Allowed" {
+  $ocsf.action_id = 1
+  $ocsf.disposition_id = 1
+} else if _decision == "Denied" {
+  $ocsf.action_id = 2
+  $ocsf.disposition_id = 26
+} else if [$event.attributes.Response?].concatenate($event.repeated.Response? else []).where(x => x?.search("RadiusPacketType=AccessReject")) != [] {
+  $ocsf.action_id = 2
+  $ocsf.disposition_id = 2
+}
+// One of several profiles only holds the decision if it is the cause.
+if _profiles.length() == 1 {
+  $ocsf.authorizations = _profiles.map(x => {decision: _decision, policy: {name: x}})
+} else if _profiles != [] {
+  $ocsf.authorizations = _profiles.map(x => {decision: "Denied" if x == "DenyAccess" else null, policy: {name: x}})
+}
+drop _profiles, _decision
+if $event.attributes.AuthorizationPolicyMatchedRule? != null {
+  $ocsf.policy = {name: move $event.attributes.AuthorizationPolicyMatchedRule}
+  if $event.attributes.ISEPolicySetName? != null {
+    $ocsf.policy.group = {name: move $event.attributes.ISEPolicySetName}
+  }
+}

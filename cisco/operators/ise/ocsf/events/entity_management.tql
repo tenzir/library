@@ -1,0 +1,88 @@
+---
+description: "Cisco ISE configuration changes and registered devices → OCSF Entity Management (3004)"
+args:
+  positional:
+    - name: event
+      type: field
+      description: The event from `cisco::ise::parse`.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.entity_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+let $address = "^([0-9]{1,3}[.]){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$"
+
+_code = $ocsf.metadata.event_code
+match _code {
+  "52000" | "88000" | "88001" => { $ocsf.activity_id = 1 }
+  "52002" | "88004" | "88005" => { $ocsf.activity_id = 4 }
+  "88010" | "88011" => { $ocsf.activity_id = 6 }
+  "88008" | "88009" => { $ocsf.activity_id = 8 }
+  "88006" | "88007" => { $ocsf.activity_id = 9 }
+  _ => { $ocsf.activity_id = 3 }
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+if $event.attributes.FailureFlag? == "true" or _code in ["88001", "88003", "88005", "88007", "88009", "88011"] {
+  $ocsf.status_id = 2
+}
+drop $event.attributes.FailureFlag?
+cisco::ise::ocsf::status_detail $event, $ocsf
+cisco::ise::ocsf::device $event, $ocsf
+
+if _code.starts_with("88") {
+  // A user manages an own device in the My Devices portal. The request comes
+  // from the address of the user.
+  if $event.attributes.IpAddress?.match_regex($address) {
+    $ocsf.src_endpoint.ip = ip(move $event.attributes.IpAddress)
+  }
+  $ocsf.entity = {
+    name: move $event.attributes.DeviceName?,
+    type_id: 1,
+  }
+  cisco::ise::ocsf::endpoint $event, $ocsf.entity.device
+  if $ocsf.entity.device? != null {
+    $ocsf.entity.device.type_id = $ocsf.entity.device.type_id? else 0
+    $ocsf.entity.uid = $ocsf.entity.device.uid?
+    if ($event.attributes.EPIdentityGroup? else "Unknown") != "Unknown" {
+      $ocsf.entity.device.groups = [{name: move $event.attributes.EPIdentityGroup}]
+    }
+  }
+  cisco::ise::ocsf::user $event, $ocsf.actor.user
+} else {
+  if _code.starts_with("52") {
+    $ocsf.entity = {
+      name: move $event.attributes.ObjectName?,
+      uid: move $event.attributes.ObjectInternalID?,
+      type_id: 0,
+      data: move $event.attributes.ConfigChangeData?,
+    }
+    if $ocsf.entity.uid? == "unknown" {
+      $ocsf.entity.uid = null
+    }
+    if $event.attributes.ObjectType? != null {
+      match $event.attributes.ObjectType {
+        "Network Access Users" => { $ocsf.entity.type_id = 2 }
+        "User Identity Groups" => { $ocsf.entity.type_id = 3 }
+        _ => {
+          $ocsf.entity.type_id = 99
+          $ocsf.entity.type = move $event.attributes.ObjectType
+        }
+      }
+    }
+  } else {
+    // The text names the changed part of the operating system.
+    $ocsf.entity = {
+      name: $ocsf.message.replace(" configuration change", ""),
+      type_id: 99,
+      type: "Configuration",
+    }
+  }
+  cisco::ise::ocsf::administrator_actor $event, $ocsf
+  cisco::ise::ocsf::endpoint $event, $ocsf.src_endpoint
+}
+drop _code

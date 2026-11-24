@@ -1,0 +1,19 @@
+---
+name: Cisco ISE syslog over UDP → topic
+description: |
+  Receives Cisco ISE remote-target syslog over UDP, one segment per datagram,
+  reassembles segmented messages, and publishes parsed events to `cisco`.
+---
+
+accept_udp "0.0.0.0:514"
+// A datagram with a priority but an unusual header is still a segment.
+this = data.parse_syslog(accept_pri_only=true)
+body = move content? else message?
+category = app_name? if app_name?.starts_with("CISE_")
+where body != null
+// Segments arrive one by one. Batches keep up with many messages per second.
+batch timeout=250ms
+cisco::ise::reassemble message=body, category=category
+drop category
+cisco::ise::parse message=body
+publish "cisco"
