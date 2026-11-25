@@ -1,5 +1,5 @@
 ---
-description: Replays the records of a Windows event collector as a live feed.
+description: Replays the lines of a Windows event collector, one event per `line`, as a live feed.
 args:
   positional:
     - name: format
@@ -20,6 +20,7 @@ args:
       description: Number of cycles to replay. Endless by default.
 ---
 
+raw = move line
 time = raw.parse_winlog().System.TimeCreated.SystemTime.time() if $format == "xml" else (
   raw.parse_json(raw=true)["@timestamp"].time() if $format == "winlogbeat" else
   raw.parse_json(raw=true).TimeCreated.parse_time("%Y-%m-%d %H:%M:%S %z")
@@ -30,6 +31,4 @@ demo::replay::renew_ids raw, "((?i:process ?guid|logon ?guid|entity_id|activity_
 demo::replay::renew_ids raw, "((?i:logon ?id)(?:\\\\[nrt]|&#\\d+;|[\\\\'\">:=\\s])*0[xX])([0-9A-Fa-f]{5,})", kind="hex"
 demo::replay::renew_ids raw, "(<EventRecordID>|\"(?:record_id|EventRecordID|RecordNumber)\":\"?)(\\d+)", kind="number"
 demo::replay::run speed=$speed, start=$start, cycles=$cycles
-// Rotate the host per cycle: records of one cycle belong together.
-raw = raw.replace("DEMO-WIN-01", f"DEMO-WIN-0{1 + replay.cycle - 3 * int(floor(replay.cycle / 3))}")
-demo::windows::parse $format, raw
+select line=raw

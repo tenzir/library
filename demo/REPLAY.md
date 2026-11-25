@@ -7,9 +7,9 @@ All feeds replay a short recording as an endless live stream:
 | `demo::zeek` | 3,143 events in 22 logs | as `read_zeek_tsv` | 20 min | 2.6 |
 | `demo::suricata` | 3,654 events of 17 types | as `read_suricata` | 20 min | 3.0 |
 | `demo::openssh` | 1,581 records of 7 hosts | as `read_syslog raw_message=raw` | 4 min | 6.8 |
-| `demo::windows "winlogbeat"` | 105 records | as `read_ndjson` | 68 s | 1.5 |
-| `demo::windows "fluent-bit"` | 105 records | as `read_ndjson` | 56 s | 1.9 |
-| `demo::windows "xml"` | 105 records | the XML in `data`, as `read_delimited "</Event>\n"` | 140 s | 0.8 |
+| `demo::windows "winlogbeat"` | 105 records | the JSON in `line`, as `read_lines` | 68 s | 1.5 |
+| `demo::windows "fluent-bit"` | 105 records | the JSON in `line`, as `read_lines` | 56 s | 1.9 |
+| `demo::windows "xml"` | 105 records | the XML in `line`, as `read_lines` | 140 s | 0.8 |
 | `demo::claude_code` | 469 records | as `accept_otlp` with `schema="record"` | 9 min | 0.8 |
 | `demo::codex` | 1,782 records | as `accept_otlp` with `schema="record"` | 29 min | 1.0 |
 
@@ -36,8 +36,7 @@ pipelines and two starts give different ones.
 A feed downloads its recording once, when the pipeline starts. It fails to start
 without network, and needs none afterwards.
 
-`demo::windows` also gives every cycle one of three host names. See
-[agents.md](agents.md) for the agent recordings.
+See [agents.md](agents.md) for the agent recordings.
 
 ## Zeek and Suricata
 
