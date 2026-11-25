@@ -3,6 +3,8 @@ title: Unset times in Zeek NTP events
 type: bugfix
 authors:
   - zedoraps
+prs:
+  - 268
 created: 2026-11-25T00:00:00Z
 ---
 
