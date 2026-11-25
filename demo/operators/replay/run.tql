@@ -1,0 +1,88 @@
+---
+description: >-
+  Replays a finite recording as an endless live feed. Every cycle moves the
+  timestamps to the current timeline and renews the marked identifiers. Expects
+  events with the recording time in `time` and the record in `raw`, keeps other
+  fields, and adds the number of the cycle in `cycle`.
+args:
+  named:
+    - name: max_gap
+      type: duration
+      default: 5s
+      description: Longer pauses in the recording are cut to this length.
+    - name: context
+      type: string
+      default: ""
+      description: >-
+        Regular expression for the text before a timestamp. By default, the
+        replay moves all ISO timestamps.
+    - name: speed
+      type: float
+      default: 1.0
+      description: Multiplier on the replay rate.
+    - name: start
+      type: time
+      default: null
+      description: >-
+        Start of the first cycle, such as `now()`. By default, all pipelines
+        share one clock, and a pipeline starts in the middle of a cycle.
+    - name: seed
+      type: string
+      default: ""
+      description: Changes the renewed identifiers, for example per deployment.
+    - name: cycles
+      type: int
+      default: 1000000000
+      description: Number of cycles to replay.
+    - name: pace
+      type: bool
+      default: true
+      description: Emit every record at its replayed time instead of immediately.
+---
+
+let $now = now()
+let $epoch = 2026-01-01T00:00:00Z
+let $begin = $start if $start != null else $now
+
+// Mark ISO timestamps. Sentinels such as 1601 or 9999 stay as they are.
+raw = raw.replace_regex("(" + $context + ")\\b((?:199|20[0-8])\\d-[01]\\d-[0-3]\\d[T ])(\\d\\d:\\d\\d:\\d\\d)(\\.\\d+)?( ?[+-]\\d\\d:?\\d\\d|Z)?", "\\1\u001f\u001etime|\\2|\\3|\\4|\\5\u001f")
+
+// Place all records inside one cycle, without the long pauses.
+assert time != null, message="demo::replay::run: record without time"
+sort time
+_name = @name
+summarize _rows=collect(this)
+_times = _rows.map(r => r.time)
+_pauses = zip(_times.slice(begin=1), _times.slice(end=-1)).map(p => {at: p.left, cut: p.left - p.right - $max_gap})
+_pauses = [{at: _times[0]?, cut: 0s}, ..._pauses.where(p => p.cut > 0s)]
+_count = _rows.length()
+_span = _times[-1]? - _times[0]? - _pauses.map(p => p.cut).sum()
+// The last record leaves room for one average gap before the next cycle.
+_period = (_span * (_count / (_count - 1)) if _span > 0s else 1s) / $speed
+unroll _rows
+this = {
+  ..._rows,
+  _count: _count,
+  _period: _period,
+  _recorded: _rows.time,
+  _offset: (_rows.time - _times[0] - _pauses.where(p => p.at <= _rows.time).map(p => p.cut).sum()) / $speed,
+}
+
+repeat $cycles
+enumerate _sequence
+// On the shared clock, all pipelines count the same cycles.
+cycle = int(floor(_sequence / _count)) + (int(floor(($now - $epoch) / _period)) if $start == null else 0)
+_cycle_start = ($start if $start != null else $epoch) + cycle * _period
+_shift = _cycle_start + _offset - _recorded
+// Whole seconds keep the order of timestamps with different precision.
+_shift = _shift.ceil(1s) if $speed == 1.0 else _shift
+time = _recorded + _shift
+where time >= $begin
+_salt = f"{$seed}:{_cycle_start}"
+demo::replay::render raw, shift=_shift, salt=_salt
+// Separate batches let a downstream `head` end the delay.
+batch 1
+_due = time if $pace else $begin
+delay _due, start=$begin
+@name = _name
+drop _name, _count, _period, _recorded, _offset, _sequence, _cycle_start, _shift, _salt, _due

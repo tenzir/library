@@ -11,42 +11,28 @@ events.
 from_file "claude-code.json" {
   demo::agents::read
 }
-demo::agents::replay start=now()
+demo::agents::replay
 anthropic::claude_code::ocsf::normalize include_content=true
 ```
 
 For Codex, use `codex.json` and `openai::codex::ocsf::normalize`.
 The parser restores each record's native schema from its `schema` and `event`
-envelope. The replay operator moves the capture to the current time and divides
-event gaps by `speed`. Collector delay and recorded durations stay unchanged.
-Add `pace=true` to wait between events. Without pacing, it emits the capture
-immediately.
+envelope. The replay operator moves the telemetry timestamps to the current
+time. Recorded durations, the order of events, and dates inside prompts,
+commands, and outputs stay unchanged. Pauses longer than `max_gap`, by default
+5 s, are cut. See [REPLAY.md](REPLAY.md) for the common arguments.
 
 `demo::claude_code` and `demo::codex` download the public
 [Claude Code](https://datasets.tenzir.tools/claude-code/otel.json.zst) and
-[Codex](https://datasets.tenzir.tools/codex/otel.json.zst) datasets.
-No local files or volume mounts are required.
-No arguments are required. These sources average about one event per second,
-retaining the original bursts and pauses at a compressed timescale.
-That is roughly 600 events per 10 minutes over repeated playback, not a quota
-for every 10-minute window. `speed=2.0` doubles the average rate. Like OpenSSH,
-they compress each capture to its replay period and pace the resulting timestamps.
+[Codex](https://datasets.tenzir.tools/codex/otel.json.zst) datasets once, when
+the pipeline starts. These sources average about one event per second.
 
-The cycle periods are `469s / speed` for Claude Code and `1782s / speed` for
-Codex, matching their capture sizes. Loading and rotating IDs adds startup time
-to each cycle. Recorded durations stay unchanged; the demo timeline does not
-represent the original time between related events.
-
-Each cycle rotates correlation IDs with a fresh seed. Tool, request, session,
-conversation, message, trace, and span references remain linked within that
-cycle, including references inside tool arguments and outputs. Fixed prefixes
-such as `toolu_`, `call_`, `req_`, and `exec-` remain intact. UUIDs keep their
-layout, and trace and span IDs remain 32 and 16 hexadecimal characters.
-Anonymized user and host identities stay stable. Missing IDs stay missing.
-
-For a finite local replay with fresh IDs, insert
-`demo::agents::rotate_ids seed=uuid()` before `demo::agents::replay`.
-ID rotation buffers one capture to resolve references across its records.
+Each cycle renews the correlation IDs. Tool, request, session, conversation,
+message, trace, and span references remain linked within that cycle, including
+references inside tool arguments and outputs. Fixed prefixes such as `toolu_`,
+`call_`, `req_`, and `exec-` remain intact. UUIDs keep their layout, and trace
+and span IDs remain 32 and 16 hexadecimal characters. Anonymized user,
+organization, and host identities stay stable. Missing IDs stay missing.
 
 ## Capture selection
 

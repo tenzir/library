@@ -1,30 +1,35 @@
 ---
 description: >-
-  Generates a continuous stream of Suricata events from the M57 dataset,
-  replayed in real time. Use `speed` to control the replay rate.
+  Generates a continuous stream of Suricata events from a small sample of
+  invented office traffic that ships with the package.
 args:
   named:
     - name: speed
       type: float
       default: 1.0
+      description: Multiplier on the replay rate.
+    - name: start
+      type: time
+      default: null
+      description: Start of the first cycle, such as `now()`. By default, all pipelines share one clock.
+    - name: seed
+      type: string
+      default: ""
+      description: Changes the renewed identifiers, for example per deployment.
+    - name: cycles
+      type: int
+      default: 1000000000
+      description: Number of cycles to replay.
+    - name: pace
+      type: bool
+      default: true
+      description: Emit every record at its replayed time instead of immediately.
 ---
 
-let $first = 2021-11-18T08:10:00Z
-let $last = 2021-11-18T08:38:00Z
-let $default = 30s
-let $period = $default / $speed
-let $factor = ($last - $first) / $period
-
-every $period {
-  from_http "https://datasets.tenzir.tools/M57/suricata.json.zst" {
-    decompress_zstd
-    read_suricata
-    head 30k
-  }
-  where $first <= timestamp and timestamp <= $last
-  sort timestamp
-}
-// Drop some very frequent data to get a more even distribution.
-where @name != "suricata.dns" or random() <= 0.01
-where @name != "suricata.tls" or random() <= 0.3
-delay timestamp, start=$first, speed=$factor
+demo::suricata::sample
+time = raw.parse_json().timestamp.time()
+demo::replay::mark raw, "(\"flow_id\":)(\\d+)", "number"
+demo::replay::run speed=$speed, start=$start, seed=$seed, cycles=$cycles, pace=$pace
+select raw
+write_lines
+read_suricata
