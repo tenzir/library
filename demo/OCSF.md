@@ -100,6 +100,10 @@ slower downstream destination applies backpressure and reduces the achieved
 rate. Stop a continuous stream with the caller's cancellation mechanism or an
 operator such as `head`.
 
+A normal stop of a pipeline with a finite operator first works through the events
+that it has already prepared, which can take long for large counts. **Force stop**,
+or a second Ctrl-C in a terminal, ends it at once.
+
 An unsupported class or raw format emits a diagnostic and no events for that
 round, following TQL's `assert` behavior.
 
