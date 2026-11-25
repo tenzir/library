@@ -1,0 +1,42 @@
+---
+description: Cisco ASA executed commands → OCSF Script Activity
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.script_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1009
+$ocsf.activity_id = 1
+$ocsf.type_uid = 100901
+$ocsf.metadata.profiles = ["host"]
+
+// ASA logs 111008 for any command but show commands, 111009 for show commands,
+// and 111010 for configuration changes. A change causes 111008 and 111010. No
+// message tells whether the command succeeded.
+$ocsf.script = {
+  type_id: 0,
+  script_content: {
+    value: move $event.command,
+  },
+}
+// Only the CLI is a shell. ASDM and other applications send commands, too.
+if $event.application? == "CLI" {
+  $ocsf.script.type_id = 99
+  $ocsf.script.type = "Shell"
+}
+if $event.user? != null {
+  cisco::asa::ocsf::user $event.user, $ocsf.actor.user
+}
+if $event.application? != null {
+  $ocsf.actor.application.name = move $event.application
+}
+if $ocsf.metadata.reporter? != null {
+  $ocsf.device = {...$ocsf.metadata.reporter, type_id: 9}
+}

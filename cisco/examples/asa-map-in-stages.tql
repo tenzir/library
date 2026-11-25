@@ -1,0 +1,24 @@
+---
+name: Map a Cisco ASA message to OCSF in stages
+description: |
+  Parses a Cisco Secure Firewall ASA message, adds the name of the firewall and
+  the time from a log shipper, maps the event to OCSF, and stores the message in
+  `raw_data`. Use this pipeline when you need to inspect or route the parsed
+  event before mapping it.
+---
+
+from {
+  received: 2026-03-05T09:20:11Z,
+  firewall: "fw-north",
+  message: r#"%ASA-4-106023: Deny tcp src outside:198.51.100.61/40533 dst dmz:192.0.2.69/1433 by access-group "outside_in" [0x5be21c07, 0x0]"#,
+}
+cisco::asa::parse message, event
+event.timestamp = event.timestamp? else move received
+event.hostname = event.hostname? else move firewall
+cisco::asa::ocsf::map event, ocsf
+this = {
+  ...ocsf,
+  raw_data: message,
+  raw_data_size: message.length_bytes(),
+}
+this = ocsf_cast(ocsf_derive(this))

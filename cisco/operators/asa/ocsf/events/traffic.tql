@@ -1,0 +1,27 @@
+---
+description: Cisco ASA packets without an access decision → OCSF Network Activity
+args:
+  positional:
+    - name: event
+      type: field
+      description: The parsed Cisco ASA event.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = 6
+$ocsf.status_id = 0
+$ocsf.status_detail = move $event.reason
+
+cisco::asa::ocsf::network_endpoints $event, $ocsf
+
+// ASA found no egress interface or next hop for the packet.
+if $event.message_id in [110002, 110003] {
+  $ocsf.activity_id = 4
+  $ocsf.status_id = 2
+}
+$ocsf.type_uid = 400100 + $ocsf.activity_id
