@@ -1,0 +1,18 @@
+from_file f"{env("TENZIR_INPUTS")}/otel.ndjson" {
+  read_lines
+}
+raw = move line
+demo::agents::replay start=2026-06-01T12:00:00Z, cycles=2
+where attributes["tool_use_id"]? != null
+input = attributes.tool_input.parse_json()
+this = {
+  trace: trace_id != "1234567890abcdef1234567890abcdef" and trace_id.match_regex("^[0-9a-f]{32}$"),
+  span: span_id != "1234567890abcdef" and span_id.match_regex("^[0-9a-f]{16}$"),
+  user: attributes["user.id"],
+  organization: attributes["organization.id"] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  session: attributes["session.id"] != "12345678-1234-4234-8234-123456789abc",
+  prefix: attributes.tool_use_id.match_regex("^toolu_[0-9a-f]{12}$"),
+  links: input.target.string() == attributes["session.id"] and input.tool.string() == attributes.tool_use_id,
+  content_date: input.date,
+  cycle_id: attributes["session.id"],
+}

@@ -1,34 +1,32 @@
 ---
-description: Moves a native agent stream to a new timeline and scales event gaps.
+description: Replays OTel records of Claude Code or Codex, in JSON, as a live feed.
 args:
   named:
-    - name: start
-      type: time
-      default: now()
     - name: speed
       type: float
       default: 1.0
-      description: Replay speed multiplier for timestamps and pacing.
-    - name: pace
-      type: bool
-      default: false
-      description: Wait between events instead of emitting the archive immediately.
+      description: Multiplier on the replay rate.
+    - name: start
+      type: time
+      default: null
+      description: Start of the first cycle in the past, by default now. Records before now come at once.
+    - name: cycles
+      type: int
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
-this = {
-  event: this,
-  schema: @name,
-  capture_time: time?.time() else attributes?["event.timestamp"]?.time() else observed_time?.time() else start_time?.time(),
-}
-enumerate sequence
-sort capture_time, sequence
-replay_time = capture_time
-timeshift replay_time, start=$start, speed=$speed
-offset = replay_time - capture_time
-@name = schema
-// Apply the same shift to every timestamp, including embedded span events.
-demo::agents::shift_time offset, event=event
-if $pace {
-  delay replay_time
-}
-this = move event
+event = raw.parse_json(raw=true)
+time = (event.time? else event.attributes["event.timestamp"]? else event.observed_time? else event.start_time?).time()
+drop event
+// Correlation identifiers also appear inside tool arguments and outputs. User,
+// account, organization, and host identifiers stay stable.
+demo::replay::renew_ids raw, "(\\b)([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", kind="uuid"
+raw = raw.replace_regex("(\"(?:host|user|organization)[.](?:id|account_id|account_uuid)\":\\s*\")%%REPLAY%%renew:uuid[|]([0-9a-f-]+)%%REPLAY%%", "\\1\\2")
+demo::replay::renew_ids raw, "(\\b(?:toolu|call|req)_)([0-9A-Za-z]{10,})", kind="hex"
+demo::replay::renew_ids raw, "(\"(?:trace_id|span_id|parent_span_id|(?:conversation|session|thread)[._]id|(?:sender|receiver)_thread_id)\":\\s*\")([0-9a-f]{16,})", kind="hex"
+// Dates inside prompts, commands, and outputs stay as they are.
+demo::replay::internal::select_times raw, context="\"(?:time|observed_time|event\\.timestamp|start_time|end_time)\":\\s*\""
+demo::replay::internal::timeline speed=$speed, start=$start, cycles=$cycles
+demo::replay::internal::render raw, shift=replay.shift, salt=replay.salt
+demo::agents::parse raw

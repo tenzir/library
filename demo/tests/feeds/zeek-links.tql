@@ -1,0 +1,10 @@
+// Every log record of a connection carries the same renewed UID.
+from_file f"{env("TENZIR_INPUTS")}/zeek.log" {
+  read_zeek_tsv
+}
+demo::zeek::replay start=2026-06-01T12:00:00Z, cycles=2
+uid = uid?
+name = @name
+where uid != null
+summarize uid, logs=distinct(name)
+summarize connections=count(), with_protocol_log=sum(1 if logs.length() > 1 else 0), shape=all(uid.match_regex("^C[0-9A-Za-z]{17}$"))

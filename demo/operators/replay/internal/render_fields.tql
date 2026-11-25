@@ -1,0 +1,36 @@
+---
+description: Moves the time fields and renews the identifiers of a parsed event.
+args:
+  positional:
+    - name: event
+      type: field
+      description: The recorded event.
+  named:
+    - name: shift
+      type: field
+      description: The duration to add to every time field, also in nested records.
+    - name: salt
+      type: field
+      description: The string that decides the renewed identifiers.
+    - name: ids
+      type: "[string]"
+      description: Top-level fields with identifiers.
+---
+
+// A renewed string keeps its first letter, such as the `C` of a Zeek UID, and
+// becomes 18 letters and digits long. A renewed number has 15 digits.
+$event = entries($event).map(e => {
+  key: e.key,
+  value:
+    e.value + $shift if type_kind(e.value) == "time" else
+    entries(e.value).map(n => {
+      key: n.key,
+      value: n.value + $shift if type_kind(n.value) == "time" else n.value,
+    }).collect_record() if type_kind(e.value) == "record" else
+    e.value if not (e.key in $ids) else
+    e.value.slice(end=1) + hash_sha256($salt + e.value).decode_hex().encode_base64().replace("+", "x").replace("/", "y").slice(end=17) if type_kind(e.value) == "string" else
+    e.value.map(v => v.slice(end=1) + hash_sha256($salt + v).decode_hex().encode_base64().replace("+", "x").replace("/", "y").slice(end=17)) if type_kind(e.value) == "list" else
+    ("1" + hash_sha256($salt + e.value.string()).replace_regex("[a-f]", "").slice(end=14)).uint() if type_kind(e.value) == "uint" else
+    ("1" + hash_sha256($salt + e.value.string()).replace_regex("[a-f]", "").slice(end=14)).int() if type_kind(e.value) == "int" else
+    e.value,
+}).collect_record()

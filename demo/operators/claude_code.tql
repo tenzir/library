@@ -1,29 +1,22 @@
 ---
 description: >-
-  Continuously replays an anonymized Claude Code telemetry capture.
-  Each cycle uses fresh correlation IDs and starts a new timeline.
+  Continuously replays a Claude Code telemetry recording with invented content,
+  about one event per second on average.
 args:
   named:
     - name: speed
       type: float
       default: 1.0
-      description: Multiplier on the default average rate of about one event per second.
-    - name: pace
-      type: bool
-      default: true
-      description: Wait between records according to the replay timeline.
+      description: Multiplier on the replay rate.
+    - name: cycles
+      type: int
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
-let $period = 469s / $speed
-let $first = 2026-01-01T00:03:09.189Z
-let $last = 2026-01-01T01:10:22.964Z
-let $factor = ($last - $first) / $period
-every $period {
-  let $cycle = uuid()
-  from_http "https://datasets.tenzir.tools/claude-code/otel.json.zst" {
-    decompress_zstd
-    demo::agents::read
-  }
-  demo::agents::rotate_ids seed=$cycle
-  demo::agents::replay start=now(), speed=$factor, pace=$pace
+from_http "https://datasets.tenzir.tools/demo/v1/claude-code/otel.ndjson.zst" {
+  decompress_zstd
+  read_lines
 }
+raw = move line
+demo::agents::replay speed=$speed, cycles=$cycles
