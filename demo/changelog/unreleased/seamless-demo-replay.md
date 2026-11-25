@@ -3,6 +3,8 @@ title: Seamless demo replay
 type: breaking
 authors:
   - zedoraps
+prs:
+  - 267
 created: 2026-11-25T00:00:00Z
 ---
 
