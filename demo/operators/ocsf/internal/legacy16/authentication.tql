@@ -1,0 +1,22 @@
+---
+description: Build a 1.6 Kerberos or SSH authentication attempt.
+---
+
+@name = "ocsf.authentication"
+category_uid = 3
+activity_id = 1
+user = _ctx.user
+src_endpoint = {ip: device.ip, hostname: device.hostname, port: 49152 + int(random() * 16384)}
+dst_endpoint = {
+  ip: 10.20.0.5 if _ctx.windows else 10.20.0.10,
+  hostname: "dc-01.acme.example" if _ctx.windows else "bastion-01.acme.example",
+  port: 88 if _ctx.windows else 22,
+}
+auth_protocol_id = 2 if _ctx.windows else 99
+auth_protocol = "Kerberos" if _ctx.windows else "SSH"
+is_remote = true
+status_id = 2 if _ctx.failed else 1
+severity_id = 2 if _ctx.failed else 1
+message = (f"Failed {auth_protocol} authentication for {user.name}" if _ctx.failed
+  else f"Successful {auth_protocol} authentication for {user.name}")
+_ctx.source = {username: user.name, src_ip: string(src_endpoint.ip), dst_ip: string(dst_endpoint.ip)}

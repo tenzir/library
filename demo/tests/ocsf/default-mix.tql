@@ -1,0 +1,58 @@
+// One stream proves three things about the default workload: all 46 classes
+// and all 15 profiles occur, and base events have their share. The rarest profile, osint, is on about 0.13% of events, so
+// 16,384 events miss it about once in a billion runs; the rarest classes have
+// a share of 0.63%.
+let $class_uids = demo::$ocsf_class_uids
+demo::ocsf::generate count=16384, raw="none"
+assert type_id(time) == type_id(now())
+assert type_uid == class_uid * 100 + activity_id
+assert class_uid in $class_uids
+if "container" in (metadata.profiles? else []) {
+  assert process.container.uid != null and process.container.image.uid != null
+}
+if "data_classification" in (metadata.profiles? else []) {
+  assert file.data_classifications[0].confidentiality_id == 2
+}
+if "datetime" in (metadata.profiles? else []) {
+  assert time_dt == time
+  assert type_id(time_dt) == type_id(now())
+}
+if "load_balancer" in (metadata.profiles? else []) {
+  assert load_balancer.code == http_response.code
+}
+if "network_proxy" in (metadata.profiles? else []) {
+  assert proxy_endpoint.port == 8080
+  assert proxy_http_response.code == http_response.code
+}
+if "osint" in (metadata.profiles? else []) {
+  assert osint[0].value != null
+}
+if "trace" in (metadata.profiles? else []) {
+  assert trace.span.start_time <= trace.span.end_time
+  assert trace.span.operation == api.operation
+}
+if "record_integrity" in (metadata.profiles? else []) {
+  assert attestation_list[0].fingerprint.algorithm_id == 3
+}
+if "linux/linux_users" in (metadata.profiles? else []) {
+  assert metadata.extensions[0].name == "linux" and metadata.extensions[0].uid == "1"
+  assert process.auid == process.euid and process.egid == 1000
+  assert device.os.type_id == 200
+}
+if "macos/macos_users" in (metadata.profiles? else []) {
+  assert metadata.extensions[0].name == "macos" and metadata.extensions[0].uid == "3"
+  assert process.euid != null and process.egid == 1000
+  assert device.os.type_id == 300
+}
+_base = 1 if class_uid == 0
+// Events without a profile count once under a placeholder, which the profile
+// count below leaves out again.
+_profile = metadata.profiles? else ["none"]
+unroll _profile
+summarize events=count_distinct(metadata.uid), classes=count_distinct(class_uid),
+  base_events=count(_base), profiles=count_distinct(_profile)
+// The default share of base events is 35%. With 16,384 events its standard
+// deviation is 0.37 points, so the ±2 points are 5.4 deviations wide and a
+// correct generator fails this about once in ten million runs.
+assert base_events > events * 0.33 and base_events < events * 0.37
+this = {events: events, classes: classes, profiles: profiles - 1, base_event_share: "passed"}

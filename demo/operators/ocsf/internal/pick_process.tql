@@ -1,0 +1,24 @@
+---
+description: Select a recurring program as _ctx.executable with its Unix and Windows builds.
+---
+
+let $processes = demo::$ocsf_processes
+let $division_count = demo::$ocsf_division_count
+
+// The first division runs the stock tools; the others run their own scheduled workers.
+_ctx.process_kind = int(random() * $processes.length())
+_ctx.team = 1 + int(random() * $division_count)
+_ctx.executable = $processes[_ctx.process_kind]
+if _ctx.team > 1 {
+  _ctx.worker = f"{_ctx.executable.name}-worker-{_ctx.team}"
+  _ctx.executable = {
+    name: _ctx.worker,
+    path: f"/opt/acme/bin/{_ctx.worker}",
+    cmd_line: f"/opt/acme/bin/{_ctx.worker} --team={_ctx.team} --mode=scheduled",
+    win_name: f"{_ctx.worker}.exe",
+    win_path: f"C:\\Program Files\\Acme\\bin\\{_ctx.worker}.exe",
+    win_cmd_line: f"\"C:\\Program Files\\Acme\\bin\\{_ctx.worker}.exe\" --team={_ctx.team} --mode=scheduled",
+  }
+  drop _ctx.worker
+}
+drop _ctx.process_kind, _ctx.team

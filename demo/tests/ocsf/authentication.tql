@@ -1,0 +1,41 @@
+// A user's name, mail address, workstation, and subnet derive from one index,
+// so they stay related across classes and runs.
+demo::ocsf::generate count=4096, class_uid=3002
+_number = user.uid.replace("user-", "")
+_index = int(_number) - 1
+_division = int(_index / 20)
+assert _index >= 0 and _index < 2000
+_domain = "acme.example" if _division == 0 else f"division-{_division + 1}.acme.example"
+// Windows reports the NetBIOS domain instead of the DNS domain.
+assert user.domain == ("ACME" if metadata.product.name == "Windows Security" else _domain)
+assert user.email_addr? == null or user.email_addr == f"{user.name}@{_domain}"
+// Windows network logons have no subject and thus no actor.
+assert actor? == null or (actor.user.uid == user.uid and actor.user.name == user.name)
+assert src_endpoint.ip == ip(f"10.10.{_division + 1}.{10 + _index - _division * 20}")
+assert src_endpoint.hostname? == null or src_endpoint.hostname == f"ws-{_number}.{_domain}"
+// Windows network logons (4624, 4625, 4634) have a null subject, so the event
+// names only the target account and its NetBIOS domain, as the record does.
+_windows = 1 if metadata.product.name == "Windows Security"
+if _windows == 1 {
+  assert actor? == null
+  assert user.domain == "ACME"
+  _data = raw_data.parse_xml()[0].EventData.Data
+  assert _data.where(d => d["@Name"] == "TargetDomainName")[0]["#text"] == user.domain
+  _sid = _data.where(d => d["@Name"] == "TargetUserSid")[0]["#text"]
+  // A failed logon reports the null SID and comes in over SMB with NTLM.
+  assert (user.uid_alt? else "S-1-0-0") == _sid
+  assert (status_id == 2) == (auth_protocol == "NTLM")
+  assert dst_endpoint.port == (445 if auth_protocol == "NTLM" else 88)
+  // The access policy of the SSH bastion does not apply to the domain controller.
+  assert policy? == null
+}
+summarize events=count(), users=count_distinct(user.uid), names=count_distinct(user.name),
+  workstations=count_distinct(src_endpoint.ip), logons=count(_windows)
+// Names are unique, and every user owns exactly one workstation.
+assert users == names and users == workstations
+// 4,096 uniform draws from 2,000 users leave about 258 unseen.
+assert users > 1650 and users <= 2000
+// The domain controller sees about 57% of the logons, 2,320 on average; 2,000
+// are ten standard deviations below that.
+assert logons > 2000
+this = {events: events, related_identities: "passed", windows_logons: "passed"}

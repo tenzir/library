@@ -1,0 +1,47 @@
+---
+description: >-
+  Generates a continuous stream of synthetic OCSF events. By default, the operator
+  emits about 10 events per second.
+args:
+  named:
+    - name: eps
+      description: Upper rate in events per second.
+      type: int
+      default: 10
+    - name: class_uid
+      description: Generate only this class, `0` for base events. Mixed classes by default.
+      type: int
+      default: null
+    - name: base_event_share
+      description: Fraction of mixed events that are base events, between 0.0 and 1.0.
+      type: float
+      default: 0.35
+    - name: raw
+      description: >-
+        The source record in raw_data: "native" adds one only for sources with
+        a native log format; "json", "kv", "syslog", or "mixed" add a generic
+        record to every event; "none" omits it.
+      type: string
+      default: native
+    - name: irregular
+      description: >-
+        Fraction of events with one schema irregularity: a severity_id of the
+        wrong type, an unknown field, or a vendor field.
+      type: float
+      default: 0.0
+---
+
+// A stream of unbounded seeds would keep running after a caller stops
+// reading, so each round generates 15 seconds' worth of fresh events as fast as
+// it can, and the throttle spreads them evenly.
+every 15s {
+  demo::ocsf::internal::seed raw=$raw, class_uid=$class_uid,
+    base_event_share=$base_event_share, irregular=$irregular
+  repeat int(($eps * 15 + 32767) / 32768)
+  head $eps * 15
+  enumerate _event_index
+  demo::ocsf::internal::populate count=$eps * 15, time_span=null, end_time=now(),
+    class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
+    irregular=$irregular
+}
+throttle rate=$eps

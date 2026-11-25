@@ -1,0 +1,92 @@
+---
+description: Render AWS CloudTrail S3 data events as JSON records.
+---
+
+// Engineers assume a shared role; CloudTrail names the session after the user.
+_c = {
+  region: cloud?.region? else "eu-central-1",
+  key_hash: hash_md5(_raw.user).to_upper(),
+  request_id: hash_md5(metadata.uid).slice(end=16).to_upper(),
+  denied: status_id == 2,
+}
+_c.host = f"team-documents.s3.{_c.region}.amazonaws.com"
+_c.key = null
+if resources.length() > 1 {
+  _c.key = resources[1].uid.slice(begin=28)
+}
+_c.event = {
+  eventVersion: "1.11",
+  userIdentity: {
+    type: "AssumedRole",
+    principalId: f"AROA4ACMEEXAMPLE7Q2XZ:{_raw.user}",
+    arn: f"arn:aws:sts::123456789012:assumed-role/AcmeEngineering/{_raw.user}",
+    accountId: "123456789012",
+    accessKeyId: f"ASIA{_c.key_hash.slice(end=16)}",
+    sessionContext: {
+      sessionIssuer: {
+        type: "Role",
+        principalId: "AROA4ACMEEXAMPLE7Q2XZ",
+        arn: "arn:aws:iam::123456789012:role/AcmeEngineering",
+        accountId: "123456789012",
+        userName: "AcmeEngineering",
+      },
+      attributes: {
+        creationDate: (time.floor(1h)).format_time("%Y-%m-%dT%H:%M:%S").slice(end=19) + "Z",
+        mfaAuthenticated: "true",
+      },
+    },
+  },
+  eventTime: time.format_time("%Y-%m-%dT%H:%M:%S").slice(end=19) + "Z",
+  eventSource: api.service.name,
+  eventName: api.operation,
+  awsRegion: _c.region,
+  sourceIPAddress: string(src_endpoint.ip),
+  userAgent: http_request.user_agent,
+  requestParameters: {bucketName: "team-documents", Host: _c.host, key: _c.key},
+  responseElements: null,
+  additionalEventData: {
+    SignatureVersion: "SigV4",
+    CipherSuite: "TLS_AES_128_GCM_SHA256",
+    bytesTransferredIn: 2048 + int(random() * 8000000) if api.operation == "PutObject" else 0,
+    AuthenticationMethod: "AuthHeader",
+    "x-amz-id-2": encode_base64(decode_hex(hash_sha256(metadata.uid) + hash_md5(metadata.uid))),
+    bytesTransferredOut: 400 + int(random() * 9000) if api.operation == "ListObjectsV2" and not _c.denied else 0,
+  },
+  errorCode: "AccessDenied" if _c.denied else null,
+  errorMessage: f"User: arn:aws:sts::123456789012:assumed-role/AcmeEngineering/{_raw.user} is not authorized to perform: s3:ListBucket on resource: \"arn:aws:s3:::team-documents\" because no identity-based policy allows the s3:ListBucket action" if _c.denied else null,
+  requestID: _c.request_id,
+  eventID: metadata.uid,
+  readOnly: api.operation == "ListObjectsV2",
+  resources: [{accountId: "123456789012", type: "AWS::S3::Bucket", ARN: resources[0].uid}],
+  eventType: "AwsApiCall",
+  managementEvent: false,
+  recipientAccountId: "123456789012",
+  eventCategory: "Data",
+  tlsDetails: {tlsVersion: "TLSv1.3", cipherSuite: "TLS_AES_128_GCM_SHA256", clientProvidedHostHeader: _c.host},
+}
+if api.operation == "PutObject" {
+  _c.event.responseElements = {
+    "x-amz-server-side-encryption": "aws:kms",
+    "x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:eu-central-1:123456789012:key/6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b",
+    "x-amz-version-id": encode_base64(decode_hex(hash_md5(metadata.uid + "-version"))).replace("/", "_").replace("+", ".").slice(end=32),
+    "x-amz-server-side-encryption-bucket-key-enabled": "true",
+  }
+}
+if _c.key != null {
+  _c.event.resources = [{type: "AWS::S3::Object", ARN: resources[1].uid}, ..._c.event.resources]
+}
+// CloudTrail omits request parameters and errors that do not apply.
+if api.operation == "ListObjectsV2" {
+  _c.event.requestParameters = {
+    "list-type": "2",
+    bucketName: "team-documents",
+    "encoding-type": "url",
+    prefix: f"{_raw.user}/",
+    Host: _c.host,
+  }
+}
+if not _c.denied {
+  drop _c.event.errorCode, _c.event.errorMessage
+}
+raw_data = print_ndjson(_c.event)
+drop _c

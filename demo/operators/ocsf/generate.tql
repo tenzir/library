@@ -1,0 +1,73 @@
+---
+description: Generate exactly count synthetic OCSF events, then finish.
+args:
+  named:
+    - name: count
+      description: Number of events.
+      type: int
+      default: 1000000
+    - name: eps
+      description: Upper rate in events per second. Unlimited by default.
+      type: int
+      default: null
+    - name: time_span
+      description: Time that the timestamps cover, by default one millisecond per event.
+      type: duration
+      default: null
+    - name: class_uid
+      description: Generate only this class, `0` for base events. Mixed classes by default.
+      type: int
+      default: null
+    - name: base_event_share
+      description: Fraction of mixed events that are base events, between 0.0 and 1.0.
+      type: float
+      default: 0.35
+    - name: raw
+      description: >-
+        The source record in raw_data: "native" adds one only for sources with
+        a native log format; "json", "kv", "syslog", or "mixed" add a generic
+        record to every event; "none" omits it.
+      type: string
+      default: native
+    - name: needle_ip_count
+      description: Exact number of Network Activity events to `198.18.0.1`.
+      type: int
+      default: 0
+    - name: needle_dns_count
+      description: Exact number of DNS queries for `dns-needle.ocsf-gen.invalid`.
+      type: int
+      default: 0
+    - name: needle_command_count
+      description: Exact number of processes with the command `ocsf-gen-needle --ioc`.
+      type: int
+      default: 0
+    - name: irregular
+      description: >-
+        Fraction of events with one schema irregularity: a severity_id of the
+        wrong type, an unknown field, or a vendor field.
+      type: float
+      default: 0.0
+---
+
+// One anchor per invocation keeps finite timestamps independent of execution speed.
+let $end_time = now() - 10s
+demo::ocsf::internal::seed raw=$raw, class_uid=$class_uid, base_event_share=$base_event_share,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  irregular=$irregular
+assert $time_span == null or $time_span > 0s, message="time_span must be positive"
+assert ($needle_ip_count <= $count and $needle_dns_count <= $count - $needle_ip_count
+  and $needle_command_count <= $count - $needle_ip_count - $needle_dns_count),
+  message="combined needle counts must not exceed the event count"
+repeat int(($count + 32767) / 32768)
+head $count
+enumerate _event_index
+// Throttle completed events below; pacing seeds fragments the enrichment batches.
+demo::ocsf::internal::populate count=$count, time_span=($time_span else $count * 1ms), end_time=$end_time,
+  class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
+  needle_ip_count=$needle_ip_count,
+  needle_dns_count=$needle_dns_count,
+  needle_command_count=$needle_command_count,
+  irregular=$irregular
+throttle rate=($eps else 9223372036854775807)
