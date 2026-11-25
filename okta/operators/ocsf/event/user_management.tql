@@ -1,0 +1,98 @@
+---
+description: "Okta → OCSF User Management (3007)"
+args:
+  positional:
+    - name: event
+      description: The field that holds the source event.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+@name = "ocsf.user_management"
+
+$ocsf.category_uid = 3
+
+// The User target is the user that the actor manages.
+$event._user = $event.target?.where(t => t.type? == "User")[0]?
+if $event._user?.id? != null or $event._user?.alternateId? != null {
+  $ocsf.user = {
+    uid: $event._user.id?,
+    name: $event._user.alternateId?.split("@")[0]?,
+    domain: $event._user.alternateId?.split("@")[1]?,
+    email_addr: $event._user.alternateId? if $event._user.alternateId?.match_regex("@") else null,
+    full_name: $event._user.displayName?,
+    type_id: 1,
+  }
+} else if $ocsf.activity_id == 18 and $ocsf.actor?.user? != null {
+  // Okta names only the new API token. The token belongs to the admin who
+  // creates it.
+  $ocsf.user = $ocsf.actor.user
+}
+$event._mapped = [$event._user?]
+drop $event._user?
+
+// Okta lists the admin roles of the user, separated by commas.
+if $ocsf.activity_id == 14 and $event.debugContext?.debugData?.privilegeGranted? != null {
+  $ocsf.privileges = (move $event.debugContext.debugData.privilegeGranted).split(",").map(x => x.trim())
+} else if $ocsf.activity_id == 15 and $event.debugContext?.debugData?.privilegeRevoked? != null {
+  $ocsf.privileges = (move $event.debugContext.debugData.privilegeRevoked).split(",").map(x => x.trim())
+}
+
+// The API token that the admin creates or revokes is a credential of its
+// owner. Without an owner, the token stays in `unmapped`.
+if ($ocsf.activity_id == 18 or $ocsf.activity_id == 19) and $ocsf.user? != null {
+  $event._token = $event.target?.where(t => t.type? == "Token" or t.type? == "ApiToken")[0]?
+  if $event._token?.id? != null {
+    $ocsf.user.programmatic_credentials = [{
+      uid: $event._token.id,
+      type: "API Token",
+    }]
+  }
+  drop $event._token?
+}
+
+// The app that the actor assigns to the user or takes away.
+if $ocsf.activity_id == 99 {
+  $event._app = $event.target?.where(t => t.type? == "AppInstance")[0]?
+  if $event._app?.id? != null or $event._app?.displayName? != null {
+    $ocsf.resources = [{
+      uid: $event._app.id?,
+      name: $event._app.displayName?,
+      type: "AppInstance",
+    }]
+    if $event._app.alternateId? == null or $event._app.alternateId? == $event._app.displayName? {
+      $event._mapped = [...$event._mapped, $event._app]
+    }
+  }
+  drop $event._app?
+}
+
+// The factor that Okta enables or disables for the user. Okta does not
+// document the names of the factors, so the type follows the words in the
+// name, and the name stays in `unmapped`.
+if ($ocsf.activity_id == 12 or $ocsf.activity_id == 13) and $event.debugContext?.debugData?.factor? != null {
+  $event._factor = $event.debugContext.debugData.factor.to_lower()
+  $ocsf.auth_factors = [{
+    factor_type_id: (
+      5 if $event._factor.match_regex("push")
+      else 1 if $event._factor.match_regex("sms")
+      else 3 if $event._factor.match_regex("call")
+      else 8 if $event._factor.match_regex("email")
+      else 10 if $event._factor.match_regex("webauthn")
+      else 9 if $event._factor.match_regex("u2f")
+      else 2 if $event._factor.match_regex("question")
+      else 7 if $event._factor.match_regex("totp|soft_token")
+      else 11 if $event._factor.match_regex("password")
+      else 99
+    ),
+  }]
+  if $ocsf.auth_factors[0].factor_type_id == 99 {
+    $ocsf.auth_factors = [{
+      factor_type_id: 99,
+      factor_type: $event.debugContext.debugData.factor,
+    }]
+  }
+  drop $event._factor
+}

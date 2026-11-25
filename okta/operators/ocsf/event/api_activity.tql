@@ -10,54 +10,19 @@ args:
       type: field
 ---
 
-// --- OCSF: classification attributes ----------
-
-let $activity_map = {
-  "system.api_token.create": 1,
-  "system.idp.lifecycle.create": 1,
-  "system.idp.lifecycle.read_client_secret": 2,
-  "application.configuration.read_client_secret": 2,
-  "app.oauth2.client.read_client_secret": 2,
-  "app.oauth2.token.grant": 99,
-  "app.oauth2.token.grant.access_token": 99,
-  "app.oauth2.token.grant.id_token": 99,
-  "app.oauth2.token.grant.refresh_token": 99,
-  "app.oauth2.token.revoke": 4,
-  "app.oauth2.credentials.lifecycle.create": 1,
-  "app.oauth2.credentials.lifecycle.activate": 99,
-  "app.oauth2.client.lifecycle.deactivate": 99,
-  "app.oauth2.client.lifecycle.delete": 4,
-  "workflows.user.flow.create": 1,
-  "workflows.user.connection.create": 1,
-  "system.log_stream.lifecycle.update": 3,
-  "system.log_stream.lifecycle.delete": 4,
-}
-$ocsf.activity_id = $activity_map[$ocsf.metadata.event_code]? else 99
-$ocsf.category_uid = 6
-$ocsf.class_uid = 6003
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-$ocsf.status_id = okta::$status_ids[$event.outcome.result?]? else 0
-$ocsf.status_detail = move $event.outcome.reason?
-drop $event.outcome?
-
-$ocsf.api = {
-  request: {
-    uid: $ocsf.http_request.uid?,
-  },
-}
-if $ocsf.metadata.event_code == "system.api_token.create" {
-  $ocsf.api.operation = "PUT"
-}
-
-// --- OCSF: resources from target[] ------------
-
-if $event.target? != null {
-  $ocsf.resources = $event.target.where(t => t.type == "access_token" or t.type == "Token" or t.type == "id_token" or t.type == "refresh_token").map(t => {
-    uid: t.id,
-    name: t.displayName,
-    type: t.type,
-  })
-}
-
 @name = "ocsf.api_activity"
+
+$ocsf.category_uid = 6
+
+// Okta names the API endpoint whose rate limit applies as a URL pattern.
+$event._pattern = $event.target?.where(t => t.type? == "URL Pattern")[0]?
+if $event._pattern?.id? != null {
+  $ocsf.api.operation = $event._pattern.id
+  if $event._pattern.alternateId? == null and $event._pattern.displayName? == null {
+    $event._mapped = [$event._pattern]
+  }
+}
+if $ocsf.http_request?.uid? != null {
+  $ocsf.api.request.uid = $ocsf.http_request.uid
+}
+drop $event._pattern?

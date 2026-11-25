@@ -8,14 +8,44 @@ args:
       description: Parse an outer JSON array of Okta events.
 ---
 
-read_json arrays_of_objects=$arrays_of_objects
+// Keep every string as Okta wrote it. Names and debug values that look like
+// an address or a time would otherwise change their type.
+read_json raw=true, arrays_of_objects=$arrays_of_objects
 
-// Normalize sentinels and types at ingestion time.
-replace what="null", with=null
+// Amazon EventBridge delivers the event in the `detail` of its own envelope.
+if detail?.eventType? != null {
+  eventbridge = this
+  drop eventbridge.detail
+  this = {...detail, eventbridge: eventbridge}
+}
+
+// Okta writes placeholder strings where it has no value.
 replace what="unknown", with=null
-replace what="None", with=null
+replace what="Unknown", with=null
 replace what="UNKNOWN", with=null
+replace what="null", with=null
+replace what="None", with=null
+// `replace` does not descend into lists, so clear the targets separately.
+if target? != null {
+  target = target.map(t => {
+    ...t,
+    id: null if t.id? in okta::$placeholders else t.id?,
+    alternateId: null if t.alternateId? in okta::$placeholders else t.alternateId?,
+    displayName: null if t.displayName? in okta::$placeholders else t.displayName?,
+  })
+}
 
+// Okta writes the time with milliseconds. Tenzir 6.23 reads some fractional
+// times one nanosecond too low, which rounding to the millisecond undoes.
+// Exports that write the time in another form keep their precision.
+if published?.match_regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,3})?Z$") {
+  published = published.time().round(1ms)
+} else if published?.match_regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z?$") {
+  published = published.time()
+}
+if client?.ipAddress?.match_regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]*:[0-9a-fA-F:.]*$") {
+  client.ipAddress = client.ipAddress.ip()
+}
 if securityContext?.asNumber? != null {
   securityContext.asNumber = int(securityContext.asNumber)
 }

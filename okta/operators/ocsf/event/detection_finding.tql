@@ -10,31 +10,50 @@ args:
       type: field
 ---
 
-// --- OCSF: classification attributes ----------
+@name = "ocsf.detection_finding"
 
-$ocsf.activity_id = 1
 $ocsf.category_uid = 2
-$ocsf.class_uid = 2004
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
-$ocsf.status_id = okta::$status_ids[$event.outcome.result?]? else 0
-$ocsf.status_detail = move $event.outcome.reason?
-drop $event.outcome?
-
-// --- OCSF: finding_info -----------------------
+// The status of a finding is its state in a workflow, which Okta does not
+// have. The result of the event is the action that Okta took on the request.
+drop $ocsf.status_id, $ocsf.status?
+$ocsf.is_alert = true
 
 $ocsf.finding_info = {
-  title: $ocsf.metadata.event_code,
-  uid: $ocsf.metadata.loggers[0].event_uid?,
-  desc: $ocsf.message,
+  uid: $ocsf.metadata.original_event_uid?,
+  title: $ocsf.message?,
+  desc: move $ocsf.status_detail?,
+}
+if $ocsf.metadata.event_code?.match_regex("^security\\.(threat|attack)\\.") {
+  $ocsf.finding_info.analytic = {
+    name: "Okta ThreatInsight",
+    type_id: 0,
+  }
 }
 
-// --- OCSF: evidences[] -----------------------
-
+// The actor, the client, and the request are the evidence of the finding,
+// and so is the user that Okta names as target.
+$event._user = $event.target?.where(t => t.type? == "User")[0]?
 $ocsf.evidences = [{
   actor: move $ocsf.actor?,
   src_endpoint: move $ocsf.src_endpoint?,
   http_request: move $ocsf.http_request?,
-  data: $event.debugContext.debugData?,
 }]
-@name = "ocsf.detection_finding"
+if $event._user?.id? != null or $event._user?.alternateId? != null {
+  $ocsf.evidences = [{
+    ...$ocsf.evidences[0],
+    user: {
+      uid: $event._user.id?,
+      name: $event._user.alternateId?.split("@")[0]?,
+      domain: $event._user.alternateId?.split("@")[1]?,
+      email_addr: $event._user.alternateId? if $event._user.alternateId?.match_regex("@") else null,
+      full_name: $event._user.displayName?,
+      type_id: 1,
+    },
+  }]
+  $event._mapped = [$event._user]
+}
+drop $event._user?
+if $ocsf.evidences == [{}] {
+  drop $ocsf.evidences
+}
