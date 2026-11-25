@@ -23,8 +23,6 @@ args:
       type: float
     - name: raw
       type: string
-    - name: raw_message
-      type: bool
     - name: needle_ip_count
       type: int
       default: 0
@@ -34,16 +32,7 @@ args:
     - name: needle_command_count
       type: int
       default: 0
-    - name: observables_probability
-      type: float
-      default: 1.0
-    - name: drift_probability
-      type: float
-      default: 0.0
-    - name: unknown_probability
-      type: float
-      default: 0.0
-    - name: vendor_probability
+    - name: irregular
       type: float
       default: 0.0
 ---
@@ -248,9 +237,7 @@ if _ctx.rich {
   demo::ocsf::internal::objects_nested
 }
 
-if random() < $observables_probability {
-  demo::ocsf::internal::observables
-}
+demo::ocsf::internal::observables
 
 if $raw != "none" {
   _raw = {user: _ctx.user.name, host: _ctx.host.hostname, context: _ctx.source?,
@@ -264,7 +251,7 @@ if $raw != "none" {
 }
 drop _ctx
 if $raw != "none" {
-  demo::ocsf::internal::raw raw=$raw, raw_message=$raw_message
+  demo::ocsf::internal::raw raw=$raw
   drop _raw
 }
 
@@ -273,7 +260,6 @@ if "record_integrity" in (metadata.profiles? else []) {
 }
 
 // Corrupt normalized fields only after native renderers have read valid values.
-if $drift_probability > 0.0 or $unknown_probability > 0.0 or $vendor_probability > 0.0 {
-  demo::ocsf::internal::drift type_probability=$drift_probability,
-    unknown_probability=$unknown_probability, vendor_probability=$vendor_probability
+if $irregular > 0.0 {
+  demo::ocsf::internal::drift irregular=$irregular
 }

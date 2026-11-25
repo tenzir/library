@@ -1,0 +1,14 @@
+// Each irregular event has exactly one irregularity.
+demo::ocsf::generate count=8192, class_uid=3002, raw="none", irregular=0.5
+_type = 1 if type_kind(severity_id) == "string" else 0
+_unknown = entries(this).where(x => x.key.starts_with("unknown_field_")).length()
+_vendor = 1 if has(this, "acme") else 0
+assert _type + _unknown + _vendor <= 1
+summarize events=count(), types=sum(_type), unknown=sum(_unknown), vendor=sum(_vendor)
+// The bounds are more than five standard deviations wide.
+this = {
+  events: events,
+  types: types > 1100 and types < 1630,
+  unknown: unknown > 1100 and unknown < 1630,
+  vendor: vendor > 1100 and vendor < 1630,
+}

@@ -71,11 +71,7 @@ OCSF 1.6 workload, see [Generate legacy events](#generate-legacy-events).
 | `class_uid` | Mixed classes | Generate only the selected class when set. Use `0` for base events. |
 | `base_event_share` | `0.35` | Fraction of mixed events that are base events. Write a float between `0.0` and `1.0`. |
 | `raw` | `"native"` | `"native"` adds `raw_data` only for sources with a native log format. `"json"`, `"kv"`, `"syslog"`, or `"mixed"` add a generic record to every event; `"none"` omits `raw_data`. See [Preserve a source message](#preserve-a-source-message). |
-| `raw_message` | `false` | Copy `raw_data`, when present, to an additional `raw_message` field. |
-| `observables_probability` | `1.0` | Fraction of events with scalar observables. `0.0` omits them; `1.0` covers every event. |
-| `drift_probability` | `0.0` | Fraction of events whose integer `severity_id` becomes a numeric string. |
-| `unknown_probability` | `0.0` | Fraction of events with one unknown top-level `unknown_field_<n>` record. |
-| `vendor_probability` | `0.0` | Fraction of events with a synthetic top-level `acme` vendor record. |
+| `irregular` | `0.0` | Fraction of events with one schema irregularity. See [Add schema irregularities](#add-schema-irregularities). |
 
 `demo::ocsf::generate` also accepts `count`, which defaults to `1000000` and must be
 nonnegative, and `time_eps`, which defaults to `1000` and sets the logical event
@@ -141,37 +137,30 @@ values outside `198.18.0.0/15`, the `.ocsf-gen.invalid` namespace, and the needl
 command. Each call has its own counts. Continuous generation has no finite
 boundary and does not expose exact needle counts.
 
-## Configure observables and schema irregularities
+## Add schema irregularities
 
-Every event has one or more `observables` by default, independently of the
-5% detailed-object sampling. Observables reference final scalar fields such as
-endpoint IPs, DNS names, URLs, user IDs, and file paths. Each entry includes its
-source `metadata.uid` as `event_uid`. Events with no mapped entity reference
-their actual `message` with type 99 (`Source message`). Set
-`observables_probability=0.0` to omit the array, or choose a fraction between
-zero and one. Rich mapped events also add synthetic reputation metadata.
-
-To exercise schema drift and catch-all handling, enable the probabilities
-independently:
+To exercise schema drift and catch-all handling, give a fraction of the events
+one irregularity:
 
 ```tql
-demo::ocsf::generate count=1000000, drift_probability=0.001,
-  unknown_probability=0.001, vendor_probability=0.001
+demo::ocsf::generate count=1000000, irregular=0.001
 ```
 
-Each probability applies independently to each event, so categories can overlap
-and finite samples fluctuate around their configured fractions. Type drift
-intentionally violates OCSF's integer type for `severity_id`. Unknown fields
-vary among eight top-level names. The `acme` record contains a sensor zone,
-policy revision, and verdict; it is a synthetic vendor payload for catch-all
-tests, not a registered OCSF schema extension. The generator does not declare
-it in `metadata.extensions`. Standard OCSF fields remain valid when type drift
-is disabled; a strict validator may reject undeclared top-level fields.
+Each irregular event has one of three irregularities, with equal probability:
+
+- `severity_id` is a numeric string, which violates OCSF's integer type.
+- One of eight unknown top-level fields, `unknown_field_1` to `unknown_field_8`.
+- A top-level `acme` record with a sensor zone, policy revision, and verdict. It
+  is a synthetic vendor payload for catch-all tests, not a registered OCSF
+  extension, and `metadata.extensions` doesn't declare it.
+
+Finite samples fluctuate around the fraction. Without irregularities, all
+standard OCSF fields are valid.
 
 Irregularities are applied to normalized fields **after raw-log rendering**.
 Raw data preserves the valid source representation, allowing normalization and
 casting tests to inspect deliberately malformed output without breaking native
-serializers. These controls supplement the existing variations under `unmapped`.
+serializers. They supplement the existing variations under `unmapped`.
 
 ## Generate historical office-hours traffic
 
@@ -197,9 +186,8 @@ so a short prefix of the output does not reflect the class mix.
 The daily count is `32400 * eps_office_hours + 54000 * eps_off`, even when the
 interval starts partway through a day. Both rates must be nonnegative, and at
 least one must be positive. Set `eps_off=0` to omit off-hours events. The operator
-also accepts `class_uid`, `base_event_share`, raw-format options, observable and
-irregularity probabilities, and exact needle counts with the same behavior as
-`generate`.
+also accepts `class_uid`, `base_event_share`, `raw`, `irregular`, and exact needle
+counts with the same behavior as `generate`.
 
 The 30-day example at 1,000/100 EPS generates 1,134,000,000 events. For a smaller
 trial, use lower logical rates:
@@ -341,8 +329,7 @@ record, or numbered tags.
 
 Mapping choices are stable per profile, as they would be for one parser. Two
 thirds of the profiles keep the reporting `device` and declare the `host`
-profile; together they produce about 68% of base events. Observables are
-extracted separately using `observables_probability`. Every base event has
+profile; together they produce about 68% of base events. Every base event has
 `metadata.logged_time`, and 40% of the profiles keep
 `metadata.original_time` in their native clock format. Base events do not
 receive the related objects described below. Apart from the Windows
@@ -414,6 +401,15 @@ object enrichment:
 Fields appear only on applicable classes and scenarios; individual events
 contain a subset. Native messages preserve the fields supported by their
 source format.
+
+### Observables
+
+Every event has one or more `observables`, independently of the
+5% detailed-object sampling. Observables reference final scalar fields such as
+endpoint IPs, DNS names, URLs, user IDs, and file paths. Each entry includes its
+source `metadata.uid` as `event_uid`. Events with no mapped entity reference
+their actual `message` with type 99 (`Source message`). Rich mapped events also
+add synthetic reputation metadata.
 
 ## Add related objects
 
@@ -573,8 +569,7 @@ methods, process IDs and executable paths, file paths, email recipients, API
 operations, and finding titles. Native serializers escape values and support
 lists and nested records.
 
-`raw_message=true` adds a convenience alias, which is not a standard OCSF
-attribute. Use `raw="none"` to omit the source message.
+Use `raw="none"` to omit the source message.
 
 The `unmapped` object of mapped classes preserves simulated source-specific
 extras. Its fields vary in presence and type:
