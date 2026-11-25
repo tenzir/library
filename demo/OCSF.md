@@ -36,10 +36,10 @@ that have no specific class mapping. Their native fields stay under `unmapped`.
 The package requires Tenzir 6.23 or newer. Install it, or run the pipelines
 from a checkout of the Library with `--package-dirs=.`.
 
-Generate a continuous stream at 1,000 events per second:
+Generate a continuous stream, by default 10 events per second:
 
 ```tql
-demo::ocsf::generate_load eps=1000
+demo::ocsf
 ```
 
 Generate exactly one million events and finish:
@@ -63,11 +63,11 @@ dataset as NDJSON. The operators live in the `demo::ocsf` namespace.
 The following controls apply to the OCSF 1.9 generators. For a smaller
 OCSF 1.6 workload, see [Generate legacy events](#generate-legacy-events).
 
-`generate` and `generate_load` accept these options:
+`demo::ocsf` and `generate` accept these options:
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `eps` | `1000` for `generate_load`; unlimited for `generate` | Upper rate in events per second. Must be positive. |
+| `eps` | `10` for `demo::ocsf`; unlimited for `generate` | Upper rate in events per second. Must be positive. |
 | `class_uid` | Mixed classes | Generate only the selected class when set. Use `0` for base events. |
 | `base_event_share` | `0.35` | Fraction of mixed events that are base events. Write a float between `0.0` and `1.0`. |
 | `raw` | `"native"` | `"native"` adds `raw_data` only for sources with a native log format. `"json"`, `"kv"`, `"syslog"`, or `"mixed"` add a generic record to every event; `"none"` omits `raw_data`. See [Preserve a source message](#preserve-a-source-message). |
@@ -92,10 +92,10 @@ The timestamps of this dataset spread evenly over the last day. By default, they
 are one millisecond apart, so a million events cover about 17 minutes. Generation
 ends when the events are ready; it does not wait for that time.
 
-The continuous operator generates five seconds' worth of events every five
+The continuous operator generates 15 seconds' worth of events every 15
 seconds and limits its output in one-second windows. It emits batches, so
 `eps=1000` does not promise one event every millisecond. When a round takes
-longer than five seconds to generate, the achieved rate falls below `eps`. A
+longer than 15 seconds to generate, the achieved rate falls below `eps`. A
 slower downstream destination applies backpressure and reduces the achieved
 rate. Stop a continuous stream with the caller's cancellation mechanism or an
 operator such as `head`.
@@ -450,7 +450,7 @@ the schema.
 ## Generate event times
 
 Events use native Tenzir `time` values, including DNS query and response times.
-`generate` and `generate_load` round to millisecond precision. Historical
+`demo::ocsf` and `generate` round to millisecond precision. Historical
 generation retains finer precision for jitter within each event slot.
 `generate` captures one anchor at invocation time minus 10 seconds, then
 computes each timestamp as
@@ -459,8 +459,8 @@ Each index covers a distinct position in the timeline.
 Jitter is sampled independently within ±5 milliseconds, then timestamps are
 rounded down to milliseconds. The last events fall near the anchor.
 
-Continuous generation uses a random lookback between 10 and 130 seconds from
-the current wall clock. Arrival order does not imply event-time order in either
+Continuous generation uses times within five seconds before a round generates
+the event, so events come up to 20 seconds after their time. Arrival order does not imply event-time order in either
 mode. Raw JSON and key/value messages encode their timestamps as integer
 milliseconds since the Unix epoch.
 

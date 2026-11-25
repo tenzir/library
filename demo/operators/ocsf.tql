@@ -1,11 +1,13 @@
 ---
-description: Generate a continuous synthetic OCSF stream at up to eps events per second.
+description: >-
+  Generates a continuous stream of synthetic OCSF events. By default, the operator
+  emits about 10 events per second.
 args:
   named:
     - name: eps
       description: Upper rate in events per second.
       type: int
-      default: 1000
+      default: 10
     - name: class_uid
       description: Generate only this class, `0` for base events. Mixed classes by default.
       type: int
@@ -30,15 +32,15 @@ args:
 ---
 
 // A stream of unbounded seeds would keep running after a caller stops
-// reading, so each round generates five seconds' worth of fresh events as fast
-// as it can, and the throttle spreads them evenly.
-every 5s {
+// reading, so each round generates 15 seconds' worth of fresh events as fast as
+// it can, and the throttle spreads them evenly.
+every 15s {
   demo::ocsf::internal::seed raw=$raw, class_uid=$class_uid,
     base_event_share=$base_event_share, irregular=$irregular
-  repeat int(($eps * 5 + 32767) / 32768)
-  head $eps * 5
+  repeat int(($eps * 15 + 32767) / 32768)
+  head $eps * 15
   enumerate _event_index
-  demo::ocsf::internal::populate count=$eps * 5, time_span=null, end_time=now(),
+  demo::ocsf::internal::populate count=$eps * 15, time_span=null, end_time=now(),
     class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
     irregular=$irregular
 }
