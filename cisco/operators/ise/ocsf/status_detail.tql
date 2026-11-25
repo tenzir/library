@@ -1,0 +1,31 @@
+---
+description: "Sets the reason that ISE gives for an outcome."
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+// ISE writes the reason as the code and text of a catalog message. Without a
+// reason, the text or the error of the operation describes the outcome. Alarms
+// spell the names with spaces.
+if $ise.attributes["Failure Reason"]? != null {
+  $ise.attributes.FailureReason = move $ise.attributes["Failure Reason"]
+}
+if $ise.attributes.FailureReason?.match_regex(r"^\d{4,5} ") {
+  $ocsf.status_code = $ise.attributes.FailureReason.split(" ", max=1)[0]
+  $ocsf.status_detail = (move $ise.attributes.FailureReason).split(" ", max=1)[1]
+} else {
+  let $names = ["FailureReason", "OperationMessageText", "Error Message", "AD-Error-Details", "LogErrorMessage", "DetailedInfo", "Details", "Cause", "OpenSSLErrorMessage"]
+  _detail = $ise.attributes.entries().where(x => x.key in $names)
+  if _detail != [] {
+    _detail = $names.map(x => _detail.where(y => y.key == x)[0]?).where(x => x != null)[0]
+    $ocsf.status_detail = _detail.value
+    $ise.attributes = $ise.attributes.entries().where(x => x.key != _detail.key).collect_record()
+  }
+  drop _detail
+}

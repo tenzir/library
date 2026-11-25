@@ -1,0 +1,15 @@
+// In-place and separate-field calls give the same result, and other fields stay.
+// Synthetic ISE record; every value is invented.
+from_file env("TENZIR_INPUT") {
+  read_ndjson
+}
+fork_merge {
+  cisco::ise::reassemble message, reassembly, on=ts, span=1s
+  select reassembly, other, hostname, input=message
+}, {
+  input = message
+  cisco::ise::reassemble message, message, on=ts, span=1s
+  select reassembly=message, other, hostname, input
+}
+summarize input, results=count_distinct(reassembly.hash_xxh3()), calls=count(), reassembly=first(reassembly), other=first(other), hostname=first(hostname)
+sort input

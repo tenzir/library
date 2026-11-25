@@ -1,0 +1,26 @@
+---
+description: "Maps the ISE sessions of a request to an OCSF session."
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the session.
+---
+
+// The network device generates the audit session ID for an endpoint session.
+// The other ID names the policy service node and a single request on it.
+if $ise.attributes.CPMSessionID? != null {
+  $ocsf = {
+    uid: move $ise.attributes.CPMSessionID,
+    uid_alt: move $ise.attributes.AcsSessionID?,
+  }
+} else if $ise.attributes.AcsSessionID? != null {
+  $ocsf.uid = move $ise.attributes.AcsSessionID
+}
+// Device administration names the line, such as tty1.
+if $ise.attributes.Port? != null {
+  $ocsf.terminal = move $ise.attributes.Port
+}

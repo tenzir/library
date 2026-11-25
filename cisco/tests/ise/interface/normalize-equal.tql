@@ -1,0 +1,23 @@
+// In-place and separate-field calls give the same event.
+// Synthetic ISE record; every value is invented.
+from_file env("TENZIR_INPUT") {
+  read_syslog accept_pri_only=true
+}
+this = {syslog: this, at: 2026-05-11T06:14:21Z}
+fork_merge {
+  cisco::ise::ocsf::normalize syslog, into=ocsf, on=at, span=1s
+  select ocsf, call="separate field"
+}, {
+  cisco::ise::ocsf::normalize syslog, into=this, on=at, span=1s
+  this = {ocsf: this, call: "this"}
+}, {
+  cisco::ise::ocsf::normalize syslog, into=syslog, on=at, span=1s
+  select ocsf=syslog, call="same field"
+}, {
+  this = {...syslog, at: at}
+  cisco::ise::ocsf::normalize on=at, span=1s
+  drop unmapped.syslog.at
+  this = {ocsf: this, call: "in place"}
+}
+summarize raw_data=ocsf.raw_data, events=count_distinct(ocsf.hash_xxh3()), calls=count()
+sort raw_data

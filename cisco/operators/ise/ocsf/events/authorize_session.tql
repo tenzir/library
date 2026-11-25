@@ -1,0 +1,35 @@
+---
+description: "Cisco ISE authorization → OCSF Authorize Session (3003)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authorize_session"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3003
+$ocsf.activity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1 if $ocsf.metadata.event_code in ["5203", "5236"] else 2
+cisco::ise::ocsf::status_detail $ise, $ocsf
+cisco::ise::ocsf::authorization $ise, $ocsf
+if $ocsf.authorizations? != null {
+  $ocsf.privileges = $ocsf.authorizations.map(x => x.policy.name)
+}
+
+cisco::ise::ocsf::device $ise, $ocsf
+cisco::ise::ocsf::endpoint $ise, $ocsf.src_endpoint
+cisco::ise::ocsf::user $ise, $ocsf.user
+cisco::ise::ocsf::session $ise, $ocsf.session
+if $ocsf.device?.ip? != null or $ocsf.device?.name? != null {
+  $ocsf.dst_endpoint = {
+    ip: $ocsf.device.ip?,
+    name: $ocsf.device.name?,
+  }
+}

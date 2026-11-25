@@ -1,0 +1,16 @@
+// In-place and separate-field calls give the same event, and other fields stay.
+// Synthetic ISE record; every value is invented.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = {message: line, other: 1}
+fork_merge {
+  cisco::ise::parse message, ise
+  select ise, other, input=message
+}, {
+  input = message
+  cisco::ise::parse message, message
+  select ise=message, other, input
+}
+summarize input, events=count_distinct(ise.hash_xxh3()), calls=count(), ise=first(ise), other=first(other)
+sort input

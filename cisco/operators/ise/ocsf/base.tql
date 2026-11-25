@@ -1,0 +1,47 @@
+---
+description: "Cisco ISE → OCSF Base Event (0)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.base_event"
+
+$ocsf.category_uid = 0
+$ocsf.class_uid = 0
+$ocsf.activity_id = 0
+$ocsf.type_uid = 0
+
+if $ocsf.metadata.is_truncated? == true {
+  // A segment can end inside a value, so its attributes stay as they are.
+  if $ocsf.metadata.reporter? != null {
+    $ocsf.device = {
+      type_id: 0,
+      hostname: $ocsf.metadata.reporter.hostname?,
+      ip: $ocsf.metadata.reporter.ip?,
+    }
+  }
+} else {
+  cisco::ise::ocsf::device $ise, $ocsf
+  cisco::ise::ocsf::status_detail $ise, $ocsf
+  cisco::ise::ocsf::authorization $ise, $ocsf
+  cisco::ise::ocsf::administrator_actor $ise, $ocsf
+}
+
+// Guests and sponsors decide about the use policy.
+if $ocsf.metadata.is_truncated? != true and $ocsf.metadata.event_code in ["86005", "86012", "86022", "86023", "86030", "86031"] {
+  cisco::ise::ocsf::user $ise, $ocsf.actor.user
+}
+// These codes have no fitting class, but state an outcome: dynamic
+// authorization, downloads of access lists and TrustSec data, DTLS handshakes,
+// and rejected accounting or TACACS+ requests.
+match $ocsf.metadata.event_code if $ocsf.metadata.is_truncated? != true else null {
+  "5205" | "5232" | "5233" | "5234" | "5241" => { $ocsf.status_id = 1 }
+  "3304" | "5406" | "5413" | "5414" | "5417" | "5419" | "5420" | "5421" | "5450" => { $ocsf.status_id = 2 }
+  _ => {}
+}

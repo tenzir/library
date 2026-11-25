@@ -1,0 +1,57 @@
+---
+description: "Cisco ISE password and account changes → OCSF User Management (3007)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.user_management"
+
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3007
+_code = $ocsf.metadata.event_code
+match _code {
+  "86006" => { $ocsf.activity_id = 1 }
+  "86007" => { $ocsf.activity_id = 2 }
+  "86008" => { $ocsf.activity_id = 3 }
+  "86003" => { $ocsf.activity_id = 4 }
+  "86002" => { $ocsf.activity_id = 5 }
+  "51023" => { $ocsf.activity_id = 7 }
+  _ => { $ocsf.activity_id = 8 }
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// All password codes of 5415 and 51101 to 51116 refuse the new password.
+$ocsf.status_id = 2 if _code == "5415" or (_code.starts_with("511") and _code != "51100") else 1
+cisco::ise::ocsf::status_detail $ise, $ocsf
+cisco::ise::ocsf::device $ise, $ocsf
+
+cisco::ise::ocsf::endpoint $ise, $ocsf.src_endpoint
+
+_account = $ise.attributes.AccountName? else $ise.attributes.GuestUserName?
+if _code == "51023" {
+  // The administrator is the account that becomes usable again.
+  cisco::ise::ocsf::administrator $ise, $ocsf.user
+} else if _account != null {
+  $ocsf.user.name = _account
+  drop $ise.attributes.AccountName?, $ise.attributes.GuestUserName?
+  if $ise.attributes.ObjectName? == _account {
+    drop $ise.attributes.ObjectName
+  }
+  // An administrator or a sponsor manages the account of somebody else.
+  if $ise.attributes.UserName? == _account {
+    drop $ise.attributes.UserName
+  }
+  if $ise.attributes.AdminName? != null {
+    cisco::ise::ocsf::administrator_actor $ise, $ocsf
+  } else if $ise.attributes.UserName? != null {
+    $ocsf.actor.user.name = move $ise.attributes.UserName
+  }
+} else {
+  cisco::ise::ocsf::user $ise, $ocsf.user
+}
+drop _code, _account

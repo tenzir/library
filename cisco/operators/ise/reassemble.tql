@@ -1,0 +1,220 @@
+---
+description: |
+  Reassembles Cisco ISE messages that a logging target received in numbered
+  segments.
+
+  The first field holds the raw message body, not the full Syslog envelope, and
+  the second receives the joined body in `message`, next to the ISE node in
+  `origin` and the outcome:
+
+  ```tql
+  cisco::ise::reassemble message, reassembly
+  cisco::ise::parse reassembly.message, ise, reassembly=reassembly
+  ```
+
+  `cisco::ise::ocsf::normalize` does this implicitly. Call the operator on a
+  stream of segments, because it turns all segments of a message into one event.
+  The event around the first segment survives as it is.
+
+  Segments belong together when they carry the same message ID and come from
+  the same ISE node. Single-segment and unnumbered messages, as well as other
+  input, pass through without delay, and a segmented message leaves with the
+  segment that completes it. A message whose segments are missing,
+  contradictory, or out of range leaves later, with `complete: false` and all of
+  its segments.
+
+  Segments that contradict a message after it left follow as an incomplete
+  message with the issue `segments after completion`.
+args:
+  positional:
+    - name: input
+      description: The field that holds the raw ISE message body.
+      type: field
+    - name: reassembly
+      description: The field that receives the joined body and the outcome.
+      type: field
+  named:
+    - name: origin
+      description: |
+        The ISE node that sent the segment. Provide the preserved node identity
+        when a relay replaces the syslog hostname.
+      type: field
+      default: hostname?
+    - name: category
+      description: |
+        A field that holds the `CISE_<Category>` tag when a shipper splits it
+        from the body, for example the RFC 5424 application name.
+      type: field
+      default: null
+    - name: on
+      description: |
+        A timestamp field that replaces the arrival time as clock, for replays.
+        Each ISE node then has its own clock.
+      type: field
+      default: null
+    - name: span
+      description: |
+        The longest time between the first segment of a message and any other
+        segment. An incomplete message leaves two to three spans after its first
+        segment, or four spans after its last segment if no other segments
+        arrive. Identical copies of a segment count once within three spans of
+        wall-clock time, also in a replay. A segment more than one span behind
+        the clock can leave on its own, with the issue `late segment`. Use a
+        second or more.
+      type: duration
+      default: 5s
+---
+
+// One separator follows the segment number. A second one belongs to the
+// payload, because ISE starts a continuation with the space between two
+// attributes.
+// A relay can put its own header in front of the one of the ISE node, which
+// then stays in the body.
+let $frame = r"(?s)^\s*(?:(?:(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?(?:(?<host>[^\s=,]+) )?(?<tag>CISE_\S+)\s+)?(?<id>\d+)\s+(?<total>\d+)\s+(?<index>\d+)(?:[ \t](?<payload>.*))?|.*)$"
+// A syslog reader appends a line without a recognized header to the previous
+// message. Then the body holds several segments.
+let $glued = r"\n.*CISE_\S+\s+\d+\s+\d+\s+\d+\s"
+
+select context=this, body=$input, origin=string($origin), category=$category, observed=$on else now(), replay=$on != null
+_frame = body.parse_grok($frame, raw=true)
+origin = _frame.host? else origin
+if _frame.tag? == null and category?.starts_with("CISE_") and not body.starts_with("CISE_") {
+  body = f"{category} {body}"
+}
+if _frame.tag? != null {
+  category = _frame.tag
+}
+if origin != null and origin != "" {
+  reassembly.origin = origin
+}
+
+if body.match_regex($glued) {
+  reassembly.complete = false
+  reassembly.issue = "several segments in one message"
+  reassembly.observed = observed
+} else if _frame.id? != null and category?.starts_with("CISE_") and not (_frame.total == "1" and _frame.index == "0") {
+  part = {
+    index: int(_frame.index),
+    total: int(_frame.total),
+    category: category,
+    payload: _frame.payload? else "",
+  }
+  id = _frame.id
+  drop _frame, body, category
+  if origin == null or origin == "" {
+    // Segments of different nodes cannot be told apart.
+    parts = [part]
+    issue = "missing origin"
+  } else {
+    // IDs restart when ISE restarts, so state lives only as long as a window.
+    // Arrival times share one clock. Replayed clocks run per node, because the
+    // clock of one node must not close the windows of another.
+    message_id = int(id)
+    bucket = floor(observed, $span)
+    clock = origin if replay
+    group clock {
+      // Relays can deliver a segment repeatedly. A repeated first segment would
+      // start the message again.
+      deduplicate origin, message_id, part, create_timeout=$span * 3
+      // Windows drop what comes too late for them. A segment that comes too late
+      // for the window around itself leaves on its own.
+      summarize latest=max(observed), options={mode: "cumulative"}
+      if latest - bucket >= $span * 3 {
+        parts = [part]
+        issue = "late segment"
+        select origin, message_id, id, context, observed, parts, issue
+      } else {
+        // Each bucket of one span is the center of one window, which reaches one
+        // span into both directions. The window around the first segment owns
+        // the message. A window that times out before its end would drop later
+        // segments, so wait for its width and the tolerance.
+        window size=$span * 3, every=$span, on=observed, tolerance=$span, idle_timeout=$span * 4 {
+          center = $window.start + $span
+          // For a late segment, the window around the bucket before its own has
+          // closed already.
+          segment = {
+            part: part,
+            observed: observed,
+            centered: bucket == center,
+            late: latest - bucket >= $span * 2,
+          }
+          summarize origin, message_id,
+            first_id=first(id),
+            header=min(bucket if part.index == 0),
+            header_context=first(context if part.index == 0),
+            center_context=first(context if segment.centered),
+            segments=collect(segment),
+            copies=count_distinct(part.hash_xxh3()),
+            indexes=count_distinct(part.index),
+            highest=max(part.index),
+            totals=count_distinct(part.total),
+            categories=count_distinct(part.category),
+            options={mode: "cumulative"}
+          context = header_context if header == center else center_context
+          finished = (header == center and indexes == part.total and highest < part.total
+            and copies == indexes and totals == 1 and categories == 1)
+          fork_merge {
+            // The message leaves with the segment that completes it.
+            where finished
+            deduplicate origin, message_id
+          }, {
+            // When the window closes, the rest follows: what contradicts a
+            // message that left, what is incomplete, and the segments around
+            // the center that no window around a first segment owns.
+            if header == null {
+              segments = segments.where(x => x.centered)
+            } else if header < center {
+              segments = segments.where(x => x.centered and x.late)
+            } else if header > center {
+              segments = []
+            }
+            select origin, message_id, first_id, center, header, context, segments, finished
+            summarize origin, message_id, left=first(segments if finished), last=last(this)
+            this = {...last, left: left?.map(x => x.part)}
+            if left != null {
+              segments = segments.where(x => x.part not in left)
+              issue = "segments after completion"
+            } else if header < center {
+              issue = "late segment"
+            }
+            where segments != []
+          }
+          select origin, message_id, id=first_id, context, observed=segments.map(x => x.observed).sort()[0], parts=segments.map(x => x.part), issue=issue?
+        }
+      }
+    }
+    // Identical copies collapse. Contradictory ones do not, so that no arbitrary
+    // copy becomes part of a complete event.
+    parts = parts.distinct().sort(cmp=(a, b) => a.index < b.index)
+    reassembly.origin = origin
+  }
+  first = parts[0]
+  valid = parts.where(x => x.total == first.total and x.category == first.category and x.index < x.total)
+  reassembly.complete = issue? == null and first.index == 0 and valid.length() == parts.length() and parts.length() == first.total and valid.map(x => x.index).distinct().length() == first.total
+  if reassembly.complete {
+    // ISE cuts a message where the configured length ends. Some relays trim
+    // the lines, which removes the space between two attributes at a cut.
+    payload = (parts
+      .map(x => x.payload)
+      .join("\x1e")
+      .replace_regex(r"([^\\],)\x1e([[:alnum:]](?:[^,=\x1e]*[^,=\s\x1e])?=)", r"\1 \2")
+      .replace("\x1e", ""))
+  } else {
+    // A gap or a contradiction must not join unrelated bytes. Keep the first
+    // segment as message and every segment as evidence.
+    payload = first.payload if first.index < first.total and parts.where(x => x.index == first.index).length() == 1 else ""
+    if issue? == null {
+      reassembly.missing_segments = first.total - valid.map(x => x.index).distinct().length()
+    }
+    reassembly.issue = issue? else ("missing segments" if valid.length() == parts.length() and parts.map(x => x.index).distinct().length() == parts.length() else "contradictory segments")
+    reassembly.observed = observed
+    reassembly.segments = parts
+  }
+  body = f"{id} {first.total} {first.index} {payload}"
+  if first.category != null {
+    body = f"{first.category} {body}"
+  }
+}
+
+this = {...context, _reassembly: {message: body, ...reassembly?}}
+$reassembly = move _reassembly

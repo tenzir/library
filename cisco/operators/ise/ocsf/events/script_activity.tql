@@ -1,0 +1,95 @@
+---
+description: "Cisco ISE command authorization and command accounting → OCSF Script Activity (1009)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.script_activity"
+
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1009
+_code = $ocsf.metadata.event_code
+if _code == "3300" {
+  // Accounting reports that the network device executed the command. A device
+  // can report the start and the stop of the same execution, which then share
+  // `script.uid` and differ in `AcctRequest-Flags`.
+  $ocsf.activity_id = 1
+} else {
+  // Before the execution, the network device asks whether it may execute the
+  // command.
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = "Command Authorization"
+  $ocsf.status_id = 1 if _code == "5202" else 2
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+cisco::ise::ocsf::status_detail $ise, $ocsf
+
+// 5408 and 5410 report errors instead of a decision.
+if _code in ["5202", "5402", "5404", "5407"] {
+  _decision = "Allowed" if _code == "5202" else "Denied"
+  $ocsf.action_id = 1 if _code == "5202" else 2
+  $ocsf.disposition_id = 1 if _code == "5202" else 26
+  // The command set that matched holds the decision. If none did, ISE names
+  // those that it evaluated, and reason 13025 rejects the command in all.
+  _sets = ($ise.repeated.MatchedCommandSet? else [$ise.attributes.MatchedCommandSet?]).where(x => x != null).distinct()
+  if _sets == [] {
+    _sets = ($ise.repeated.SelectedCommandSet? else [$ise.attributes.SelectedCommandSet?]).where(x => x != null).distinct()
+    drop $ise.repeated.SelectedCommandSet?, $ise.attributes.SelectedCommandSet?
+  } else {
+    drop $ise.repeated.MatchedCommandSet?, $ise.attributes.MatchedCommandSet?
+  }
+  if _sets == [] {
+    $ocsf.authorizations = [{decision: _decision}]
+  } else if _sets.length() == 1 or $ocsf.status_code? == "13025" {
+    $ocsf.authorizations = _sets.map(x => {decision: _decision, policy: {name: x}})
+  } else {
+    $ocsf.authorizations = [{decision: _decision}].concatenate(_sets.map(x => {policy: {name: x}}))
+  }
+  if $ise.attributes.AuthorizationPolicyMatchedRule? != null {
+    $ocsf.policy = {name: move $ise.attributes.AuthorizationPolicyMatchedRule}
+    if $ise.attributes.ISEPolicySetName? != null {
+      $ocsf.policy.group = {name: move $ise.attributes.ISEPolicySetName}
+    }
+  }
+  drop _decision, _sets
+}
+
+cisco::ise::ocsf::device $ise, $ocsf
+cisco::ise::ocsf::user $ise, $ocsf.actor.user
+cisco::ise::ocsf::session $ise, $ocsf.actor.session
+
+// ISE writes a command as `[ CmdAV=show CmdArgAV=clock CmdArgAV=<cr> ]` or as
+// `[ CmdAV=show clock <cr> ]`. The last argument is the return key.
+_sets = ($ise.repeated.CmdSet? else [$ise.attributes.CmdSet?]).where(x => x != null).distinct()
+_command = (_sets
+  .map(x => x.trim().trim_start("[").replace_regex(r"\s*\]$", ""))
+  .map(x => x.replace_regex(r"(?:^|\s+)CmdAV=", "\x1e").replace_regex(r"\s+CmdArgAV=", " "))
+  .join("")
+  .split("\x1e")
+  .map(x => x.replace_regex(r"\s*<cr>\s*$", "").trim())
+  .where(x => x != "")
+  .distinct()
+  .join("\n")
+  .replace_regex(r"\\+([,;{}])", r"\1"))
+if _command != "" {
+  $ocsf.script = {
+    uid: ($ise.repeated.AVPair? else [$ise.attributes.AVPair?]).where(x => x != null).where(x => x.starts_with("task_id="))[0]?.replace("task_id=", ""),
+    script_content: {value: _command},
+    type_id: 0,
+  }
+  if _sets.where(x => not x.trim().ends_with("]")) != [] {
+    $ocsf.script.script_content.is_truncated = true
+  }
+  if $ise.attributes["Service-Argument"]?.to_lower() == "shell" or $ise.attributes.Service?.to_lower() == "shell" {
+    $ocsf.script.type_id = 99
+    $ocsf.script.type = "Shell"
+  }
+  drop $ise.attributes.CmdSet?, $ise.repeated.CmdSet?
+}
+drop _code, _sets, _command

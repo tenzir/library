@@ -1,0 +1,20 @@
+---
+description: "Maps the administrator who acts on an ISE node, and the interface in use, to the OCSF actor."
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+// ISE repeats the administrator as operator.
+if $ise.attributes.OperatorName? != null and $ise.attributes.OperatorName == $ise.attributes.AdminName? {
+  drop $ise.attributes.OperatorName
+}
+cisco::ise::ocsf::administrator $ise, $ocsf.actor.user
+if $ocsf.actor?.user? != null and ($ise.attributes.AdminInterface? else "UNKNOWN") != "UNKNOWN" {
+  $ocsf.actor.application.name = move $ise.attributes.AdminInterface
+}

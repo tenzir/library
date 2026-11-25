@@ -1,0 +1,30 @@
+---
+description: "Cisco ISE process starts and stops → OCSF Application Lifecycle (6002)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.application_lifecycle"
+
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+match $ocsf.metadata.event_code {
+  "58001" | "58003" => { $ocsf.activity_id = 3 }
+  "58002" | "58004" => { $ocsf.activity_id = 4 }
+  _ => { $ocsf.activity_id = 5 }
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 1
+cisco::ise::ocsf::status_detail $ise, $ocsf
+cisco::ise::ocsf::device $ise, $ocsf
+$ocsf.application.name = "Cisco ISE"
+if $ocsf.status_detail?.match_regex("^Process: '[^']+'") {
+  $ocsf.application.name = $ocsf.status_detail.split("'")[1]
+}
+cisco::ise::ocsf::administrator_actor $ise, $ocsf

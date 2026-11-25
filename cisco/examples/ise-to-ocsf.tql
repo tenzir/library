@@ -1,0 +1,21 @@
+---
+name: Parsed Cisco ISE events → OCSF
+description: |
+  Subscribes to parsed Cisco ISE events on `cisco` and publishes OCSF events to
+  `ocsf`.
+---
+
+subscribe "cisco"
+where @name.starts_with("cisco.ise.")
+// The syslog event contributes what the message can lack. Its payload stays in
+// `raw_data`.
+ise.syslog = move syslog
+drop ise.syslog.content?, ise.syslog.message?
+cisco::ise::ocsf::map ise, ocsf
+this = {
+  ...ocsf,
+  raw_data: message,
+  raw_data_size: message.length_bytes(),
+}
+this = ocsf_cast(ocsf_derive(this))
+publish "ocsf"

@@ -1,0 +1,45 @@
+---
+description: "Cisco ISE log deletion and log collection control → OCSF Event Log Activity (1008)"
+args:
+  positional:
+    - name: ise
+      type: field
+      description: The structured ISE event to read.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.event_log_activity"
+
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1008
+_code = $ocsf.metadata.event_code
+match _code {
+  "59203" | "59204" | "59205" => {
+    $ocsf.activity_id = 6
+    $ocsf.log_provider = "Log Collector"
+  }
+  "59206" | "59207" | "59208" => {
+    $ocsf.activity_id = 7
+    $ocsf.log_provider = "Log Collector"
+  }
+  "57000" | "58015" => { $ocsf.activity_id = 2 }
+  _ => {
+    $ocsf.activity_id = 2
+    $ocsf.log_name = "Local Store"
+  }
+}
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.log_type_id = 2
+// Requests do not tell whether they succeed.
+match _code {
+  "59100" | "59203" | "59206" => { $ocsf.status_id = 0 }
+  "59103" | "59205" | "59208" => { $ocsf.status_id = 2 }
+  _ => { $ocsf.status_id = 1 }
+}
+drop _code
+cisco::ise::ocsf::status_detail $ise, $ocsf
+cisco::ise::ocsf::device $ise, $ocsf
+cisco::ise::ocsf::administrator_actor $ise, $ocsf
+cisco::ise::ocsf::endpoint $ise, $ocsf.src_endpoint

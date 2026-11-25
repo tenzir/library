@@ -1,0 +1,140 @@
+---
+description: |
+  Normalizes a syslog event carrying a Cisco ISE message to OCSF 1.9.
+
+  The input is a raw syslog line or the record that `read_syslog`,
+  `parse_syslog`, or a log shipper makes of it. The operator reassembles
+  segmented messages, parses the message, maps it, and preserves the message
+  body as provenance in `raw_data`. Input without an ISE message becomes an OCSF
+  Base Event.
+
+  A record holds the message in `content`, `message`, `line`, `data`, or, as
+  `read_syslog` does with a line that it doesn't know, `syslog_message`. A raw
+  line in `raw` only counts without any of them:
+
+  ```tql
+  accept_tcp "0.0.0.0:514" {
+    read_syslog accept_pri_only=true
+  }
+  cisco::ise::ocsf::normalize
+  ```
+
+  Use the operator on a stream that holds all segments of a message. Complete
+  messages leave without delay, as `cisco::ise::reassemble` describes. Use
+  `cisco::ise::ocsf::map` instead when your pipeline already contains a
+  structured ISE event.
+
+  When other products send to the same endpoint, select the ISE messages first,
+  for example by the source address, the application name, or the tag, which
+  every segment carries in its line:
+
+  ```tql
+  accept_tcp "0.0.0.0:514" {
+    read_syslog accept_pri_only=true, raw_message=raw
+  }
+  where match_regex(raw? else syslog_message?, r"\bCISE_")
+  cisco::ise::ocsf::normalize
+  ```
+args:
+  positional:
+    - name: syslog
+      description: The syslog event or the raw line.
+      type: field
+      default: this
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+    - name: timezone
+      description: |
+        The IANA time zone of syslog header times without offset. Only events
+        without an own time need them, such as alarms. Defaults to UTC.
+      type: string
+      default: null
+    - name: category
+      description: |
+        A field that holds the `CISE_<Category>` tag when a shipper splits it
+        from the body. Defaults to the RFC 5424 application name.
+      type: field
+      default: null
+    - name: origin
+      description: |
+        The ISE node that sent the segment. Provide the preserved node identity
+        when a relay replaces the syslog hostname. Defaults to that hostname.
+      type: field
+      default: null
+    - name: on
+      description: |
+        A timestamp field that replaces the arrival time as clock of the
+        reassembly, for replays.
+      type: field
+      default: null
+    - name: span
+      description: |
+        The longest time between the first segment of a message and any other
+        segment. Use a second or more.
+      type: duration
+      default: 5s
+---
+
+// The start of a line with its syslog header.
+let $header = r"^\s*(<\d{1,3}>|[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} )"
+
+// Snapshot the carrier before writing so in-place and separate-field calls use
+// the same normalization path.
+$into = {
+  source: $syslog,
+  category: $category,
+  origin: $origin,
+  on: $on,
+}
+if type_kind($into.source) == "string" {
+  $into.source = {raw: $into.source}
+}
+// Segments join without their headers, so the body of a parsed line takes
+// precedence over the raw line.
+if $into.source.content? != null {
+  $into.payload = move $into.source.content
+} else if $into.source.message? != null {
+  $into.payload = move $into.source.message
+} else if $into.source.line? != null {
+  $into.payload = move $into.source.line
+} else if $into.source.data? != null {
+  $into.payload = move $into.source.data
+} else if $into.source.syslog_message? != null {
+  $into.payload = move $into.source.syslog_message
+} else {
+  $into.payload = $into.source.raw?
+}
+drop $into.source.raw?
+if $into.source.timestamp? == null and $into.payload.match_regex($header) {
+  $into.header = $into.payload.parse_syslog(accept_pri_only=true)
+  if $into.header != null {
+    $into.payload = $into.header.content? else $into.header.message?
+    drop $into.header.content?, $into.header.message?
+    if $into.origin == null {
+      $into.origin = $into.header.hostname?
+    }
+    $into.source = {...$into.header, ...$into.source.drop_null_fields()}
+  }
+}
+if $into.category == null {
+  $into.category = $into.source.app_name?
+}
+if $into.origin == null {
+  $into.origin = $into.source.hostname?
+}
+cisco::ise::reassemble $into.payload, $into.reassembly, category=$into.category, origin=$into.origin, on=$into.on, span=$span
+cisco::ise::parse $into.reassembly.message, $into.ise, category=$into.category, reassembly=$into.reassembly
+$into.ise.syslog = $into.source
+if $into.ise.complete? == null {
+  // Keep what the Syslog event says when it carries no ISE message.
+  $into.ise.message_text = $into.reassembly.message
+  $into.ise.origin = $into.reassembly.origin?
+}
+cisco::ise::ocsf::map $into.ise, $into.ocsf, timezone=$timezone
+
+$into.ocsf.raw_data = $into.reassembly.message
+$into.ocsf.raw_data_size = $into.ocsf.raw_data.length_bytes()
+$into = move $into.ocsf
