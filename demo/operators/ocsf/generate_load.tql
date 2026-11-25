@@ -33,7 +33,13 @@ args:
 // reading, so each round generates five seconds' worth of fresh events as fast
 // as it can, and the throttle spreads them evenly.
 every 5s {
-  demo::ocsf::generate count=$eps * 5, time_eps=null, class_uid=$class_uid,
-    base_event_share=$base_event_share, raw=$raw, irregular=$irregular
+  demo::ocsf::internal::seed raw=$raw, class_uid=$class_uid,
+    base_event_share=$base_event_share, irregular=$irregular
+  repeat int(($eps * 5 + 32767) / 32768)
+  head $eps * 5
+  enumerate _event_index
+  demo::ocsf::internal::populate count=$eps * 5, time_span=null, end_time=now(),
+    class_uid=$class_uid, base_event_share=$base_event_share, raw=$raw,
+    irregular=$irregular
 }
 throttle rate=$eps

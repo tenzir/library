@@ -74,23 +74,23 @@ OCSF 1.6 workload, see [Generate legacy events](#generate-legacy-events).
 | `irregular` | `0.0` | Fraction of events with one schema irregularity. See [Add schema irregularities](#add-schema-irregularities). |
 
 `demo::ocsf::generate` also accepts `count`, which defaults to `1000000` and must be
-nonnegative, and `time_eps`, which defaults to `1000` and sets the logical event
-rate for timestamps. A count of zero emits no events. You can combine a finite
-count with an output EPS limit:
+nonnegative, and `time_span`, the time that the timestamps cover. A count of zero
+emits no events. You can combine a finite count with an output EPS limit:
 
 ```tql
 demo::ocsf::generate count=10000, eps=1000, class_uid=3002, raw="syslog"
 ```
 
-`eps` limits how fast events leave the generator. `time_eps` controls how much
-event time the finite dataset covers, independently of execution speed:
+`eps` limits how fast events leave the generator. `time_span` controls how much
+time the timestamps of the dataset cover, independently of execution speed:
 
 ```tql
-demo::ocsf::generate count=1000000, time_eps=1000
+demo::ocsf::generate count=1000000, time_span=1d
 ```
 
-This dataset spans approximately 16 minutes and 40 seconds. Generation ends
-when the events are ready; it does not wait for that event-time interval.
+The timestamps of this dataset spread evenly over the last day. By default, they
+are one millisecond apart, so a million events cover about 17 minutes. Generation
+ends when the events are ready; it does not wait for that time.
 
 The continuous operator generates five seconds' worth of events every five
 seconds and limits its output in one-second windows. It emits batches, so
@@ -454,7 +454,7 @@ Events use native Tenzir `time` values, including DNS query and response times.
 generation retains finer precision for jitter within each event slot.
 `generate` captures one anchor at invocation time minus 10 seconds, then
 computes each timestamp as
-`anchor - count / time_eps seconds + index / time_eps seconds + jitter`.
+`anchor - time_span + index / count * time_span + jitter`.
 Each index covers a distinct position in the timeline.
 Jitter is sampled independently within ±5 milliseconds, then timestamps are
 rounded down to milliseconds. The last events fall near the anchor.
@@ -636,7 +636,7 @@ declarations. They build 1.6 events directly from fixture values.
 | `count` | `1000000` | Exact nonnegative event count. Zero emits no events. |
 | `class_uid` | Mixed classes | Select one of the five classes in the table. |
 | `eps` | Unlimited | Positive output rate limit in events per second. |
-| `time_eps` | `1000` | Positive logical event rate for timestamps. |
+| `time_span` | 1 ms per event | Time that the timestamps cover. |
 | `raw` | `"none"` | `"json"` adds a generic source record as `raw_data`. |
 
 The legacy operator has a fixed schema version and a smaller interface than
