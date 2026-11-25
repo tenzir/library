@@ -9,7 +9,8 @@ created: 2026-09-14T14:53:40.379029Z
 ---
 
 The new `demo::claude_code` and `demo::codex` operators continuously replay
-public, anonymized agent telemetry without a local dataset or a live agent:
+public agent telemetry with invented content, without a local dataset or a live
+agent:
 
 ```tql
 demo::claude_code
