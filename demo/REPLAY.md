@@ -33,6 +33,9 @@ A feed begins with the first event of the recording when its pipeline starts, an
 again after a restart. Identifiers depend on the start of the cycle, so two
 pipelines and two starts give different ones.
 
+Events come one to three seconds after their time. Stopping a pipeline drops the
+events that aren't due yet.
+
 A feed downloads its recording once, when the pipeline starts. It fails to start
 without network, and needs none afterwards.
 
@@ -79,7 +82,7 @@ write_lines
 `start` to begin at another time than now; records before now come at once.
 
 Both operators keep the recording in memory and fail beyond `max_events`, 20,000
-by default. 10,000 records of 0.5 KB take about 80 MiB at the peak, 100,000 about
+by default, and for cycles longer than a day. 10,000 records of 0.5 KB take about 80 MiB at the peak, 100,000 about
 450 MiB.
 
 ## Replay a large recording
