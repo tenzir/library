@@ -23,6 +23,16 @@ $ocsf.class_uid = 4003
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
+// Suricata logs responses in packet direction, from the server. DNS Activity
+// puts the client into `src_endpoint`.
+if $ocsf.activity_id == 2 {
+  $ocsf = {
+    ...$ocsf,
+    src_endpoint: $ocsf.dst_endpoint?,
+    dst_endpoint: $ocsf.src_endpoint?,
+  }
+}
+
 // --- OCSF: context attributes -----------------
 
 $ocsf.metadata.log_version = (move $event.dns.version?).string()
@@ -102,7 +112,9 @@ let $rcode_ids = {
   "11": 11,
   "BADVERS/BADSIG": 16,
 }
-if $event.dns.rcode? != null {
+// EVE version 3 logs the empty response code bits of requests as NOERROR. A
+// request has no response code, so the value keeps its original key.
+if $event.dns.rcode? != null and $ocsf.activity_id != 1 {
   $ocsf.rcode_id = $rcode_ids[$event.dns.rcode]? else 99
   if $ocsf.rcode_id == 99 {
     $ocsf.rcode = $event.dns.rcode
