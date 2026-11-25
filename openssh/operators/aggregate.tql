@@ -56,11 +56,15 @@ if $openssh._role == "standalone" {
   // on the per-process record lists and therefore instantiates once, not per
   // window firing.
   // Advance event-time windows incrementally for bulk historical batches.
+  // Records of one process often share a timestamp at whole-second
+  // precision. Their arrival position keeps the source order among them.
+  enumerate $openssh._seq
   batch 1
   window size=1min, on=$openssh.syslog.timestamp, tolerance=40s, idle_timeout=30s {
     summarize \
       _records=collect({
         t: $openssh.syslog.timestamp,
+        i: $openssh._seq,
         m: $log,
         role: $openssh._role,
         terminal: $openssh._terminal,
@@ -73,16 +77,16 @@ if $openssh._role == "standalone" {
   batch timeout=1s
 
   // The timestamped list is the canonical order for this process within the
-  // bounded window, independent of how parser lanes interleaved the records.
-  // The collected record leads with (t, m), so the plain lexicographic sort
-  // establishes exactly that order.
+  // bounded window. The collected record leads with (t, i), so the plain
+  // lexicographic sort orders by time and keeps the source order among
+  // records with the same timestamp.
   _records = _records.sort()
-  _touts = _records.where(r => r.terminal).map(r => {t: r.t, outcome: r.outcome}).sort()
+  _touts = _records.where(r => r.terminal).map(r => {t: r.t, i: r.i, outcome: r.outcome})
   _keyed = _records.map(r => {
     ...r,
-    past: _touts.where(x => x.t? <= r.t).length(),
-    past_outcome: _touts.where(x => x.t? == _touts.where(y => y.t? <= r.t).map(y => y.t?).max()).first().outcome?,
-    next_outcome: _touts.where(x => x.t? == _touts.where(y => y.t? >= r.t).map(y => y.t?).min()).first().outcome?,
+    past: _touts.where(x => x.t < r.t or (x.t == r.t and x.i <= r.i)).length(),
+    past_outcome: _touts.where(x => x.t < r.t or (x.t == r.t and x.i <= r.i)).last().outcome?,
+    next_outcome: _touts.where(x => x.t > r.t or (x.t == r.t and x.i >= r.i)).first().outcome?,
   })
   _keyed = _keyed.map(r => {
     ...r,
@@ -100,7 +104,7 @@ if $openssh._role == "standalone" {
   _keys = _keyed.map(r => r.key).distinct()
   _keys = _keys.map(k => {
     t: _keyed.where(r => r.key == k).first().t,
-    m: _keyed.where(r => r.key == k).first().m,
+    i: _keyed.where(r => r.key == k).first().i,
     key: k,
   }).sort().map(x => x.key)
   unroll _keys
