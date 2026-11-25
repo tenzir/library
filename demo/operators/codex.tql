@@ -1,33 +1,22 @@
 ---
 description: >-
-  Continuously replays an anonymized Codex telemetry capture, about one
-  event per second on average.
+  Continuously replays a Codex telemetry recording with invented content,
+  about one event per second on average.
 args:
   named:
     - name: speed
       type: float
       default: 1.0
       description: Multiplier on the replay rate.
-    - name: start
-      type: time
-      default: null
-      description: Start of the first cycle, such as `now()`. By default, all pipelines share one clock.
-    - name: seed
-      type: string
-      default: ""
-      description: Changes the renewed identifiers, for example per deployment.
     - name: cycles
       type: int
-      default: 1000000000
-      description: Number of cycles to replay.
-    - name: pace
-      type: bool
-      default: true
-      description: Emit every record at its replayed time instead of immediately.
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
-from_http "https://datasets.tenzir.tools/codex/otel.json.zst" {
+from_http "https://datasets.tenzir.tools/demo/v1/codex/otel.ndjson.zst" {
   decompress_zstd
-  demo::agents::read
+  read_lines
 }
-demo::agents::replay speed=$speed, start=$start, seed=$seed, cycles=$cycles, pace=$pace
+raw = move line
+demo::agents::replay speed=$speed, cycles=$cycles

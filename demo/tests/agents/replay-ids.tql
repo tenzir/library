@@ -1,30 +1,18 @@
-from {
-  time: 2026-09-01T00:00:00Z,
-  trace_id: "1234567890abcdef1234567890abcdef",
-  span_id: "1234567890abcdef",
-  parent_span_id: "0000000000000000",
-  resource: {attributes: {"host.id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}},
-  attributes: {
-    "event.timestamp": 2026-09-01T00:00:00Z,
-    "session.id": "12345678-1234-4234-8234-123456789abc",
-    "user.id": "stable-user",
-    call_id: "exec-22345678-1234-4234-8234-123456789abc",
-    tool_use_id: "toolu_Original1234",
-    output: "{\"target\": \"12345678-1234-4234-8234-123456789abc\", \"tool\": \"toolu_Original1234\", \"date\": \"2026-08-01T00:00:00Z\"}",
-  },
+from_file f"{env("TENZIR_INPUTS")}/otel.ndjson" {
+  read_lines
 }
-@name = "otel.log"
-demo::agents::replay start=2026-09-02T00:00:00Z, cycles=2, pace=false
-output = attributes.output.parse_json()
+raw = move line
+demo::agents::replay start=2026-06-01T12:00:00Z, cycles=2
+where attributes["tool_use_id"]? != null
+input = attributes.tool_input.parse_json()
 this = {
-  time: time,
   trace: trace_id != "1234567890abcdef1234567890abcdef" and trace_id.match_regex("^[0-9a-f]{32}$"),
   span: span_id != "1234567890abcdef" and span_id.match_regex("^[0-9a-f]{16}$"),
-  missing_parent: parent_span_id == "0000000000000000",
-  host: resource.attributes["host.id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
   user: attributes["user.id"],
+  organization: attributes["organization.id"] == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
   session: attributes["session.id"] != "12345678-1234-4234-8234-123456789abc",
-  prefix: attributes.call_id.starts_with("exec-") and attributes.tool_use_id.starts_with("toolu_"),
-  links: output.target.string() == attributes["session.id"] and output.tool.string() == attributes.tool_use_id,
-  content_date: output.date,
+  prefix: attributes.tool_use_id.match_regex("^toolu_[0-9a-f]{12}$"),
+  links: input.target.string() == attributes["session.id"] and input.tool.string() == attributes.tool_use_id,
+  content_date: input.date,
+  cycle_id: attributes["session.id"],
 }

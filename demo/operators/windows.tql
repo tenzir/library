@@ -1,8 +1,8 @@
 ---
 description: >-
-  Generates a continuous stream of raw Windows events captured in a Windows
-  test lab. Select `winlogbeat`, `fluent-bit`, or `xml` as the collector
-  representation. By default, the operator emits about 1.5 events per second.
+  Generates a continuous stream of Windows events captured in a Windows test lab,
+  as `winlogbeat`, `fluent-bit`, or `xml` deliver them. By default, the operator
+  emits about 1.5 events per second.
 args:
   positional:
     - name: format
@@ -13,28 +13,17 @@ args:
       type: float
       default: 1.0
       description: Multiplier on the replay rate.
-    - name: start
-      type: time
-      default: null
-      description: Start of the first cycle, such as `now()`. By default, all pipelines share one clock.
-    - name: seed
-      type: string
-      default: ""
-      description: Changes the renewed identifiers, for example per deployment.
     - name: cycles
       type: int
-      default: 1000000000
-      description: Number of cycles to replay.
-    - name: pace
-      type: bool
-      default: true
-      description: Emit every record at its replayed time instead of immediately.
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
-from_http "https://datasets.tenzir.tools/windows/events.ndjson.zst" {
+let $file = "events.xml.zst" if $format == "xml" else f"{$format}.ndjson.zst"
+
+from_http f"https://datasets.tenzir.tools/demo/v1/windows/{$file}" {
   decompress_zstd
-  read_ndjson
+  read_lines
 }
-where format == $format
-select time, format, raw
-demo::windows::replay speed=$speed, start=$start, seed=$seed, cycles=$cycles, pace=$pace
+raw = move line
+demo::windows::replay $format, speed=$speed, cycles=$cycles

@@ -1,6 +1,10 @@
 ---
-description: Replays raw Windows collector records as a live feed.
+description: Replays the records of a Windows event collector as a live feed.
 args:
+  positional:
+    - name: format
+      type: string
+      description: Collector representation, one of winlogbeat, fluent-bit, or xml.
   named:
     - name: speed
       type: float
@@ -9,27 +13,23 @@ args:
     - name: start
       type: time
       default: null
-      description: Start of the first cycle, such as `now()`. By default, all pipelines share one clock.
-    - name: seed
-      type: string
-      default: ""
-      description: Changes the renewed identifiers, for example per deployment.
+      description: Start of the first cycle in the past, by default now. Records before now come at once.
     - name: cycles
       type: int
-      default: 1000000000
-      description: Number of cycles to replay.
-    - name: pace
-      type: bool
-      default: true
-      description: Emit every record at its replayed time instead of immediately.
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
+time = raw.parse_winlog().System.TimeCreated.SystemTime.time() if $format == "xml" else (
+  raw.parse_json(raw=true)["@timestamp"].time() if $format == "winlogbeat" else
+  raw.parse_json(raw=true).TimeCreated.parse_time("%Y-%m-%d %H:%M:%S %z")
+)
 // Identifiers appear in event data, JSON fields, and rendered messages. Provider
 // and object GUIDs and well-known logon sessions, such as 0x3e7, stay as they are.
 demo::replay::renew_ids raw, "((?i:process ?guid|logon ?guid|entity_id|activity_?id|instance(?:id)?|started|finished|scriptblock ?id|host ?id|runspace ?id)(?:\\\\[nrt]|&#\\d+;|[\\\\'\">:=\\s{])*)([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})", kind="uuid"
 demo::replay::renew_ids raw, "((?i:logon ?id)(?:\\\\[nrt]|&#\\d+;|[\\\\'\">:=\\s])*0[xX])([0-9A-Fa-f]{5,})", kind="hex"
 demo::replay::renew_ids raw, "(<EventRecordID>|\"(?:record_id|EventRecordID|RecordNumber)\":\"?)(\\d+)", kind="number"
-demo::replay::run speed=$speed, start=$start, seed=$seed, cycles=$cycles, pace=$pace
+demo::replay::run speed=$speed, start=$start, cycles=$cycles
 // Rotate the host per cycle: records of one cycle belong together.
-raw = raw.replace("DEMO-WIN-01", f"DEMO-WIN-0{1 + cycle - 3 * int(floor(cycle / 3))}")
-drop cycle
+raw = raw.replace("DEMO-WIN-01", f"DEMO-WIN-0{1 + replay.cycle - 3 * int(floor(replay.cycle / 3))}")
+demo::windows::parse $format, raw

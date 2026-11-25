@@ -1,0 +1,67 @@
+---
+description: >-
+  Repeats a short recording on the current timeline and emits its events when
+  they are due. Replaces `time` and adds the number of the cycle, the time shift,
+  and the salt for identifiers in `replay`.
+args:
+  named:
+    - name: max_events
+      type: int
+      default: 20000
+      description: Fail for longer recordings, which would take too much memory.
+    - name: speed
+      type: float
+      default: 1.0
+      description: Multiplier on the replay rate.
+    - name: start
+      type: time
+      default: null
+      description: Start of the first cycle in the past, by default now. Records before now come at once.
+    - name: cycles
+      type: int
+      default: null
+      description: Number of cycles to replay. Endless by default.
+---
+
+// `repeat` takes no null; a billion cycles never end.
+let $cycles = $cycles if $cycles != null else 1000000000
+
+assert time != null, message="demo::replay: record without time"
+strict {
+  enumerate n
+  assert n < $max_events, message="demo::replay: more than max_events records; use timeshift and delay instead"
+  drop n
+}
+
+// Measure one cycle. The last record leaves room for one average gap.
+this = {event: this, name: @name, recorded: time}
+sort recorded
+summarize rows=collect(this), count=count(), first=first(recorded), last=last(recorded)
+// The replay begins when the recording is complete, not while it loads.
+begin = now()
+period = ((last - first) * (count / (count - 1)) if last > first else 1s) / $speed
+unroll rows
+this = {...rows, offset: (rows.recorded - first) / $speed, count: count, period: period, begin: begin}
+
+// Repeat the cycle and place every record on the current timeline.
+repeat $cycles
+enumerate n
+cycle = int(floor(n / count))
+cycle_start = ($start if $start != null else begin) + cycle * period
+shift = cycle_start + offset - recorded
+// Whole seconds keep the order of timestamps with different precision.
+shift = shift.floor(1s) if $speed == 1.0 else shift
+this = {
+  ...event,
+  time: recorded + shift,
+  replay: {cycle: cycle, shift: shift, salt: cycle_start.string()},
+  _name: name,
+  _due: recorded + shift if recorded + shift > begin else begin,
+}
+
+// Emit the records one by one: later steps only see those that are due, which
+// bounds the memory, and a downstream `head` ends the delay.
+batch 1
+delay _due
+@name = _name
+drop _name, _due
