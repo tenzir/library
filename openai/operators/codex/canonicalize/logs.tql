@@ -150,8 +150,10 @@ $event = {
   file_operation: $event._file_operation,
   file_new_path: null,
   patch_operations: $event._patch_operations if $event._patch_operations.length() > 0 else null,
+  // `exec` runs a JavaScript tool script, not a process; the shell commands it
+  // calls through `tools.exec_command` arrive as their own records.
   process_name: "bash" if $event._tool_name_lower == "bash" else
-                 "shell" if $event._tool_name_lower in ["exec", "exec_command", "shell", "terminal"] and not $event._argument_error else
+                 "shell" if $event._tool_name_lower in ["exec_command", "shell", "terminal"] and not $event._argument_error else
                  null,
   command: $event._command,
   command_hash: hash_sha256($event._command) if $event._command? != null else null,
@@ -172,7 +174,7 @@ $event = {
   tool_result_seq: int($event._a.tool_result_seq) if $event._a.tool_result_seq? != null else null,
   agent_name: $event._a.agent_name?,
   is_mcp_tool: $event._a.mcp_tool?,
-  error: $event._tool_output if $event._argument_error else $event._a.error?,
+  error: $event._tool_output if $event._argument_error else $event._a.error? else $event._a["error.message"]?,
   error_type: $event._a.error_type?,
   source_status_code: $event._a.status_code?,
   request_id: $event._a.request_id?,

@@ -1,0 +1,32 @@
+// An `exec` call runs a JavaScript tool script, not a process. It maps like
+// other local tool calls and invents no process name or command line.
+from {
+  time: 2026-10-02T09:00:00Z,
+  observed_time: 2026-10-02T09:00:00Z,
+  trace_id: "33333333333333333333333333333333",
+  span_id: "3333333333333331",
+  severity_number: 9,
+  severity_text: "INFO",
+  flags: 1,
+  resource: {attributes: {"service.name": "codex-app-server", "service.version": "0.153.4"}},
+  scope: {name: "codex_otel.log_only"},
+  receiver: {transport: "grpc"},
+  body: null,
+  attributes: {
+    "event.name": "codex.tool_result",
+    "conversation.id": "c2",
+    tool_name: "exec",
+    tool_namespace: "functions",
+    call_id: "call-script",
+    arguments: "text(await tools.exec_command({cmd:\"uptime\"}));\n",
+    success: true,
+    duration_ms: "120",
+    output: "Script completed\nWall time 0.1 seconds\nOutput:\n\nup 3 days",
+  },
+}
+@name = "otel.log"
+openai::codex::ocsf::normalize
+this = ocsf_cast(this)
+select time, class_uid, activity_name, message, status_id, process?,
+       tool_name=unmapped.tool_name, call_id=unmapped.tool_use_id,
+       session=actor.session.uid
