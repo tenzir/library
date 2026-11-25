@@ -122,8 +122,9 @@ if $ocsf.tls? != null {
 $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
 
-// Zeek sets `established` once the handshake completed. An alert overrides it,
-// so `established` stays unmapped when it does not decide the status.
+// Zeek sets `established` once the handshake completed. An alert or a failed
+// certificate validation overrides it, so `established` stays unmapped when it
+// does not decide the status.
 if $event.established? == false or $event.last_alert? != null {
   $ocsf.status_id = 2
   $ocsf.status = "Failure"
@@ -132,6 +133,12 @@ if $event.established? == false or $event.last_alert? != null {
   if $event.established? == false {
     drop $event.established
   }
+} else if $event.validation_status? != null and $event.validation_status != "ok" {
+  // A certificate that fails validation fails the connection, even after a
+  // completed handshake.
+  $ocsf.status_id = 2
+  $ocsf.status = "Failure"
+  $ocsf.status_detail = move $event.validation_status
 } else if $event.established? == true or $event.validation_status? == "ok" {
   // There could be more `validation_status` values that mean success,
   // but it's difficult to find them. In Zeek, we'd need to grep through
