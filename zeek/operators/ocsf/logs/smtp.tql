@@ -59,7 +59,7 @@ if (
   // Zeek records header fields only once it saw the message headers. With
   // headers, a missing header list is known to be empty; without any, such as
   // after a rejected envelope, it is unknown.
-  $event.missing_header = [] if (
+  $event.saw_headers = (
     $event.date? != null
     or $event.from? != null
     or $event.to? != null
@@ -71,7 +71,8 @@ if (
     or $event.x_originating_ip? != null
     or $event.first_received? != null
     or $event.user_agent? != null
-  ) else null
+  )
+  $event.missing_header = [] if $event.saw_headers else null
   $ocsf.email = {
     from: $event.from?.replace_regex($address, "\\1").trim() else $event.mailfrom?,
     from_mailbox: move $event.from?,
@@ -110,15 +111,22 @@ if (
 
 // The class of the last reply code (RFC 5321, section 4.2.1) tells whether
 // the server completed the last step. A positive intermediate reply (3xx),
-// such as 354 after DATA, leaves the transaction unfinished.
+// such as 354 after DATA, leaves the transaction unfinished. A positive
+// completion reply only confirms a message that Zeek saw. Without one, such as
+// 221 after QUIT that follows the envelope alone, it says nothing about it.
 $ocsf.status_detail = move $event.last_reply?
 $ocsf.status_code = $ocsf.status_detail?.split(" ")[0]?
 // Range bounds are exclusive.
 match int($ocsf.status_code?) {
   // 2xx
   199..300 => {
-    $ocsf.status = "Success"
-    $ocsf.status_id = 1
+    if $event.saw_headers? == false {
+      $ocsf.status = "Unknown"
+      $ocsf.status_id = 0
+    } else {
+      $ocsf.status = "Success"
+      $ocsf.status_id = 1
+    }
   }
   // 4xx and 5xx
   399..600 => {
@@ -130,3 +138,4 @@ match int($ocsf.status_code?) {
     $ocsf.status_id = 0
   }
 }
+drop $event.saw_headers?
