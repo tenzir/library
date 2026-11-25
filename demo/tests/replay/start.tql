@@ -1,0 +1,13 @@
+// A replay begins with the first record, whenever it starts, and two starts give
+// different identifiers.
+from {start: 2026-06-01T12:00:00Z}, {start: 2026-06-01T12:00:30Z}
+each {
+  let $start = $this.start
+  from {i: 0}, {i: 1}
+  time = 2026-01-01T10:00:00Z + i * 1s
+  raw = f"id=1234567890abcde{i}"
+  demo::replay::renew_ids raw, "(id=)([0-9a-f]+)", kind="hex"
+  demo::replay::run start=$start, cycles=2
+}
+summarize replays=count(), ids=count_distinct(raw), first=min(time), begin=collect(i if replay.cycle == 0 else null)
+select replays, ids, first, begin=begin.sort()

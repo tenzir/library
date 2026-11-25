@@ -1,0 +1,31 @@
+---
+description: |
+  Selects identifiers in a raw record that `demo::replay::run` renews in every
+  cycle.
+
+  ```tql
+  demo::replay::renew_ids raw, "((?:session|parent)=)([0-9a-f]+)", kind="hex"
+  demo::replay::run
+  ```
+
+  Within a cycle, equal identifiers stay equal across all records. The pattern
+  must cover every place where an identifier occurs, or references to it break.
+args:
+  positional:
+    - name: raw
+      type: field
+      description: The raw record.
+    - name: pattern
+      type: string
+      description: Regular expression with two groups, the context to keep and the identifier to renew.
+  named:
+    - name: kind
+      type: string
+      description: |
+        Layout of the identifier: `uuid`; `hex` with any number of digits;
+        `number` with ten digits; or `pid`, which moves by one offset per cycle.
+---
+
+// The selection stays readable in the record until `demo::replay::run` renders
+// it, for example `session=%%REPLAY%%renew:hex|1f3a9c20%%REPLAY%%`.
+$raw = $raw.replace_regex($pattern, "\\1%%REPLAY%%renew:" + $kind + "|\\2%%REPLAY%%")

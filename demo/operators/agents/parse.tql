@@ -1,0 +1,31 @@
+---
+description: Parses an OTel record in JSON into the event that `accept_otlp` emits with `schema="record"`.
+args:
+  positional:
+    - name: raw
+      type: field
+      description: The OTel log record or span in JSON.
+---
+
+this = $raw.parse_json(raw=true)
+@name = "otel.span" if has(this, "start_time") else "otel.log"
+// JSON has no types for times, addresses, and unsigned integers.
+receiver.peer_ip = receiver.peer_ip.ip()
+resource.dropped_attributes_count = resource.dropped_attributes_count.uint()
+scope.dropped_attributes_count = scope.dropped_attributes_count.uint()
+dropped_attributes_count = dropped_attributes_count.uint()
+flags = flags.uint()
+match @name {
+  "otel.log" => {
+    time = time.time()
+    observed_time = observed_time.time()
+  }
+  "otel.span" => {
+    start_time = start_time.time()
+    end_time = end_time.time()
+    events = events.map(e => {...e, time: e.time.time(), dropped_attributes_count: e.dropped_attributes_count.uint()})
+    dropped_events_count = dropped_events_count.uint()
+    dropped_links_count = dropped_links_count.uint()
+  }
+  _ => {}
+}

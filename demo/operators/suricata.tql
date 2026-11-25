@@ -1,30 +1,21 @@
 ---
 description: >-
-  Generates a continuous stream of Suricata events from the M57 dataset,
-  replayed in real time. Use `speed` to control the replay rate.
+  Generates a continuous stream of Suricata events from 20 minutes of
+  invented office traffic.
 args:
   named:
     - name: speed
       type: float
       default: 1.0
+      description: Multiplier on the replay rate.
+    - name: cycles
+      type: int
+      default: null
+      description: Number of cycles to replay. Endless by default.
 ---
 
-let $first = 2021-11-18T08:10:00Z
-let $last = 2021-11-18T08:38:00Z
-let $default = 30s
-let $period = $default / $speed
-let $factor = ($last - $first) / $period
-
-every $period {
-  from_http "https://datasets.tenzir.tools/M57/suricata.json.zst" {
-    decompress_zstd
-    read_suricata
-    head 30k
-  }
-  where $first <= timestamp and timestamp <= $last
-  sort timestamp
+from_http "https://datasets.tenzir.tools/demo/v1/suricata/office.json.zst" {
+  decompress_zstd
+  read_suricata
 }
-// Drop some very frequent data to get a more even distribution.
-where @name != "suricata.dns" or random() <= 0.01
-where @name != "suricata.tls" or random() <= 0.3
-delay timestamp, start=$first, speed=$factor
+demo::suricata::replay speed=$speed, cycles=$cycles

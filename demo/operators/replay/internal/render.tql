@@ -1,0 +1,84 @@
+---
+description: Renders the selected timestamps and identifiers of a raw record.
+args:
+  positional:
+    - name: raw
+      type: field
+      description: The raw record.
+  named:
+    - name: shift
+      type: field
+      description: The duration to add to every timestamp.
+    - name: salt
+      type: field
+      description: The string that decides the renewed identifiers.
+---
+
+// The renewed identifier takes one hash digit per character, up to 64.
+let $padding = "================================================================"
+
+_tokens = $raw.split("%%REPLAY%%").map(t => {
+  text: t,
+  args: t.slice(begin=6).split("|") if t.starts_with("renew:") else ["text"],
+})
+_tokens = _tokens.map(t => {
+  text: t.text,
+  kind: t.args[0],
+  value: t.args[1]? else "",
+  clock: t.args[2]? else "",
+  fraction: t.args[3]? else "",
+  zone: t.args[4]? else "",
+})
+
+// A timestamp keeps its layout, precision, and UTC offset. The offset doesn't
+// matter for shifting.
+_tokens = _tokens.map(t => {
+  ...t,
+  time: f"{t.value.slice(end=10)}T{t.clock}{t.fraction}Z".time() if t.kind == "time" else null,
+})
+_tokens = _tokens.map(t => {
+  ...t,
+  time: (t.time + $shift).format_time("%Y-%m-%dT%H:%M:%S") if t.time != null else "",
+  length: t.fraction.length_chars(),
+})
+
+// Equal identifiers stay equal within one salt, so references keep working.
+_tokens = _tokens.map(t => {
+  ...t,
+  // Process IDs only move by one offset, so that they never collide.
+  hex: hash_sha256($salt + (t.value.to_lower() if t.kind != "pid" else "")) if t.kind not in ["text", "time"] else "",
+})
+_tokens = _tokens.map(t => {
+  ...t,
+  digits: t.hex.replace("a", "0").replace("b", "1").replace("c", "2").replace("d", "3").replace("e", "4").replace("f", "5"),
+})
+
+_tokens = _tokens.map(t => {
+  ...t,
+  renewed:
+    f"{t.hex.slice(end=8)}-{t.hex.slice(begin=8, end=12)}-4{t.hex.slice(begin=13, end=16)}-8{t.hex.slice(begin=17, end=20)}-{t.hex.slice(begin=20, end=32)}" if t.kind == "uuid" else
+    "3" + t.digits.slice(end=9) if t.kind == "number" else
+    (t.value.int() + 10 * t.digits.slice(end=5).int()).string() if t.kind == "pid" else
+    zip(
+      f"{t.value}{$padding}".slice(end=64).replace_regex("(.)", "\\1,").split(","),
+      f"{t.hex}{$padding}".slice(end=64).replace_regex("(.)", "\\1,").split(","),
+    ).where(p => p.left != "=").map(p => p.right).join(),
+})
+$raw = _tokens.map(t =>
+  t.text if t.kind == "text" else
+  t.value if t.kind != "time" and t.value.match_regex("^[0-]+$") else
+  t.renewed if t.kind != "time" else
+  t.time.slice(end=10) + t.value.slice(begin=10) + t.time.slice(begin=11, end=19) + (
+    "" if t.length == 0 else
+    t.time.slice(begin=19, end=21) if t.length == 2 else
+    t.time.slice(begin=19, end=22) if t.length == 3 else
+    t.time.slice(begin=19, end=23) if t.length == 4 else
+    t.time.slice(begin=19, end=24) if t.length == 5 else
+    t.time.slice(begin=19, end=25) if t.length == 6 else
+    t.time.slice(begin=19, end=26) if t.length == 7 else
+    t.time.slice(begin=19, end=27) if t.length == 8 else
+    t.time.slice(begin=19, end=28) if t.length == 9 else
+    t.time.slice(begin=19)
+  ) + t.zone
+).join()
+drop _tokens
