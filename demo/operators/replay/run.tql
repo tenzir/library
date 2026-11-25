@@ -1,9 +1,10 @@
 ---
 description: >-
   Replays a finite recording as an endless live feed. Every cycle moves the
-  timestamps to the current timeline and renews the marked identifiers. Expects
-  events with the recording time in `time` and the record in `raw`, keeps other
-  fields, and adds the number of the cycle in `cycle`.
+  timestamps to the current timeline and renews the identifiers that
+  `demo::replay::renew_ids` selects. Expects events with the recording time in
+  `time` and the record in `raw`, keeps other fields, and adds the number of the
+  cycle in `cycle`.
 args:
   named:
     - name: max_gap
@@ -44,8 +45,9 @@ let $now = now()
 let $epoch = 2026-01-01T00:00:00Z
 let $begin = $start if $start != null else $now
 
-// Mark ISO timestamps. Sentinels such as 1601 or 9999 stay as they are.
-raw = raw.replace_regex("(" + $context + ")\\b((?:199|20[0-8])\\d-[01]\\d-[0-3]\\d[T ])(\\d\\d:\\d\\d:\\d\\d)(\\.\\d+)?( ?[+-]\\d\\d:?\\d\\d|Z)?", "\\1\u001f\u001etime|\\2|\\3|\\4|\\5\u001f")
+// Select ISO timestamps, as `demo::replay::renew_ids` does for identifiers.
+// Sentinels such as 1601 or 9999 stay as they are.
+raw = raw.replace_regex("(" + $context + ")\\b((?:199|20[0-8])\\d-[01]\\d-[0-3]\\d[T ])(\\d\\d:\\d\\d:\\d\\d)(\\.\\d+)?( ?[+-]\\d\\d:?\\d\\d|Z)?", "\\1%%REPLAY%%renew:time|\\2|\\3|\\4|\\5%%REPLAY%%")
 
 // Place all records inside one cycle, without the long pauses.
 assert time != null, message="demo::replay::run: record without time"
@@ -79,7 +81,7 @@ _shift = _shift.ceil(1s) if $speed == 1.0 else _shift
 time = _recorded + _shift
 where time >= $begin
 _salt = f"{$seed}:{_cycle_start}"
-demo::replay::render raw, shift=_shift, salt=_salt
+demo::replay::internal::render raw, shift=_shift, salt=_salt
 // Separate batches let a downstream `head` end the delay.
 batch 1
 _due = time if $pace else $begin

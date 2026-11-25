@@ -12,5 +12,5 @@ All demo feeds now replay without gaps, with current timestamps, and with new id
 
 - All feeds share the arguments `speed`, `start`, `seed`, `cycles`, and `pace`, and download their recording once.
 - `demo::zeek` and `demo::suricata` replay samples that ship with the package.
-- `demo::replay::run`, `demo::replay::mark`, `demo::openssh::replay`, and `demo::windows::replay` are new.
+- `demo::replay::run`, `demo::replay::renew_ids`, `demo::openssh::replay`, and `demo::windows::replay` are new.
 - `demo::agents::rotate_ids` and `demo::agents::shift_time` are gone. Use `demo::agents::replay` instead.

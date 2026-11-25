@@ -39,8 +39,8 @@ can't download its recording fails to start; a running feed needs no network.
 ## Replay your own recording
 
 `demo::replay::run` expects events with the recording time in `time` and the
-record in `raw`. It moves all ISO timestamps in `raw`. Mark the identifiers that
-every cycle should renew:
+record in `raw`. It moves all ISO timestamps in `raw`. Select the identifiers that
+every cycle should renew, in every place where they occur:
 
 ```tql
 from_file "/recordings/app.log" {
@@ -48,7 +48,7 @@ from_file "/recordings/app.log" {
 }
 raw = move line
 time = raw.split(" ")[0].time()
-demo::replay::mark raw, "(session=)([0-9a-f]+)", "hex"
+demo::replay::renew_ids raw, "(session=)([0-9a-f]+)", kind="hex"
 demo::replay::run max_gap=30s
 ```
 
@@ -57,11 +57,5 @@ Use `demo::openssh::replay`, `demo::windows::replay`, and
 
 ## Zeek and Suricata samples
 
-`scripts/build_samples.py` writes `operators/zeek/sample.tql` and
-`operators/suricata/sample.tql`. It runs both sensors offline over traffic from
-`scripts/make_traffic.py`, which uses documentation addresses and `.example`
-names only. Both samples describe the same connections, and Suricata alerts come
-from `scripts/demo.rules`.
-
-Before publishing a recording, run `scripts/check.py privacy` on it and
-`scripts/check.py replay` on two replayed cycles.
+Zeek 8.0.10 and Suricata 8.0.3 wrote both samples offline from the same generated
+traffic, which uses documentation addresses and `.example` names only.

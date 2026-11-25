@@ -1,10 +1,10 @@
 ---
-description: Renders the marked timestamps and identifiers of a raw record.
+description: Renders the selected timestamps and identifiers of a raw record.
 args:
   positional:
     - name: raw
       type: field
-      description: The marked raw record.
+      description: The raw record.
   named:
     - name: shift
       type: field
@@ -14,9 +14,12 @@ args:
       description: The string that decides the renewed identifiers.
 ---
 
-_tokens = $raw.split("\u001f").map(t => {
+// The renewed identifier takes one hash digit per character, up to 64.
+let $padding = "================================================================"
+
+_tokens = $raw.split("%%REPLAY%%").map(t => {
   text: t,
-  args: t.slice(begin=1).split("|") if t.starts_with("\u001e") else ["text"],
+  args: t.slice(begin=6).split("|") if t.starts_with("renew:") else ["text"],
 })
 _tokens = _tokens.map(t => {
   text: t.text,
@@ -56,12 +59,10 @@ _tokens = _tokens.map(t => {
     f"{t.hex.slice(end=8)}-{t.hex.slice(begin=8, end=12)}-4{t.hex.slice(begin=13, end=16)}-8{t.hex.slice(begin=17, end=20)}-{t.hex.slice(begin=20, end=32)}" if t.kind == "uuid" else
     "3" + t.digits.slice(end=9) if t.kind == "number" else
     (t.value.int() + 10 * t.digits.slice(end=5).int()).string() if t.kind == "pid" else
-    t.hex.slice(end=7) if t.value.length_chars() < 16 else
-    t.hex.slice(end=16) if t.value.length_chars() < 17 else
-    t.hex.slice(end=17) if t.value.length_chars() < 24 else
-    t.hex.slice(end=24) if t.value.length_chars() < 32 else
-    t.hex.slice(end=32) if t.value.length_chars() < 64 else
-    t.hex,
+    zip(
+      f"{t.value}{$padding}".slice(end=64).replace_regex("(.)", "\\1,").split(","),
+      f"{t.hex}{$padding}".slice(end=64).replace_regex("(.)", "\\1,").split(","),
+    ).where(p => p.left != "=").map(p => p.right).join(),
 })
 $raw = _tokens.map(t =>
   t.text if t.kind == "text" else
