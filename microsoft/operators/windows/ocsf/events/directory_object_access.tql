@@ -1,0 +1,24 @@
+---
+description: |
+  Sets the activity of a directory object operation (EID 4662) from its access
+  rights: Read when every right only reads the object, Update otherwise.
+args:
+  positional:
+    - name: ocsf
+      description: The OCSF Entity Management event with its access list.
+      type: field
+---
+
+// Of the Active Directory access rights that Microsoft documents for 4662,
+// List Contents, Read Property, List Object, and READ_CONTROL only read the
+// object or its security descriptor. Any other right, such as Write Property,
+// Control Access, or DELETE, keeps the activity at Update, also when it comes
+// with read rights.
+// https://learn.microsoft.com/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4662
+let $read_rights = ["List Contents", "Read Property", "List Object", "READ_CONTROL"]
+if type_kind($ocsf.access_list?) == "list" {
+  if not $ocsf.access_list.is_empty() and $ocsf.access_list.where(right => right not in $read_rights).is_empty() {
+    $ocsf.activity_id = 2  // Read
+    $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+  }
+}
