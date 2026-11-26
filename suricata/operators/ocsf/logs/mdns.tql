@@ -1,0 +1,116 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+// Suricata logs mDNS messages like DNS messages of EVE version 3, but with
+// numeric response codes, flag names, and records that hold their data under
+// the name of their type.
+
+// --- OCSF: classification attributes ----------
+
+let $activity_ids = {
+  request: 1,
+  response: 2,
+}
+$ocsf.activity_id = $activity_ids[move $event.mdns.type?]? else 0
+$ocsf.class_uid = 4003
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.app_protocol_name = "mdns"
+
+// --- OCSF: primary attributes -----------------
+
+// Responders send responses in packet direction. Multicast responses answer
+// no single client, so only unicast responses put the querier into
+// `src_endpoint`.
+if $ocsf.activity_id == 2 and not $ocsf.dst_endpoint?.ip?.is_multicast() {
+  $ocsf = {
+    ...$ocsf,
+    src_endpoint: $ocsf.dst_endpoint?,
+    dst_endpoint: $ocsf.src_endpoint?,
+  }
+}
+
+$ocsf.opcode_id = move $event.mdns.opcode? else 0
+$ocsf.transaction_id = move $event.mdns.id?
+
+if $event.mdns.queries? != null {
+  $ocsf.query = {
+    hostname: $event.mdns.queries[0].rrname,
+    type: $event.mdns.queries[0].rrtype?.to_upper(),
+  }
+  drop $event.mdns.queries
+}
+
+// Records of other types stay under their original keys.
+if $event.mdns.answers? != null {
+  $ocsf.answers = $event.mdns.answers.map(x => {
+    hostname: x.rrname,
+    type: (
+      "A" if x.a? != null else (
+      "AAAA" if x.aaaa? != null else (
+      "PTR" if x.ptr? != null else (
+      "SRV" if x.srv? != null else (
+      "TXT" if x.txt? != null else null))))
+    ),
+    rdata: (
+      x.a?.string() else x.aaaa?.string() else x.ptr? else (
+        f"{x.srv.priority} {x.srv.weight} {x.srv.port} {x.srv.name}" if x.srv? != null
+        else x.txt?.join(" ")
+      )
+    ),
+  }).where(x => x.type != null)
+  $event.mdns.answers = $event.mdns.answers.where(x => x.a? == null and x.aaaa? == null and x.ptr? == null and x.srv? == null and x.txt? == null)
+  if $event.mdns.answers.is_empty() {
+    drop $event.mdns.answers
+  }
+  if $ocsf.answers.is_empty() {
+    drop $ocsf.answers
+  }
+}
+
+// As for DNS, requests have no response code.
+if $event.mdns.rcode? != null and $ocsf.activity_id != 1 {
+  $ocsf.rcode_id = int($event.mdns.rcode) if $event.mdns.rcode in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24] else 99
+  if $ocsf.rcode_id == 99 {
+    $ocsf.rcode = $event.mdns.rcode.string()
+  }
+  $ocsf.status_id = 1 if $ocsf.rcode_id == 0 else 2
+  drop $event.mdns.rcode
+} else {
+  $ocsf.status_id = 0
+}
+
+let $flag_ids = {
+  aa: 1,
+  tc: 2,
+  rd: 3,
+  ra: 4,
+  ad: 5,
+  cd: 6,
+}
+if $event.mdns.flags? != null {
+  $ocsf.flag_ids = $event.mdns.flags.map(x => $flag_ids[x]?).where(x => x != null)
+  $event.mdns.flags = $event.mdns.flags.where(x => $flag_ids[x]? == null)
+  if $event.mdns.flags.is_empty() {
+    drop $event.mdns.flags
+  }
+}
+
+// --- Finalize ---------------------------------
+
+drop_null_fields $event.mdns
+if $event.mdns == {} {
+  drop $event.mdns
+}
+
+@name = "ocsf.dns_activity"
