@@ -10,8 +10,36 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-// TODO: Derive Open and Close from the flow state.
-$ocsf.activity_id = 6
+// Suricata logs a flow when it ends or times out. For TCP, its flags and
+// state tell how the connection went, as Zeek's connection states do:
+// - A responder that resets the connection without a SYN refused it.
+// - Any other reset resets the connection.
+// - Both sides closing it closes the connection, a closing side alone fails
+//   it.
+// - A connection that is still open, or only a SYN, opens a connection.
+// Other protocols, NetFlow records, and unknown states report traffic.
+let $tcp_states = {
+  new: 1,
+  syn_sent: 1,
+  syn_recv: 1,
+  established: 1,
+  fin_wait1: 4,
+  fin_wait2: 4,
+  close_wait: 4,
+  closing: 2,
+  last_ack: 2,
+  time_wait: 2,
+  closed: 2,
+}
+if $event.tcp?.rst? == true {
+  // `tcp_flags_tc` holds the flags of the responder in hex: RST is 0x04, SYN
+  // 0x02.
+  $event._flags_tc = int($event.tcp.tcp_flags_tc? else "00", base=16)
+  $ocsf.activity_id = 5 if bit_and($event._flags_tc, 4) == 4 and bit_and($event._flags_tc, 2) == 0 else 3
+  drop $event._flags_tc
+} else {
+  $ocsf.activity_id = $tcp_states[$event.tcp?.state?]? else 6
+}
 $ocsf.class_uid = 4001
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
