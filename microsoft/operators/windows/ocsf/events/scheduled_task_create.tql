@@ -41,8 +41,8 @@ $ocsf.job = {
 }
 
 // The task definition is an XML string with the triggers and actions of the
-// task, which 4702 reports as TaskContentNew. The command line of the task is
-// the command of its first Exec action with its arguments. The definition
+// task, which 4702 reports as TaskContentNew. The job action is the first Exec
+// action, whose command line is its command with its arguments. The definition
 // stays in unmapped, as do ClientProcessStartKey, ParentProcessId,
 // RpcCallClientLocality, and FQDN.
 _task = $windows.EventData.TaskContent? else $windows.EventData.TaskContentNew?
@@ -54,7 +54,15 @@ if _task.match_regex(r"<Exec(\s[^>]*)?>[\s\S]*?<Command>") == true {
   // quotes to stay one word of the command line.
   _decoded = [_command, _arguments].map(x => x.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&"))
   _command = f"\"{_decoded[0]}\"" if _decoded[0].match_regex(r"\s") and not _decoded[0].starts_with("\"") else _decoded[0]
-  $ocsf.job.cmd_line = _command + " " + _decoded[1] if _decoded[1] != "" else _command
+  $ocsf.job.job_actions = [{
+    type_id: 2,  // Execute
+    cmd_line: _command + " " + _decoded[1] if _decoded[1] != "" else _command,
+    file: {
+      path: _decoded[0].trim("\""),
+      name: _decoded[0].trim("\"").split("\\")[-1],
+      type_id: 1,  // Regular File
+    },
+  }]
   drop _exec, _command, _arguments, _decoded
 }
 drop _task
