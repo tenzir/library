@@ -28,10 +28,10 @@ let $classes = {
   FTP_DATA: {class_uid: 4008, name: "ocsf.ftp_activity"},
   SMTP: {class_uid: 4009, name: "ocsf.email_activity"},
 }
-$event.class = $classes[$event.source?]?
-if $event.class != null {
+$event._class = $classes[$event.source?]?
+if $event._class != null {
   $ocsf.activity_id = 1 if $event.source == "SMTP" and $event.is_orig? == true else 0
-  $ocsf.class_uid = $event.class.class_uid
+  $ocsf.class_uid = $event._class.class_uid
   $ocsf.connection_info.protocol_name = "tcp"
   $ocsf.connection_info.protocol_num = 6
 } else {
@@ -50,41 +50,43 @@ $ocsf.metadata.log_name = "files.log"
 // A file record reports no outcome.
 $ocsf.status_id = 0
 
-if $event.class != null {
+if $event._class != null {
   // Zeek hashes the content of a file with the analyzers that `analyzers`
   // names.
-  $event.hashes = [
+  $event._hashes = [
     {algorithm_id: 1, value: move $event.md5?},
     {algorithm_id: 2, value: move $event.sha1?},
     {algorithm_id: 3, value: move $event.sha256?},
   ].where(x => x.value != null)
   // A protocol may announce the size of the file in `total_bytes`, while
   // `seen_bytes` counts what Zeek observed.
-  $event.file = {
+  $event._file = {
     name: move $event.filename?,
     type_id: 1,
     mime_type: move $event.mime_type?,
     size: move $event.total_bytes?,
-    hashes: $event.hashes if not $event.hashes.is_empty() else null,
+    hashes: $event._hashes if not $event._hashes.is_empty() else null,
     uid: move $event.fuid?,
   }
+  // Null attributes would remain inside the list of mail files.
+  drop_null_fields $event._file
   if $event.source == "SMTP" {
     // Email Activity tells the direction of a message, not of a connection.
     $ocsf.direction_id = 0
-    $ocsf.email.files = [$event.file]
+    $ocsf.email.files = [$event._file]
     // Email Activity has no connection details. The UID stays in the
     // metadata, and the Community ID keeps its original key.
     $event.community_id = $ocsf.connection_info.community_uid?
     drop $ocsf.connection_info
   } else {
-    $ocsf.file = $event.file
+    $ocsf.file = $event._file
   }
-  @name = $event.class.name
-  drop $event.source, $event.file, $event.hashes
+  @name = $event._class.name
+  drop $event.source, $event._file, $event._hashes
 } else {
   $ocsf.app_protocol_name = (move $event.source?).to_lower()
   // Without a protocol class that holds a file, the file details keep their
   // original keys.
   @name = "ocsf.network_activity"
 }
-drop $event.class
+drop $event._class
