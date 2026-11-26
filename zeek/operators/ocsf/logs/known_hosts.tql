@@ -1,0 +1,37 @@
+---
+description: |
+  Zeek known_hosts.log → OCSF Device Inventory Info.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+// Zeek logs each host that completes a TCP handshake for the first time.
+$ocsf.activity_id = 1
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5001
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "known_hosts.log"
+drop $event._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek doesn't tell the kind of device.
+$ocsf.device = {
+  ip: move $event.host?,
+  type_id: 0,
+}
+$ocsf.status_id = 0
+
+@name = "ocsf.inventory_info"

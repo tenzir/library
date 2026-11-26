@@ -1,0 +1,59 @@
+---
+description: |
+  Zeek ntlm.log → OCSF Authentication, or Network Activity without a user.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// Authentication requires the authenticated user, which the client names in
+// its AUTHENTICATE message. Without it, the record shows NTLM traffic.
+if $event.username? != null {
+  $ocsf.activity_id = 1
+  $ocsf.category_uid = 3
+  $ocsf.class_uid = 3002
+} else {
+  $ocsf.activity_id = 6
+  $ocsf.class_uid = 4001
+}
+$ocsf.severity_id = 2 if $event.success? == false else 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "ntlm.log"
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek only logs `success` once it sees the outcome of the session setup.
+zeek::ocsf::success_status $event, $ocsf
+
+if $ocsf.class_uid == 3002 {
+  $ocsf.auth_protocol = "NTLM"
+  $ocsf.auth_protocol_id = 1
+  $ocsf.user = {
+    name: move $event.username,
+    domain: move $event.domainname?,
+  }
+  // The client names its workstation by its NetBIOS name. The server names
+  // itself by its NetBIOS and DNS names, and the DNS tree name of its forest.
+  $ocsf.src_endpoint.name = move $event.hostname?
+  $ocsf.dst_endpoint.name = move $event.server_nb_computer_name?
+  $ocsf.dst_endpoint.hostname = move $event.server_dns_computer_name?
+  $ocsf.dst_endpoint.domain = move $event.server_tree_name?
+  // Authentication has no connection details.
+  zeek::ocsf::drop_connection_info $event, $ocsf
+  @name = "ocsf.authentication"
+} else {
+  $ocsf.app_protocol_name = "ntlm"
+  @name = "ocsf.network_activity"
+}

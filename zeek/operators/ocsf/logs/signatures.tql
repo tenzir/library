@@ -1,0 +1,54 @@
+---
+description: |
+  Zeek signatures.log → OCSF Detection Finding.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+$ocsf.activity_id = 1
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+// Signature matches carry no severity.
+$ocsf.severity_id = 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "signatures.log"
+drop $event._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Matches have no identifier of their own, so the finding UID derives from
+// the facts that tell matches apart. The signature is a rule that names its
+// match in `event_msg`.
+$ocsf.finding_info = {
+  uid: hash_sha256(f"{$ocsf.time}|{$event.sig_id?}|{$ocsf.metadata.correlation_uid?}|{$event.event_msg?}"),
+  title: $event.sig_id?,
+  desc: move $event.event_msg?,
+  analytic: {
+    name: move $event.sig_id?,
+    type_id: 1,
+  },
+}
+$ocsf.status_id = 1
+
+// The connection of a match is the evidence. The notice type, the matched
+// payload in `sub_msg`, and the counts keep their original keys.
+if $event.src_addr? != null {
+  $event._evidence.src_endpoint = {ip: move $event.src_addr, port: move $event.src_port?}
+}
+if $event.dst_addr? != null {
+  $event._evidence.dst_endpoint = {ip: move $event.dst_addr, port: move $event.dst_port?}
+}
+$ocsf.evidences = [move $event._evidence?].collect()
+
+@name = "ocsf.detection_finding"

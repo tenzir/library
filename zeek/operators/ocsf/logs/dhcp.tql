@@ -43,8 +43,12 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 $ocsf.metadata.log_name = "dhcp.log"
 // The `uids` field in the DHCP log lists the UIDs of all connections of the
-// DORA exchange. Sorting and joining them yields one stable correlation UID.
-$ocsf.metadata.correlation_uid = sort(move $event.uids).join(",")
+// DORA exchange. Only a single connection has a UID that correlates the event,
+// so several UIDs stay in `unmapped`.
+if $event.uids?.length() == 1 {
+  $ocsf.metadata.correlation_uid = $event.uids[0]
+  drop $event.uids
+}
 
 // --- OCSF: primary attributes -----------------
 
@@ -53,10 +57,13 @@ $ocsf.connection_info.protocol_num = 17
 $ocsf.src_endpoint.hostname = move $event.host_name?
 $ocsf.src_endpoint.ip = move $event.client_addr? else $event.assigned_addr?
 $ocsf.src_endpoint.domain = move $event.client_fqdn?
+// The server assigns the domain of option 15 to the client.
+if $ocsf.src_endpoint.domain == null {
+  $ocsf.src_endpoint.domain = move $event.domain?
+}
 $ocsf.src_endpoint.mac = move $event.mac?
-if $event.server_addr? != null or $event.domain? != null {
-  $ocsf.dst_endpoint.ip = move $event.server_addr?
-  $ocsf.dst_endpoint.domain = move $event.domain?
+if $event.server_addr? != null {
+  $ocsf.dst_endpoint.ip = move $event.server_addr
 }
 $ocsf.lease_dur = int(count_seconds($event.lease_time) if type_kind($event.lease_time?) == "duration" else $event.lease_time?)
 drop $event.lease_time?

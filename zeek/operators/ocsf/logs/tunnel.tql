@@ -1,0 +1,49 @@
+---
+description: |
+  Zeek tunnel.log → OCSF Tunnel Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// Zeek logs when it discovers a tunnel and when the tunnel closes. A tunnel
+// that Zeek stops tracking after inactivity expires.
+let $actions = {
+  "Tunnel::DISCOVER": 1,
+  "Tunnel::CLOSE": 2,
+}
+if $actions[$event.action?]? != null {
+  $ocsf.activity_id = $actions[$event.action]
+  drop $event.action
+} else if $event.action? != null {
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = move $event.action
+} else {
+  $ocsf.activity_id = 0
+}
+$ocsf.class_uid = 4014
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "tunnel.log"
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek names the encapsulation, such as `Tunnel::GRE` or `Tunnel::TEREDO`.
+// OCSF's tunnel type tells split and full tunnels apart, which Zeek doesn't
+// observe.
+$ocsf.protocol_name = (move $event.tunnel_type?).replace("Tunnel::", "")
+$ocsf.status_id = 0
+
+@name = "ocsf.tunnel_activity"

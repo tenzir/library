@@ -1,0 +1,44 @@
+---
+description: |
+  Zeek sip.log → OCSF Network Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// A SIP transaction travels within the connection, so it is traffic. The
+// method, such as INVITE or BYE, describes the call rather than the
+// connection and keeps its original key.
+$ocsf.activity_id = 6
+$ocsf.class_uid = 4001
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "sip.log"
+$ocsf.app_protocol_name = "sip"
+
+// --- OCSF: primary attributes -----------------
+
+// The response code tells the outcome of the transaction. A request without
+// a response has none. Network Activity has no attributes for the method,
+// the URI, or the parties of the call, so they keep their original keys.
+if $event.status_code? != null {
+  $ocsf.status_id = 2 if $event.status_code >= 400 else 1
+  $ocsf.status_code = (move $event.status_code).string()
+  $ocsf.status_detail = move $event.status_msg?
+} else {
+  $ocsf.status_id = 0
+}
+
+@name = "ocsf.network_activity"

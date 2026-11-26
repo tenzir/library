@@ -1,0 +1,106 @@
+---
+description: |
+  Zeek intel.log → OCSF Detection Finding.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+$ocsf.activity_id = 1
+$ocsf.category_uid = 2
+$ocsf.class_uid = 2004
+// Intel matches carry no severity.
+$ocsf.severity_id = 0
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "intel.log"
+drop $event._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Intel matches have no identifier of their own, so the finding UID derives
+// from the facts that tell matches apart.
+$ocsf.finding_info = {
+  uid: hash_sha256(f"{$ocsf.time}|{$event.seen?.indicator?}|{$event.seen?.where?}|{$ocsf.metadata.correlation_uid?}|{$event.fuid?}"),
+}
+$ocsf.status_id = 1
+
+// The indicator types of the Zeek intel framework. Types without an OCSF
+// indicator type are Other and keep their name.
+let $indicator_types = {
+  "Intel::ADDR": 1,
+  "Intel::DOMAIN": 2,
+  "Intel::FILE_HASH": 4,
+  "Intel::URL": 5,
+  "Intel::CERT_HASH": 7,
+  "Intel::EMAIL": 9,
+  "Intel::FILE_NAME": 11,
+}
+if $event.seen?.indicator? != null {
+  $ocsf.metadata.profiles = ["osint"]
+  $event._indicator = {
+    value: move $event.seen.indicator,
+    type_id: $indicator_types[$event.seen.indicator_type?]? else 0,
+  }
+  if $event._indicator.type_id != 0 {
+    drop $event.seen.indicator_type
+  } else if $event.seen.indicator_type? == "Intel::SOFTWARE" and $event.seen.where? == "HTTP::IN_USER_AGENT_HEADER" {
+    // Zeek matches software indicators against the User-Agent header. The
+    // indicator type stays, as OCSF names only the header.
+    $event._indicator.type_id = 6
+  } else if $event.seen.indicator_type? != null {
+    $event._indicator.type_id = 99
+    $event._indicator.type = move $event.seen.indicator_type
+  }
+  $ocsf.osint = [move $event._indicator]
+}
+
+// The connection of a match is the evidence. The sources of the indicators,
+// where Zeek saw it, and the matched types keep their original keys.
+if $event.id?.orig_h? != null {
+  $event._evidence = {
+    src_endpoint: {ip: $event.id.orig_h, port: $event.id.orig_p?},
+    dst_endpoint: {ip: $event.id.resp_h, port: $event.id.resp_p?},
+  }
+  drop $event.id
+}
+// Zeek describes the file by its source: a URL for HTTP and FTP, such as
+// `ftp://ftp.example/report.pdf`, the path of an SMB file, or the envelope
+// and subject of a mail, such as `<a@example> -> <b@example>: Invoice`. Only
+// URLs and paths name the file. Other descriptions keep their original key.
+if $event.fuid? != null or $event.file_desc? != null {
+  $event._evidence.file = {
+    mime_type: move $event.file_mime_type?,
+    uid: move $event.fuid?,
+    type_id: 1,
+  }
+  if ($event.file_desc? else "").match_regex("^[A-Za-z][A-Za-z0-9+.-]*://") {
+    $event._evidence.url.url_string = $event.file_desc
+    $event._url_path = $event.file_desc.replace_regex("^[^:]*://[^/?#]*", "").split("?")[0].split("#")[0]
+    if $event._url_path.file_name() != "" {
+      $event._evidence.file.name = $event._url_path.file_name()
+    }
+    drop $event.file_desc, $event._url_path
+  } else if $event.file_desc? != null and not $event.file_desc.match_regex(" -> ") {
+    $event._evidence.file.name = $event.file_desc.file_name()
+    if $event._evidence.file.name != $event.file_desc {
+      $event._evidence.file.path = $event.file_desc
+    }
+    drop $event.file_desc
+  }
+}
+if $event._evidence? != null {
+  drop_null_fields $event._evidence
+}
+$ocsf.evidences = [move $event._evidence?].collect()
+
+@name = "ocsf.detection_finding"
