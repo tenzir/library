@@ -1,6 +1,6 @@
 ---
 title: Correct Zeek connection status, DHCP UIDs and domains, and HTTP profiles
-type: bugfix
+type: change
 authors:
   - zedoraps
 created: 2026-11-26T01:38:20.321286Z
