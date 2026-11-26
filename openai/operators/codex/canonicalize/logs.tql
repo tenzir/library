@@ -150,11 +150,12 @@ $event = {
   file_operation: $event._file_operation,
   file_new_path: null,
   patch_operations: $event._patch_operations if $event._patch_operations.length() > 0 else null,
-  // `exec` runs a JavaScript tool script, not a process; the shell commands it
-  // calls through `tools.exec_command` arrive as their own records.
-  process_name: "bash" if $event._tool_name_lower == "bash" else
-                 "shell" if $event._tool_name_lower in ["exec_command", "shell", "terminal"] and not $event._argument_error else
-                 null,
+  // Shell tools launch a process that Codex does not name. `exec` evaluates
+  // JavaScript instead; the shell commands it calls through
+  // `tools.exec_command` arrive as their own records.
+  tool_kind: "script" if $event._tool_name_lower == "exec" else
+             "process" if $event._tool_name_lower in ["bash", "exec_command", "shell", "terminal"] and not $event._argument_error else
+             null,
   command: $event._command,
   command_hash: hash_sha256($event._command) if $event._command? != null else null,
   // Sandbox outcomes have no decision source; the sandbox is the control.
