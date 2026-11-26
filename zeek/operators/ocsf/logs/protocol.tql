@@ -12,9 +12,8 @@ args:
       type: field
 ---
 
-// Zeek readers name the schema, such as `zeek.mysql`, instead of writing
-// `_path`.
-$event.log = ($event._path? else @name).replace_regex("^zeek\\.", "")
+zeek::ocsf::log_name $event, $ocsf
+$event._log = $ocsf.metadata.log_name.replace_regex("\\.log$", "")
 zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
@@ -27,7 +26,6 @@ $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-$ocsf.metadata.log_name = $event.log + ".log"
 // The application protocol is the name of the Zeek analyzer.
 let $protocols = {
   dce_rpc: "dce_rpc",
@@ -48,22 +46,16 @@ let $protocols = {
   socks: "socks",
   websocket: "websocket",
 }
-$ocsf.app_protocol_name = $protocols[$event.log]?
+$ocsf.app_protocol_name = $protocols[$event._log]?
 
 // --- OCSF: primary attributes -----------------
 
 // Zeek logs the outcome of a transaction as a flag or as the result that the
 // server sent. Network Activity has no attributes for the protocol details,
 // so they keep their original keys.
-if $event.success? == true {
-  $ocsf.status = "Success"
-  $ocsf.status_id = 1
-  drop $event.success
-} else if $event.success? == false {
-  $ocsf.status = "Failure"
-  $ocsf.status_id = 2
-  drop $event.success
-} else if $event.log in ["ldap", "ldap_search"] and $event.result? != null {
+if $event.success? != null {
+  zeek::ocsf::success_status $event, $ocsf
+} else if $event._log in ["ldap", "ldap_search"] and $event.result? != null {
   // Zeek names the result code of RFC 4511 §4.1.9 in words, such as
   // `success` or `no such object`. Any other result than `success` fails the
   // operation, except for an unfinished SASL bind, and keeps its name in
@@ -80,7 +72,7 @@ if $event.success? == true {
   }
   $ocsf.status_code = move $event.result
   $ocsf.status_detail = move $event.diagnostic_message?
-} else if $event.log == "socks" and $event.status? != null {
+} else if $event._log == "socks" and $event.status? != null {
   // SOCKS replies name whether the server granted the request, such as
   // `succeeded` or `connection refused`. Every other reply than `succeeded`
   // denies the request (RFC 1928 §6).
@@ -95,6 +87,6 @@ if $event.success? == true {
 } else {
   $ocsf.status_id = 0
 }
-drop $event.log
+drop $event._log
 
 @name = "ocsf.network_activity"
