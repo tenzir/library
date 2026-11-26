@@ -11,14 +11,15 @@ args:
 suricata::ocsf::logs::traffic $event, $ocsf
 $ocsf.app_protocol_name = "ldap"
 
-// The last response tells the result of the operation. A SASL bind continues
+// The last response tells the result of the operation, and Suricata logs it
+// under the name of the operation. Compare operations succeed with
+// `compare_true` or `compare_false` (RFC 4511, 4.10). A SASL bind continues
 // until the server ends it.
-// Suricata logs each response under the name of its operation.
 $event._response = $event.ldap.responses?[-1]?
 $event._result = $event._response[$event._response.operation]?.result_code? if $event._response != null else null
 $ocsf.status_code = $event._result
 match $event._result {
-  "success" => {
+  "success" | "compare_true" | "compare_false" => {
     $ocsf.status_id = 1
   }
   "sasl_bind_in_progress" | null => {
