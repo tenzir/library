@@ -1,0 +1,29 @@
+---
+description: |
+  Maps a Remote Desktop Services session disconnect (24) or reconnect (25) of
+  the TerminalServices LocalSessionManager to OCSF RDP Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF RDP activity identifier.
+---
+
+@name = "ocsf.rdp_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4005
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The session manager writes these events only when the disconnect or
+// reconnect succeeded.
+$ocsf.status_id = 1
+microsoft::windows::ocsf::terminal_session $windows, $ocsf
+// The client connects to this device.
+$ocsf.connection_info = {direction_id: 1}  // Inbound

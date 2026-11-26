@@ -1,0 +1,32 @@
+---
+description: |
+  Maps a Remote Desktop Services user authentication of the TerminalServices
+  RemoteConnectionManager (1149) to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = 1  // Logon
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The connection manager writes the event when a Remote Desktop client
+// authenticated the user, before the session logon. Param1 is the user,
+// Param2 the domain, and Param3 the client address.
+$ocsf.status_id = 1
+$ocsf.is_remote = true
+$ocsf.user = {
+  name: move $windows.UserData.EventXML.Param1?,
+  domain: move $windows.UserData.EventXML.Param2?,
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+if $windows.UserData.EventXML.Param3?.ip() != null {
+  $ocsf.src_endpoint = {ip: (move $windows.UserData.EventXML.Param3).ip()}
+}
