@@ -17,9 +17,10 @@ args:
 // - Both sides closing it closes the connection, a closing side alone fails
 //   it.
 // - A connection that is still open, or only a SYN, opens a connection.
-// Other protocols, NetFlow records, and unknown states report traffic.
+// Other protocols, NetFlow records, and the state `none`, which Suricata logs
+// when it tracked no TCP state, report traffic. NetFlow records describe one
+// direction only.
 let $tcp_states = {
-  new: 1,
   syn_sent: 1,
   syn_recv: 1,
   established: 1,
@@ -31,7 +32,9 @@ let $tcp_states = {
   time_wait: 2,
   closed: 2,
 }
-if $event.tcp?.rst? == true {
+if $event.event_type == "netflow" {
+  $ocsf.activity_id = 6
+} else if $event.tcp?.rst? == true {
   // `tcp_flags_tc` holds the flags of the responder in hex: RST is 0x04, SYN
   // 0x02.
   $event._flags_tc = int($event.tcp.tcp_flags_tc? else "00", base=16)
