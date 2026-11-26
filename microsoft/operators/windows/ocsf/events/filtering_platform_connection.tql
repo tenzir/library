@@ -1,0 +1,112 @@
+---
+description: |
+  Maps a Windows Filtering Platform connection decision (5156, 5157) to OCSF
+  Network Activity.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF Network Activity activity identifier.
+    - name: action_id
+      type: int
+      description: The OCSF action identifier.
+    - name: disposition_id
+      type: int
+      description: The OCSF disposition identifier.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The firewall_rule object belongs to the security_control profile.
+$ocsf.metadata.profiles = ["host", "security_control"]
+// Windows logs a permitted connection (5156) as Audit Success and a blocked one
+// (5157) as Audit Failure.
+$ocsf.action_id = $action_id
+$ocsf.disposition_id = $disposition_id
+microsoft::windows::ocsf::audit_status $windows, $ocsf
+// Direction renders as text, also in the language of the host for collectors
+// that render tokens, such as Winlogbeat on German Windows.
+let $directions = {Inbound: 1, Outbound: 2, Ausgehend: 2}
+let $protocols = {"1": "icmp", "6": "tcp", "17": "udp", "58": "ipv6-icmp"}
+$ocsf.connection_info = {
+  direction_id: $directions[$windows.EventData.Direction? else ""]? else 0,
+  protocol_num: int($windows.EventData.Protocol?),
+  protocol_name: $protocols[$windows.EventData.Protocol? else ""]?,
+}
+if $ocsf.connection_info.direction_id != 0 {
+  drop $windows.EventData.Direction
+}
+drop $windows.EventData.Protocol?
+// Windows names the local address as the source and the remote address as
+// the destination, also for inbound connections, which the remote peer
+// initiates: Microsoft's example of an inbound 5156 names the listening port
+// as the source port. OCSF names the initiator as the source.
+_local = {
+  ip: $windows.EventData.SourceAddress?.ip(),
+  port: int(move $windows.EventData.SourcePort?),
+}
+if $windows.EventData.InterfaceIndex? != null {
+  _local.interface_uid = move $windows.EventData.InterfaceIndex
+}
+_remote = {
+  ip: $windows.EventData.DestAddress?.ip(),
+  port: int(move $windows.EventData.DestPort?),
+}
+if _local.ip != null {
+  drop $windows.EventData.SourceAddress
+}
+if _remote.ip != null {
+  drop $windows.EventData.DestAddress
+}
+if $ocsf.connection_info.direction_id == 1 {
+  $ocsf.src_endpoint = move _remote
+  $ocsf.dst_endpoint = move _local
+} else {
+  $ocsf.src_endpoint = move _local
+  $ocsf.dst_endpoint = move _remote
+}
+// The process that sends or receives the connection. Windows names its image
+// by the device path, such as `\device\harddiskvolume2\windows\system32\svchost.exe`.
+// Windows writes the process ID as a decimal number; read a hexadecimal
+// rendering by its 0x prefix.
+if $windows.EventData.ProcessID? != null {
+  $ocsf.actor.process.pid = (
+    int($windows.EventData.ProcessID, base=16)
+      if $windows.EventData.ProcessID.starts_with("0x")
+      else int($windows.EventData.ProcessID)
+  )
+  drop $windows.EventData.ProcessID
+  if $windows.EventData.Application? != null {
+    $ocsf.actor.process.file = {
+      path: $windows.EventData.Application,
+      name: $windows.EventData.Application.split("\\")[-1],
+      type_id: 1,  // Regular File
+    }
+    drop $windows.EventData.Application
+  }
+}
+// The filter that permitted or blocked the connection. Windows names its
+// origin, such as the name of a firewall rule, or `Unknown`.
+$ocsf.firewall_rule.uid = move $windows.EventData.FilterRTID?
+if $windows.EventData.FilterOrigin? not in [null, "Unknown"] {
+  $ocsf.firewall_rule.name = move $windows.EventData.FilterOrigin
+}
+// The remote user and machine are SIDs from IPsec authentication, which stay
+// in unmapped. The NULL SID means that the connection carries no such
+// identity.
+if $windows.EventData.RemoteUserID? == "S-1-0-0" {
+  drop $windows.EventData.RemoteUserID
+}
+if $windows.EventData.RemoteMachineID? == "S-1-0-0" {
+  drop $windows.EventData.RemoteMachineID
+}
