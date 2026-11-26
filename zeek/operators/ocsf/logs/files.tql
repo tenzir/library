@@ -1,0 +1,90 @@
+---
+description: |
+  Zeek files.log → the OCSF class of the protocol that transferred the file,
+  or Network Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// Zeek observes files passively and knows no actor, which File Hosting
+// Activity requires. The classes of the transferring protocols describe the
+// same observation, and Zeek names the protocol in `source`. A file record
+// carries no request, command, or message details, so the activity is
+// unknown, except for mail: the client sends the message with its
+// attachments.
+let $classes = {
+  HTTP: {class_uid: 4002, name: "ocsf.http_activity"},
+  SMB: {class_uid: 4006, name: "ocsf.smb_activity"},
+  FTP_DATA: {class_uid: 4008, name: "ocsf.ftp_activity"},
+  SMTP: {class_uid: 4009, name: "ocsf.email_activity"},
+}
+$event.class = $classes[$event.source?]?
+if $event.class != null {
+  $ocsf.activity_id = 1 if $event.source == "SMTP" and $event.is_orig? == true else 0
+  $ocsf.class_uid = $event.class.class_uid
+  $ocsf.connection_info.protocol_name = "tcp"
+  $ocsf.connection_info.protocol_num = 6
+} else {
+  $ocsf.activity_id = 6
+  $ocsf.class_uid = 4001
+}
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "files.log"
+
+// --- OCSF: primary attributes -----------------
+
+// A file record reports no outcome.
+$ocsf.status_id = 0
+
+if $event.class != null {
+  // Zeek hashes the content of a file with the analyzers that `analyzers`
+  // names.
+  $event.hashes = [
+    {algorithm_id: 1, value: move $event.md5?},
+    {algorithm_id: 2, value: move $event.sha1?},
+    {algorithm_id: 3, value: move $event.sha256?},
+  ].where(x => x.value != null)
+  // A protocol may announce the size of the file in `total_bytes`, while
+  // `seen_bytes` counts what Zeek observed.
+  $event.file = {
+    name: move $event.filename?,
+    type_id: 1,
+    mime_type: move $event.mime_type?,
+    size: move $event.total_bytes?,
+    hashes: $event.hashes if not $event.hashes.is_empty() else null,
+    uid: move $event.fuid?,
+  }
+  if $event.source == "SMTP" {
+    // Email Activity tells the direction of a message, not of a connection.
+    $ocsf.direction_id = 0
+    $ocsf.email.files = [$event.file]
+    // Email Activity has no connection details. The UID stays in the
+    // metadata, and the Community ID keeps its original key.
+    $event.community_id = $ocsf.connection_info.community_uid?
+    drop $ocsf.connection_info
+  } else {
+    $ocsf.file = $event.file
+  }
+  @name = $event.class.name
+  drop $event.source, $event.file, $event.hashes
+} else {
+  $ocsf.app_protocol_name = (move $event.source?).to_lower()
+  // Without a protocol class that holds a file, the file details keep their
+  // original keys.
+  @name = "ocsf.network_activity"
+}
+drop $event.class
