@@ -21,8 +21,8 @@ if $event.smb._path != "<share_root>" or $event.smb._share != null {
     // EVE does not tell regular from executable files.
     type_id: 2 if $event.smb.directory? != null else 1,
     path: $event.smb._share + "\\" + $event.smb._path if $event.smb._share != null else $event.smb._path,
-    size: move $event.smb.size?,
-    // Suricata logs an empty file ID when a create request fails.
+    // Suricata logs an empty file ID and size 0 when a create request fails.
+    size: $event.smb.size? if $event.smb.fuid? != "" else null,
     uid: $event.smb.fuid? if $event.smb.fuid? != "" else null,
     // Suricata logs Unix seconds and 0 for unknown times.
     accessed_time: (move $event.smb.accessed?).seconds().from_epoch() if $event.smb.accessed? != 0 else null,
@@ -31,6 +31,9 @@ if $event.smb._path != "<share_root>" or $event.smb._share != null {
   }
   if $ocsf.file.uid != null {
     drop $event.smb.fuid
+  }
+  if $ocsf.file.size != null {
+    drop $event.smb.size
   }
   if $event.smb._path == "<share_root>" {
     $ocsf.file.name = $event.smb._share.file_name()
