@@ -1,0 +1,48 @@
+---
+description: |
+  Zeek smb_mapping.log → OCSF SMB Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// Zeek logs a share mapping for each tree connect. SMB Activity defines
+// activities only for the dispositions of a create request.
+$ocsf.activity_id = 0
+$ocsf.class_uid = 4006
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "smb_mapping.log"
+
+// --- OCSF: primary attributes -----------------
+
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
+
+// Zeek's `path` names the UNC share.
+$ocsf.share = move $event.path?
+let $share_types = {
+  DISK: {share_type_id: 1, share_type: "File"},
+  PIPE: {share_type_id: 2, share_type: "Pipe"},
+  PRINT: {share_type_id: 3, share_type: "Print"},
+}
+if $share_types[$event.share_type?]? != null {
+  $ocsf = {...$ocsf, ...$share_types[$event.share_type]}
+  drop $event.share_type
+}
+// The mapping reports no outcome.
+$ocsf.status_id = 0
+
+@name = "ocsf.smb_activity"
