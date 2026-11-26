@@ -1,0 +1,18 @@
+// BITS job URLs map to their scheme, host, port, path, and query string, also
+// for IPv6 hosts and URLs without a path. A UNC path is no URL and maps to
+// `url_string` only.
+from_file f"{env("TENZIR_INPUTS")}/eid-16403.xml" {
+  read_all
+}
+cases = [
+  "https://downloads.example.com/agent/update.cab?sig=abc&expires=1",
+  "http://example.com",
+  "http://[2001:db8::1]:8080/a/b.bin",
+  "https://user@files.example.net:8443/f.zip#part",
+  "\\\\fileserver.example.com\\share\\f.bin",
+]
+unroll cases
+windows = data.parse_winlog()
+windows.EventData.RemoteName = cases
+microsoft::windows::ocsf::normalize windows, into=ocsf
+select url = ocsf.http_request.url

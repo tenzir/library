@@ -1,0 +1,44 @@
+---
+description: |
+  Maps a URL that a Windows event names, such as a BITS job URL, to an OCSF
+  URL object with its scheme, host, port, path, and query string. A value
+  that is not a URL, such as a UNC path, maps to `url_string` only.
+args:
+  positional:
+    - name: url
+      type: field
+      description: The URL string, which the operator consumes.
+    - name: target
+      type: field
+      description: The field that receives the OCSF URL object.
+---
+
+$target = {url_string: $url}
+drop $url
+// A URL starts with its scheme and `://`. The authority up to the first `/`,
+// `?`, or `#` holds an optional user, the host, which is in brackets for an
+// IPv6 address, and an optional port. The path and the query string follow
+// only when the URL has them.
+if $target.url_string?.match_regex(r"^[A-Za-z][A-Za-z0-9+.-]*://") == true {
+  _authority = $target.url_string.replace_regex(r"^[A-Za-z][A-Za-z0-9+.-]*://([^/?#]*)[\s\S]*$", r"\1").replace_regex(r"^[^@]*@", "")
+  _rest = $target.url_string.replace_regex(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*", "")
+  $target.scheme = $target.url_string.replace_regex(r"^([A-Za-z][A-Za-z0-9+.-]*)://[\s\S]*$", r"\1")
+  if _authority.starts_with("[") {
+    $target.hostname = _authority.replace_regex(r"^\[([^\]]*)\][\s\S]*$", r"\1")
+    if _authority.match_regex(r"^\[[^\]]*\]:[0-9]+$") {
+      $target.port = int(_authority.replace_regex(r"^\[[^\]]*\]:", ""))
+    }
+  } else {
+    $target.hostname = _authority.split(":")[0]
+    if _authority.match_regex(r"^[^:]*:[0-9]+$") {
+      $target.port = int(_authority.split(":")[1])
+    }
+  }
+  if _rest.starts_with("/") {
+    $target.path = _rest.replace_regex(r"[?#][\s\S]*$", "")
+  }
+  if _rest.match_regex(r"^[^#]*\?") {
+    $target.query_string = _rest.replace_regex(r"^[^?]*\?", "").replace_regex(r"#[\s\S]*$", "")
+  }
+  drop _authority, _rest
+}
