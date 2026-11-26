@@ -20,7 +20,23 @@ description: |
   Reduction operators cut the volume of these events for a SIEM. They
   summarize network and HTTP activity and deduplicate process starts and
   module loads into OCSF events of the same class or ECS documents of the
-  same category, and pass all other events through unchanged.
+  same category, and pass all other events through unchanged. The
+  deduplication forwards the first occurrence of every process start and
+  module load at once and unchanged, and summarizes only its repeats.
+
+  A summary carries the number of events it stands for in `count` (OCSF) or
+  `tenzir.count` (ECS), and only summaries have this field. A SIEM that
+  counts events must therefore sum `count` or `tenzir.count` and count every
+  event without it as one.
+
+  Windows follow processing time and close on the wall clock, because
+  HarfangLab delivers events late and out of order, for example process
+  starts from weeks ago when an agent reconnects. Every summary also covers
+  at most one window of event time per host, so no event is dropped as late,
+  and a late event gets its own summary instead of moving a current one into
+  the past. The state of a window lives in memory until the window closes,
+  so a restart loses the summaries of the open windows, and replaying a
+  large archive at full speed keeps its groups in few windows.
 categories:
 - sources
 - destinations
