@@ -26,8 +26,9 @@ $windows.canonical = {
     Task: move $windows.winlogbeat.winlog.task?,
     Opcode: move $windows.winlogbeat.winlog.opcode?,
     Keywords: $windows.winlogbeat.winlog.keywords?,
+    // `parse_json(raw=true)` keeps the time a string.
     TimeCreated: {
-      SystemTime: move $windows.winlogbeat["@timestamp"],
+      SystemTime: time(move $windows.winlogbeat["@timestamp"]),
     },
     EventRecordID: move $windows.winlogbeat.winlog.record_id,
     Correlation: {
@@ -74,19 +75,24 @@ $windows.canonical = {
 // the mask, or derive it from the audit outcome, so that mappings read the
 // outcome as for every other collector. Preserve both bits when both audit
 // labels are present. Rendered names stay in unmapped.
+// Winlogbeat renders the names in the language of the Windows host, such as
+// `Überwachung gescheitert` on German Windows.
 let $audit_keywords = {
   "Audit Failure": "0x8010000000000000",
   "Audit Success": "0x8020000000000000",
+  "Überwachung gescheitert": "0x8010000000000000",
+  "Überwachung erfolgreich": "0x8020000000000000",
 }
 if type_kind($windows.winlogbeat.winlog.keywords?) == "list" {
+  _outcomes = $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)
   $windows.canonical.System.Keywords = (
     $windows.winlogbeat.winlog.keywords.where(keyword => keyword.starts_with("0x"))[0]?
       else ("0x8030000000000000"
-        if "Audit Failure" in $windows.winlogbeat.winlog.keywords
-          and "Audit Success" in $windows.winlogbeat.winlog.keywords
+        if "0x8010000000000000" in _outcomes and "0x8020000000000000" in _outcomes
         else null)
-      else $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)[0]?
+      else _outcomes[0]?
   )
+  drop _outcomes
   if $windows.winlogbeat.winlog.keywords.where(keyword => not keyword.starts_with("0x")).is_empty() {
     drop $windows.winlogbeat.winlog.keywords
   }
@@ -137,3 +143,20 @@ drop $windows.winlogbeat.event?
 drop $windows.winlogbeat.winlog?.process?
 $windows.canonical.Winlogbeat = move $windows.winlogbeat
 $windows = move $windows.canonical
+// With `include_xml: true`, Winlogbeat ships the event XML in
+// `event.original`. Unlike Winlogbeat's fields, the XML holds the event as
+// Windows writes it: message-table tokens instead of their texts in the
+// language of the host, such as `%%1843` instead of `Nein`, numeric levels,
+// tasks, and opcodes, and times in 100-nanosecond precision. Read the event
+// from the XML, so that it matches the natively collected event, and keep
+// Winlogbeat's collector details.
+if type_kind($windows.RawData?) == "string" and $windows.RawData.match_regex(r"^\s*<Event[\s>][\s\S]*</System>") {
+  microsoft::windows::adapters::xml $windows.RawData, _xml
+  $windows = {
+    ..._xml,
+    RawData: $windows.RawData,
+    Logger: $windows.Logger,
+    Winlogbeat: $windows.Winlogbeat,
+  }
+  drop _xml
+}
