@@ -35,7 +35,8 @@ $ocsf.app_protocol_name = "rdp"
 
 // Suricata logs RDP messages in packet direction, which can be the opposite
 // of the message. RDP Activity puts the client into `src_endpoint`. Servers
-// listen on port 3389.
+// listen on port 3389. On other ports, the endpoints stay as Suricata logged
+// them, since the message type alone does not tell the packet direction.
 if $ocsf.src_endpoint?.port? == 3389 and $ocsf.dst_endpoint?.port? != 3389 {
   $ocsf = {
     ...$ocsf,
@@ -49,8 +50,13 @@ $ocsf.identifier_cookie = move $event.rdp.cookie?
 // the connect request.
 $ocsf.capabilities = move $event.rdp.server_supports? else move $event.rdp.client?.capabilities?
 $ocsf.protocol_ver = move $event.rdp.client?.version?
-if $event.rdp.client?.client_name? != null {
-  $ocsf.device = {name: move $event.rdp.client.client_name, type_id: 0}
+// The client digital product ID identifies the client installation.
+if $event.rdp.client?.client_name? != null or $event.rdp.client?.id? != null {
+  $ocsf.device = {
+    name: move $event.rdp.client.client_name?,
+    uid: move $event.rdp.client.id?,
+    type_id: 0,
+  }
 }
 if $event.rdp.client? != null {
   $ocsf.keyboard_info = {
