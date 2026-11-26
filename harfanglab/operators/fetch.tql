@@ -22,7 +22,8 @@ args:
       default: "ocsf"
       description: |
         Export format, either `ocsf` (OCSF 1.6.0 events from the Splunk
-        export) or `ecs` (ECS documents from the Elastic export).
+        export, with HarfangLab's log type in `metadata.log_name`) or `ecs`
+        (ECS documents from the Elastic export).
 ---
 
 // The OCSF events come from the Splunk export and the ECS documents from the
@@ -43,5 +44,13 @@ from_http $endpoint,
 where data not in ["", "[]"]
 this = {events: data.parse_json()}
 unroll events
-// The Splunk export wraps each OCSF event in a HEC envelope.
-this = events.event if $format == "ocsf" else events
+// The Splunk export wraps each OCSF event in a HEC envelope whose sourcetype
+// names HarfangLab's log type, such as `harfanglab:dns_resolution`. Several
+// log types share an OCSF class, so the log type moves into
+// `metadata.log_name` before the envelope goes.
+if $format == "ocsf" {
+  events.event.metadata.log_name = events.sourcetype?.split(":")[-1]
+  this = events.event
+} else {
+  this = events
+}
