@@ -1,0 +1,19 @@
+---
+name: Fetch HarfangLab events as ECS and archive them
+description: |
+  Drains the Elastic pull export of a HarfangLab Manager, keeps a compressed
+  copy of every document, and publishes the ECS documents.
+---
+
+// The Manager deletes every event it returns, so archive them before any
+// further processing. The archive allows replaying them later.
+harfanglab::fetch "https://example.hurukai.io:8443",
+  token=secret("harfanglab-api-token"),
+  format="ecs"
+fork {
+  to_file "/var/lib/tenzir/harfanglab/ecs-{uuid}.ndjson.gz" {
+    write_ndjson
+    compress_gzip
+  }
+}
+publish "harfanglab"
