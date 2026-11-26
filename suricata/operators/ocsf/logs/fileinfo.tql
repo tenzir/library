@@ -101,18 +101,6 @@ match $event.app_proto? {
     }
     drop $event.file_sender
     suricata::ocsf::logs::smb $event, $ocsf
-    // SMB Activity defines activities only for the dispositions of a create
-    // request. Reads and writes are known activities without an ID.
-    if $ocsf.activity_id == 0 {
-      if $ocsf.command?.match_regex("_READ") {
-        $ocsf.activity_id = 99
-        $ocsf.activity_name = "Read"
-      } else if $ocsf.command?.match_regex("_WRITE") {
-        $ocsf.activity_id = 99
-        $ocsf.activity_name = "Write"
-      }
-      $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-    }
   }
   // Mail clients send attachments to the server, in packet direction. The
   // SMTP mapping picks Email Activity for messages with an envelope or header

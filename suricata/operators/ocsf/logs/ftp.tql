@@ -10,7 +10,8 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-// Session and connection commands, such as USER or PASV, have no activity.
+// Other commands, such as USER or PASV, are activities that OCSF does not
+// list. Server greetings have no command.
 let $commands = {
   // 1 - Put (Upload)
   STOR: 1,
@@ -40,7 +41,10 @@ let $commands = {
   MLSD: 6,
 }
 
-$ocsf.activity_id = $commands[$event.ftp.command?]? else 0
+$ocsf.activity_id = $commands[$event.ftp.command?]? else (99 if $event.ftp.command? != null else 0)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event.ftp.command
+}
 $ocsf.class_uid = 4008
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
