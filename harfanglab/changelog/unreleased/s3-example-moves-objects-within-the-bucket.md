@@ -9,6 +9,4 @@ created: 2026-11-26T17:41:27.116477Z
 ---
 
 The S3 example now moves read objects to `processed/harfanglab/` in the same
-bucket. Before, its `rename` lambda prefixed the path with `processed/`, but
-the path starts with the bucket name, so it targeted a bucket named
-`processed`.
+bucket instead of to a nonexistent bucket named `processed`.
