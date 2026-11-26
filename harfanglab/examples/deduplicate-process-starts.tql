@@ -1,0 +1,20 @@
+---
+name: Deduplicate HarfangLab process starts
+description: |
+  Reports each distinct process start, by host, executable, command line, and
+  parent executable, once per hour with the number of starts. The sample
+  process UID leads back to one of the original events.
+---
+
+every 1min {
+  harfanglab::fetch "https://example.hurukai.io:8443",
+    token=secret("harfanglab-api-token")
+}
+where class_uid == 1007
+window size=1h {
+  summarize device.hostname, process.file.path, process.cmd_line,
+    process.parent_process.file.path,
+    starts=count(), first_seen=min(time), last_seen=max(time),
+    sample_process_uid=first(process.uid)
+  window_start = $window.start
+}

@@ -1,0 +1,17 @@
+---
+name: Deduplicate HarfangLab module loads
+description: |
+  Reports each module that a process loads on a host once per day, with the
+  number of loads.
+---
+
+every 1min {
+  harfanglab::fetch "https://example.hurukai.io:8443",
+    token=secret("harfanglab-api-token")
+}
+where class_uid == 1005
+window size=1d {
+  summarize device.hostname, actor.process.file.path, module.file.path,
+    loads=count(), first_seen=min(time), last_seen=max(time)
+  window_start = $window.start
+}
