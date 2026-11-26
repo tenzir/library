@@ -1,0 +1,90 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+// --- OCSF: classification attributes ----------
+
+let $activity_ids = {
+  initial_request: 1,
+  initial_response: 2,
+  connect_request: 3,
+  connect_response: 4,
+  tls_handshake: 5,
+}
+$ocsf.activity_id = $activity_ids[$event.rdp.event_type?]? else (99 if $event.rdp.event_type? != null else 0)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event.rdp.event_type
+}
+drop $event.rdp.event_type?
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4005
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.app_protocol_name = "rdp"
+
+// --- OCSF: primary attributes -----------------
+
+// Suricata logs RDP messages in packet direction, which can be the opposite
+// of the message. RDP Activity puts the client into `src_endpoint`. Servers
+// listen on port 3389.
+if $ocsf.src_endpoint?.port? == 3389 and $ocsf.dst_endpoint?.port? != 3389 {
+  $ocsf = {
+    ...$ocsf,
+    src_endpoint: $ocsf.dst_endpoint,
+    dst_endpoint: $ocsf.src_endpoint,
+  }
+}
+
+$ocsf.identifier_cookie = move $event.rdp.cookie?
+// The server lists its capabilities in the initial response, the client in
+// the connect request.
+$ocsf.capabilities = move $event.rdp.server_supports? else move $event.rdp.client?.capabilities?
+$ocsf.protocol_ver = move $event.rdp.client?.version?
+if $event.rdp.client?.client_name? != null {
+  $ocsf.device = {name: move $event.rdp.client.client_name, type_id: 0}
+}
+if $event.rdp.client? != null {
+  $ocsf.keyboard_info = {
+    function_keys: move $event.rdp.client.function_keys?,
+    keyboard_layout: move $event.rdp.client.keyboard_layout?,
+    keyboard_type: move $event.rdp.client.keyboard_type?,
+  }
+  $ocsf.remote_display = {
+    color_depth: move $event.rdp.client.color_depth?,
+    physical_height: move $event.rdp.client.desktop_height?,
+    physical_width: move $event.rdp.client.desktop_width?,
+  }
+}
+
+// An initial response either selects a security protocol or reports why the
+// negotiation failed.
+if $event.rdp.error_code? != null {
+  $ocsf.status_id = 2
+  $ocsf.status_code = (move $event.rdp.error_code).string()
+  $ocsf.status_detail = move $event.rdp.reason?
+} else if $event.rdp.protocol? != null {
+  $ocsf.status_id = 1
+} else {
+  $ocsf.status_id = 0
+}
+
+// --- Finalize ---------------------------------
+
+drop_null_fields $event.rdp
+if $event.rdp.client? == {} {
+  drop $event.rdp.client
+}
+if $event.rdp == {} {
+  drop $event.rdp
+}
+
+@name = "ocsf.rdp_activity"
