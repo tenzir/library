@@ -17,9 +17,15 @@ zeek::ocsf::map_network $event, $ocsf
 // --- OCSF: classification attributes ----------
 
 // Authentication requires the authenticated user. Zeek names the client as
-// `name/realm` when a request or reply carries it. Without a client, the
-// record shows Kerberos traffic rather than an identifiable authentication.
-if $event.client? != null {
+// `name/realm`, or only the realm when an error names no client. The realm
+// follows the last slash, because a principal name can contain slashes itself,
+// such as `host/pc.example`. Without a client name, the record shows Kerberos
+// traffic rather than an identifiable authentication.
+if "/" in ($event.client? else "") {
+  $event._client_name = $event.client.replace_regex("/[^/]*$", "")
+  $event._client_realm = $event.client.replace_regex("^.*/", "")
+}
+if $event._client_name? not in [null, ""] {
   // The KDC asks for preauthentication at the start of every regular logon.
   // Other errors belong to the request that failed.
   let $request_types = {
@@ -69,21 +75,13 @@ drop $event.success?
 if $ocsf.class_uid == 3002 {
   $ocsf.auth_protocol = "Kerberos"
   $ocsf.auth_protocol_id = 2
-  // The realm follows the last slash, because the principal name can contain
-  // slashes itself, such as `host/pc.example`.
-  if "/" in $event.client {
-    $ocsf.user = {
-      name: $event.client.replace_regex("/[^/]*$", ""),
-      domain: $event.client.replace_regex("^.*/", ""),
-    }
-  } else {
-    $ocsf.user = {
-      name: $event.client,
-    }
+  $ocsf.user.name = $event._client_name
+  if $event._client_realm != "" {
+    $ocsf.user.domain = $event._client_realm
   }
   drop $event.client
-  $ocsf.service = {
-    name: move $event.service?,
+  if $event.service? != null {
+    $ocsf.service.name = move $event.service
   }
   // A successful reply grants a ticket, encrypted with `cipher`.
   if $ocsf.status_id == 1 and $event.request_type? in ["AS", "TGS"] {
@@ -91,7 +89,9 @@ if $ocsf.class_uid == 3002 {
       "des-cbc-crc": {algorithm: "DES", algorithm_id: 1},
       "des-cbc-md4": {algorithm: "DES", algorithm_id: 1},
       "des-cbc-md5": {algorithm: "DES", algorithm_id: 1},
+      "des3-cbc-md5": {algorithm: "TripleDES", algorithm_id: 2},
       "des3-cbc-sha1": {algorithm: "TripleDES", algorithm_id: 2},
+      "des3-cbc-sha1-kd": {algorithm: "TripleDES", algorithm_id: 2},
       "aes128-cts-hmac-sha1-96": {algorithm: "AES", algorithm_id: 3},
       "aes256-cts-hmac-sha1-96": {algorithm: "AES", algorithm_id: 3},
       "aes128-cts-hmac-sha256-128": {algorithm: "AES", algorithm_id: 3},
@@ -121,3 +121,4 @@ if $ocsf.class_uid == 3002 {
   $ocsf.app_protocol_name = "krb"
   @name = "ocsf.network_activity"
 }
+drop $event._client_name?, $event._client_realm?
