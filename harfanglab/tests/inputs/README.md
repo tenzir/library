@@ -11,3 +11,7 @@ returns from its pull exports, with invented values: documentation IP ranges
 The `harfanglab_manager` fixture serves one file per request in name order,
 then an empty body, like a drained queue. `03.json` is the `[]` that a
 Manager may also return for an empty queue.
+
+The `harfanglab::ioc::sync` tests use inline indicators instead: documentation
+IP addresses, `example.*` domains, and hashes of well-known strings. The
+fixture keeps their IOC sources and rules in memory.

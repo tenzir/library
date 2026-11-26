@@ -1,0 +1,346 @@
+---
+description: |
+  Synchronizes indicators of compromise (IOCs) of one type into an IOC source
+  of a HarfangLab Manager and returns one result event per indicator.
+
+  Every input event holds one indicator in `value`. The operator collects the
+  whole input before it sends any request, so the input must end, for example
+  one snapshot of a feed inside `every`. It looks up the source by name and
+  creates it if it doesn't exist. Then it reads the IOCs of `type` in the
+  source once and compares them with the input. Only differences cause
+  requests: it creates missing IOCs, updates IOCs whose description, comment,
+  state, level, or confidence differs, and leaves the others unchanged. A run
+  with the same input sends no write request.
+
+  The Manager has no bulk route for creating IOCs or for changing their
+  content, so every creation and content update is one request, with up to
+  `parallel` requests at a time. State changes and deletions go out in bulk
+  requests of up to 1,000 IOCs.
+
+  An indicator whose `expires` lies in the past or whose `revoked` is `true`
+  is disabled, or deleted with `on_revoke="delete"`. With `prune=true`, the
+  operator also disables the IOCs of `type` in the source that the input no
+  longer contains. An empty input changes nothing, even with `prune=true`.
+
+  The result events have the shape `{value, type, action, ioc_id, error}`,
+  where `action` is `created`, `updated`, `unchanged`, `disabled`, `deleted`,
+  or `failed`. A failed request yields a `failed` result with the Manager's
+  response in `error` and doesn't stop the run. IOCs that already are
+  disabled and are missing from the input produce no result.
+args:
+  positional:
+    - name: url
+      type: string
+      description: |
+        Base URL of the Manager API, for example
+        `https://example.hurukai.io:8443`.
+  named:
+    - name: token
+      type: secret
+      description: |
+        API token of a HarfangLab user, without the `Token` prefix. The user
+        needs to view and edit threat intelligence.
+    - name: source
+      type: string
+      description: Name of the IOC source to synchronize.
+    - name: type
+      type: string
+      description: |
+        Type of the indicators: `domain`, `ip`, `sha256`, `sha1`, `md5`,
+        `filename`, `filepath`, or `url`. The operator lowercases domains and
+        hashes, and maps `ip` to destination IP addresses.
+    - name: value
+      type: field
+      description: Field with the indicator value.
+    - name: description
+      type: field
+      default: null
+      description: Field with a description of the indicator.
+    - name: expires
+      type: field
+      default: null
+      description: |
+        Field with the expiry time of the indicator. An expired indicator is
+        disabled or deleted, depending on `on_revoke`.
+    - name: revoked
+      type: field
+      default: null
+      description: |
+        Field that is `true` for a revoked indicator. A revoked indicator is
+        disabled or deleted, depending on `on_revoke`.
+    - name: state
+      type: string
+      default: "alert"
+      description: |
+        State of active IOCs and of a new source: `alert` or `backend_alert`,
+        and with `allow_blocking=true` also `block` or `quarantine`.
+    - name: allow_blocking
+      type: bool
+      default: false
+      description: Allows the `block` and `quarantine` states.
+    - name: prune
+      type: bool
+      default: false
+      description: |
+        Disables the IOCs of `type` in the source that the input doesn't
+        contain. Use it only when every run receives the complete feed.
+    - name: on_revoke
+      type: string
+      default: "disable"
+      description: |
+        What happens to expired and revoked indicators: `disable` or `delete`.
+    - name: level
+      type: string
+      default: "high"
+      description: |
+        Rule level: `critical`, `high`, `medium`, `low`, or `informational`.
+        IOCs override the level only when it differs from the source default.
+    - name: confidence
+      type: string
+      default: "strong"
+      description: "Rule confidence: `strong`, `moderate`, or `weak`."
+    - name: label
+      type: string
+      default: null
+      description: |
+        Comment of every IOC, from which HarfangLab builds the alert titles.
+        Defaults to `<source>: <value>`.
+    - name: parallel
+      type: int
+      default: 8
+      description: Maximum number of concurrent write requests.
+---
+
+let $api = f"{$url}/api/data/threat_intelligence"
+let $headers = {Authorization: f"Token {$token}"}
+let $hl_type = {
+  domain: "domain_name",
+  ip: "ip_dst",
+  sha256: "hash",
+  sha1: "hash",
+  md5: "hash",
+  filename: "filename",
+  filepath: "filepath",
+  url: "url",
+}[$type]?
+let $states = ["alert", "backend_alert", "block", "quarantine"] if $allow_blocking else ["alert", "backend_alert"]
+// IDs per bulk request.
+let $chunk = 1000
+
+// Normalize each indicator. HarfangLab matches values case-insensitively, so
+// lowercasing domains and hashes keeps the stored values canonical.
+this = {
+  value: $value.string().trim(),
+  description: $description,
+  retired: $revoked == true or ($expires != null and time($expires) < now()),
+}
+where value != null and value != ""
+value = value.to_lower() if $hl_type in ["domain_name", "hash"] else value
+
+// Collect the finite input into one event, so that the source is resolved
+// once and the comparison sees the complete input.
+summarize items=collect(this)
+strict {
+  assert $hl_type != null,
+    message=f"type must be one of domain, ip, sha256, sha1, md5, filename, filepath, or url, got `{$type}`"
+  assert $state in $states,
+    message=f"state must be alert or backend_alert, or block or quarantine with allow_blocking=true, got `{$state}`"
+  assert $on_revoke in ["disable", "delete"],
+    message=f"on_revoke must be disable or delete, got `{$on_revoke}`"
+  assert $level in ["critical", "high", "medium", "low", "informational"],
+    message=f"level must be critical, high, medium, low, or informational, got `{$level}`"
+  assert $confidence in ["strong", "moderate", "weak"],
+    message=f"confidence must be strong, moderate, or weak, got `{$confidence}`"
+  assert $parallel >= 1, message=f"parallel must be positive, got {$parallel}"
+}
+where items.length() > 0
+
+// Look up the source by name. If the listing doesn't contain it, the
+// pagination continues with a request that creates the source.
+each {
+  from_http f"{$api}/IOCSource/?name={$source.encode_url()}&limit=100",
+    headers=$headers,
+    paginate=(page => {
+      url: f"{$api}/IOCSource/",
+      method: "post",
+      body: {
+        name: $source,
+        description: "IOCs synchronized by Tenzir",
+        enabled: true,
+        global_state: $state,
+        endpoint_detection: true,
+        block_on_agent: false,
+        quarantine_on_agent: false,
+        rule_level_default: $level,
+        rule_confidence_default: $confidence,
+      },
+    } if page.count? != null and page.results.where(s => s.name == $source).length() == 0 else null) {
+    read_json raw=true
+  }
+  source = (results? else [this]).where(s => s.name? == $source).first()
+  where source != null
+  head 1
+  this = {
+    items: $this.items,
+    source: {id: source.id, level: source.rule_level_default},
+  }
+}
+
+// Read the IOCs of this type in the source once, with only the fields that
+// the comparison needs. The Manager returns the next page as a path.
+each {
+  from_http f"{$api}/IOCRule/?source_id={$this.source.id}&type={$hl_type}&ordering=id&limit=10000&fields=id,value,description,comment,global_state,rule_confidence,rule_level_override",
+    headers=$headers,
+    paginate=(page => (page.next if page.next.starts_with("http") else f"{$url}{page.next}") if page.next? != null else null) {
+    read_json raw=true
+  }
+  unroll results
+  summarize existing=collect(results)
+  this = {...$this, existing: existing}
+}
+
+// Join the input with the existing IOCs by their lowercase value.
+this = {
+  source: source,
+  rows: [
+    ...items.map(x => {key: x.value.to_lower(), desired: x, current: null}),
+    ...existing.map(x => {key: x.value.to_lower(), desired: null, current: x}),
+  ],
+}
+unroll rows
+summarize key=rows.key,
+  desired=first(rows.desired),
+  current=first(rows.current),
+  source=first(source)
+
+// Decide what to do with every indicator:
+// - create: POST of a new IOC.
+// - patch: PATCH of an IOC whose content differs.
+// - bulk: a bulk state change of IOCs whose state alone differs.
+// - delete: a bulk deletion of revoked or expired IOCs.
+want = {
+  description: desired.description?,
+  comment: $label if $label != null else f"{$source}: {desired.value?}",
+  global_state: $state,
+  enabled: true,
+  rule_confidence: $confidence,
+  rule_level_override: $level if source.level != $level else null,
+}
+content_changed = current != null and (
+  (want.description else "") != (current.description else "")
+  or (want.comment else "") != (current.comment else "")
+  or want.rule_confidence != current.rule_confidence
+  or want.rule_level_override != current.rule_level_override)
+plan = ("skip" if desired == null and (not $prune or current.global_state == "disabled")
+  else "bulk" if desired == null
+  else "unchanged" if current == null and desired.retired
+  else "create" if current == null
+  else "delete" if desired.retired and $on_revoke == "delete"
+  else "unchanged" if desired.retired and current.global_state == "disabled"
+  else "bulk" if desired.retired
+  else "patch" if content_changed
+  else "bulk" if current.global_state != $state
+  else "unchanged")
+where plan != "skip"
+target = "disabled" if desired == null or desired.retired else $state
+value = desired.value if desired != null else current.value
+
+if plan == "create" {
+  each parallel=$parallel {
+    from_http f"{$api}/IOCRule/",
+      headers=$headers,
+      body={
+        source_id: $this.source.id,
+        type: $hl_type,
+        value: $this.value,
+        hl_status: "stable",
+        ...$this.want,
+      },
+      error_field=error {
+      read_json raw=true
+    }
+    this = {
+      value: $this.value,
+      type: $type,
+      action: "created" if error? == null else "failed",
+      ioc_id: id?,
+      error: error?.string(),
+    }
+  }
+} else if plan == "patch" {
+  each parallel=$parallel {
+    from_http f"{$api}/IOCRule/{$this.current.id}/",
+      method="patch",
+      headers=$headers,
+      body=$this.want,
+      error_field=error {
+      read_json raw=true
+    }
+    this = {
+      value: $this.value,
+      type: $type,
+      action: "updated" if error? == null else "failed",
+      ioc_id: $this.current.id,
+      error: error?.string(),
+    }
+  }
+} else if plan in ["bulk", "delete"] {
+  // Group the IOCs into bulk requests of up to `$chunk` IDs per target.
+  enumerate index
+  batch = floor(index / $chunk)
+  summarize plan,
+    target,
+    batch,
+    source=first(source),
+    rows=collect({value: value, ioc_id: current.id,
+      action: "deleted" if plan == "delete"
+        else "disabled" if target == "disabled"
+        else "updated"})
+  if plan == "bulk" {
+    each parallel=$parallel {
+      from_http f"{$api}/IOCRule/update/",
+        headers=$headers,
+        body={
+          rule_ids: $this.rows.map(r => r.ioc_id),
+          global_state: $this.target,
+          enabled: $this.target != "disabled",
+        },
+        error_field=error {
+        read_json raw=true
+      }
+      this = {rows: $this.rows, error: error?.string()}
+    }
+  } else {
+    // A bulk deletion answers without a body, from which `from_http` emits
+    // no event. Fetching the source first yields an event, and the pagination
+    // then sends the deletion. A failed deletion adds an event with the error.
+    each parallel=$parallel {
+      let $items = f"{$api}/IOCSource/{$this.source.id}/items/"
+      let $ids = $this.rows.map(r => r.ioc_id)
+      from_http f"{$api}/IOCSource/{$this.source.id}/",
+        headers=$headers,
+        error_field=error,
+        paginate=(page => {url: $items, method: "delete", body: {ids: $ids}} if page.id? != null else null) {
+        read_json raw=true
+      }
+      summarize error=first(error?)
+      this = {rows: $this.rows, error: error.string()}
+    }
+  }
+  unroll rows
+  this = {
+    value: rows.value,
+    type: $type,
+    action: rows.action if error == null else "failed",
+    ioc_id: rows.ioc_id,
+    error: error,
+  }
+} else {
+  this = {
+    value: value,
+    type: $type,
+    action: "unchanged",
+    ioc_id: current.id?,
+    error: null,
+  }
+}

@@ -1,0 +1,28 @@
+---
+name: Synchronize a domain feed into HarfangLab
+description: |
+  Downloads a plain-text feed of malicious domains every hour, keeps the
+  domains in the `threat-domains` lookup table for enrichment, and
+  synchronizes them into the HarfangLab IOC source `tenzir-threat-domains`.
+  Domains that leave the feed are disabled in HarfangLab.
+
+  Declare the lookup table in the configuration as
+  `contexts/threat-domains.yaml` with `type: lookup-table`.
+---
+
+every 1h {
+  from_http "https://feeds.example.org/malicious-domains.txt" {
+    read_lines
+  }
+  where line != "" and not line.starts_with("#")
+  this = {domain: line}
+  fork {
+    context_update "threat-domains", key=domain
+  }
+  harfanglab::ioc::sync "https://example.hurukai.io:8443",
+    token=secret("harfanglab-api-token"),
+    source="tenzir-threat-domains",
+    type="domain",
+    value=domain,
+    prune=true
+}
