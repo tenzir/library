@@ -3,6 +3,8 @@ title: HarfangLab reduction operators
 type: feature
 authors:
   - zedoraps
+prs:
+  - 276
 created: 2026-11-26T17:14:02.193052Z
 ---
 
