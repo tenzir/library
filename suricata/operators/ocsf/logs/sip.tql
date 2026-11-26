@@ -10,25 +10,10 @@ args:
 ---
 // --- OCSF: classification attributes ----------
 
-/*
- * Map SIP message types to OCSF Network Activity activities:
- * - INVITE: Network connection opened = activity_id 1
- * - BYE: Network connection closed = activity_id 2
- * - Response codes 4xx/5xx/6xx: Connection failed = activity_id 4
- * - Other requests and responses: Traffic = activity_id 6
- */
-let $methods = {
-  INVITE: 1,
-  BYE: 2,
-}
-if $event.sip.method? != null {
-  $ocsf.activity_id = $methods[$event.sip.method]? else 6
-} else if $event.sip.code? != null {
-  $ocsf.activity_id = 4 if int($event.sip.code) >= 400 else 6
-} else {
-  $ocsf.activity_id = 0
-}
-
+// SIP messages travel over a connection, but do not open, close, or fail it.
+// INVITE and BYE begin and end a call, and an error response fails a
+// request.
+$ocsf.activity_id = 6
 $ocsf.category_uid = 4
 $ocsf.class_uid = 4001
 $ocsf.severity_id = 1
@@ -43,6 +28,13 @@ $ocsf.app_protocol_name = "sip"
 $ocsf.message = move $event.sip.request_line? else move $event.sip.response_line?
 $ocsf.status_detail = move $event.sip.reason?
 $ocsf.status_code = move $event.sip.code?
+// Suricata logs SIP messages in packet direction. Responses answer a
+// request of the destination.
+if $event.sip.method? != null {
+  $ocsf.initiator_id = 1
+} else if $ocsf.status_code != null {
+  $ocsf.initiator_id = 2
+}
 // Requests have no outcome.
 $ocsf.status_id = (2 if int($ocsf.status_code) >= 400 else 1) if $ocsf.status_code != null else 0
 
