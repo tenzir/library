@@ -1,10 +1,16 @@
-// Every input event is either forwarded or counted in a summary, so
-// `represented` equals the number of input events per class: 22 for 4001, 11
-// for 4002, 12 for 1007, 9 for 1005, and 1 for each other class.
+// Every input event is either forwarded or counted in a summary, so the
+// events that the output represents equal the input events of each class.
 from_file f"{env("TENZIR_INPUTS")}/ocsf/*.ndjson" {
   read_ndjson
 }
-harfanglab::ocsf::reduce
-summarize class_uid, events=count(), summaries=count(count?),
-  represented=sum(count? else 1)
+fork_merge {
+  summarize class_uid, input=count()
+}, {
+  harfanglab::ocsf::reduce
+  summarize class_uid, output=count(), summaries=count(count?),
+    represented=sum(count? else 1)
+}
+summarize class_uid, input=sum(input?), output=sum(output?),
+  summaries=sum(summaries?), represented=sum(represented?)
+holds = represented == input
 sort class_uid

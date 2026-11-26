@@ -1,0 +1,14 @@
+// A library load by an unusual process passes through as a first
+// occurrence, and so does a process start from an unusual parent command
+// line. The summary of a single repeat keeps its entity IDs.
+from_file f"{env("TENZIR_INPUTS")}/ecs/repeats.ndjson" {
+  read_ndjson
+}
+harfanglab::ecs::reduce
+select this["@timestamp"], category=event.category.first(), tenzir?.count?,
+  executable=process.executable, dll=dll?.path?,
+  command_line=process.command_line?, pid=process.pid?,
+  entity_id=process.entity_id?,
+  parent_command_line=process.parent?.command_line?,
+  parent_entity_id=process.parent?.entity_id?
+sort this["@timestamp"]

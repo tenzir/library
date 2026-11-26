@@ -1,8 +1,8 @@
 ---
 description: |
   Summarizes HarfangLab URL request documents (`event.category` `url`) into
-  one document per window, host, URL domain, and HTTP method. Other documents
-  pass through unchanged.
+  one document per window, host, URL domain, scheme, and port, and HTTP
+  method. Other documents pass through unchanged.
 
   Each summary stays an ECS URL document. `event.start` and `event.end` hold
   the times of the first and last request, `event.duration` the time between
@@ -13,11 +13,17 @@ description: |
   The URL path, query, and full URL, the user agent, and the requesting
   process appear only if all requests of the summary had the same value, so
   the summary of a single request keeps them. `tenzir.distinct_url_paths`
-  holds the number of distinct paths and `tenzir.url_paths` up to 10 of them.
+  holds the number of distinct paths and `tenzir.url_paths` the first 10 of
+  them in sorted order. A summary keeps at most 10 paths and a
+  query only if all requests had the same one, so detections on URL paths
+  and queries need the full documents in a data lake.
+
+  The summary takes the host, agent, and organization from the first document
+  of the host with the same event kind and type in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
@@ -26,65 +32,87 @@ args:
       description: Width of the summary windows, in processing and event time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if event.category?.first() == "url" {
   _host = host?.id? else agent?.id? else host?.hostname?
   _time = time(this["@timestamp"]?)
   _bucket = _time.floor($window)
+  // Every group key and aggregate costs memory per summary. The values in
+  // `_ids` are few per host, so the summaries group by their digest and take
+  // them from one context record per host and digest. The host, agent, and
+  // organization come from the first document of the context.
+  _ids = hash_xxh3([host?.id?, host?.hostname?, agent?.id?, agent?.name?,
+    event?.kind?, event?.type?])
+  // A string has no `min` and `max`, so the summary compares digests to find
+  // out whether all requests had the same one.
+  _query = uint(hash_xxh3(url?.query?), base=16)
+  _url = uint(hash_xxh3(url?.full?), base=16)
+  _user_agent = uint(hash_xxh3(user_agent?.original?), base=16)
+  _executable = uint(hash_xxh3(process?.executable?), base=16)
   window size=$window {
-    // All keys are scalars. The host, agent, and organization records belong
-    // to the host and come from the first document of a summary.
-    summarize _host, _bucket, event?.kind?, event?.type?, url?.domain?,
-      http?.request?.method?, url?.scheme?, url?.port?,
-      count=count(), start=min(_time), end=max(_time),
-      _host_record=first(host?), _agent=first(agent?),
-      _organization=first(organization?), _ecs=first(ecs?),
-      // The full URL follows from the keys, the path, and the query, so it
-      // needs no set of its own.
-      _paths=distinct(url?.path?), _path_count=count(url?.path?),
-      _queries=distinct(url?.query?), _query_count=count(url?.query?),
-      _url=first(url?.full?), _url_count=count(url?.full?),
-      _agents=distinct(user_agent?.original?),
-      _agent_count=count(user_agent?.original?),
-      _executables=distinct(process?.executable?),
-      _executable_count=count(process?.executable?)
+    fork_merge {
+      summarize _host, _bucket, _ids, url?.domain?, url?.scheme?, url?.port?,
+        http?.request?.method?,
+        count=count(), start=min(_time), end=max(_time),
+        _paths=distinct(url?.path?), _path_count=count(url?.path?),
+        _query_first=first(url?.query?), _query_min=min(_query),
+        _query_max=max(_query),
+        _url_first=first(url?.full?), _url_min=min(_url), _url_max=max(_url),
+        _user_agent_first=first(user_agent?.original?),
+        _user_agent_min=min(_user_agent), _user_agent_max=max(_user_agent),
+        _executable_first=first(process?.executable?),
+        _executable_min=min(_executable), _executable_max=max(_executable)
+    }, {
+      summarize _host, _ids, _context=first({
+        agent: agent?,
+        ecs: ecs?,
+        kind: event?.kind?,
+        type: event?.type?,
+        host: host?,
+        organization: organization?,
+      })
+    }
+    // The context of a host and digest sorts before its summaries, so a
+    // running `first` hands it to each of them.
+    sort _host, _ids, _context? == null
+    summarize _host, _ids, _ctx=first(_context?),
+      options={mode: "cumulative"}
+    where _context? == null
     _same_path = _path_count == 0 or (
       _paths.length() == 1 and _path_count == count)
-    _same_query = _query_count == 0 or (
-      _queries.length() == 1 and _query_count == count)
-    _user_agent = (_agents[0]
-      if _agents.length() == 1 and _agent_count == count else null)
-    _executable = (_executables[0]
-      if _executables.length() == 1 and _executable_count == count else null)
+    _user_agent = (_user_agent_first
+      if _user_agent_min == _user_agent_max else null)
+    _executable = (_executable_first
+      if _executable_min == _executable_max else null)
     this = {
       "@timestamp": start,
-      agent: _agent,
-      ecs: _ecs,
+      agent: _ctx.agent,
+      ecs: _ctx.ecs,
       event: {
         category: ["url"],
-        kind: event.kind,
-        type: event.type,
+        kind: _ctx.kind,
+        type: _ctx.type,
         start: start,
         end: end,
         duration: int((end - start) / 1ns),
       },
-      host: _host_record,
+      host: _ctx.host,
       http: http,
-      organization: _organization,
+      organization: _ctx.organization,
       process: {executable: _executable} if _executable != null else null,
       url: {
         domain: url.domain,
-        full: (_url
-          if _same_path and _same_query and _url_count == count else null),
+        full: _url_first if _url_min == _url_max else null,
         path: _paths[0]? if _same_path else null,
         port: url.port,
-        query: _queries[0]? if _same_query else null,
+        query: _query_first if _query_min == _query_max else null,
         scheme: url.scheme,
       },
       user_agent: {original: _user_agent} if _user_agent != null else null,
       tenzir: {
         count: count,
         distinct_url_paths: _paths.length(),
-        url_paths: _paths.slice(end=10),
+        url_paths: _paths.sort().slice(end=10),
       },
     }
     drop_null_fields

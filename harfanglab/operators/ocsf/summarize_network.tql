@@ -1,9 +1,9 @@
 ---
 description: |
   Summarizes HarfangLab Network Activity (`class_uid` 4001) into one event per
-  window, host, remote IP address, service port, protocol, and direction.
-  Listen events (`activity_id` 7) get summaries per bind address and port.
-  Events of other classes pass through unchanged.
+  window, host, local and remote IP address, service port, protocol, and
+  direction. Listen events (`activity_id` 7) get summaries per bind address
+  and port. Events of other classes pass through unchanged.
 
   Each summary is a Network Activity event with the OCSF aggregation
   attributes: `count` holds the number of connections, `start_time` and
@@ -15,12 +15,17 @@ description: |
   `src_endpoint` is the local end and `dst_endpoint` the remote end. The
   service port is therefore `src_endpoint.port` for inbound connections and
   `dst_endpoint.port` otherwise, and the summary keeps it there. The client
-  port and the local IP address appear only if all connections of the summary
-  had the same one, so the summary of a single connection keeps both.
+  port appears only if all connections of the summary had the same one, so
+  the summary of a single connection keeps it.
+
+  The key also covers the activity, severity, status, and the agent
+  identity of the endpoints. The summary takes the device, the metadata, and
+  the agent lists from the first event of the host with the same key values
+  in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
@@ -29,63 +34,100 @@ args:
       description: Width of the summary windows, in processing and event time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if class_uid == 4001 {
   _host = device?.agent_list?[0]?.uid? else device?.hostname?
   _bucket = from_epoch(time? * 1ms).floor($window)
   _inbound = connection_info?.direction_id? == 1
   _service_port = src_endpoint?.port? if _inbound else dst_endpoint?.port?
   _client_port = dst_endpoint?.port? if _inbound else src_endpoint?.port?
+  // Every group key and aggregate costs memory per summary. The values in
+  // `_ids` are few per host, so the summaries group by their digest and take
+  // them from one context record per host and digest. The device, metadata,
+  // and agent lists belong to the host and come from the first event of the
+  // context.
+  _ids = hash_xxh3([device?.hostname?, activity_id?, activity_name?,
+    severity_id?, severity?, status_id?, status?, type_uid?,
+    connection_info?.direction_id?, connection_info?.direction?,
+    connection_info?.protocol_name?, connection_info?.protocol_num?,
+    connection_info?.protocol_ver_id?, src_endpoint?.name?,
+    src_endpoint?.uid?, src_endpoint?.hostname?, dst_endpoint?.name?,
+    dst_endpoint?.uid?, dst_endpoint?.hostname?])
   window size=$window {
-    // All keys are scalars. The device, metadata, and agent records belong to
-    // the host and come from the first event of a summary.
-    summarize _host, _bucket, activity_id?, activity_name?, type_uid?,
-      severity_id?, severity?, status_id?, status?,
-      connection_info?.direction_id?, connection_info?.direction?,
-      connection_info?.protocol_name?, connection_info?.protocol_num?,
-      connection_info?.protocol_ver_id?,
-      src_endpoint?.name?, src_endpoint?.uid?, src_endpoint?.hostname?,
-      dst_endpoint?.name?, dst_endpoint?.uid?, dst_endpoint?.hostname?,
-      dst_endpoint?.ip?, _inbound, _service_port,
-      count=count(), start_time=min(time?), end_time=max(time?),
-      _device=first(device?), _metadata=first(metadata?),
-      _src_agents=first(src_endpoint?.agent_list?),
-      _dst_agents=first(dst_endpoint?.agent_list?),
-      _local_ips=distinct(src_endpoint?.ip?),
-      _local_ip_count=count(src_endpoint?.ip?),
-      _client_port_min=min(_client_port), _client_port_max=max(_client_port),
-      _client_port_count=count(_client_port)
+    fork_merge {
+      summarize _host, _bucket, _ids, src_endpoint?.ip?, dst_endpoint?.ip?,
+        _service_port,
+        count=count(), start_time=min(time?), end_time=max(time?),
+        _client_port_min=min(_client_port), _client_port_max=max(_client_port),
+        _client_port_count=count(_client_port)
+    }, {
+      summarize _host, _ids, _context=first({
+        activity_id: activity_id?,
+        activity_name: activity_name?,
+        severity: severity?,
+        severity_id: severity_id?,
+        status: status?,
+        status_id: status_id?,
+        type_uid: type_uid?,
+        metadata: metadata?,
+        device: device?,
+        connection_info: {
+          direction_id: connection_info?.direction_id?,
+          direction: connection_info?.direction?,
+          protocol_name: connection_info?.protocol_name?,
+          protocol_num: connection_info?.protocol_num?,
+          protocol_ver_id: connection_info?.protocol_ver_id?,
+        },
+        src_endpoint: {
+          name: src_endpoint?.name?,
+          uid: src_endpoint?.uid?,
+          hostname: src_endpoint?.hostname?,
+          agent_list: src_endpoint?.agent_list?,
+        },
+        dst_endpoint: {
+          name: dst_endpoint?.name?,
+          uid: dst_endpoint?.uid?,
+          hostname: dst_endpoint?.hostname?,
+          agent_list: dst_endpoint?.agent_list?,
+        },
+      })
+    }
+    // The context of a host and digest sorts before its summaries, so a
+    // running `first` hands it to each of them.
+    sort _host, _ids, _context? == null
+    summarize _host, _ids, _ctx=first(_context?),
+      options={mode: "cumulative"}
+    where _context? == null
+    _inbound = _ctx.connection_info.direction_id == 1
     _client_port = (_client_port_min
       if _client_port_min == _client_port_max
         and _client_port_count == count else null)
-    _local_ip = (_local_ips[0]
-      if _local_ips.length() == 1 and _local_ip_count == count else null)
     this = {
-      activity_id: activity_id,
-      activity_name: activity_name,
+      activity_id: _ctx.activity_id,
+      activity_name: _ctx.activity_name,
       category_uid: 4,
       class_uid: 4001,
-      metadata: _metadata,
-      severity: severity,
-      severity_id: severity_id,
-      status: status,
-      status_id: status_id,
+      metadata: _ctx.metadata,
+      severity: _ctx.severity,
+      severity_id: _ctx.severity_id,
+      status: _ctx.status,
+      status_id: _ctx.status_id,
       time: start_time,
       start_time: start_time,
       end_time: end_time,
       duration: end_time - start_time,
       count: count,
-      type_uid: type_uid,
-      device: _device,
-      connection_info: connection_info,
+      type_uid: _ctx.type_uid,
+      device: _ctx.device,
+      connection_info: _ctx.connection_info,
       src_endpoint: {
-        ...src_endpoint,
-        agent_list: _src_agents,
-        ip: _local_ip,
+        ..._ctx.src_endpoint,
+        ip: src_endpoint.ip,
         port: _service_port if _inbound else _client_port,
       },
       dst_endpoint: {
-        ...dst_endpoint,
-        agent_list: _dst_agents,
+        ..._ctx.dst_endpoint,
+        ip: dst_endpoint.ip,
         port: _client_port if _inbound else _service_port,
       },
     }

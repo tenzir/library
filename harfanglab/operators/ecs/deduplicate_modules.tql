@@ -1,90 +1,112 @@
 ---
 description: |
   Deduplicates HarfangLab library load documents (`event.category`
-  `library`) per window, host, and library file. Other documents pass through
-  unchanged.
+  `library`) per window, host, library, and loading process. Other documents
+  pass through unchanged.
 
-  The first load of every library file in a window passes through
-  immediately and unchanged, with the loading process. Further loads of the
-  file in the same window are repeats: when the window closes, one summary
-  document stands for them, and a file without repeats gets no summary. A
-  summary stays an ECS library document. `event.start` and `event.end` hold
-  the times of the first and last repeat, `event.duration` the time between
-  them in nanoseconds, and `@timestamp` equals `event.start`. ECS has no
-  field for the number of events that a document stands for, so
-  `tenzir.count` holds the number of repeats, which excludes the first load,
-  and `tenzir.distinct_pids` the number of distinct loading process IDs. Only
-  summaries have `tenzir.count`.
+  The first load of every library by a process executable in a window passes
+  through immediately and unchanged, with the process ID. Further loads of
+  the library by the same executable in the same window are repeats: when the
+  window closes, one summary document stands for them, and a key without
+  repeats gets no summary. A summary stays an ECS library document.
+  `event.start` and `event.end` hold the times of the first and last repeat,
+  `event.duration` the time between them in nanoseconds, and `@timestamp`
+  equals `event.start`. ECS has no field for the number of events that a
+  document stands for, so `tenzir.count` holds the number of repeats, which
+  excludes the first load. Only summaries have `tenzir.count`.
 
-  The key covers the library's path, hashes, and code signature and its
-  `file.size`, so another binary at the same path gets its own summary.
-  HarfangLab identifies the loading process mostly by its process ID alone.
-  A summary keeps the process ID and executable of the loading process only
-  if all repeats came from the same one.
+  The key covers the whole `dll` record, with its path, hashes, code
+  signature, and PE header, and `file.size`, so another binary at the same
+  path gets its own summary. It also covers the loading process by its
+  executable (`process.executable`), so a library that an unusual process
+  loads gets a first occurrence of its own. The process ID of the loading
+  process appears only if all repeats came from the same one.
+
+  The summary takes the host, agent, and organization from the first document
+  of the host with the same event kind and type in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
-      default: 1d
+      default: 1h
       description: Width of the deduplication windows, in processing and event
         time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if event.category?.first() == "library" {
   _host = host?.id? else agent?.id? else host?.hostname?
   _time = time(this["@timestamp"]?)
   _bucket = _time.floor($window)
+  // Every group key and aggregate costs memory per summary. The summaries
+  // therefore group by digests: `_ids` covers the values that few documents
+  // of a host share, and `_library` the library, which is the same on many
+  // hosts. The values behind the digests come from one context record per
+  // host and `_ids` and one record per `_library`. The host, agent, and
+  // organization come from the first document of the context.
+  _ids = hash_xxh3([host?.id?, host?.hostname?, agent?.id?, agent?.name?,
+    event?.kind?, event?.type?])
+  _library = hash_md5([dll?, file?])
   window size=$window {
-    // A digest of the keys keeps the state of the first-occurrence check
-    // small. The summary below groups by the same keys.
-    _key = hash_md5([_host, _bucket, dll?.path?, dll?.hash?.sha256?,
-      dll?.hash?.sha1?, dll?.hash?.md5?, dll?.code_signature?.valid?,
-      dll?.code_signature?.subject_name?, file?.size?])
+    // The digest covers the same keys as the summary below. Keep both lists
+    // identical, so that every summary belongs to one first occurrence.
+    _key = hash_md5([_host, _bucket, _ids, _library, process?.executable?])
     summarize _key, _seen=count(), options={mode: "cumulative"}
     if _seen == 1 {
-      drop _key, _host, _time, _bucket, _seen
+      drop _key, _host, _time, _bucket, _ids, _library, _seen
     } else {
-      // All keys are scalars. The records come from the first repeat: the
-      // host, agent, and organization belong to the host, the library record
-      // to the keyed path, hashes, and code signature.
-      summarize _host, _bucket, event?.kind?, event?.type?, dll?.path?,
-        dll?.hash?.sha256?, dll?.hash?.sha1?, dll?.hash?.md5?,
-        dll?.code_signature?.valid?, dll?.code_signature?.subject_name?,
-        file?.size?,
-        count=count(), start=min(_time), end=max(_time),
-        _host_record=first(host?), _agent=first(agent?),
-        _organization=first(organization?), _ecs=first(ecs?),
-        _dll=first(dll?),
-        _pids=count_distinct(process?.pid?), _pid=min(process?.pid?),
-        _pid_count=count(process?.pid?),
-        _executables=distinct(process?.executable?),
-        _executable_count=count(process?.executable?)
-      _pid = _pid if _pids == 1 and _pid_count == count else null
-      _executable = (_executables[0]
-        if _executables.length() == 1 and _executable_count == count
-        else null)
+      fork_merge {
+        summarize _host, _bucket, _ids, _library, process?.executable?,
+          count=count(), start=min(_time), end=max(_time),
+          _pid_min=min(process?.pid?), _pid_max=max(process?.pid?),
+          _pid_count=count(process?.pid?)
+      }, {
+        summarize _host, _ids, _context=first({
+          agent: agent?,
+          ecs: ecs?,
+          kind: event?.kind?,
+          type: event?.type?,
+          host: host?,
+          organization: organization?,
+        })
+      }, {
+        summarize _library, _object=first({dll: dll?, file: file?})
+      }
+      // Each context and library record sorts before the summaries that it
+      // belongs to, so a running `first` hands it to each of them.
+      sort _host?, _ids?, _context? == null
+      summarize _host?, _ids?, _ctx=first(_context?),
+        options={mode: "cumulative"}
+      sort _library?, _object? == null
+      summarize _library?, _lib=first(_object?),
+        options={mode: "cumulative"}
+      where _context? == null and _object? == null
       this = {
         "@timestamp": start,
-        agent: _agent,
-        dll: _dll,
-        ecs: _ecs,
+        agent: _ctx.agent,
+        dll: _lib.dll,
+        ecs: _ctx.ecs,
         event: {
           category: ["library"],
-          kind: event.kind,
-          type: event.type,
+          kind: _ctx.kind,
+          type: _ctx.type,
           start: start,
           end: end,
           duration: int((end - start) / 1ns),
         },
-        file: file,
-        host: _host_record,
-        organization: _organization,
-        process: {executable: _executable, pid: _pid},
-        tenzir: {count: count, distinct_pids: _pids},
+        file: _lib.file,
+        host: _ctx.host,
+        organization: _ctx.organization,
+        process: {
+          executable: process.executable,
+          pid: _pid_min
+            if _pid_min == _pid_max and _pid_count == count else null,
+        },
+        tenzir: {count: count},
       }
       drop_null_fields
     }

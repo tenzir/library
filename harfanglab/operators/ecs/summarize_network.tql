@@ -1,9 +1,10 @@
 ---
 description: |
   Summarizes HarfangLab network connection documents (`event.category`
-  `network`) into one document per window, host, process executable, remote
-  IP address, service port, transport, and direction. Other documents,
-  including `network_listen` documents, pass through unchanged.
+  `network`) into one document per window, host, process executable and
+  user, local and remote IP address, destination domain, service port,
+  transport, and direction. Other documents, including `network_listen`
+  documents, pass through unchanged.
 
   Each summary stays an ECS network document. `event.start` and `event.end`
   hold the times of the first and last connection, `event.duration` the time
@@ -15,13 +16,16 @@ description: |
   accepting side in `destination`, so the service port is
   `destination.port` in both directions. The remote end is `source` for
   inbound connections (`network.direction` `in`) and `destination`
-  otherwise. The client port, the local IP address, the destination domain,
-  and the process user appear only if all connections of the summary had the
-  same one, so the summary of a single connection keeps them.
+  otherwise. The client port appears only if all connections of the summary
+  had the same one, so the summary of a single connection keeps it. The geo
+  record of the remote end comes from the first connection of the summary.
+
+  The summary takes the host, agent, and organization from the first document
+  of the host with the same `network` record in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
@@ -30,6 +34,7 @@ args:
       description: Width of the summary windows, in processing and event time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if event.category?.first() == "network" {
   _host = host?.id? else agent?.id? else host?.hostname?
   _time = time(this["@timestamp"]?)
@@ -37,55 +42,66 @@ if event.category?.first() == "network" {
   _inbound = network?.direction? == "in"
   _remote_ip = source?.ip? if _inbound else destination?.ip?
   _local_ip = destination?.ip? if _inbound else source?.ip?
+  // Every group key and aggregate costs memory per summary. The values in
+  // `_ids` are few per host, so the summaries group by their digest and take
+  // them from one context record per host and digest. The host, agent, and
+  // organization come from the first document of the context.
+  _ids = hash_xxh3([host?.id?, host?.hostname?, agent?.id?, agent?.name?,
+    event?.kind?, event?.type?, network?, process?.user?.name?])
   window size=$window {
-    // All keys are scalars. The host, agent, and organization records belong
-    // to the host and the geo record to the remote IP address, so they come
-    // from the first document of a summary.
-    summarize _host, _bucket, event?.kind?, event?.type?, process?.executable?,
-      network?.direction?, network?.transport?, network?.type?,
-      network?.iana_number?, _inbound, _remote_ip, destination?.port?,
-      count=count(), start=min(_time), end=max(_time),
-      _host_record=first(host?), _agent=first(agent?),
-      _organization=first(organization?), _ecs=first(ecs?),
-      _remote_geo=first(source?.geo? if _inbound else destination?.geo?),
-      _local_ips=distinct(_local_ip), _local_ip_count=count(_local_ip),
-      _client_port_min=min(source?.port?), _client_port_max=max(source?.port?),
-      _client_port_count=count(source?.port?),
-      _domains=distinct(destination?.domain?),
-      _domain_count=count(destination?.domain?),
-      _users=distinct(process?.user?.name?),
-      _user_count=count(process?.user?.name?)
-    _local_ip = (_local_ips[0]
-      if _local_ips.length() == 1 and _local_ip_count == count else null)
+    fork_merge {
+      summarize _host, _bucket, _ids, process?.executable?, _remote_ip,
+        _local_ip, destination?.domain?, destination?.port?,
+        count=count(), start=min(_time), end=max(_time),
+        _remote_geo=first(source?.geo? if _inbound else destination?.geo?),
+        _client_port_min=min(source?.port?), _client_port_max=max(source?.port?),
+        _client_port_count=count(source?.port?)
+    }, {
+      summarize _host, _ids, _context=first({
+        agent: agent?,
+        ecs: ecs?,
+        kind: event?.kind?,
+        type: event?.type?,
+        host: host?,
+        network: network?,
+        organization: organization?,
+        user: process?.user?.name?,
+      })
+    }
+    // The context of a host and digest sorts before its summaries, so a
+    // running `first` hands it to each of them.
+    sort _host, _ids, _context? == null
+    summarize _host, _ids, _ctx=first(_context?),
+      options={mode: "cumulative"}
+    where _context? == null
+    _inbound = _ctx.network?.direction? == "in"
     _client_port = (_client_port_min
       if _client_port_min == _client_port_max
         and _client_port_count == count else null)
-    _user = _users[0] if _users.length() == 1 and _user_count == count else null
     this = {
       "@timestamp": start,
-      agent: _agent,
+      agent: _ctx.agent,
       destination: {
         ip: _local_ip if _inbound else _remote_ip,
         geo: null if _inbound else _remote_geo,
-        domain: _domains[0]
-          if _domains.length() == 1 and _domain_count == count else null,
+        domain: destination.domain,
         port: destination.port,
       },
-      ecs: _ecs,
+      ecs: _ctx.ecs,
       event: {
         category: ["network"],
-        kind: event.kind,
-        type: event.type,
+        kind: _ctx.kind,
+        type: _ctx.type,
         start: start,
         end: end,
         duration: int((end - start) / 1ns),
       },
-      host: _host_record,
-      network: network,
-      organization: _organization,
+      host: _ctx.host,
+      network: _ctx.network,
+      organization: _ctx.organization,
       process: {
         executable: process.executable,
-        user: {name: _user} if _user != null else null,
+        user: {name: _ctx.user} if _ctx.user != null else null,
       },
       source: {
         ip: _remote_ip if _inbound else _local_ip,

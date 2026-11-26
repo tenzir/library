@@ -13,7 +13,9 @@ returns from its pull exports, with invented values: documentation IP ranges
   sides of window boundaries. `edge.ndjson` holds the edge cases: missing and
   null keys, Listen events, a late event, an executable without hashes, a
   raw socket creation (OCSF), starts that differ only in the real user, and a
-  library without hashes (ECS).
+  library without hashes (ECS). `repeats.ndjson` holds a module that an
+  unusual process loads between two loads by PowerShell, and a process start
+  whose parent command line changes, followed by one repeat.
 
 The reduction operators window by processing time, and a test that runs
 across a wall-clock window boundary splits a summary in two. A test run takes

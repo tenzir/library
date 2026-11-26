@@ -1,108 +1,129 @@
 ---
 description: |
   Deduplicates HarfangLab Module Activity (`class_uid` 1005) per window, host,
-  and module file. Events of other classes pass through unchanged.
+  module, and loading process. Events of other classes pass through
+  unchanged.
 
-  The first load of every module file in a window passes through immediately
-  and unchanged, with the loading process and the base address. Further loads
-  of the file in the same window are repeats: when the window closes, one
-  summary event stands for them, and a file without repeats gets no summary.
-  A summary is a Module Activity event with the OCSF aggregation attributes:
-  `count` holds the number of repeats, which excludes the first load,
-  `start_time` and `end_time` the times of the first and last repeat,
-  `duration` the time between them, and `time` equals `start_time`. All times
-  are epoch milliseconds, like HarfangLab's. Only summaries have `count`.
+  The first load of every module by a process executable in a window passes
+  through immediately and unchanged, with the process ID and the base
+  address. Further loads of the module by the same executable in the same
+  window are repeats: when the window closes, one summary event stands for
+  them, and a key without repeats gets no summary. A summary is a Module
+  Activity event with the OCSF aggregation attributes: `count` holds the
+  number of repeats, which excludes the first load, `start_time` and
+  `end_time` the times of the first and last repeat, `duration` the time
+  between them, and `time` equals `start_time`. All times are epoch
+  milliseconds, like HarfangLab's. Only summaries have `count`.
 
-  The key covers the module file's path, name, size, hashes, and signature,
-  so another binary at the same path gets its own summary. The base address
-  differs between loads and doesn't appear in a summary. HarfangLab
-  identifies the loading process mostly by its process ID alone. A summary
-  keeps the process ID, name, and path of the loading process only if all
-  repeats came from the same one, and `unmapped.distinct_pids` holds the
-  number of distinct loading process IDs. A summary of repeats from several
-  processes has an empty `actor.process`, while OCSF requires the actor to
-  name at least a process or a user.
+  The key covers the whole module file record, with its path, size, hashes,
+  and signature, so another binary at the same path gets its own summary,
+  and the load type. It also covers the loading process by its executable
+  path and name (`actor.process.file.path`, `actor.process.name`), so a
+  module that an unusual process loads gets a first occurrence of its own.
+  The base address differs between loads and doesn't appear in a summary.
+  The process ID of the loading process appears only if all repeats came
+  from the same one.
+
+  The summary takes the device and the metadata from the first event of the
+  host with the same activity and severity in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
-      default: 1d
+      default: 1h
       description: Width of the deduplication windows, in processing and event
         time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if class_uid == 1005 {
   _host = device?.agent_list?[0]?.uid? else device?.hostname?
   _bucket = from_epoch(time? * 1ms).floor($window)
-  _hashes = module?.file?.hashes?
-  _md5 = _hashes.where(h => h.algorithm_id == 1).first().value?
-  _sha1 = _hashes.where(h => h.algorithm_id == 2).first().value?
-  _sha256 = _hashes.where(h => h.algorithm_id == 3).first().value?
+  // Every group key and aggregate costs memory per summary. The summaries
+  // therefore group by digests: `_ids` covers the values that few events of
+  // a host share, and `_module` the module, which is the same on many
+  // hosts. The values behind the digests come from one context record per
+  // host and `_ids` and one record per `_module`. The device and metadata
+  // belong to the host and come from the first event of the context.
+  _ids = hash_xxh3([device?.hostname?, activity_id?, activity_name?,
+    severity_id?, severity?, type_uid?, actor?.process?.file?.type_id?])
+  _module = hash_md5([module?.file?, module?.load_type_id?,
+    module?.load_type?, module?.type?, module?.function_name?])
   window size=$window {
-    // A digest of the keys keeps the state of the first-occurrence check
-    // small. The summary below groups by the same keys.
-    _key = hash_md5([_host, _bucket, module?.file?.path?, module?.file?.size?,
-      _sha256, _sha1, _md5, module?.file?.signature?.state_id?,
-      module?.file?.signature?.certificate?.serial_number?])
+    // The digest covers the same keys as the summary below. Keep both lists
+    // identical, so that every summary belongs to one first occurrence.
+    _key = hash_md5([_host, _bucket, _ids, _module,
+      actor?.process?.file?.path?, actor?.process?.name?])
     summarize _key, _seen=count(), options={mode: "cumulative"}
     if _seen == 1 {
-      drop _key, _host, _bucket, _hashes, _md5, _sha1, _sha256, _seen
+      drop _key, _host, _bucket, _ids, _module, _seen
     } else {
-      // All keys are scalars. The records come from the first repeat: the
-      // device and metadata belong to the host, the module file to the keyed
-      // path, hashes, and certificate.
-      summarize _host, _bucket, activity_id?, activity_name?, type_uid?,
-        severity_id?, severity?,
-        module?.file?.path?, module?.file?.name?, module?.file?.size?,
-        _md5, _sha1, _sha256, module?.file?.signature?.state_id?,
-        module?.file?.signature?.certificate?.serial_number?,
-        module?.load_type_id?, module?.load_type?, module?.type?,
-        module?.function_name?,
-        count=count(), start_time=min(time?), end_time=max(time?),
-        _device=first(device?), _metadata=first(metadata?),
-        _file=first(module?.file?),
-        _pids=count_distinct(actor?.process?.pid?),
-        _pid=min(actor?.process?.pid?),
-        _pid_count=count(actor?.process?.pid?),
-        _names=distinct(actor?.process?.name?),
-        _name_count=count(actor?.process?.name?),
-        _paths=distinct(actor?.process?.file?.path?),
-        _path_count=count(actor?.process?.file?.path?)
-      _pid = _pid if _pids == 1 and _pid_count == count else null
-      _name = (_names[0]
-        if _names.length() == 1 and _name_count == count else null)
-      _path = (_paths[0]
-        if _paths.length() == 1 and _path_count == count else null)
+      fork_merge {
+        summarize _host, _bucket, _ids, _module,
+          actor?.process?.file?.path?, actor?.process?.name?,
+          count=count(), start_time=min(time?), end_time=max(time?),
+          _pid_min=min(actor?.process?.pid?),
+          _pid_max=max(actor?.process?.pid?),
+          _pid_count=count(actor?.process?.pid?)
+      }, {
+        summarize _host, _ids, _context=first({
+          activity_id: activity_id?,
+          activity_name: activity_name?,
+          severity: severity?,
+          severity_id: severity_id?,
+          type_uid: type_uid?,
+          metadata: metadata?,
+          device: device?,
+          actor_file_type_id: actor?.process?.file?.type_id?,
+        })
+      }, {
+        summarize _module, _object=first({
+          file: module?.file?,
+          load_type_id: module?.load_type_id?,
+          load_type: module?.load_type?,
+          type: module?.type?,
+          function_name: module?.function_name?,
+        })
+      }
+      // Each context and module record sorts before the summaries that it
+      // belongs to, so a running `first` hands it to each of them.
+      sort _host?, _ids?, _context? == null
+      summarize _host?, _ids?, _ctx=first(_context?),
+        options={mode: "cumulative"}
+      sort _module?, _object? == null
+      summarize _module?, _mod=first(_object?), options={mode: "cumulative"}
+      where _context? == null and _object? == null
       this = {
-        activity_id: activity_id,
-        activity_name: activity_name,
+        activity_id: _ctx.activity_id,
+        activity_name: _ctx.activity_name,
         category_uid: 1,
         class_uid: 1005,
-        metadata: _metadata,
-        severity: severity,
-        severity_id: severity_id,
+        metadata: _ctx.metadata,
+        severity: _ctx.severity,
+        severity_id: _ctx.severity_id,
         time: start_time,
         start_time: start_time,
         end_time: end_time,
         duration: end_time - start_time,
         count: count,
-        type_uid: type_uid,
-        // OCSF requires the actor, so it stays even when nothing about the
-        // loading process holds for all repeats.
+        type_uid: _ctx.type_uid,
         actor: {
           process: {
-            file: {path: _path} if _path != null else null,
-            name: _name,
-            pid: _pid,
+            file: {
+              path: actor.process.file.path,
+              type_id: _ctx.actor_file_type_id,
+            },
+            name: actor.process.name,
+            pid: _pid_min
+              if _pid_min == _pid_max and _pid_count == count else null,
           },
         },
-        device: _device,
-        module: {...module, file: _file},
-        unmapped: {distinct_pids: _pids},
+        device: _ctx.device,
+        module: _mod,
       }
       drop_null_fields
     }

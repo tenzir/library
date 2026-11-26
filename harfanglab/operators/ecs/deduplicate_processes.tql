@@ -2,8 +2,8 @@
 description: |
   Deduplicates HarfangLab process start documents (`event.category`
   `process` with `event.type` `start` or `creation`) per window, host,
-  executable, command line, users and groups, and parent executable. Other
-  documents, including process access documents, pass through unchanged.
+  executable, command line, users and groups, and parent. Other documents,
+  including process access documents, pass through unchanged.
 
   The first start of every key in a window passes through immediately and
   unchanged, with all its identifiers. Further starts of the key in the same
@@ -16,16 +16,19 @@ description: |
   the number of repeats, which excludes the first start. Only summaries have
   `tenzir.count`.
 
-  The key covers the executable's path, name, hashes, and code signature, the
-  effective, real, and saved user and group, and the parent's executable.
-  Attributes that differ between repeats don't appear in a summary: the
-  entity ID, and the parent's entity ID, command line, and parent. The
-  process ID, the parent's process ID, and the working directory appear only
-  if all repeats had the same one.
+  The key covers the executable, name, and command line, the hashes, code
+  signature, and PE header, the effective, real, and saved users and groups,
+  and the parent's executable and command line. The summary of a single
+  repeat keeps its process ID and entity ID. The working directory and the
+  parent's process ID and entity ID appear only if all repeats had the same
+  ones. The parent's parent doesn't appear in a summary.
+
+  The summary takes the host, agent, and organization from the first document
+  of the host with the same users and groups in the window.
 
   Windows close on the wall clock every `window`, and every summary covers at
   most one `window` of event time. The package description explains the
-  windowing and how a SIEM counts summaries.
+  windowing, the memory it needs, and how a SIEM counts summaries.
 args:
   named:
     - name: window
@@ -35,91 +38,119 @@ args:
         time.
 ---
 
+// `$window` names the argument only outside the `window` block.
 if event.category?.first() == "process" and (
     "start" in event.type or "creation" in event.type) {
   _host = host?.id? else agent?.id? else host?.hostname?
   _time = time(this["@timestamp"]?)
   _bucket = _time.floor($window)
+  // Every group key and aggregate costs memory per summary. The summaries
+  // therefore group by digests: `_ids` covers the values that few documents
+  // of a host share, and `_binary` the executable's hashes, code signature,
+  // and PE header, which are the same on many hosts. The values behind the
+  // digests come from one context record per host and `_ids` and one record
+  // per `_binary`. The host, agent, and organization come from the first
+  // document of the context.
+  _ids = hash_xxh3([host?.id?, host?.hostname?, agent?.id?, agent?.name?,
+    event?.kind?, event?.type?, process?.user?, process?.real_user?,
+    process?.saved_user?, process?.group?, process?.real_group?,
+    process?.saved_group?])
+  _binary = hash_md5([process?.hash?, process?.code_signature?,
+    process?.pe?])
+  // Repeats of a key are distinct processes, so their process IDs and entity
+  // IDs differ, while their parent and working directory may be the same.
+  // One digest tells whether all repeats had the same ones, because a string
+  // has no `min` and `max`.
+  _parent = uint(hash_xxh3([process?.working_directory?,
+    process?.parent?.pid?, process?.parent?.entity_id?]), base=16)
   window size=$window {
-    // A digest of the keys keeps the state of the first-occurrence check
-    // small. The summary below groups by the same keys.
-    _key = hash_md5([_host, _bucket, process?.executable?, process?.name?,
-      process?.command_line?, process?.user?.id?, process?.user?.name?,
-      process?.real_user?.id?, process?.saved_user?.id?,
-      process?.group?.id?, process?.real_group?.id?, process?.saved_group?.id?,
-      process?.hash?.sha256?, process?.hash?.sha1?, process?.hash?.md5?,
-      process?.code_signature?.valid?, process?.code_signature?.subject_name?,
-      process?.parent?.executable?])
+    // The digest covers the same keys as the summary below. Keep both lists
+    // identical, so that every summary belongs to one first occurrence.
+    _key = hash_md5([_host, _bucket, _ids, _binary, process?.executable?,
+      process?.name?, process?.command_line?, process?.parent?.executable?,
+      process?.parent?.command_line?])
     summarize _key, _seen=count(), options={mode: "cumulative"}
     if _seen == 1 {
-      drop _key, _host, _time, _bucket, _seen
+      drop _key, _host, _time, _bucket, _ids, _binary, _parent, _seen
     } else {
-      // All keys are scalars. The records come from the first repeat: the
-      // host, agent, and organization belong to the host, the users and
-      // groups to their keyed IDs, and the hash, code signature, and PE
-      // header to the keyed hashes.
-      summarize _host, _bucket, event?.kind?, event?.type?,
-        process?.executable?, process?.name?, process?.command_line?,
-        process?.user?.id?, process?.user?.name?,
-        process?.real_user?.id?, process?.saved_user?.id?,
-        process?.group?.id?, process?.real_group?.id?,
-        process?.saved_group?.id?,
-        process?.hash?.sha256?, process?.hash?.sha1?, process?.hash?.md5?,
-        process?.code_signature?.valid?,
-        process?.code_signature?.subject_name?,
-        process?.parent?.executable?,
-        count=count(), start=min(_time), end=max(_time),
-        _host_record=first(host?), _agent=first(agent?),
-        _organization=first(organization?), _ecs=first(ecs?),
-        _user=first(process?.user?), _real_user=first(process?.real_user?),
-        _saved_user=first(process?.saved_user?),
-        _group=first(process?.group?), _real_group=first(process?.real_group?),
-        _saved_group=first(process?.saved_group?),
-        _hash=first(process?.hash?),
-        _code_signature=first(process?.code_signature?),
-        _pe=first(process?.pe?),
-        _pid_min=min(process?.pid?), _pid_max=max(process?.pid?),
-        _pid_count=count(process?.pid?),
-        _ppid_min=min(process?.parent?.pid?),
-        _ppid_max=max(process?.parent?.pid?),
-        _ppid_count=count(process?.parent?.pid?),
-        _directories=distinct(process?.working_directory?),
-        _directory_count=count(process?.working_directory?)
+      fork_merge {
+        summarize _host, _bucket, _ids, _binary, process?.executable?,
+          process?.name?, process?.command_line?,
+          process?.parent?.executable?, process?.parent?.command_line?,
+          count=count(), start=min(_time), end=max(_time),
+          _pid=first(process?.pid?), _entity=first(process?.entity_id?),
+          _directory=first(process?.working_directory?),
+          _ppid=first(process?.parent?.pid?),
+          _parent_entity=first(process?.parent?.entity_id?),
+          _parent_min=min(_parent), _parent_max=max(_parent)
+      }, {
+        summarize _host, _ids, _context=first({
+          agent: agent?,
+          ecs: ecs?,
+          kind: event?.kind?,
+          type: event?.type?,
+          host: host?,
+          organization: organization?,
+          user: process?.user?,
+          real_user: process?.real_user?,
+          saved_user: process?.saved_user?,
+          group: process?.group?,
+          real_group: process?.real_group?,
+          saved_group: process?.saved_group?,
+        })
+      }, {
+        summarize _binary, _object=first({
+          hash: process?.hash?,
+          code_signature: process?.code_signature?,
+          pe: process?.pe?,
+        })
+      }
+      // Each context and binary record sorts before the summaries that it
+      // belongs to, so a running `first` hands it to each of them.
+      sort _host?, _ids?, _context? == null
+      summarize _host?, _ids?, _ctx=first(_context?),
+        options={mode: "cumulative"}
+      sort _binary?, _object? == null
+      summarize _binary?, _bin=first(_object?), options={mode: "cumulative"}
+      where _context? == null and _object? == null
+      _single = count == 1
+      _same_parent = _parent_min == _parent_max
       this = {
         "@timestamp": start,
-        agent: _agent,
-        ecs: _ecs,
+        agent: _ctx.agent,
+        ecs: _ctx.ecs,
         event: {
           category: ["process"],
-          kind: event.kind,
-          type: event.type,
+          kind: _ctx.kind,
+          type: _ctx.type,
           start: start,
           end: end,
           duration: int((end - start) / 1ns),
         },
-        host: _host_record,
-        organization: _organization,
+        host: _ctx.host,
+        organization: _ctx.organization,
         process: {
-          ...process,
-          pid: _pid_min
-            if _pid_min == _pid_max and _pid_count == count else null,
-          user: _user,
-          real_user: _real_user,
-          saved_user: _saved_user,
-          group: _group,
-          real_group: _real_group,
-          saved_group: _saved_group,
-          hash: _hash,
-          code_signature: _code_signature,
-          pe: _pe,
-          working_directory: _directories[0]
-            if _directories.length() == 1 and _directory_count == count
-            else null,
+          code_signature: _bin.code_signature,
+          command_line: process.command_line,
+          entity_id: _entity if _single else null,
+          executable: process.executable,
+          group: _ctx.group,
+          hash: _bin.hash,
+          name: process.name,
           parent: {
-            ...process.parent,
-            pid: _ppid_min
-              if _ppid_min == _ppid_max and _ppid_count == count else null,
+            command_line: process.parent.command_line,
+            entity_id: _parent_entity if _same_parent else null,
+            executable: process.parent.executable,
+            pid: _ppid if _same_parent else null,
           },
+          pe: _bin.pe,
+          pid: _pid if _single else null,
+          real_group: _ctx.real_group,
+          real_user: _ctx.real_user,
+          saved_group: _ctx.saved_group,
+          saved_user: _ctx.saved_user,
+          user: _ctx.user,
+          working_directory: _directory if _same_parent else null,
         },
         tenzir: {count: count},
       }
