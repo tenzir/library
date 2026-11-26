@@ -17,12 +17,19 @@ description: |
   loads came from the same one, and `unmapped.distinct_actor_pids` holds the
   number of distinct loading process IDs.
 
-  Windows use event time from `time`, aligned to the Unix epoch, with a
-  separate clock per host, so a host with a skewed clock or a backlog doesn't
-  close the windows of other hosts. A window closes once its host sends an
-  event past the window end plus `tolerance`, after `window` without any
-  event from the host, or when the input ends. The operator drops events that
-  arrive after their window closed, with a warning.
+  Windows follow processing time by default, so every event counts. HarfangLab
+  delivers events late and out of order, for example process starts from weeks
+  ago when an agent reconnects. The window then only decides which events
+  share a result, and the times of the result still come from the events. Set
+  `event_time=true` to window by `time` instead, for example to replay stored
+  events. Event-time windows align to the Unix epoch and keep a separate clock
+  per host, so one host with a skewed clock doesn't close the windows of the
+  others, but they drop events that arrive more than `tolerance` after their
+  window ended, with a warning.
+
+  A window closes once its host sends another event after the window
+  end plus `tolerance`, after `window` without any event from the host,
+  or when the input ends.
 args:
   named:
     - name: window
@@ -32,15 +39,19 @@ args:
     - name: tolerance
       type: duration
       default: 5min
-      description: How long a window waits for late events of its host.
+      description: How long an event-time window waits for late events.
+    - name: event_time
+      type: bool
+      default: false
+      description: Window by `time` instead of processing time.
 ---
 
 if class_uid == 1005 {
   // The outer grouping gives every host its own event-time clock and keeps
   // the device and metadata records out of the per-window state.
   group {device: device, metadata: metadata} {
-    window size=$window, on=from_epoch(time * 1ms), tolerance=$tolerance,
-           idle_timeout=$window {
+    window size=$window, on=(from_epoch(time * 1ms) if $event_time else now()),
+           tolerance=$tolerance, idle_timeout=$window {
       summarize activity_id, activity_name?, type_uid, severity_id,
         severity?, module.file, module.load_type_id?,
         module.type?, module.function_name?,

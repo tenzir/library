@@ -17,12 +17,19 @@ description: |
   The result keeps the executable of the loading process only if all loads
   came from the same one.
 
-  Windows use event time from `@timestamp`, aligned to the Unix epoch, with a
-  separate clock per host, so a host with a skewed clock or a backlog doesn't
-  close the windows of other hosts. A window closes once its host sends a
-  document past the window end plus `tolerance`, after `window` without any
-  document from the host, or when the input ends. The operator drops
-  documents that arrive after their window closed, with a warning.
+  Windows follow processing time by default, so every document counts.
+  HarfangLab delivers documents late and out of order, for example process
+  starts from weeks ago when an agent reconnects. The window then only decides
+  which documents share a result, and the times of the result still come from
+  the documents. Set `event_time=true` to window by `@timestamp` instead, for
+  example to replay stored documents. Event-time windows align to the Unix
+  epoch and keep a separate clock per host, so one host with a skewed clock
+  doesn't close the windows of the others, but they drop documents that arrive
+  more than `tolerance` after their window ended, with a warning.
+
+  A window closes once its host sends another document after the window
+  end plus `tolerance`, after `window` without any document from the host,
+  or when the input ends.
 args:
   named:
     - name: window
@@ -32,15 +39,20 @@ args:
     - name: tolerance
       type: duration
       default: 5min
-      description: How long a window waits for late documents of its host.
+      description: How long an event-time window waits for late documents.
+    - name: event_time
+      type: bool
+      default: false
+      description: Window by `@timestamp` instead of processing time.
 ---
 
 if event.category?.first() == "library" {
   // The outer grouping gives every host its own event-time clock and keeps
   // the host and agent records out of the per-window state.
   group {host: host, agent: agent, organization: organization?} {
-    window size=$window, on=time(this["@timestamp"]), tolerance=$tolerance,
-           idle_timeout=$window {
+    window size=$window,
+           on=(time(this["@timestamp"]) if $event_time else now()),
+           tolerance=$tolerance, idle_timeout=$window {
       summarize event.kind, event.type, dll, file.size?,
         count=count(), start=min(time(this["@timestamp"])),
         end=max(time(this["@timestamp"])),

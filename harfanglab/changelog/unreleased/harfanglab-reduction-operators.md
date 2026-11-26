@@ -26,4 +26,6 @@ harfanglab::ocsf::reduce
 Each operator exists as `harfanglab::ocsf::…` and `harfanglab::ecs::…`. The
 results stay events of the same OCSF class or ECS category. OCSF results
 carry `count`, `start_time`, and `end_time`, ECS results `event.start`,
-`event.end`, and `tenzir.count`.
+`event.end`, and `tenzir.count`. Windows follow processing time, because
+HarfangLab delivers events late and out of order. Pass `event_time=true` to
+window by event time instead, for example for a replay.
