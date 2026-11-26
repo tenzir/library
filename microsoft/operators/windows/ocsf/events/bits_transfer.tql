@@ -16,14 +16,7 @@ $ocsf.class_uid = 4002
 $ocsf.activity_id = 99  // The job direction is not part of the event.
 $ocsf.activity_name = "Transfer"
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-$ocsf.http_request = {
-  url: {
-    url_string: move $windows.EventData.RemoteName,
-  },
-}
-$ocsf.http_request.url.scheme = $ocsf.http_request.url.url_string.split(":")[0]?
-$ocsf.http_request.url.hostname = $ocsf.http_request.url.url_string.split("/")[2]?.split(":")[0]?
-$ocsf.http_request.url.path = f"/{$ocsf.http_request.url.url_string.split("/").slice(begin=3).join("/")}"
+microsoft::windows::ocsf::url $windows.EventData.RemoteName, $ocsf.http_request.url
 $ocsf.file = {
   path: move $windows.EventData.LocalName,
   type_id: 1,
@@ -33,12 +26,15 @@ $ocsf.actor = {
   process: {
     pid: (move $windows.EventData.processId?).int(),
     path: move $windows.EventData.processPath?,
-    file: {type_id: 8},
   },
 }
+// The transfer job parameters do not always name the process image.
 if $ocsf.actor.process.path? != null {
-  $ocsf.actor.process.name = $ocsf.actor.process.path.split("\\")[-1]
-  $ocsf.actor.process.file.name = $ocsf.actor.process.name
-  $ocsf.actor.process.file.path = $ocsf.actor.process.path
+  $ocsf.actor.process.file = {
+    type_id: 8,
+    name: $ocsf.actor.process.path.split("\\")[-1],
+    path: $ocsf.actor.process.path,
+  }
+  $ocsf.actor.process.name = $ocsf.actor.process.file.name
 }
 $ocsf.connection_info = {direction_id: 2}  // Outbound

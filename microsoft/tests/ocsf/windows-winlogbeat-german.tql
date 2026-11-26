@@ -1,0 +1,21 @@
+// Winlogbeat on German Windows renders keywords, tokens, and levels in
+// German, such as `Überwachung erfolgreich` and the WFP direction `Ausgehend`
+// as in the rendered messages of German Windows. The audit outcome in the
+// keywords and the direction must not get lost, and `parse_json(raw=true)`
+// must keep the time. With `include_xml: true`, the event comes from the event
+// XML and matches the natively collected event.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+event = line.parse_json(raw=true)
+microsoft::windows::ocsf::normalize event, into=ocsf
+this = ocsf_cast(ocsf_derive(ocsf))
+select xml = raw_data != null,
+  time,
+  status,
+  status_detail,
+  log_level = metadata.log_level,
+  logon_process = logon_process?.name?,
+  keywords = unmapped.System.Keywords?,
+  direction_id = connection_info?.direction_id?,
+  src_ip = src_endpoint?.ip?

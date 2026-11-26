@@ -1,0 +1,25 @@
+---
+description: |
+  Maps the user and client of a TerminalServices LocalSessionManager event to
+  an OCSF event.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF user and endpoints.
+---
+
+// The session manager names the account as `DOMAIN\name` and the client by
+// its address, which is `LOCAL` for a console session, and omits it for a
+// logoff. The Windows session ID stays in unmapped, because it differs from
+// the logon ID of the Security log's session.
+if $windows.UserData.EventXML.User? != null {
+  microsoft::windows::ocsf::account $windows.UserData.EventXML.User, $ocsf.user
+}
+$ocsf.dst_endpoint = {hostname: $ocsf.device.hostname}
+if $windows.UserData.EventXML.Address?.ip() != null {
+  $ocsf.src_endpoint = {ip: (move $windows.UserData.EventXML.Address).ip()}
+}

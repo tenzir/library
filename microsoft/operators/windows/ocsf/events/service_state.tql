@@ -17,16 +17,31 @@ args:
 @name = "ocsf.application_lifecycle"
 $ocsf.category_uid = 6
 $ocsf.class_uid = 6002
-// param1 is the service display name and param2 the localized state.
-// Application Lifecycle has no activity for other states, such as paused,
-// which map to Other with the source state as the activity name.
-let $activities = {
+// param1 is the service display name and param2 the new state in the
+// language of the system, such as `running` or `Ausgeführt` on German
+// Windows, also when the message renders in another language. Binary holds
+// the service key name and the state code as UTF-16 hex, such as `Spooler/4`,
+// where the code does not depend on the language: 1 is stopped and 4 running.
+// Without Binary, the English or German state text decides. Application
+// Lifecycle has no activity for other states, such as paused, which map to
+// Other with the source state as the activity name.
+let $codes = {
+  "1": {id: 4, name: "Stop"},
+  "4": {id: 3, name: "Start"},
+}
+let $states = {
   running: {id: 3, name: "Start"},
   stopped: {id: 4, name: "Stop"},
+  "ausgeführt": {id: 3, name: "Start"},
+  beendet: {id: 4, name: "Stop"},
 }
+_code = $windows.EventData.Binary?.to_upper().replace_regex(r"^(?:[0-9A-F]{4})*2F003([0-9])000000$", r"\1")
+_activity = $codes[_code]? if _code?.length_bytes() == 1 else null
+_activity = _activity else $states[$windows.EventData.param2?.to_lower()]?
 $ocsf.activity_name = move $windows.EventData.param2
-$ocsf.activity_id = $activities[$ocsf.activity_name.to_lower()]?.id? else 99
-$ocsf.activity_name = $activities[$ocsf.activity_name.to_lower()]?.name? else $ocsf.activity_name
+$ocsf.activity_id = _activity.id? else 99
+$ocsf.activity_name = _activity.name? else $ocsf.activity_name
+drop _code, _activity
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 $ocsf.status_id = 1  // Success
 $ocsf.application = {
@@ -42,6 +57,4 @@ $ocsf.actor = {
   },
 }
 drop $windows.System.Execution?
-// Binary holds the service key name and the new state as UTF-16 hex, such as
-// `WinDefend/1`, and stays in unmapped. Only collectors that ship it, such as
-// Winlogbeat, report it; Windows Event XML parsing drops it.
+// Binary stays in unmapped. NXLog Community Edition drops it.

@@ -31,6 +31,9 @@ if $ocsf.win_service.cmd_line? != null {
   $ocsf.win_service.service_file.type_id = 8
 }
 
+// Windows writes the service and start types in the language of the system,
+// such as `Benutzermodusdienst` and `Manuell starten` on German Windows, also
+// when the message renders in another language.
 _service_type = move $windows.EventData.ServiceType?
 match _service_type?.to_lower() {
   "kernel mode driver" => {
@@ -49,7 +52,7 @@ match _service_type?.to_lower() {
     $ocsf.win_service.service_category_id = 2
     $ocsf.win_service.service_type_id = 4
   }
-  "user mode service" => { $ocsf.win_service.service_category_id = 2 }
+  "user mode service" | "benutzermodusdienst" => { $ocsf.win_service.service_category_id = 2 }
   _ => {
     if _service_type? != null {
       $ocsf.win_service.service_category_id = 99
@@ -63,8 +66,8 @@ match _start_type?.to_lower() {
   "boot start" => { $ocsf.win_service.service_start_type_id = 1 }
   "system start" => { $ocsf.win_service.service_start_type_id = 2 }
   "auto start" => { $ocsf.win_service.service_start_type_id = 3 }
-  "demand start" => { $ocsf.win_service.service_start_type_id = 4 }
-  "disabled" => { $ocsf.win_service.service_start_type_id = 5 }
+  "demand start" | "manuell starten" => { $ocsf.win_service.service_start_type_id = 4 }
+  "disabled" | "deaktiviert" => { $ocsf.win_service.service_start_type_id = 5 }
   _ => {
     if _start_type? != null {
       $ocsf.win_service.service_start_type_id = 99

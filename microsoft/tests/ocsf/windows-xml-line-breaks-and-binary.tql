@@ -1,0 +1,18 @@
+// Windows Event XML keeps the line breaks of event data values, such as the
+// lines of a PowerShell script block, also in nested user data, and the binary
+// event data of Service Control Manager events, which holds the service name
+// and its new state. Events with user data have no binary data.
+from {
+  data: "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-PowerShell' Guid='{a0c1853b-5c40-4b15-8766-3cf1c58f985a}'/><EventID>4104</EventID><Version>1</Version><Level>5</Level><Task>2</Task><Opcode>15</Opcode><Keywords>0x0</Keywords><TimeCreated SystemTime='2026-03-02T09:15:00.1234567Z'/><EventRecordID>4101</EventRecordID><Correlation ActivityID='{11111111-2222-3333-4444-555555555555}'/><Execution ProcessID='4242' ThreadID='4243'/><Channel>Microsoft-Windows-PowerShell/Operational</Channel><Computer>ws01.example.com</Computer><Security UserID='S-1-5-21-1000000001-1000000002-1000000003-1104'/></System><EventData><Data Name='MessageNumber'>1</Data><Data Name='MessageTotal'>1</Data><Data Name='ScriptBlockText'>$a = 1&#13;&#10;$b = 2\n  Write-Output ($a + $b)</Data><Data Name='ScriptBlockId'>{66666666-7777-8888-9999-000000000000}</Data><Data Name='Path'></Data></EventData></Event>",
+}, {
+  data: "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>\n  <System>\n    <Provider Name='Service Control Manager' Guid='{555908d1-a6d7-4695-8e1e-26931d2012f4}' EventSourceName='Service Control Manager'/>\n    <EventID Qualifiers='16384'>7036</EventID>\n    <Version>0</Version>\n    <Level>4</Level>\n    <Task>0</Task>\n    <Opcode>0</Opcode>\n    <Keywords>0x8080000000000000</Keywords>\n    <TimeCreated SystemTime='2026-03-02T09:16:00.0000000Z'/>\n    <EventRecordID>7036</EventRecordID>\n    <Correlation/>\n    <Execution ProcessID='700' ThreadID='701'/>\n    <Channel>System</Channel>\n    <Computer>ws01.example.com</Computer>\n    <Security/>\n  </System>\n  <EventData>\n    <Data Name='param1'>Print Spooler</Data>\n    <Data Name='param2'>running</Data>\n    <Binary>530070006F006F006C00650072002F0034000000</Binary>\n  </EventData>\n</Event>\n",
+}, {
+  data: "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Example-Provider'/><EventID>9001</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x8000000000000000</Keywords><TimeCreated SystemTime='2026-03-02T09:17:00.0000000Z'/><EventRecordID>9001</EventRecordID><Correlation/><Execution ProcessID='1' ThreadID='2'/><Channel>Application</Channel><Computer>ws01.example.com</Computer><Security/></System><UserData><EventXML xmlns='Event_NS'><Outer><Inner>first line&#10;second line</Inner></Outer><Flat>a&#13;&#10;b&#13;&#10;\t\t</Flat></EventXML></UserData></Event>",
+}
+microsoft::windows::ocsf::normalize data
+this = {
+  event_code: metadata.event_code,
+  script: script?.script_content?.value?,
+  binary: unmapped.EventData?.Binary?,
+  user_data: unmapped.UserData?,
+}

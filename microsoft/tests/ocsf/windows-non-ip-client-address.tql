@@ -1,0 +1,13 @@
+// Windows may name the client by something other than an IP address, such as
+// a host name or `LOCAL` for a console session. Such a value stays in
+// unmapped instead of vanishing, while IP addresses map to the endpoint.
+from_file f"{env("TENZIR_INPUTS")}/eid-4768.xml" {
+  read_all
+}
+cases = ["10.0.0.42", "::ffff:198.51.100.7", "ws05", "LOCAL"]
+unroll cases
+data = data.replace("<Data Name=\"IpAddress\">10.0.0.42</Data>", f"<Data Name=\"IpAddress\">{cases}</Data>")
+microsoft::windows::ocsf::normalize data, into=ocsf
+select address = cases,
+  ip = ocsf.src_endpoint?.ip?,
+  unmapped = ocsf.unmapped.EventData?.IpAddress?

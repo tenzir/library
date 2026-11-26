@@ -1,0 +1,37 @@
+// Winlogbeat records with event XML read the event from the XML. A truncated
+// XML falls back to Winlogbeat's fields, and the rendered message and level
+// come from Winlogbeat when the XML has no rendering.
+let $system = "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Service Control Manager' Guid='{555908d1-a6d7-4695-8e1e-26931d2012f4}' EventSourceName='Service Control Manager'/><EventID Qualifiers='16384'>7036</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x8080000000000000</Keywords><TimeCreated SystemTime='2026-03-03T08:00:01.1234567Z'/><EventRecordID>70361</EventRecordID><Correlation/><Execution ProcessID='700' ThreadID='710'/><Channel>System</Channel><Computer>ws03.example.com</Computer><Security/></System>"
+from {case: "xml", original: $system + "<EventData><Data Name='param1'>Print Spooler</Data><Data Name='param2'>running</Data><Binary>530070006F006F006C00650072002F0034000000</Binary></EventData></Event>"},
+  {case: "truncated xml", original: $system + "<EventData><Data Name='param1'>Print Spooler</Data><Data Name='param2'>runn"},
+  {case: "no xml", original: null}
+event = {
+  "@timestamp": "2026-03-03T08:00:01.123Z",
+  agent: {name: "WS03", type: "winlogbeat", version: "9.5.2"},
+  host: {name: "WS03"},
+  log: {level: "information"},
+  message: "The Print Spooler service entered the running state.",
+  event: {original: original, created: "2026-03-03T08:00:02.000Z"},
+  winlog: {
+    channel: "System",
+    computer_name: "ws03.example.com",
+    event_id: "7036",
+    provider_name: "Service Control Manager",
+    provider_guid: "{555908d1-a6d7-4695-8e1e-26931d2012f4}",
+    record_id: "70361",
+    process: {pid: "700", thread: {id: "710"}},
+    keywords: ["Classic"],
+    event_data: {param1: "Print Spooler", param2: "running", Binary: "530070006F006F006C00650072002F0034000000"},
+  },
+}
+microsoft::windows::ocsf::normalize event, into=ocsf
+this = {case: case, ocsf: ocsf_cast(ocsf)}
+select case,
+  class_uid = ocsf.class_uid,
+  activity = ocsf.activity_name,
+  application = ocsf.application.name,
+  message = ocsf.message,
+  time = ocsf.time,
+  log_level = ocsf.metadata.log_level,
+  rendering = ocsf.unmapped.RenderingInfo?,
+  winlogbeat = ocsf.unmapped.Winlogbeat?

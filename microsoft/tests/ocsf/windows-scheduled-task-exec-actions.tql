@@ -1,0 +1,15 @@
+// A registered task (4698) lists every Exec action of its definition as a job
+// action with its working directory. A bare command names the file without a
+// path, and a quoted command keeps its quotes in the command line.
+from_file f"{env("TENZIR_INPUTS")}/eid-4698.xml" {
+  read_all
+}
+cases = [
+  "<Exec><Command>C:\\Tools\\collect.exe</Command><Arguments>-q &quot;C:\\Logs&quot;</Arguments><WorkingDirectory>C:\\Tools</WorkingDirectory></Exec><Exec><Command>cmd.exe</Command><Arguments>/c exit</Arguments></Exec>",
+  "<Exec><Command>&quot;C:\\Program Files\\Example\\agent.exe&quot;</Command></Exec>",
+]
+unroll cases
+windows = data.parse_winlog()
+windows.EventData.TaskContent = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions Context=\"Author\">" + cases + "</Actions></Task>"
+microsoft::windows::ocsf::normalize windows, into=ocsf
+select job_actions = ocsf.job.job_actions

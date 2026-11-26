@@ -1,0 +1,35 @@
+---
+description: Service Failed to Start (EID 7000) → OCSF Application Lifecycle (6002, Start/Failure)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+---
+
+// The service control manager could not start a service. Like a service that
+// stopped with an error (7023), the event names neither the service
+// configuration nor a process or account that caused it, so it maps to a
+// failed start of the service application.
+@name = "ocsf.application_lifecycle"
+
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+$ocsf.activity_id = 3  // Start
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+$ocsf.status_id = 2  // Failure
+$ocsf.severity_id = 3  // Medium
+
+// param1 is the service display name and param2 the rendered error message.
+// Windows Event XML may report the message as a token of the system message
+// table, such as `%%2` for a missing file, which stays unchanged.
+$ocsf.application = {
+  name: move $windows.EventData.param1,
+  type: "Windows Service",
+}
+$ocsf.status_detail = move $windows.EventData.param2?
+// Binary holds the service key name as UTF-16 hex and stays in unmapped.
+// NXLog Community Edition drops it.

@@ -1,0 +1,79 @@
+---
+description: |
+  Parses a Windows Event Log event from its XML representation to the
+  canonical Windows Event Log structure, keeping the line breaks of values and
+  the binary event data.
+args:
+  positional:
+    - name: input
+      type: field
+      description: The Windows Event XML.
+    - name: windows
+      type: field
+      description: The field that receives the canonical Windows Event Log record.
+---
+
+// Windows writes every event data value as text. Parse it with `raw=true`, so
+// that each value stays a string instead of a guessed type, such as an integer
+// for a hex value without letters or an IP address for a file version. The
+// mappings convert the values that an OCSF field needs explicitly.
+//
+// `parse_winlog` drops line breaks in values, such as those between the lines
+// of a PowerShell script block, so replace them with private-use characters
+// that Windows does not write before parsing, and restore them afterwards at
+// any depth of the event data. Line breaks between elements, such as those of
+// indented XML, are formatting, not content. Like `parse_winlog`, drop a final
+// line break and the whitespace after it, such as the indentation after the
+// last item of an access list, but keep a leading line break, which belongs to
+// the value.
+$windows = (
+  $input
+    .trim()
+    .replace_regex(r">\s*[\r\n]\s*<", "><")
+    .replace_regex(r"&#(13|[xX]0*[dD]);", "\r")
+    .replace_regex(r"&#(10|[xX]0*[aA]);", "\n")
+    .replace("\r", "\u{E000}")
+    .replace("\n", "\u{E001}")
+    .parse_winlog(raw=true)
+)
+// The JSON form of a section holds its strings at any depth. A line break and
+// the spaces and tabs after it end a string when a quote follows.
+if type_kind($windows.EventData?) == "record" {
+  _json = $windows.EventData.print_json()
+  if _json.match_regex("[\u{E000}\u{E001}]") {
+    $windows.EventData = (
+      _json
+        .replace_regex("[\u{E000}\u{E001}](?:[ ]|\\\\t|[\u{E000}\u{E001}])*\"", "\"")
+        .replace("\u{E000}", "\\r")
+        .replace("\u{E001}", "\\n")
+        .parse_json(raw=true)
+    )
+  }
+  drop _json
+}
+if type_kind($windows.UserData?) == "record" {
+  _json = $windows.UserData.print_json()
+  if _json.match_regex("[\u{E000}\u{E001}]") {
+    $windows.UserData = (
+      _json
+        .replace_regex("[\u{E000}\u{E001}](?:[ ]|\\\\t|[\u{E000}\u{E001}])*\"", "\"")
+        .replace("\u{E000}", "\\r")
+        .replace("\u{E001}", "\\n")
+        .parse_json(raw=true)
+    )
+  }
+  drop _json
+}
+// `parse_winlog` also drops the line breaks of a rendered message, which
+// separate its title from the details, so read the message from the XML text.
+if $windows.RenderingInfo?.Message? != null and $input.match_regex(r"<Message>[\s\S]*?</Message>") {
+  $windows.RenderingInfo.Message = $input.replace_regex(r"^[\s\S]*?<Message>([\s\S]*?)</Message>[\s\S]*$", r"\1").replace_regex(r"&#(13|[xX]0*[dD]);", "\r").replace_regex(r"&#(10|[xX]0*[aA]);", "\n").replace_regex(r"&#(9|[xX]0*9);", "\t").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+}
+// `parse_winlog` drops the binary event data, such as the service name and
+// state of Service Control Manager events. Keep its hex digits as `Binary`, the
+// name under which collectors such as Winlogbeat report it.
+// Windows writes the binary data inside EventData, so events with UserData
+// have none.
+if $windows.UserData? == null and $input.match_regex(r"<Binary>[0-9A-Fa-f]+</Binary>") and $windows.EventData?.Binary? == null {
+  $windows.EventData.Binary = $input.replace_regex(r"^[\s\S]*?<Binary>([0-9A-Fa-f]+)</Binary>[\s\S]*$", r"\1")
+}

@@ -1,0 +1,35 @@
+---
+description: |
+  BITS-Client 59, 60, and 61 (a transfer of a job's URL started, stopped, or
+  failed) → OCSF HTTP Activity (4002)
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_name
+      description: The source activity, which HTTP Activity has no activity for.
+      type: string
+---
+
+// Like the transfer job parameters (16403), the events name the URL, but not
+// the HTTP method or response.
+@name = "ocsf.http_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4002
+$ocsf.activity_id = 99  // Other
+$ocsf.activity_name = $activity_name
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+microsoft::windows::ocsf::url $windows.EventData.url, $ocsf.http_request.url
+$ocsf.connection_info = {direction_id: 2}  // Outbound
+// A stopped (60) or failed (61) transfer reports its result as an HRESULT
+// in decimal, where 0 means success. The job, its transfer, and the byte
+// counts stay in unmapped.
+if $windows.EventData.hr? != null {
+  $ocsf.status_code = move $windows.EventData.hr
+  $ocsf.status_id = 1 if $ocsf.status_code == "0" else 2
+}

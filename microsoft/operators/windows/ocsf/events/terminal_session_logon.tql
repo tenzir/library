@@ -1,0 +1,35 @@
+---
+description: |
+  Maps a Remote Desktop Services session logon (21) or logoff (23) of the
+  TerminalServices LocalSessionManager to OCSF Authentication.
+args:
+  positional:
+    - name: windows
+      type: field
+      description: The Windows event to map.
+    - name: ocsf
+      type: field
+      description: The field that receives the OCSF event.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF authentication activity identifier.
+---
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// The session manager writes these events only when the logon or logoff
+// succeeded.
+$ocsf.status_id = 1
+microsoft::windows::ocsf::terminal_session $windows, $ocsf
+// Remote Desktop clients connect from an address, while console sessions
+// report `LOCAL`.
+if $ocsf.src_endpoint?.ip? != null {
+  $ocsf.is_remote = true
+} else if $windows.UserData.EventXML.Address? == "LOCAL" {
+  $ocsf.is_remote = false
+  drop $windows.UserData.EventXML.Address
+}
