@@ -1,0 +1,45 @@
+---
+description: |
+  Maps a Microsoft Defender Antivirus scan that started (1000), completed
+  (1001), or was cancelled (1002) to OCSF Scan Activity.
+args:
+  positional:
+    - name: windows
+      description: The Windows event to map.
+      type: field
+    - name: ocsf
+      description: The field that receives the OCSF event.
+      type: field
+  named:
+    - name: activity_id
+      description: The OCSF scan activity identifier.
+      type: int
+---
+
+@name = "ocsf.scan_activity"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6007
+$ocsf.activity_id = $activity_id
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+// Scan Parameters names the kind of scan, such as `Quick Scan`, `Full Scan`,
+// or `Custom Scan`, which OCSF scan types do not distinguish. Scan Type names
+// the engine, such as `Antimalware`, and the scan trigger stays in unmapped.
+$ocsf.scan = {
+  uid: move $windows.EventData["Scan ID"]?,
+  type: move $windows.EventData["Scan Parameters"]?,
+  type_id: 99,  // Other
+}
+// The account that started, or for 1002 cancelled, the scan.
+if $windows.EventData.User? != null {
+  $ocsf.actor = {
+    user: {
+      name: move $windows.EventData.User,
+      domain: move $windows.EventData.Domain?,
+      uid: move $windows.EventData.SID?,
+    },
+  }
+}
+// The Defender platform reports its version.
+$ocsf.metadata.product.version = move $windows.EventData["Product Version"]?
+// "Product Name" is redundant with metadata.product.name.
+drop $windows.EventData["Product Name"]?
