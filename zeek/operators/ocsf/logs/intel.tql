@@ -47,17 +47,21 @@ let $indicator_types = {
 }
 if $event.seen?.indicator? != null {
   $ocsf.metadata.profiles = ["osint"]
-  $event.indicator = {
+  $event._indicator = {
     value: move $event.seen.indicator,
     type_id: $indicator_types[$event.seen.indicator_type?]? else 0,
   }
-  if $event.indicator.type_id != 0 {
+  if $event._indicator.type_id != 0 {
     drop $event.seen.indicator_type
+  } else if $event.seen.indicator_type? == "Intel::SOFTWARE" and $event.seen.where? == "HTTP::IN_USER_AGENT_HEADER" {
+    // Zeek matches software indicators against the User-Agent header. The
+    // indicator type stays, as OCSF names only the header.
+    $event._indicator.type_id = 6
   } else if $event.seen.indicator_type? != null {
-    $event.indicator.type_id = 99
-    $event.indicator.type = move $event.seen.indicator_type
+    $event._indicator.type_id = 99
+    $event._indicator.type = move $event.seen.indicator_type
   }
-  $ocsf.osint = [move $event.indicator]
+  $ocsf.osint = [move $event._indicator]
 }
 
 // The connection of a match is the evidence. The sources of the indicators,
@@ -69,19 +73,33 @@ if $event.id?.orig_h? != null {
   }
   drop $event.id
 }
-// A file needs a name, which only the file description provides.
-if $event.file_desc? != null {
+// Zeek describes the file by its source: a URL for HTTP and FTP, such as
+// `ftp://ftp.example/report.pdf`, the path of an SMB file, or the envelope
+// and subject of a mail, such as `<a@example> -> <b@example>: Invoice`. Only
+// URLs and paths name the file. Other descriptions keep their original key.
+if $event.fuid? != null or $event.file_desc? != null {
   $event._evidence.file = {
-    name: $event.file_desc.file_name(),
-    path: $event.file_desc if not $event.file_desc.starts_with("http") else null,
     mime_type: move $event.file_mime_type?,
     uid: move $event.fuid?,
     type_id: 1,
   }
-  if $event.file_desc.starts_with("http") {
+  if ($event.file_desc? else "").match_regex("^[A-Za-z][A-Za-z0-9+.-]*://") {
     $event._evidence.url.url_string = $event.file_desc
+    $event._url_path = $event.file_desc.replace_regex("^[^:]*://[^/?#]*", "").split("?")[0].split("#")[0]
+    if $event._url_path.file_name() != "" {
+      $event._evidence.file.name = $event._url_path.file_name()
+    }
+    drop $event.file_desc, $event._url_path
+  } else if $event.file_desc? != null and not $event.file_desc.match_regex(" -> ") {
+    $event._evidence.file.name = $event.file_desc.file_name()
+    if $event._evidence.file.name != $event.file_desc {
+      $event._evidence.file.path = $event.file_desc
+    }
+    drop $event.file_desc
   }
-  drop $event.file_desc
+}
+if $event._evidence? != null {
+  drop_null_fields $event._evidence
 }
 $ocsf.evidences = [move $event._evidence?].collect()
 
