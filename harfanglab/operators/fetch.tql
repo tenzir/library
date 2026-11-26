@@ -1,0 +1,47 @@
+---
+description: |
+  Drains the pull export queue of a HarfangLab Manager once and returns its
+  events. Wrap the operator in `every` to poll continuously.
+
+  Every pull removes the returned events from the export queue, so events
+  that a pipeline drops after this operator are gone. Run only one pipeline
+  per format against a Manager.
+args:
+  positional:
+    - name: url
+      type: string
+      description: |
+        Base URL of the Manager API, for example
+        `https://example.hurukai.io:8443`.
+  named:
+    - name: token
+      type: secret
+      description: API token of a HarfangLab user, without the `Token` prefix.
+    - name: format
+      type: string
+      default: "ocsf"
+      description: |
+        Export format, either `ocsf` (OCSF 1.6.0 events from the Splunk
+        export) or `ecs` (ECS documents from the Elastic export).
+---
+
+// The OCSF events come from the Splunk export and the ECS documents from the
+// Elastic export. Each export has its own queue in the Manager.
+// An unknown format leaves the endpoint null, so `from_http` rejects it
+// before sending any request.
+let $connector = {ocsf: "splunk", ecs: "elastic"}[$format]
+let $endpoint = f"{$url}/api/data/connectors/{$connector}/pull/" if $connector != null else null
+
+// Each request returns a JSON array of up to ~4 MB and removes it from the
+// queue. An empty queue answers with an empty body or `[]`, which ends the
+// pagination.
+from_http $endpoint,
+  headers={Authorization: f"Token {$token}"},
+  paginate=(page => $endpoint if page.data not in ["", "[]"] else null) {
+  read_all
+}
+where data not in ["", "[]"]
+this = {events: data.parse_json()}
+unroll events
+// The Splunk export wraps each OCSF event in a HEC envelope.
+this = events.event if $format == "ocsf" else events
