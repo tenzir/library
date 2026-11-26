@@ -23,6 +23,6 @@ export. The events arrive unchanged. The Manager removes every event it
 returns, so run only one pipeline per format.
 
 Examples show how to read the S3 export instead, which leaves the events in the
-bucket, and how to reduce the volume for a SIEM: summarize network and HTTP activity,
-deduplicate process starts and module loads, and forward findings and audit
-events in full.
+bucket, and how to reduce the volume for a SIEM: summarize network and HTTP
+activity, deduplicate process starts and module loads, and forward findings and
+audit events in full.
