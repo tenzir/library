@@ -1,0 +1,39 @@
+---
+description: Moves Suricata mDNS records into the shape of Suricata DNS records.
+args:
+  positional:
+    - name: records
+      type: field
+      description: The mDNS resource records to consume.
+    - name: dns_records
+      type: field
+      description: The DNS resource records to build.
+---
+// mDNS records hold their data under the name of their type. Records of other
+// types, such as OPT or SSHFP, stay under their original keys.
+$dns_records = $records.where(x => (
+  x.a? != null or x.aaaa? != null or x.cname? != null or x.mx? != null or x.ns? != null
+  or x.ptr? != null or x.txt? != null or x.soa? != null or x.srv? != null
+)).map(x => {
+  rrname: x.rrname,
+  rrtype: (
+    "A" if x.a? != null else (
+    "AAAA" if x.aaaa? != null else (
+    "CNAME" if x.cname? != null else (
+    "MX" if x.mx? != null else (
+    "NS" if x.ns? != null else (
+    "PTR" if x.ptr? != null else (
+    "TXT" if x.txt? != null else (
+    "SOA" if x.soa? != null else "SRV")))))))
+  ),
+  rdata: x.a?.string() else x.aaaa?.string() else x.cname? else x.mx? else x.ns? else x.ptr? else x.txt?.join(" "),
+  soa: x.soa?,
+  srv: x.srv?,
+})
+$records = $records.where(x => (
+  x.a? == null and x.aaaa? == null and x.cname? == null and x.mx? == null and x.ns? == null
+  and x.ptr? == null and x.txt? == null and x.soa? == null and x.srv? == null
+))
+if $records.is_empty() {
+  drop $records
+}

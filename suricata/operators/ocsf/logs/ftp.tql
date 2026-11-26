@@ -8,9 +8,17 @@ args:
       description: The OCSF output field.
       type: field
 ---
+// FTP data connections log the command and file name of the control
+// connection that opened them. Suricata logs them in the direction of the data
+// connection. Its initiator is the client in passive mode, but the server in
+// active mode, which the event does not tell, so the endpoints stay as logged.
+$event._command = $event.ftp?.command? else $event.ftp_data?.command?
+$event._argument = $event.ftp?.command_data? else $event.ftp_data?.filename?
+
 // --- OCSF: classification attributes ----------
 
-// Session and connection commands, such as USER or PASV, have no activity.
+// Other commands, such as USER or PASV, are activities that OCSF does not
+// list. Server greetings have no command.
 let $commands = {
   // 1 - Put (Upload)
   STOR: 1,
@@ -40,16 +48,20 @@ let $commands = {
   MLSD: 6,
 }
 
-$ocsf.activity_id = $commands[$event.ftp.command?]? else 0
+$ocsf.activity_id = $commands[$event._command]? else (99 if $event._command != null else 0)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $event._command
+}
 $ocsf.class_uid = 4008
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
 
 // --- OCSF: context attributes -----------------
 
-if $event.ftp.command? == "USER" and $event.ftp.command_data? != null {
+if $event._command == "USER" and $event._argument != null {
   $ocsf.metadata.profiles = ["host"]
-  $ocsf.actor.user.name = move $event.ftp.command_data
+  $ocsf.actor.user.name = $event._argument
+  drop $event.ftp?.command_data?
 }
 
 // Only these commands take a file or folder argument. OCSF prefers Regular
@@ -69,21 +81,23 @@ let $file_types = {
   RMD: 2,
   XRMD: 2,
 }
-if $file_types[$event.ftp.command?]? != null and $event.ftp.command_data? != null {
+if $file_types[$event._command]? != null and $event._argument != null {
   $ocsf.file = {
-    name: $event.ftp.command_data.file_name(),
-    path: move $event.ftp.command_data,
-    type_id: $file_types[$event.ftp.command],
+    name: $event._argument.file_name(),
+    path: $event._argument,
+    type_id: $file_types[$event._command],
   }
+  drop $event.ftp?.command_data?, $event.ftp_data?.filename?
 }
 
 // --- OCSF: primary attributes -----------------
 
-$ocsf.command = move $event.ftp.command?
-$ocsf.command_responses = move $event.ftp.reply?
-$ocsf.codes = (move $event.ftp.completion_code?).map(code => int(code))
-$ocsf.port = move $event.ftp.dynamic_port?
-$ocsf.type = move $event.ftp.mode?
+$ocsf.command = $event._command
+drop $event.ftp?.command?, $event.ftp_data?.command?
+$ocsf.command_responses = move $event.ftp?.reply?
+$ocsf.codes = (move $event.ftp?.completion_code?).map(code => int(code))
+$ocsf.port = move $event.ftp?.dynamic_port?
+$ocsf.type = move $event.ftp?.mode?
 
 // The last reply tells the outcome of the command.
 $ocsf.status_code = $ocsf.codes[-1]?.string()
@@ -104,9 +118,14 @@ match $ocsf.codes[-1]? {
 
 // --- Finalize ---------------------------------
 
-drop_null_fields $event.ftp
-if $event.ftp == {} {
+drop $event._command, $event._argument
+drop_null_fields $event.ftp?
+if $event.ftp? == {} {
   drop $event.ftp
+}
+drop_null_fields $event.ftp_data?
+if $event.ftp_data? == {} {
+  drop $event.ftp_data
 }
 
 @name = "ocsf.ftp_activity"

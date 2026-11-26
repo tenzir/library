@@ -1,0 +1,30 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+suricata::ocsf::logs::traffic $event, $ocsf
+$ocsf.app_protocol_name = "pop3"
+
+// Servers answer a command with `+OK` or `-ERR`.
+$ocsf.status_detail = move $event.pop3.response?.status?
+match $event.pop3.response?.success? {
+  true => {
+    $ocsf.status_id = 1
+  }
+  false => {
+    $ocsf.status_id = 2
+  }
+  _ => {}
+}
+drop $event.pop3.response?.success?
+
+drop_null_fields $event.pop3
+if $event.pop3.response? == {} {
+  drop $event.pop3.response
+}

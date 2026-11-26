@@ -8,19 +8,22 @@ args:
       description: The OCSF output field.
       type: field
 ---
-// --- OCSF: classification attributes ----------
-
-$ocsf.activity_id = 0
-$ocsf.category_uid = 4
-$ocsf.class_uid = 4001
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-// --- OCSF: primary attributes -----------------
-
+suricata::ocsf::logs::traffic $event, $ocsf
 $ocsf.app_protocol_name = "snmp"
-$ocsf.status_id = 0
 
-// --- Finalize ---------------------------------
-
-@name = "ocsf.network_activity"
+// Suricata logs SNMP messages in packet direction. Responses and reports
+// answer a request of the destination. Managers send requests, and agents
+// send traps and informs on their own. Encrypted SNMPv3 messages hide the
+// PDU type.
+let $initiator_ids = {
+  get_request: 1,
+  get_next_request: 1,
+  get_bulk_request: 1,
+  set_request: 1,
+  inform_request: 1,
+  trap_v1: 1,
+  trap_v2: 1,
+  response: 2,
+  report: 2,
+}
+$ocsf.initiator_id = $initiator_ids[$event.snmp.pdu_type?]?

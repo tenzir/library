@@ -17,8 +17,9 @@ args:
 // Event types with a dedicated mapping below. Others become base events and
 // retain their connection fields under the original keys.
 let $mapped_types = [
-  "alert", "anomaly", "dhcp", "dns", "fileinfo", "flow", "netflow", "ftp", "http",
-  "krb5", "mqtt", "sip", "smb", "smtp", "snmp", "ssh", "tls",
+  "alert", "anomaly", "arp", "dcerpc", "dhcp", "dns", "fileinfo", "flow", "netflow",
+  "ftp", "ftp_data", "http", "krb5", "ldap", "mdns", "mqtt", "pop3", "quic", "rdp",
+  "rfb", "sip", "smb", "smtp", "snmp", "ssh", "tls", "websocket",
 ]
 // These event types choose their class per record. Authentication and Email
 // Activity have no `connection_info`, so their operators map the connection
@@ -83,6 +84,12 @@ match $event.event_type {
   "anomaly" => {
     suricata::ocsf::logs::anomaly $event, $ocsf
   }
+  "arp" => {
+    suricata::ocsf::logs::arp $event, $ocsf
+  }
+  "dcerpc" => {
+    suricata::ocsf::logs::dcerpc $event, $ocsf
+  }
   "dhcp" => {
     suricata::ocsf::logs::dhcp $event, $ocsf
   }
@@ -95,17 +102,41 @@ match $event.event_type {
   "flow" | "netflow" => {
     suricata::ocsf::logs::flow $event, $ocsf
   }
-  "ftp" => {
+  "ftp" | "ftp_data" => {
     suricata::ocsf::logs::ftp $event, $ocsf
   }
-  "http" => {
+  // HTTP/2 also logs frames that control the connection, such as SETTINGS
+  // or GOAWAY, without a request or response.
+  "http" if $event.http.url? != null or $event.http.http_method? != null or $event.http.status? != null => {
     suricata::ocsf::logs::http $event, $ocsf
+  }
+  "http" => {
+    suricata::ocsf::logs::traffic $event, $ocsf
+    $ocsf.app_protocol_name = "http2"
   }
   "krb5" => {
     suricata::ocsf::logs::krb5 $event, $ocsf
   }
+  "ldap" => {
+    suricata::ocsf::logs::ldap $event, $ocsf
+  }
+  "mdns" => {
+    suricata::ocsf::logs::mdns $event, $ocsf
+  }
   "mqtt" => {
     suricata::ocsf::logs::mqtt $event, $ocsf
+  }
+  "pop3" => {
+    suricata::ocsf::logs::pop3 $event, $ocsf
+  }
+  "quic" => {
+    suricata::ocsf::logs::quic $event, $ocsf
+  }
+  "rdp" => {
+    suricata::ocsf::logs::rdp $event, $ocsf
+  }
+  "rfb" => {
+    suricata::ocsf::logs::rfb $event, $ocsf
   }
   "sip" => {
     suricata::ocsf::logs::sip $event, $ocsf
@@ -124,6 +155,9 @@ match $event.event_type {
   }
   "tls" => {
     suricata::ocsf::logs::tls $event, $ocsf
+  }
+  "websocket" => {
+    suricata::ocsf::logs::websocket $event, $ocsf
   }
   _ => {
     suricata::ocsf::base $event, $ocsf

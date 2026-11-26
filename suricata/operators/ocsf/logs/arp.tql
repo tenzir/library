@@ -1,0 +1,29 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+suricata::ocsf::logs::traffic $event, $ocsf
+
+// ARP resolves the hardware address of an IP address. The sender of a request
+// does not know the hardware address of the target and logs zeros.
+$ocsf.src_endpoint = {ip: move $event.arp.src_ip?, mac: move $event.arp.src_mac?}
+$ocsf.dst_endpoint = {ip: move $event.arp.dest_ip?}
+if $event.arp.dest_mac? != "00:00:00:00:00:00" {
+  $ocsf.dst_endpoint.mac = move $event.arp.dest_mac?
+}
+let $initiator_ids = {
+  request: 1,
+  reply: 2,
+}
+$ocsf.initiator_id = $initiator_ids[$event.arp.opcode?]?
+
+drop_null_fields $event.arp
+if $event.arp == {} {
+  drop $event.arp
+}
