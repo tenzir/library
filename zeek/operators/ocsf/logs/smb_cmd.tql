@@ -1,0 +1,75 @@
+---
+description: |
+  Zeek smb_cmd.log → OCSF SMB Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// SMB Activity defines activities only for the dispositions of a create
+// request, which Zeek doesn't log.
+$ocsf.activity_id = 0
+$ocsf.class_uid = 4006
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "smb_cmd.log"
+
+// --- OCSF: primary attributes -----------------
+
+$ocsf.connection_info.protocol_name = "tcp"
+$ocsf.connection_info.protocol_num = 6
+
+// Zeek logs commands such as `CREATE`, with an optional sub command such as
+// `TRANSACTION2` operations.
+$ocsf.command = move $event.command?
+// Zeek names the NT status of the response, such as `ACCESS_DENIED`. Only
+// `SUCCESS` is an outcome that OCSF lists. Other statuses, such as
+// `MORE_PROCESSING_REQUIRED` during a session setup, don't always mean a
+// failure.
+if $event.status? == "SUCCESS" {
+  $ocsf.status = "Success"
+  $ocsf.status_id = 1
+} else if $event.status? != null {
+  $ocsf.status = $event.status
+  $ocsf.status_id = 99
+} else {
+  $ocsf.status_id = 0
+}
+$ocsf.status_code = move $event.status?
+$ocsf.share = move $event.tree?
+// Zeek names the service of the tree as the server announces it.
+let $share_types = {
+  "A:": {share_type_id: 1, share_type: "File"},
+  IPC: {share_type_id: 2, share_type: "Pipe"},
+  "LPT1:": {share_type_id: 3, share_type: "Print"},
+}
+if $share_types[$event.tree_service?]? != null {
+  $ocsf = {...$ocsf, ...$share_types[$event.tree_service]}
+  drop $event.tree_service
+}
+// The file that a command refers to has a name within the share in `name`,
+// and the share path in `path`. Its other details keep their original keys.
+if $event.referenced_file?.name? != null {
+  $ocsf.file = {
+    name: $event.referenced_file.name.file_name(),
+    type_id: 6 if $ocsf.share_type_id? == 2 else 1,
+    path: $event.referenced_file.path? + "\\" + $event.referenced_file.name,
+    size: move $event.referenced_file.size?,
+    uid: move $event.referenced_file.fuid?,
+  }
+  drop $event.referenced_file.name, $event.referenced_file.path?
+}
+
+@name = "ocsf.smb_activity"
