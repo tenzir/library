@@ -10,4 +10,4 @@ The OpenSSH normalization maps more logins, forward requests, and credentials co
 
 - Records with the same timestamp now keep their log order, so a login on a host that logs whole seconds keeps its key evidence, MFA status, and destination endpoint.
 - A denied forward request names the requested target in `dst_endpoint` without `sshd` as its service, and sets `connection_info.direction_id` to Unknown.
-- The public key fingerprint moves from the deprecated `user.credential_uid` to `user.programmatic_credentials`, and Network Activity events drop the deprecated `is_src_dst_assignment_known`.
+- Authentication events no longer set the deprecated `user.credential_uid`; the public key type and fingerprint stay in `unmapped.credential`. Network Activity events drop the deprecated `is_src_dst_assignment_known`.
