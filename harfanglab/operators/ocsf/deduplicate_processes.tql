@@ -36,9 +36,9 @@ args:
 ---
 
 if class_uid == 1007 {
-  _md5 = process.file.hashes?.where(h => h.algorithm_id == 1).first().value
-  _sha1 = process.file.hashes?.where(h => h.algorithm_id == 2).first().value
-  _sha256 = process.file.hashes?.where(h => h.algorithm_id == 3).first().value
+  _md5 = process.file?.hashes?.where(h => h.algorithm_id == 1).first().value
+  _sha1 = process.file?.hashes?.where(h => h.algorithm_id == 2).first().value
+  _sha256 = process.file?.hashes?.where(h => h.algorithm_id == 3).first().value
   // The outer grouping gives every host its own event-time clock and keeps
   // the device and metadata records out of the per-window state.
   group {device: device, metadata: metadata} {
@@ -50,11 +50,12 @@ if class_uid == 1007 {
       summarize activity_id, activity_name?, type_uid, severity_id, severity?,
         process.name?, process.cmd_line?, process.user?,
         process.integrity?, process.integrity_id?,
-        process.file.path?, process.file.name?, process.file.size?,
-        process.file.type?, process.file.type_id?, _md5, _sha1, _sha256,
-        process.parent_process.name?, process.parent_process.file.path?,
-        process.parent_process.file.name?, process.parent_process.file.type?,
-        process.parent_process.file.type_id?,
+        process.file?.path?, process.file?.name?, process.file?.size?,
+        process.file?.type?, process.file?.type_id?, _md5, _sha1, _sha256,
+        process.parent_process?.name?, process.parent_process?.file?.path?,
+        process.parent_process?.file?.name?,
+        process.parent_process?.file?.type?,
+        process.parent_process?.file?.type_id?,
         count=count(), start_time=min(time), end_time=max(time)
       this = {
         activity_id: activity_id,
@@ -75,9 +76,12 @@ if class_uid == 1007 {
           file: {
             ...process.file,
             hashes: [
-              {algorithm_id: 2, value: _sha1, algorithm: "SHA-1"} if _sha1 != null else null,
-              {algorithm_id: 3, value: _sha256, algorithm: "SHA-256"} if _sha256 != null else null,
-              {algorithm_id: 1, value: _md5, algorithm: "MD5"} if _md5 != null else null,
+              {algorithm_id: 2, value: _sha1, algorithm: "SHA-1"}
+                if _sha1 != null else null,
+              {algorithm_id: 3, value: _sha256, algorithm: "SHA-256"}
+                if _sha256 != null else null,
+              {algorithm_id: 1, value: _md5, algorithm: "MD5"}
+                if _md5 != null else null,
             ].where(h => h != null),
           },
         },
