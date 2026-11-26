@@ -3,7 +3,9 @@ title: HarfangLab package
 type: feature
 authors:
   - zedoraps
-created: 2026-11-26T15:00:00Z
+prs:
+  - 275
+created: 2026-11-26T15:39:51.849895Z
 ---
 
 The library now includes a `harfanglab` package that fetches events from a
