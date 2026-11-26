@@ -1,0 +1,15 @@
+// A source with 40 domains.
+from {}
+repeat 40
+enumerate n
+this = {domain: f"guard-{n}.example.net"}
+harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+  source="tenzir-test-guard", type="domain", value=domain
+summarize action, indicators=count()
+// Reset the list of writes for the next tests.
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/writes" {
+    read_json
+  }
+  this = {action: $this.action, indicators: $this.indicators}
+}

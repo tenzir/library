@@ -1,0 +1,498 @@
+---
+description: |
+  Synchronizes indicators of compromise (IOCs) of one type into an IOC source
+  of a HarfangLab Manager and returns one result event per indicator.
+
+  Every input event holds one indicator in `value`. The operator collects the
+  whole input before it sends any request, so the input must end, for example
+  one snapshot of a feed inside `every`. It looks up the source by name and
+  creates it if it doesn't exist. Then it reads the IOCs of `type` in the
+  source once and compares them with the input. Only differences cause
+  requests: it creates missing IOCs, changes the state of IOCs whose state
+  differs, updates IOCs whose description, comment, level, or confidence
+  differs, and leaves the others unchanged. A run with the same input sends no
+  write request.
+
+  The operator owns the IOCs of `type` in the source and reverts manual
+  changes on the next run, for example an IOC that an analyst disabled in the
+  console while the feed still lists it. Use a source that only the operator
+  writes to.
+
+  State changes and deletions go out first, in bulk requests of up to 1,000
+  IOCs. The Manager has no bulk route for creating IOCs or for changing their
+  content, so every creation and content update is one request, with up to
+  `parallel` requests at a time per instance of the operator. One such
+  request takes about a second on the Manager, so the first run of a feed
+  takes long: about 40 minutes for 10,000 IOCs and 4 to 7 hours for 100,000
+  IOCs at `parallel=8`. Changing `label`, `level`, or `confidence` later
+  updates every IOC of the source and takes as long.
+
+  Don't load a feed with the Manager's CSV import instead. The import creates
+  IOCs in the `block` state, regardless of the state of the source, and the
+  operator doesn't use it.
+
+  Domains and hashes are lowercased, and IP addresses are sent in their
+  canonical form, because the Manager stores them as sent. A value that isn't
+  valid for `type`, such as a subnet for `ip` or a hash of the wrong length,
+  yields a `failed` result and isn't sent. Values match case-insensitively, as
+  on the Manager. When the input holds a value more than once, an active row
+  wins over a revoked or expired one, and the first spelling and the first
+  description in sort order win.
+
+  An indicator whose `expires` lies in the past or whose `revoked` is `true`
+  is disabled, or deleted with `on_revoke="delete"`. With `prune=true`, the
+  operator also disables the IOCs of `type` in the source that the input no
+  longer contains. An input without valid indicators changes nothing, even
+  with `prune=true`. To protect against a truncated or wrong feed, a run stops
+  before any write when pruning would disable more than `max_prune` IOCs and
+  more than `max_prune_share` of the active IOCs of `type` in the source.
+
+  The run also stops before any write when the listing of the source fails,
+  or returns fewer or more IOCs than it counts. Such an error ends the
+  pipeline, including a surrounding `every`, so watch the pipeline state. A
+  failed write doesn't stop the run.
+
+  The result events have the shape `{value, type, action, ioc_id, error}`,
+  where `action` is `created`, `updated`, `unchanged`, `disabled`, `deleted`,
+  `skipped`, or `failed`. A `failed` result holds the reason or the Manager's
+  response in `error`, so watch for these results to notice rejected
+  indicators. `skipped` marks a revoked or expired indicator that the source
+  doesn't contain. IOCs that already are disabled and are missing from the
+  input produce no result. With `dry_run=true`, the results show what a run
+  would do, without any write.
+
+  The operator holds the input and the IOCs of the source in memory. A run
+  with 100,000 indicators took about 1.4 GB against a mock Manager.
+args:
+  positional:
+    - name: url
+      type: string
+      description: |
+        Base URL of the Manager API, for example
+        `https://example.hurukai.io:8443`.
+  named:
+    - name: token
+      type: secret
+      description: |
+        API token of a HarfangLab user, without the `Token` prefix. The user
+        needs to view and edit threat intelligence.
+    - name: source
+      type: string
+      description: Name of the IOC source to synchronize.
+    - name: type
+      type: string
+      description: |
+        Type of the indicators: `domain`, `ip`, `sha256`, `sha1`, `md5`,
+        `filename`, `filepath`, or `url`. `ip` maps to destination IP
+        addresses. The hash types share the HarfangLab type `hash`; the
+        operator tells them apart by their length, so that the runs of
+        different hash types don't touch each other's IOCs.
+    - name: value
+      type: field
+      description: Field with the indicator value.
+    - name: description
+      type: field
+      default: null
+      description: Field with a description of the indicator.
+    - name: expires
+      type: field
+      default: null
+      description: |
+        Field with the expiry time of the indicator, as a time or an ISO 8601
+        string. A string without a time zone is in UTC. An expired indicator
+        is disabled or deleted, depending on `on_revoke`. Any other value
+        yields a `failed` result. Append `?`, as in `expires=valid_until?`,
+        when some events lack the field.
+    - name: revoked
+      type: field
+      default: null
+      description: |
+        Field that is `true` for a revoked indicator, as a boolean or as the
+        string `"true"` or `"false"`. A revoked indicator is disabled or
+        deleted, depending on `on_revoke`. Any other value yields a `failed`
+        result. Append `?` when some events lack the field.
+    - name: state
+      type: string
+      default: "alert"
+      description: |
+        State of active IOCs and of a new source: `alert` or `backend_alert`,
+        and with `allow_blocking=true` also `block` or `quarantine`.
+    - name: allow_blocking
+      type: bool
+      default: false
+      description: Allows the `block` and `quarantine` states.
+    - name: prune
+      type: bool
+      default: false
+      description: |
+        Disables the IOCs of `type` in the source that the input doesn't
+        contain. Use it only when every run receives the complete feed.
+    - name: max_prune
+      type: int
+      default: 10
+      description: |
+        Number of IOCs that pruning may disable in one run regardless of
+        `max_prune_share`.
+    - name: max_prune_share
+      type: float
+      default: 0.1
+      description: |
+        Share of the active IOCs of `type` in the source that pruning may
+        disable in one run beyond `max_prune`. A run that would disable more
+        stops before any write. `1.0` turns the check off.
+    - name: on_revoke
+      type: string
+      default: "disable"
+      description: |
+        What happens to expired and revoked indicators: `disable` or `delete`.
+    - name: level
+      type: string
+      default: "high"
+      description: |
+        Rule level: `critical`, `high`, `medium`, `low`, or `informational`.
+        IOCs override the level only when it differs from the source default.
+    - name: confidence
+      type: string
+      default: "strong"
+      description: "Rule confidence: `strong`, `moderate`, or `weak`."
+    - name: label
+      type: string
+      default: null
+      description: |
+        Comment of every IOC, from which HarfangLab builds the alert titles.
+        Defaults to `<source>: <value>`.
+    - name: parallel
+      type: int
+      default: 8
+      description: |
+        Maximum number of concurrent write requests per instance of the
+        operator.
+    - name: dry_run
+      type: bool
+      default: false
+      description: |
+        Reports the actions that a run would take without writing anything,
+        not even a missing source.
+---
+
+let $api = f"{$url}/api/data/threat_intelligence"
+let $headers = {Authorization: f"Token {$token}"}
+let $hl_type = {
+  domain: "domain_name",
+  ip: "ip_dst",
+  sha256: "hash",
+  sha1: "hash",
+  md5: "hash",
+  filename: "filename",
+  filepath: "filepath",
+  url: "url",
+}[$type]?
+let $hash_length = {sha256: 64, sha1: 40, md5: 32}[$type]?
+let $states = ["alert", "backend_alert", "block", "quarantine"] if $allow_blocking else ["alert", "backend_alert"]
+let $fields = "id,type,source_id,value,description,comment,global_state,enabled,rule_confidence,rule_level_override"
+let $iso8601 = "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$"
+// IDs per bulk request.
+let $chunk = 1000
+
+// Normalize and validate each indicator. Conditional chains nest their
+// arms, because an arm that yields null would otherwise fall through to the
+// next one.
+this = {
+  input: $value.string().trim(),
+  description: $description.string().trim(),
+  expires: $expires,
+  revoked: $revoked,
+}
+value = (input.to_lower() if $hl_type in ["domain_name", "hash"]
+  else (ip(input).string() if $hl_type == "ip_dst" else input))
+expires = expires.trim() if type_kind(expires) == "string" else expires
+expires_at = (expires if type_kind(expires) == "time"
+  else (time(expires) if type_kind(expires) == "string" and expires.match_regex($iso8601) else null))
+revoked = revoked.trim().to_lower() if type_kind(revoked) == "string" else revoked
+is_revoked = (false if revoked == null
+  else (revoked if type_kind(revoked) == "bool"
+  else (revoked == "true" if revoked in ["true", "false"] else null)))
+error = ("the value is empty" if (input else "") == ""
+  else f"`{input}` is not an IP address" if value == null
+  else f"`{input}` is not a valid {$type} hash of {$hash_length} hexadecimal digits" if $hash_length != null and (value.length_chars() != $hash_length or not value.match_regex("^[0-9a-f]+$"))
+  else f"expires must be a time or an ISO 8601 string, got `{expires}`" if expires != null and expires_at == null
+  else f"revoked must be a boolean, got `{revoked}`" if is_revoked == null
+  else null)
+
+if error != null {
+  this = {
+    value: value if value != null else input,
+    type: $type,
+    action: "failed",
+    ioc_id: null,
+    error: error,
+  }
+} else {
+  // Collect the finite input into one event, so that the source is resolved
+  // once and the comparison sees the complete input.
+  summarize items=collect({
+    value: value,
+    description: description if description != "" else null,
+    retired: is_revoked or (expires_at != null and expires_at < now()),
+  })
+  strict {
+    assert $hl_type != null,
+      message=f"type must be one of domain, ip, sha256, sha1, md5, filename, filepath, or url, got `{$type}`"
+    assert $state in $states,
+      message=f"state must be alert or backend_alert, or block or quarantine with allow_blocking=true, got `{$state}`"
+    assert $on_revoke in ["disable", "delete"],
+      message=f"on_revoke must be disable or delete, got `{$on_revoke}`"
+    assert $level in ["critical", "high", "medium", "low", "informational"],
+      message=f"level must be critical, high, medium, low, or informational, got `{$level}`"
+    assert $confidence in ["strong", "moderate", "weak"],
+      message=f"confidence must be strong, moderate, or weak, got `{$confidence}`"
+    assert $parallel >= 1, message=f"parallel must be positive, got {$parallel}"
+    assert $max_prune >= 0, message=f"max_prune must not be negative, got {$max_prune}"
+    assert $max_prune_share >= 0 and $max_prune_share <= 1,
+      message=f"max_prune_share must be between 0 and 1, got {$max_prune_share}"
+  }
+  where items.length() > 0
+
+  // Look up the source by name. If the listing doesn't contain it, the
+  // pagination continues with a request that creates the source, except in a
+  // dry run.
+  each {
+    from_http f"{$api}/IOCSource/?name={$source.encode_url()}&limit=100",
+      headers=$headers,
+      paginate=(page => {
+        url: f"{$api}/IOCSource/",
+        method: "post",
+        body: {
+          name: $source,
+          description: "IOCs synchronized by Tenzir",
+          enabled: true,
+          global_state: $state,
+          endpoint_detection: true,
+          block_on_agent: false,
+          quarantine_on_agent: false,
+          rule_level_default: $level,
+          rule_confidence_default: $confidence,
+        },
+      } if not $dry_run and page.count? != null and page.results.where(s => s.name == $source).length() == 0 else null) {
+      read_json raw=true
+    }
+    source = (results? else [this]).where(s => s.name? == $source).first()
+    summarize source=first(source)
+    this = {
+      items: $this.items,
+      source_id: source.id?,
+      source_level: source.rule_level_default?,
+    }
+  }
+
+  // Read the IOCs of this type in the source once, with only the fields that
+  // the comparison needs. The Manager returns the next page as a path. The
+  // run stops if the pages don't add up to the count of the listing. Rows of
+  // another type, source, or hash algorithm are dropped, so that neither the
+  // comparison nor pruning touches them.
+  if source_id == null {
+    existing = []
+  } else {
+    each {
+      from_http f"{$api}/IOCRule/?source_id={$this.source_id}&type={$hl_type}&ordering=id&limit=10000&fields={$fields}",
+        headers=$headers,
+        paginate=(page => (page.next if page.next.starts_with("http") else f"{$url}{page.next}") if page.next? != null else null) {
+        read_json raw=true
+      }
+      summarize expected=max(count), received=sum(results.length()), pages=collect(results)
+      strict {
+        assert received == expected,
+          message=f"the listing of source `{$source}` returned {received} of {expected} IOCs, so the run stops before any write"
+      }
+      unroll pages
+      unroll pages
+      this = pages
+      where type == $hl_type and source_id == $this.source_id
+      where $hash_length == null or value.length_chars() == $hash_length
+      summarize existing=collect(this)
+      this = {...$this, existing: existing else []}
+    }
+  }
+
+  // Join the input with the existing IOCs by their lowercase value. The
+  // Manager may hold IP addresses in another form than the canonical one.
+  this = {
+    source_id: source_id,
+    source_level: source_level,
+    rows: [
+      ...items.map(x => {key: x.value.to_lower(), desired: x, current: null}),
+      ...existing.map(x => {
+        key: ((ip(x.value).string() if $hl_type == "ip_dst" else null) else x.value).to_lower(),
+        desired: null,
+        current: x,
+      }),
+    ],
+  }
+  unroll rows
+  summarize key=rows.key,
+    desired=collect(rows.desired),
+    current=first(rows.current),
+    source_id=first(source_id),
+    source_level=first(source_level)
+
+  // Resolve duplicate input rows: an active row wins over a retired one, and
+  // the first value and description in sort order win.
+  active = desired.where(x => not x.retired)
+  listed = desired.length() > 0
+  retired = listed and active.length() == 0
+  desired = active if active.length() > 0 else desired
+  value = desired.map(x => x.value).sort().first() if listed else current.value
+  target = $state if listed and not retired else "disabled"
+  want = {
+    description: desired.map(x => x.description).where(x => x != null).sort().first(),
+    comment: $label if $label != null else f"{$source}: {value}",
+    rule_confidence: $confidence,
+    rule_level_override: $level if source_level != $level else null,
+  }
+  state_changed = current != null and (current.global_state != target
+    or current.enabled != (target != "disabled"))
+  content_changed = current != null and (
+    (want.description else "") != (current.description else "")
+    or (want.comment else "") != (current.comment else "")
+    or want.rule_confidence != current.rule_confidence
+    or want.rule_level_override != current.rule_level_override)
+
+  // Decide what to do with every indicator:
+  // - create: POST of a new IOC.
+  // - state: a bulk state change, followed by a PATCH if `patch` is true.
+  // - prune: a bulk state change of an IOC that the input doesn't contain.
+  // - patch: PATCH of an IOC whose content alone differs.
+  // - delete: a bulk deletion of a revoked or expired IOC.
+  plan = ("ignore" if not listed and (not $prune or not state_changed)
+    else "prune" if not listed
+    else "skipped" if current == null and retired
+    else "create" if current == null
+    else "delete" if retired and $on_revoke == "delete"
+    else "unchanged" if retired and not state_changed
+    else "state" if state_changed
+    else "patch" if content_changed
+    else "unchanged")
+  where plan != "ignore"
+  this = {
+    value: value,
+    plan: plan,
+    patch: plan == "state" and not retired and content_changed,
+    target: target,
+    want: want,
+    ioc_id: current.id?,
+    active: current != null and current.global_state != "disabled" and current.enabled != false,
+    source_id: source_id,
+  }
+
+  // Check the prune limit across all indicators before any write.
+  summarize rows=collect(this)
+  pruned = rows.where(r => r.plan == "prune").length()
+  active = rows.where(r => r.active).length()
+  strict {
+    assert $dry_run or pruned <= $max_prune or pruned <= $max_prune_share * active,
+      message=f"pruning would disable {pruned} of {active} active IOCs of source `{$source}`, more than max_prune={$max_prune} and max_prune_share={$max_prune_share}, so the run stops before any write"
+  }
+  unroll rows
+  this = rows
+
+  // Change states and delete IOCs in bulk requests of up to `$chunk` IDs per
+  // target, before any other write.
+  if not $dry_run and plan in ["state", "prune", "delete"] {
+    enumerate index
+    batch = floor(index / $chunk)
+    kind = "delete" if plan == "delete" else "state"
+    summarize kind, target, batch, rows=collect(this)
+    if kind == "delete" {
+      each parallel=$parallel {
+        from_http f"{$api}/IOCSource/{$this.rows[0].source_id}/items/",
+          method="delete",
+          headers=$headers,
+          body={ids: $this.rows.map(r => r.ioc_id)},
+          error_field=error {
+          read_json raw=true
+        }
+        // The Manager may answer without a body, from which `from_http` emits
+        // no event, so `summarize` makes up the one result.
+        summarize error=first(error?)
+        this = {rows: $this.rows, error: error.string()}
+      }
+    } else {
+      each parallel=$parallel {
+        from_http f"{$api}/IOCRule/update/",
+          headers=$headers,
+          body={
+            rule_ids: $this.rows.map(r => r.ioc_id),
+            global_state: $this.target,
+            enabled: $this.target != "disabled",
+          },
+          error_field=error {
+          read_json raw=true
+        }
+        summarize error=first(error?)
+        this = {rows: $this.rows, error: error.string()}
+      }
+    }
+    unroll rows
+    this = {...rows, error: error}
+  }
+  // Wait for the bulk requests to finish.
+  summarize rows=collect(this)
+  unroll rows
+  this = rows
+
+  if not $dry_run and plan == "create" {
+    each parallel=$parallel {
+      from_http f"{$api}/IOCRule/",
+        headers=$headers,
+        body={
+          source_id: $this.source_id,
+          type: $hl_type,
+          value: $this.value,
+          hl_status: "stable",
+          global_state: $state,
+          enabled: true,
+          ...$this.want,
+        },
+        error_field=error {
+        read_json raw=true
+      }
+      this = {
+        value: $this.value,
+        type: $type,
+        action: "created" if error? == null else "failed",
+        ioc_id: id?,
+        error: error?.string(),
+      }
+    }
+  } else if not $dry_run and (plan == "patch" or (patch and error? == null)) {
+    each parallel=$parallel {
+      from_http f"{$api}/IOCRule/{$this.ioc_id}/",
+        method="patch",
+        headers=$headers,
+        body=$this.want,
+        error_field=error {
+        read_json raw=true
+      }
+      this = {
+        value: $this.value,
+        type: $type,
+        action: "updated" if error? == null else "failed",
+        ioc_id: $this.ioc_id,
+        error: error?.string(),
+      }
+    }
+  } else {
+    this = {
+      value: value,
+      type: $type,
+      action: ("failed" if error? != null
+        else "created" if plan == "create"
+        else "updated" if plan == "patch" or (plan == "state" and target != "disabled")
+        else "disabled" if plan in ["state", "prune"]
+        else "deleted" if plan == "delete"
+        else plan),
+      ioc_id: ioc_id,
+      error: error?,
+    }
+  }
+}

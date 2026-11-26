@@ -1,0 +1,35 @@
+// 1,500 IOCs in a source whose listing ends after the first page, and two
+// IOCs each in the sources whose bulk requests fail or answer without a body.
+from {}
+repeat 1500
+enumerate i
+summarize rules=collect({type: "domain_name", value: f"ioc-{i}.example.net"})
+let $two = ["ioc-0.example.net", "ioc-1.example.net"]
+this = {
+  seeds: [
+    {source: "tenzir-fault-truncated", rules: rules},
+    {source: "tenzir-fault-bulk", rules: rules.where(r => r.value in $two)},
+    {source: "tenzir-fault-empty", rules: rules.where(r => r.value in $two)},
+  ],
+}
+unroll seeds
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/seed", body={
+    source: $this.seeds.source,
+    global_state: "alert",
+    enabled: true,
+    rule_confidence: "strong",
+    rules: $this.seeds.rules,
+  } {
+    read_json
+  }
+  this = {source: $this.seeds.source, rules: rules}
+}
+summarize seeded=collect(this)
+// Reset the list of writes for the next tests.
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/writes" {
+    read_json
+  }
+  this = {seeded: $this.seeded.sort(), writes: writes}
+}

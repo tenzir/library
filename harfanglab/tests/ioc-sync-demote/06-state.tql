@@ -1,0 +1,23 @@
+// The IOCs of both sources after the previous tests. The other source still
+// blocks.
+from_http f"{env("HARFANGLAB_URL")}/api/data/threat_intelligence/IOCSource/?limit=100",
+  headers={Authorization: f"Token {env("HARFANGLAB_TOKEN")}"} {
+  read_json raw=true
+}
+unroll results
+each {
+  from_http f"{env("HARFANGLAB_URL")}/api/data/threat_intelligence/IOCRule/?limit=100&source_id={$this.results.id}",
+    headers={Authorization: f"Token {env("HARFANGLAB_TOKEN")}"} {
+    read_json raw=true
+  }
+  unroll results
+  this = {
+    source: $this.results.name,
+    value: results.value,
+    global_state: results.global_state,
+    enabled: results.enabled,
+    rule_confidence: results.rule_confidence,
+    comment: results.comment,
+  }
+}
+sort source, value

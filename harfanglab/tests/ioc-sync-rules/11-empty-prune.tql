@@ -1,0 +1,18 @@
+// An empty input sends no request, even with prune=true.
+from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+  read_json
+}
+each {
+  from {domain: "guard-0.example.net"}
+  where false
+  harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+    source="tenzir-test-guard", type="domain", value=domain, prune=true,
+    max_prune_share=1.0
+}
+summarize results=count()
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {results: $this.results, requests: this}
+}

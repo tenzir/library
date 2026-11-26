@@ -1,0 +1,16 @@
+// A new description for 1% of the feed updates only those IOCs.
+from {}
+repeat 10000
+enumerate n
+this = {domain: f"ioc-{n}.example.net", info: "Synthetic feed entry, updated" if n == floor(n / 100) * 100 else "Synthetic feed entry"}
+harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+  source="tenzir-scale", type="domain", value=domain, description=info
+summarize action, indicators=count()
+sort action
+summarize actions=collect({action: action, indicators: indicators})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {actions: $this.actions, requests: this}
+}

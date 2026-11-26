@@ -1,0 +1,16 @@
+// A dry run doesn't create a missing source.
+from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+  read_json
+}
+each {
+  from {domain: "a.example.com"}
+  harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+    source="tenzir-test-missing", type="domain", value=domain, dry_run=true
+}
+summarize results=collect(this)
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {results: $this.results, requests: this}
+}

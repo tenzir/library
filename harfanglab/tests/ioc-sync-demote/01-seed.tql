@@ -1,0 +1,22 @@
+// Three blocking IOCs without confidence and comment, as the CSV import
+// creates them, and two blocking IOCs in another source.
+from {source: "tenzir-test-demote", values: ["a.example.com", "b.example.com", "c.example.com"]},
+  {source: "unrelated-source", values: ["a.example.com", "z.example.com"]}
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/seed", body={
+    source: $this.source,
+    global_state: "block",
+    rules: $this.values.map(v => {type: "domain_name", value: v}),
+  } {
+    read_json
+  }
+  this = {source: $this.source, rules: rules}
+}
+summarize seeded=collect(this)
+// Reset the list of writes for the next test.
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/writes" {
+    read_json
+  }
+  this = {seeded: $this.seeded.sort()}
+}

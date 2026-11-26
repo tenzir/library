@@ -1,0 +1,12 @@
+// The sync demotes the blocking IOCs with one bulk request before it updates
+// their content one by one.
+from {domain: "a.example.com"}, {domain: "b.example.com"}, {domain: "c.example.com"}
+harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+  source="tenzir-test-demote", type="domain", value=domain
+summarize results=collect({value: value, action: action})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/writes" {
+    read_json
+  }
+  this = {results: $this.results.sort(), writes: writes}
+}
