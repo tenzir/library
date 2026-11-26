@@ -43,44 +43,53 @@ if $ocsf.activity_id == 2 and not $ocsf.dst_endpoint?.ip?.is_multicast() {
 $ocsf.opcode_id = move $event.mdns.opcode? else 0
 $ocsf.transaction_id = move $event.mdns.id?
 
+// Suricata logs one question at most. Further questions stay under their
+// original key.
 if $event.mdns.queries? != null {
   $ocsf.query = {
     hostname: $event.mdns.queries[0].rrname,
     type: $event.mdns.queries[0].rrtype?.to_upper(),
   }
-  drop $event.mdns.queries
+  $event.mdns.queries = $event.mdns.queries.slice(begin=1)
+  if $event.mdns.queries.is_empty() {
+    drop $event.mdns.queries
+  }
 }
 
-// Records of other types stay under their original keys.
+// mDNS logs no TTLs.
 if $event.mdns.answers? != null {
-  $ocsf.answers = $event.mdns.answers.map(x => {
-    hostname: x.rrname,
-    type: (
-      "A" if x.a? != null else (
-      "AAAA" if x.aaaa? != null else (
-      "PTR" if x.ptr? != null else (
-      "SRV" if x.srv? != null else (
-      "TXT" if x.txt? != null else null))))
-    ),
-    rdata: (
-      x.a?.string() else x.aaaa?.string() else x.ptr? else (
-        f"{x.srv.priority} {x.srv.weight} {x.srv.port} {x.srv.name}" if x.srv? != null
-        else x.txt?.join(" ")
-      )
-    ),
-  }).where(x => x.type != null)
-  $event.mdns.answers = $event.mdns.answers.where(x => x.a? == null and x.aaaa? == null and x.ptr? == null and x.srv? == null and x.txt? == null)
-  if $event.mdns.answers.is_empty() {
-    drop $event.mdns.answers
+  suricata::ocsf::map_mdns_records $event.mdns.answers, $event._records
+  suricata::ocsf::map_dns_records $event._records, $ocsf.answers
+  $ocsf.answers = $ocsf.answers.map(x => {hostname: x.hostname, type: x.type, rdata: x.rdata})
+}
+if $event.mdns.authorities? != null {
+  suricata::ocsf::map_mdns_records $event.mdns.authorities, $event._records
+  suricata::ocsf::map_dns_records $event._records, $ocsf.authority
+  $ocsf.authority = $ocsf.authority.map(x => {hostname: x.hostname, type: x.type, rdata: x.rdata})
+}
+// The additional section belongs to the message that Suricata logged.
+if $event.mdns.additionals? != null {
+  suricata::ocsf::map_mdns_records $event.mdns.additionals, $event._records
+  suricata::ocsf::map_dns_records $event._records, $event._additionals
+  $event._additionals = $event._additionals.map(x => {hostname: x.hostname, type: x.type, rdata: x.rdata})
+  if $ocsf.activity_id == 1 {
+    $ocsf.query_additional.records = move $event._additionals
+  } else {
+    $ocsf.response_additional.records = move $event._additionals
   }
-  if $ocsf.answers.is_empty() {
-    drop $ocsf.answers
-  }
+}
+drop $event._records?
+if $ocsf.answers? == [] {
+  drop $ocsf.answers
+}
+if $ocsf.authority? == [] {
+  drop $ocsf.authority
 }
 
 // As for DNS, requests have no response code.
 if $event.mdns.rcode? != null and $ocsf.activity_id != 1 {
-  $ocsf.rcode_id = int($event.mdns.rcode) if $event.mdns.rcode in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24] else 99
+  // The header holds the four bits of the response code.
+  $ocsf.rcode_id = int($event.mdns.rcode) if $event.mdns.rcode in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] else 99
   if $ocsf.rcode_id == 99 {
     $ocsf.rcode = $event.mdns.rcode.string()
   }
