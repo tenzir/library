@@ -32,6 +32,11 @@ if $event.http.url? != null {
     drop $event.http.http_port
   }
 }
+// HTTP/2 logs HPACK dynamic table size updates among the headers. They are no
+// headers and keep their original key.
+if $event.http.request_headers? != null {
+  $event._headers = $event.http.request_headers.where(x => x.name? != null).map(x => {name: x.name, value: x.value?})
+}
 if $event.http.http_method? != null or $ocsf.http_request? != null {
   $ocsf.http_request = {
     ...$ocsf.http_request?,
@@ -40,9 +45,17 @@ if $event.http.http_method? != null or $ocsf.http_request? != null {
     referrer: move $event.http.http_refer?,
     user_agent: (move $event.http.http_user_agent?).string(),
     version: move $event.http.protocol?,
-    http_headers: move $event.http.request_headers?,
+    http_headers: $event._headers? if $event._headers? != [] else null,
+  }
+  // HTTP/2 logs no request line, only the version of the protocol.
+  if $ocsf.http_request.version == null and $event.http.version? != null {
+    $ocsf.http_request.version = "HTTP/" + move $event.http.version
+  }
+  if $event._headers? != null {
+    $event.http.request_headers = $event.http.request_headers.where(x => x.name? == null)
   }
 }
+drop $event._headers?
 // The X-Forwarded-For header lists the addresses of the client and of the
 // proxies that forwarded its request, in that order. `http.xff` holds the
 // header as Suricata logs it, which can be shortened or reduced to an address
@@ -83,6 +96,18 @@ if $event.http.status? != null {
     code: move $event.http.status,
     body_length: move $event.http.length?,
     content_type: move $event.http.http_content_type?,
-    http_headers: move $event.http.response_headers?,
+    http_headers: $event.http.response_headers?.where(x => x.name? != null).map(x => {name: x.name, value: x.value?}),
   }
+  if $event.http.response_headers? != null {
+    $event.http.response_headers = $event.http.response_headers.where(x => x.name? == null)
+  }
+  if $ocsf.http_response.http_headers? == [] {
+    drop $ocsf.http_response.http_headers
+  }
+}
+if $event.http.request_headers? == [] {
+  drop $event.http.request_headers
+}
+if $event.http.response_headers? == [] {
+  drop $event.http.response_headers
 }

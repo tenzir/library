@@ -98,8 +98,13 @@ match $event.event_type {
   "ftp" | "ftp_data" => {
     suricata::ocsf::logs::ftp $event, $ocsf
   }
-  "http" => {
+  // HTTP/2 also logs frames that control the connection, such as SETTINGS
+  // or GOAWAY, without a request or response.
+  "http" if $event.http.url? != null or $event.http.http_method? != null or $event.http.status? != null => {
     suricata::ocsf::logs::http $event, $ocsf
+  }
+  "http" => {
+    suricata::ocsf::logs::traffic $event, $ocsf
   }
   "krb5" => {
     suricata::ocsf::logs::krb5 $event, $ocsf
