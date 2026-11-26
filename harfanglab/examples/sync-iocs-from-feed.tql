@@ -7,15 +7,25 @@ description: |
   Domains that leave the feed are disabled in HarfangLab.
 
   Declare the lookup table in the configuration as
-  `contexts/threat-domains.yaml` with `type: lookup-table`. For a large feed,
-  import it into the source once with the Manager's CSV import; the hourly
-  runs then only write the differences.
+  `contexts/threat-domains.yaml` with `type: lookup-table`, and give it a
+  write timeout so that domains that leave the feed also leave the table.
+
+  The first run creates every domain with one request, which takes about
+  40 minutes for 10,000 domains. The hourly runs then only write the
+  differences. Don't load the feed with the Manager's CSV import instead,
+  because it creates blocking IOCs.
+
+  Pruning stops the run before any write when it would disable more than
+  10 IOCs and more than 10% of the source, for example after a truncated
+  download. Raise `max_prune_share` for a feed that changes faster. Watch
+  for `failed` results, and for the pipeline stopping on an error.
 ---
 
 every 1h {
   from_http "https://feeds.example.org/malicious-domains.txt" {
     read_lines
   }
+  line = line.trim()
   where line != "" and not line.starts_with("#")
   this = {domain: line}
   fork {
@@ -26,5 +36,7 @@ every 1h {
     source="tenzir-threat-domains",
     type="domain",
     value=domain,
-    prune=true
+    prune=true,
+    max_prune_share=0.1
+  where action == "failed"
 }
