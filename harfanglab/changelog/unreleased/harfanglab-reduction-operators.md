@@ -22,11 +22,14 @@ harfanglab::ocsf::reduce
 - `summarize_network` and `summarize_http` summarize network connections and
   HTTP requests per five minutes.
 - `deduplicate_processes` and `deduplicate_modules` forward the first start
-  of each process per hour and the first load of each module per day
-  unchanged and summarize the repeats.
+  of each process and the first load of each module by each executable per
+  hour unchanged and summarize the repeats.
 - `reduce` applies all four and passes every other event through unchanged.
 
 Each operator exists as `harfanglab::ocsf::…` and `harfanglab::ecs::…`. The
 results stay events of the same OCSF class or ECS category. Summaries carry
 `count` (OCSF) or `tenzir.count` (ECS), so a SIEM must sum these to count
 events.
+
+The operators keep about 2 to 5 KB per summary in memory until its window
+closes. The package description explains how to size a node.
