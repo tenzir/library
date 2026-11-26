@@ -1,0 +1,60 @@
+---
+description: |
+  Zeek ldap.log → OCSF Authentication for binds, or Network Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// A bind authenticates the client as the entry that `object` names. Other
+// operations, and anonymous binds without a name, are directory traffic.
+if not ($event.opcode? else "").starts_with("bind") or $event.object? in [null, ""] {
+  zeek::ocsf::logs::protocol $event, $ocsf
+} else {
+  zeek::ocsf::map_network $event, $ocsf
+
+  // --- OCSF: classification attributes --------
+
+  $ocsf.activity_id = 1
+  $ocsf.category_uid = 3
+  $ocsf.class_uid = 3002
+  $ocsf.severity_id = 1
+  $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+  // --- OCSF: context attributes ---------------
+
+  $ocsf.metadata.log_name = "ldap.log"
+
+  // --- OCSF: primary attributes ---------------
+
+  $ocsf.auth_protocol = "LDAP"
+  $ocsf.auth_protocol_id = 12
+  $ocsf.user.name = move $event.object
+  // LDAP names the result code of RFC 4511 §4.1.9, such as `success` or
+  // `invalidCredentials`. A SASL exchange continues after
+  // `saslBindInProgress`, and Zeek logs a bind without a response without a
+  // result.
+  if $event.result? == "success" {
+    $ocsf.status = "Success"
+    $ocsf.status_id = 1
+  } else if $event.result? not in [null, "saslBindInProgress"] {
+    $ocsf.status = "Failure"
+    $ocsf.status_id = 2
+    $ocsf.severity_id = 2
+  } else {
+    $ocsf.status = "Unknown"
+    $ocsf.status_id = 0
+  }
+  $ocsf.status_code = move $event.result?
+  $ocsf.status_detail = move $event.diagnostic_message?
+  // Authentication has no connection details. The UID stays in the metadata,
+  // and the Community ID keeps its original key.
+  $event.community_id = $ocsf.connection_info.community_uid?
+  drop $ocsf.connection_info
+  @name = "ocsf.authentication"
+}
