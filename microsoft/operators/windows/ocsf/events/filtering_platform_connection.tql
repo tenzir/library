@@ -49,25 +49,25 @@ if $ocsf.connection_info.direction_id != 0 {
 drop $windows.EventData.Protocol?
 // Windows names the local address as the source and the remote address as
 // the destination, also for inbound connections, which the remote peer
-// initiates: Microsoft's example of an inbound 5156 names the listening port
-// as the source port. OCSF names the initiator as the source.
+// initiates. Microsoft's 5156 reference contradicts itself here: its field
+// descriptions call the source the address that initiated the connection, but
+// its example of an inbound connection names the listening port as the source
+// port, and its monitoring advice finds inbound connections to a local port by
+// the source port. The example matches what Windows writes. OCSF names the
+// initiator as the source.
 _local = {
-  ip: $windows.EventData.SourceAddress?.ip(),
+  ip: null,  // An IP address; see below.
   port: int(move $windows.EventData.SourcePort?),
 }
 if $windows.EventData.InterfaceIndex? != null {
   _local.interface_uid = move $windows.EventData.InterfaceIndex
 }
 _remote = {
-  ip: $windows.EventData.DestAddress?.ip(),
+  ip: null,  // An IP address; see below.
   port: int(move $windows.EventData.DestPort?),
 }
-if _local.ip != null {
-  drop $windows.EventData.SourceAddress
-}
-if _remote.ip != null {
-  drop $windows.EventData.DestAddress
-}
+microsoft::windows::ocsf::endpoint_ip $windows.EventData.SourceAddress?, _local
+microsoft::windows::ocsf::endpoint_ip $windows.EventData.DestAddress?, _remote
 if $ocsf.connection_info.direction_id == 1 {
   $ocsf.src_endpoint = move _remote
   $ocsf.dst_endpoint = move _local
@@ -90,7 +90,7 @@ if $windows.EventData.ProcessID? != null {
     $ocsf.actor.process.file = {
       path: $windows.EventData.Application,
       name: $windows.EventData.Application.split("\\")[-1],
-      type_id: 1,  // Regular File
+      type_id: 8,  // Executable File
     }
     drop $windows.EventData.Application
   }
