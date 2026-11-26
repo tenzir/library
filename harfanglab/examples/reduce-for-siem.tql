@@ -1,14 +1,21 @@
 ---
 name: Reduce HarfangLab OCSF events for a SIEM
 description: |
-  Drains the Splunk pull export of a HarfangLab Manager every minute and
-  reduces the volume of the OCSF events: network and HTTP activity become
-  summaries, process starts and module loads become deduplicated events, and
-  all other events pass through unchanged.
+  Drains the Splunk pull export of a HarfangLab Manager every minute, keeps
+  every OCSF event in ClickHouse as the data lake, and sends Splunk a reduced
+  stream: network and HTTP activity become summaries, process starts and
+  module loads become deduplicated events, and all other events pass through
+  unchanged.
 ---
 
 every 1min {
   harfanglab::fetch "https://example.hurukai.io:8443",
     token=secret("harfanglab-api-token")
 }
-harfanglab::ocsf::reduce
+fork {
+  harfanglab::ocsf::reduce
+  to_splunk "https://splunk.example.com:8088",
+    hec_token=secret("splunk-hec-token")
+}
+to_clickhouse host="clickhouse.example.com", table="harfanglab_ocsf",
+  mode="create_append"
