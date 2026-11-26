@@ -65,13 +65,18 @@ if $event.success? == true {
   drop $event.success
 } else if $event.log in ["ldap", "ldap_search"] and $event.result? != null {
   // Zeek names the result code of RFC 4511 §4.1.9 in words, such as
-  // `success` or `no such object`.
+  // `success` or `no such object`. Any other result than `success` fails the
+  // operation, except for an unfinished SASL bind, and keeps its name in
+  // `status_code`, like the binds in Authentication events.
   if $event.result == "success" {
     $ocsf.status = "Success"
     $ocsf.status_id = 1
+  } else if $event.result == "SASL bind in progress" {
+    $ocsf.status = "Unknown"
+    $ocsf.status_id = 0
   } else {
-    $ocsf.status = $event.result
-    $ocsf.status_id = 99
+    $ocsf.status = "Failure"
+    $ocsf.status_id = 2
   }
   $ocsf.status_code = move $event.result
   $ocsf.status_detail = move $event.diagnostic_message?
