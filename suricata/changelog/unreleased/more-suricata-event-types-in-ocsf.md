@@ -13,4 +13,3 @@ More Suricata EVE event types map to OCSF:
 - `mdns` events become DNS Activity.
 - `arp`, `dcerpc`, `ldap`, `pop3`, `quic`, `rfb`, and `websocket` events become Network Activity. QUIC hellos add their JA3, JA3S, and JA4 fingerprints and the server name.
 - HTTP/2 files become HTTP Activity, and HTTP/2 requests report their version.
-- Flows report Open, Close, Reset, Refuse, or Fail from their TCP state.
