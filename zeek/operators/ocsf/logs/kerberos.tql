@@ -1,0 +1,123 @@
+---
+description: |
+  Zeek kerberos.log → OCSF Authentication, or Network Activity without a
+  client.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// Authentication requires the authenticated user. Zeek names the client as
+// `name/realm` when a request or reply carries it. Without a client, the
+// record shows Kerberos traffic rather than an identifiable authentication.
+if $event.client? != null {
+  // The KDC asks for preauthentication at the start of every regular logon.
+  // Other errors belong to the request that failed.
+  let $request_types = {
+    AS: 3,
+    TGS: 4,
+  }
+  if $event.error_msg? == "KDC_ERR_PREAUTH_REQUIRED" {
+    $ocsf.activity_id = 6
+  } else if $request_types[$event.request_type?]? != null {
+    $ocsf.activity_id = $request_types[$event.request_type]
+  } else {
+    $ocsf.activity_id = 99
+    $ocsf.activity_name = $event.request_type?
+  }
+  $ocsf.category_uid = 3
+  $ocsf.class_uid = 3002
+} else {
+  $ocsf.activity_id = 6
+  $ocsf.class_uid = 4001
+}
+// A failed request carries a low risk, except for the preauthentication
+// request, which is part of a regular logon.
+$ocsf.severity_id = 2 if $event.success? == false and $event.error_msg? != "KDC_ERR_PREAUTH_REQUIRED" else 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "kerberos.log"
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek only logs `success` once it sees the reply.
+if $event.success? == true {
+  $ocsf.status = "Success"
+  $ocsf.status_id = 1
+} else if $event.success? == false {
+  $ocsf.status = "Failure"
+  $ocsf.status_id = 2
+} else {
+  $ocsf.status = "Unknown"
+  $ocsf.status_id = 0
+}
+// Zeek logs the error name, such as KDC_ERR_PREAUTH_FAILED.
+$ocsf.status_code = move $event.error_msg?
+drop $event.success?
+
+if $ocsf.class_uid == 3002 {
+  $ocsf.auth_protocol = "Kerberos"
+  $ocsf.auth_protocol_id = 2
+  // The realm follows the last slash, because the principal name can contain
+  // slashes itself, such as `host/pc.example`.
+  if "/" in $event.client {
+    $ocsf.user = {
+      name: $event.client.replace_regex("/[^/]*$", ""),
+      domain: $event.client.replace_regex("^.*/", ""),
+    }
+  } else {
+    $ocsf.user = {
+      name: $event.client,
+    }
+  }
+  drop $event.client
+  $ocsf.service = {
+    name: move $event.service?,
+  }
+  // A successful reply grants a ticket, encrypted with `cipher`.
+  if $ocsf.status_id == 1 and $event.request_type? in ["AS", "TGS"] {
+    let $algorithms = {
+      "des-cbc-crc": {algorithm: "DES", algorithm_id: 1},
+      "des-cbc-md4": {algorithm: "DES", algorithm_id: 1},
+      "des-cbc-md5": {algorithm: "DES", algorithm_id: 1},
+      "des3-cbc-sha1": {algorithm: "TripleDES", algorithm_id: 2},
+      "aes128-cts-hmac-sha1-96": {algorithm: "AES", algorithm_id: 3},
+      "aes256-cts-hmac-sha1-96": {algorithm: "AES", algorithm_id: 3},
+      "aes128-cts-hmac-sha256-128": {algorithm: "AES", algorithm_id: 3},
+      "aes256-cts-hmac-sha384-192": {algorithm: "AES", algorithm_id: 3},
+    }
+    $ocsf.authentication_token = {
+      type: "Ticket Granting Ticket" if $event.request_type == "AS" else "Service Ticket",
+      type_id: 1 if $event.request_type == "AS" else 2,
+    }
+    if $event.cipher? != null {
+      $ocsf.authentication_token.encryption_details = {
+        ...($algorithms[$event.cipher]? else {algorithm: "Other", algorithm_id: 99}),
+        type: move $event.cipher,
+      }
+    }
+  }
+  if $ocsf.activity_id != 99 {
+    drop $event.request_type?
+  }
+  // Authentication has no connection details. The UID stays in the metadata,
+  // and the Community ID keeps its original key.
+  $event.community_id = $ocsf.connection_info.community_uid?
+  drop $ocsf.connection_info
+  @name = "ocsf.authentication"
+} else {
+  // Zeek names the analyzer `KRB`.
+  $ocsf.app_protocol_name = "krb"
+  @name = "ocsf.network_activity"
+}
