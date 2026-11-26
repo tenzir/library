@@ -8,22 +8,11 @@ args:
       description: The OCSF output field.
       type: field
 ---
-// --- OCSF: classification attributes ----------
-
 // SIP messages travel over a connection, but do not open, close, or fail it.
 // INVITE and BYE begin and end a call, and an error response fails a
 // request.
-$ocsf.activity_id = 6
-$ocsf.category_uid = 4
-$ocsf.class_uid = 4001
-$ocsf.severity_id = 1
-$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-
-// --- OCSF: context attributes -----------------
-
+suricata::ocsf::logs::traffic $event, $ocsf
 $ocsf.app_protocol_name = "sip"
-
-// --- OCSF: primary attributes -----------------
 
 $ocsf.message = move $event.sip.request_line? else move $event.sip.response_line?
 $ocsf.status_detail = move $event.sip.reason?
@@ -44,5 +33,3 @@ drop_null_fields $event.sip
 if $event.sip == {} {
   drop $event.sip
 }
-
-@name = "ocsf.network_activity"
