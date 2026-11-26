@@ -1,0 +1,24 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+suricata::ocsf::logs::traffic $event, $ocsf
+$ocsf.app_protocol_name = "rfb"
+
+// The security result tells whether the server accepted the authentication.
+match $event.rfb.authentication?.security_result? {
+  "OK" => {
+    $ocsf.status_id = 1
+  }
+  null => {}
+  _ => {
+    $ocsf.status_id = 2
+  }
+}
+$ocsf.status_detail = move $event.rfb.authentication?.security_result?

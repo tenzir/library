@@ -1,0 +1,56 @@
+---
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+// A TLS object requires the TLS version, which QUIC does not log.
+suricata::ocsf::logs::traffic $event, $ocsf
+$ocsf.app_protocol_name = "quic"
+
+// Suricata logs QUIC packets in packet direction. Clients send the hello with
+// JA3, JA4, and SNI, servers the one with JA3S.
+if $event.quic.ja3s? != null {
+  $ocsf.initiator_id = 2
+  if $event.quic.ja3s.hash? != null {
+    $ocsf.src_endpoint.fingerprints = [{
+      algorithm_id: 99,
+      algorithm: "JA3S",
+      value: move $event.quic.ja3s.hash,
+    }]
+  }
+} else if $event.quic.ja3? != null or $event.quic.ja4? != null or $event.quic.sni? != null {
+  $ocsf.initiator_id = 1
+  if $event.quic.ja3?.hash? != null {
+    $ocsf.src_endpoint.fingerprints = [{
+      algorithm_id: 99,
+      algorithm: "JA3",
+      value: move $event.quic.ja3.hash,
+    }]
+  }
+  if $event.quic.ja4? != null {
+    $ocsf.ja4_fingerprint_list = [{
+      type_id: 1,
+      value: move $event.quic.ja4,
+    }]
+  }
+  // As for TLS, the SNI names the server, unless it is an IP literal.
+  if $event.quic.sni? != null and ip($event.quic.sni) == null and ":" not in $event.quic.sni {
+    $ocsf.dst_endpoint.hostname = move $event.quic.sni
+  }
+}
+
+drop_null_fields $event.quic
+if $event.quic.ja3? == {} {
+  drop $event.quic.ja3
+}
+if $event.quic.ja3s? == {} {
+  drop $event.quic.ja3s
+}
+if $event.quic == {} {
+  drop $event.quic
+}
