@@ -9,6 +9,23 @@ description: |
   `processes`, or `modules` to `false` to pass those documents through
   unchanged. All other documents, such as alerts, audit logs, DNS
   resolutions, and authentications, pass through unchanged.
+
+  Only summaries carry `tenzir.count`, the number of events they stand for, so
+  a SIEM that counts events must sum `tenzir.count` and count every other
+  event as one. Windows follow processing time and align to the epoch:
+  summaries leave in one burst at each window boundary, up to one window after
+  their events, so search them by index time. Each summary covers at most one
+  window of event time per host, so late events get their own summaries and
+  none is dropped. Open windows live in memory and are lost on a restart;
+  first occurrences have already left by then.
+
+  Memory grows with the summaries per window: about 2 KB per network or HTTP
+  summary, 3 KB per module and 5 KB per process summary, plus 0.4 KB per
+  distinct process or module key. After an outage of N windows, the drained
+  backlog needs about N times as much. Summaries keep at most 10 URL paths, a
+  query string only if it is the same for all requests, no module base
+  addresses, and no process IDs of several repeats, so detections on these
+  fields need the full events, for example in a data lake.
 args:
   named:
     - name: network_window
