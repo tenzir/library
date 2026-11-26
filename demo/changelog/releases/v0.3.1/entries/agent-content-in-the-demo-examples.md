@@ -3,6 +3,8 @@ title: Agent content in the demo examples
 type: change
 authors:
   - zedoraps
+prs:
+  - 270
 created: 2026-11-26T00:39:44.775767Z
 ---
 
