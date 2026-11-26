@@ -1,0 +1,83 @@
+---
+description: |
+  Deduplicates HarfangLab Module Activity (`class_uid` 1005) into one event
+  per time window, host, and module file. Events of other classes pass
+  through unchanged.
+
+  Each result is a Module Activity event with the OCSF aggregation
+  attributes: `count` holds the number of loads, `start_time` and `end_time`
+  the times of the first and last one, and `time` equals `start_time`. All
+  times are epoch milliseconds, like HarfangLab's.
+
+  The result describes the module with its complete `module.file`, including
+  its hashes and signature, so another binary at the same path yields its own
+  result. The base address differs between loads and doesn't appear.
+  HarfangLab identifies the loading process mostly by its process ID alone.
+  The result keeps the name and path of the loading process only if all
+  loads came from the same one, and `unmapped.distinct_actor_pids` holds the
+  number of distinct loading process IDs.
+
+  Windows use event time from `time`, aligned to the Unix epoch, with a
+  separate clock per host, so a host with a skewed clock or a backlog doesn't
+  close the windows of other hosts. A window closes once its host sends an
+  event past the window end plus `tolerance`, after `window` without any
+  event from the host, or when the input ends. The operator drops events that
+  arrive after their window closed, with a warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 1d
+      description: Width of the deduplication windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late events of its host.
+---
+
+if class_uid == 1005 {
+  // The outer grouping gives every host its own event-time clock and keeps
+  // the device and metadata records out of the per-window state.
+  group {device: device, metadata: metadata} {
+    window size=$window, on=from_epoch(time * 1ms), tolerance=$tolerance,
+           idle_timeout=$window {
+      summarize activity_id, activity_name?, type_uid, severity_id,
+        severity?, module.file, module.load_type_id?,
+        module.type?, module.function_name?,
+        count=count(), start_time=min(time), end_time=max(time),
+        _pids=count_distinct(actor.process.pid?),
+        _names=distinct(actor.process.name?),
+        _name_count=count(actor.process.name?),
+        _paths=distinct(actor.process.file.path?),
+        _path_count=count(actor.process.file.path?)
+      name = _names[0] if _names.length() == 1 and _name_count == count else null
+      path = _paths[0] if _paths.length() == 1 and _path_count == count else null
+      this = {
+        activity_id: activity_id,
+        activity_name: activity_name,
+        category_uid: 1,
+        class_uid: 1005,
+        metadata: $group.metadata,
+        severity: severity,
+        severity_id: severity_id,
+        time: start_time,
+        start_time: start_time,
+        end_time: end_time,
+        count: count,
+        type_uid: type_uid,
+        // OCSF requires the actor, so it stays even when nothing about the
+        // loading process holds for all loads.
+        actor: {
+          process: {
+            file: {path: path} if path != null else null,
+            name: name,
+          },
+        },
+        device: $group.device,
+        module: module,
+        unmapped: {distinct_actor_pids: _pids},
+      }
+      drop_null_fields
+    }
+  }
+}

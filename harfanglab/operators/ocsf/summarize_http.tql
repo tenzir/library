@@ -1,0 +1,87 @@
+---
+description: |
+  Summarizes HarfangLab HTTP Activity (`class_uid` 4002) into one event per
+  time window, endpoint, destination host, and HTTP method. Events of other
+  classes pass through unchanged.
+
+  Each summary is an HTTP Activity event with the OCSF aggregation
+  attributes: `count` holds the number of requests, `start_time` and
+  `end_time` the times of the first and last one, and `time` equals
+  `start_time`. All times are epoch milliseconds, like HarfangLab's.
+
+  HarfangLab names the requesting endpoint in `src_endpoint` and sends no
+  `device`. The URL path, query string, and full URL appear only if all
+  requests of the summary had the same value, and
+  `unmapped.distinct_url_paths` holds the number of distinct paths.
+
+  Windows use event time from `time`, aligned to the Unix epoch, with a
+  separate clock per endpoint, so an endpoint with a skewed clock or a backlog
+  doesn't close the windows of other endpoints. A window closes once its
+  endpoint sends an event past the window end plus `tolerance`, after
+  `window` without any event from the endpoint, or when the input ends. The
+  operator drops events that arrive after their window closed, with a
+  warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 5min
+      description: Width of the summary windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late events of its endpoint.
+---
+
+if class_uid == 4002 {
+  // The outer grouping gives every endpoint its own event-time clock and
+  // keeps the endpoint and metadata records out of the per-window state.
+  group {src_endpoint: src_endpoint, metadata: metadata} {
+    window size=$window, on=from_epoch(time * 1ms), tolerance=$tolerance,
+           idle_timeout=$window {
+      // Everything that a summary shows is part of the grouping, except the
+      // parts of the URL that can differ between requests to the same host.
+      summarize activity_id, activity_name?, type_uid, severity_id,
+        severity?, status_id?, status?,
+        http_request.http_method, http_request.url.hostname,
+        http_request.url.scheme?, http_request.url.port?,
+        http_response.code?,
+        count=count(), start_time=min(time), end_time=max(time),
+        _paths=distinct(http_request.url.path?),
+        _path_count=count(http_request.url.path?),
+        _queries=distinct(http_request.url.query_string?),
+        _query_count=count(http_request.url.query_string?),
+        _urls=distinct(http_request.url.url_string?),
+        _url_count=count(http_request.url.url_string?)
+      this = {
+        activity_id: activity_id,
+        activity_name: activity_name,
+        category_uid: 4,
+        class_uid: 4002,
+        metadata: $group.metadata,
+        severity: severity,
+        severity_id: severity_id,
+        status: status,
+        status_id: status_id,
+        time: start_time,
+        start_time: start_time,
+        end_time: end_time,
+        count: count,
+        type_uid: type_uid,
+        http_request: {
+          http_method: http_request.http_method,
+          url: {
+            ...http_request.url,
+            path: _paths[0] if _paths.length() == 1 and _path_count == count else null,
+            query_string: _queries[0] if _queries.length() == 1 and _query_count == count else null,
+            url_string: _urls[0] if _urls.length() == 1 and _url_count == count else null,
+          },
+        },
+        http_response: http_response,
+        src_endpoint: $group.src_endpoint,
+        unmapped: {distinct_url_paths: _paths.length()},
+      }
+      drop_null_fields
+    }
+  }
+}

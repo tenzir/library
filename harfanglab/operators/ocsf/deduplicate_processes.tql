@@ -1,0 +1,88 @@
+---
+description: |
+  Deduplicates HarfangLab Process Activity (`class_uid` 1007) into one event
+  per time window, host, executable, command line, and parent executable.
+  Events of other classes pass through unchanged.
+
+  Each result is a Process Activity event with the OCSF aggregation
+  attributes: `count` holds the number of process starts, `start_time` and
+  `end_time` the times of the first and last one, and `time` equals
+  `start_time`. All times are epoch milliseconds, like HarfangLab's.
+
+  The result describes the executable by its path, name, size, type, and MD5,
+  SHA-1, and SHA-256 hashes, and the parent by its name and executable.
+  Attributes that differ between starts don't appear: the process ID, UID,
+  creation time, and lineage, and the parent's process ID, UID, command line,
+  and parent. The user, the integrity level, and the executable are part of
+  the grouping, so a start by another user or of another binary at the same
+  path yields its own result.
+
+  Windows use event time from `time`, aligned to the Unix epoch, with a
+  separate clock per host, so a host with a skewed clock or a backlog doesn't
+  close the windows of other hosts. A window closes once its host sends an
+  event past the window end plus `tolerance`, after `window` without any
+  event from the host, or when the input ends. The operator drops events that
+  arrive after their window closed, with a warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 1h
+      description: Width of the deduplication windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late events of its host.
+---
+
+if class_uid == 1007 {
+  _md5 = process.file.hashes?.where(h => h.algorithm_id == 1).first().value
+  _sha1 = process.file.hashes?.where(h => h.algorithm_id == 2).first().value
+  _sha256 = process.file.hashes?.where(h => h.algorithm_id == 3).first().value
+  // The outer grouping gives every host its own event-time clock and keeps
+  // the device and metadata records out of the per-window state.
+  group {device: device, metadata: metadata} {
+    window size=$window, on=from_epoch(time * 1ms), tolerance=$tolerance,
+           idle_timeout=$window {
+      // Group by the scalar attributes that the result shows instead of
+      // keeping whole events or records per group: the parent command lines
+      // and the lineage are the largest part of a process event.
+      summarize activity_id, activity_name?, type_uid, severity_id, severity?,
+        process.name?, process.cmd_line?, process.user?,
+        process.integrity?, process.integrity_id?,
+        process.file.path?, process.file.name?, process.file.size?,
+        process.file.type?, process.file.type_id?, _md5, _sha1, _sha256,
+        process.parent_process.name?, process.parent_process.file.path?,
+        process.parent_process.file.name?, process.parent_process.file.type?,
+        process.parent_process.file.type_id?,
+        count=count(), start_time=min(time), end_time=max(time)
+      this = {
+        activity_id: activity_id,
+        activity_name: activity_name,
+        category_uid: 1,
+        class_uid: 1007,
+        metadata: $group.metadata,
+        severity: severity,
+        severity_id: severity_id,
+        time: start_time,
+        start_time: start_time,
+        end_time: end_time,
+        count: count,
+        type_uid: type_uid,
+        device: $group.device,
+        process: {
+          ...process,
+          file: {
+            ...process.file,
+            hashes: [
+              {algorithm_id: 2, value: _sha1, algorithm: "SHA-1"} if _sha1 != null else null,
+              {algorithm_id: 3, value: _sha256, algorithm: "SHA-256"} if _sha256 != null else null,
+              {algorithm_id: 1, value: _md5, algorithm: "MD5"} if _md5 != null else null,
+            ].where(h => h != null),
+          },
+        },
+      }
+      drop_null_fields
+    }
+  }
+}

@@ -1,0 +1,89 @@
+---
+description: |
+  Summarizes HarfangLab Network Activity (`class_uid` 4001) into one event per
+  time window, host, remote IP address, service port, protocol, and direction.
+  Events of other classes pass through unchanged.
+
+  Each summary is a Network Activity event with the OCSF aggregation
+  attributes: `count` holds the number of connections, `start_time` and
+  `end_time` the times of the first and last one, and `time` equals
+  `start_time`. All times are epoch milliseconds, like HarfangLab's.
+
+  HarfangLab describes every connection from the endpoint's point of view:
+  `src_endpoint` is the local end and `dst_endpoint` the remote end. The
+  service port is therefore `src_endpoint.port` for inbound connections and
+  `dst_endpoint.port` otherwise, and the summary keeps it there. The client
+  port varies between connections and doesn't appear. The local IP address
+  appears only if all connections of the summary used the same one.
+
+  Windows use event time from `time`, aligned to the Unix epoch, with a
+  separate clock per host, so a host with a skewed clock or a backlog doesn't
+  close the windows of other hosts. A window closes once its host sends an
+  event past the window end plus `tolerance`, after `window` without any
+  event from the host, or when the input ends. The operator drops events that
+  arrive after their window closed, with a warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 5min
+      description: Width of the summary windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late events of its host.
+---
+
+if class_uid == 4001 {
+  _service_port = src_endpoint.port if connection_info.direction_id == 1 else dst_endpoint.port
+  // The outer grouping gives every host its own event-time clock and keeps
+  // the device and metadata records out of the per-window state.
+  group {device: device, metadata: metadata} {
+    window size=$window, on=from_epoch(time * 1ms), tolerance=$tolerance,
+           idle_timeout=$window {
+      // Everything that a summary shows is part of the grouping, except the
+      // local IP address, which the summary keeps only if it never changed.
+      summarize activity_id, activity_name?, type_uid, severity_id,
+        severity?, status_id?, status?,
+        connection_info.direction_id, connection_info.direction?,
+        connection_info.protocol_name?, connection_info.protocol_num?,
+        connection_info.protocol_ver_id?,
+        src_endpoint.name?, src_endpoint.uid?, src_endpoint.hostname?,
+        src_endpoint.agent_list?,
+        dst_endpoint.name?, dst_endpoint.uid?, dst_endpoint.hostname?,
+        dst_endpoint.agent_list?, dst_endpoint.ip, _service_port,
+        count=count(), start_time=min(time), end_time=max(time),
+        _local_ips=distinct(src_endpoint.ip?),
+        _local_ip_count=count(src_endpoint.ip?)
+      inbound = connection_info.direction_id == 1
+      this = {
+        activity_id: activity_id,
+        activity_name: activity_name,
+        category_uid: 4,
+        class_uid: 4001,
+        metadata: $group.metadata,
+        severity: severity,
+        severity_id: severity_id,
+        status: status,
+        status_id: status_id,
+        time: start_time,
+        start_time: start_time,
+        end_time: end_time,
+        count: count,
+        type_uid: type_uid,
+        device: $group.device,
+        connection_info: connection_info,
+        src_endpoint: {
+          ...src_endpoint,
+          ip: _local_ips[0] if _local_ips.length() == 1 and _local_ip_count == count else null,
+          port: _service_port if inbound else null,
+        },
+        dst_endpoint: {
+          ...dst_endpoint,
+          port: _service_port if not inbound else null,
+        },
+      }
+      drop_null_fields
+    }
+  }
+}
