@@ -12,20 +12,42 @@ that the tests of one suite see each other's changes:
   the operators use and page with `limit` and `offset`. Pages hold at most
   `MAX_LIMIT` results, so that small tests exercise the pagination. Like the
   real Manager, `next` is a path without scheme and host.
-- `value` matches exactly but case-insensitively, as on the Manager.
-- `POST IOCRule/` answers 201 with the rule, and 400 for a duplicate type
-  and value in a source or an invalid IP address. `global_state: disabled`
-  also disables the rule.
+- `value` matches exactly but case-insensitively, as on the Manager. Values
+  are stored as sent, also IP addresses in a non-canonical form.
+- `POST IOCRule/` answers 201 with the rule, as the Manager 6.2.28 did for a
+  single JSON rule, and 400 for a type and value that already exist in the
+  source, compared case-insensitively, or an invalid IP address.
+  `global_state: disabled` also disables the rule.
 - `PATCH IOCRule/<id>/` updates a rule, `DELETE IOCRule/<id>/` answers 204
   without a body.
-- `POST IOCRule/update/` changes the state of the rules in `rule_ids`.
+- `POST IOCRule/update/` changes the state of the rules in `rule_ids` and
+  ignores unknown ids. How the Manager treats unknown ids is not known.
 - `DELETE IOCSource/<id>/items/` deletes the rules in `ids` and answers 200
   without a body, or 400 if one of them doesn't exist.
 - `fields` limits the listed fields to a comma-separated list.
 
-`GET /mock/requests` returns the number of API requests per method since the
-previous call and resets the counter, so that tests can show how many
-requests a run sent.
+Sources with these names fail on purpose, so that tests can cover the error
+paths:
+
+- `tenzir-fault-listing`: `GET IOCRule/` answers 403.
+- `tenzir-fault-truncated`: `GET IOCRule/` answers with the first page only,
+  as if the Manager ignored `offset`.
+- `tenzir-fault-bulk`: `POST IOCRule/update/` and
+  `DELETE IOCSource/<id>/items/` answer 400.
+- `tenzir-fault-empty`: `POST IOCRule/update/` answers 200 without a body.
+
+The mock routes help the tests:
+
+- `GET /mock/requests` returns the number of API requests per method since
+  the previous call and resets the counter, so that tests can show how many
+  requests a run sent.
+- `GET /mock/writes` returns the write requests in the order of their arrival
+  since the previous call, with the rule ids left out, and resets the list.
+- `POST /mock/seed` adds the rules `{type, value}` in `rules` to the source
+  `source`, which it creates if needed, with the `global_state`, `enabled`,
+  `rule_confidence`, and `comment` of the request. Tests use it to set up
+  rules that the operator didn't create, for example blocking rules as the
+  CSV import leaves them.
 
 Requests without the expected token get a 401.
 """
@@ -99,19 +121,17 @@ class Store:
     def __init__(self):
         self.lock = threading.Lock()
         self.requests = {}
-        self.counter = 0
         self.sources = []
         self.rules = {}
+        self.writes = []
         # A source that the tests must leave alone.
         self.add_source({"name": "unrelated-source", "global_state": "block"})
 
-    def next_id(self):
-        self.counter += 1
-        return str(uuid.UUID(int=self.counter))
-
     def add_source(self, data):
         source = {
-            "id": self.next_id(),
+            # Derive the id from the name, so that the ids don't depend on the
+            # order in which the tests create sources.
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"source/{data['name']}")),
             "name": data["name"],
             "description": "",
             "enabled": True,
@@ -128,6 +148,9 @@ class Store:
         source.update({k: v for k, v in data.items() if k in SOURCE_FIELDS})
         self.sources.append(source)
         return source
+
+    def source_named(self, name):
+        return next((s for s in self.sources if s["name"] == name), None)
 
     def source(self, source_id):
         return next((s for s in self.sources if s["id"] == source_id), None)
@@ -187,6 +210,11 @@ def _handler(queues, store):
                     counts, store.requests = store.requests, {}
                 self._json(200, counts)
                 return
+            if url.path == "/mock/writes":
+                with store.lock:
+                    writes, store.writes = store.writes, []
+                self._json(200, {"writes": writes})
+                return
             if not self._authorized():
                 return
             query = parse_qs(url.query)
@@ -205,10 +233,17 @@ def _handler(queues, store):
                     self._json(200, _page(url.path, query, items))
             elif url.path == f"{TI}/IOCRule/":
                 with store.lock:
+                    fault = self._fault(query.get("source_id", [None])[0])
+                    if fault == "listing":
+                        self._json(403, {"detail": "Permission denied."})
+                        return
                     items = [
                         r for r in store.rules.values() if self._matches(r, query)
                     ]
-                    self._json(200, _page(url.path, query, items))
+                    page = _page(url.path, query, items)
+                    if fault == "truncated":
+                        page["next"] = None
+                    self._json(200, page)
             else:
                 with store.lock:
                     found = self._rule_from_path() or self._source_from_path()
@@ -218,11 +253,16 @@ def _handler(queues, store):
                         self._json(200, found)
 
         def do_POST(self):
+            path = urlsplit(self.path).path
+            if path == "/mock/seed":
+                with store.lock:
+                    self._seed(self._body())
+                return
             if not self._authorized():
                 return
             data = self._body()
-            path = urlsplit(self.path).path
             with store.lock:
+                self._log_write()
                 if path == f"{TI}/IOCSource/":
                     if not data.get("name"):
                         self._json(400, {"name": ["This field is required."]})
@@ -240,6 +280,7 @@ def _handler(queues, store):
                 return
             data = self._body()
             with store.lock:
+                self._log_write()
                 rule = self._rule_from_path()
                 if rule is None:
                     self._json(404, {"detail": "Not found."})
@@ -258,8 +299,12 @@ def _handler(queues, store):
                 source_id = path[len(f"{TI}/IOCSource/") : -len("/items/")]
                 ids = self._body().get("ids", [])
                 with store.lock:
+                    self._log_write()
                     if store.source(source_id) is None:
                         self._json(404, {"detail": "Not found."})
+                        return
+                    if self._fault(source_id) == "bulk":
+                        self._json(400, {"status": "Injected failure."})
                         return
                     rules = [store.rule(i) for i in ids]
                     missing = [r for r in rules if r is None]
@@ -273,6 +318,7 @@ def _handler(queues, store):
                     self._send(200, b"")
                 return
             with store.lock:
+                self._log_write()
                 rule = self._rule_from_path()
                 if rule is None:
                     self._json(404, {"detail": "Not found."})
@@ -287,10 +333,17 @@ def _handler(queues, store):
             changes = {
                 k: v for k, v in data.items() if k in {"global_state", "enabled"}
             }
-            for rule_id in data.get("rule_ids", []):
-                rule = store.rule(rule_id)
-                if rule is not None:
-                    store.apply(rule, changes)
+            rules = [store.rule(i) for i in data.get("rule_ids", [])]
+            rules = [r for r in rules if r is not None]
+            faults = {self._fault(r["source_id"]) for r in rules}
+            if "bulk" in faults:
+                self._json(400, {"status": "Injected failure."})
+                return
+            for rule in rules:
+                store.apply(rule, changes)
+            if "empty" in faults:
+                self._send(200, b"")
+                return
             self._json(200, {"status": "rules updated"})
 
         def _create_rule(self, data):
@@ -314,7 +367,7 @@ def _handler(queues, store):
                     return
             # Derive the id from the rule, so that concurrent requests give
             # the same ids in every run.
-            key = f"{source['id']}/{data['type']}/{data['value']}"
+            key = f"{source['id']}/{data['type']}/{data['value'].lower()}"
             rule_id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
             if store.rule(rule_id) is not None:
                 self._json(
@@ -350,6 +403,65 @@ def _handler(queues, store):
             store.add_rule(rule)
             store.apply(rule, data)
             self._json(201, rule)
+
+        def _seed(self, data):
+            source = store.source_named(data["source"]) or store.add_source(
+                {"name": data["source"]}
+            )
+            for item in data.get("rules", []):
+                key = f"{source['id']}/{item['type']}/{item['value'].lower()}"
+                rule = {
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+                    "source_id": source["id"],
+                    "source": source["id"],
+                    "type": item["type"],
+                    "value": item["value"],
+                    "name": "",
+                    "description": None,
+                    "comment": None,
+                    "enabled": True,
+                    "global_state": source["global_state"],
+                    "hl_status": "stable",
+                    "rule_level": None,
+                    "rule_level_override": None,
+                    "rule_confidence": None,
+                    "endpoint_detection": True,
+                    "block_on_agent": False,
+                    "quarantine_on_agent": False,
+                    "creation_date": TIMESTAMP,
+                }
+                store.add_rule(rule)
+                store.apply(
+                    rule,
+                    {
+                        k: v
+                        for k, v in data.items()
+                        if k in {"global_state", "enabled", "rule_confidence", "comment"}
+                    },
+                )
+            self._json(200, {"source_id": source["id"], "rules": len(data["rules"])})
+
+        def _fault(self, source_id):
+            source = store.source(source_id)
+            name = source["name"] if source else ""
+            prefix = "tenzir-fault-"
+            return name[len(prefix) :] if name.startswith(prefix) else None
+
+        def _log_write(self):
+            path = urlsplit(self.path).path[len(TI) :]
+            rule = self._rule_from_path()
+            if rule is not None:
+                path = path.replace(rule["id"], "<id>")
+            source = self._source_from_path_prefix(path)
+            if source is not None:
+                path = path.replace(source["id"], "<id>")
+            store.writes.append(f"{self.command} {path}")
+
+        def _source_from_path_prefix(self, path):
+            prefix = "/IOCSource/"
+            if not path.startswith(prefix):
+                return None
+            return store.source(path[len(prefix) :].split("/")[0])
 
         def _matches(self, rule, query):
             for key in ("source_id", "type", "global_state"):
