@@ -15,6 +15,15 @@ description: |
 // again on start. Moving read objects to `processed/` keeps them in the bucket
 // as an archive while the watched prefix holds only new ones. This requires
 // permission to write and delete objects in the bucket.
+//
+// Alternatives:
+// - `remove=true` deletes each object after reading it, if the bucket needs
+//   no archive.
+// - `max_age=10min` skips older objects. This bounds what a restart reads
+//   again, but objects that arrive while the pipeline is down for longer are
+//   never read.
+// - S3 event notifications to an SQS queue, read with `from_amazon_sqs`,
+//   deliver each new object once without scanning the bucket.
 from_s3 "s3://example-bucket/harfanglab/*.json.gz",
   watch=1min,
   rename=(path => f"processed/{path}") {
