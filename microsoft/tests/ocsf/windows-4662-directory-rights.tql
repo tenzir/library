@@ -1,0 +1,17 @@
+// Every directory access right of 4662 renders by name, such as List Object,
+// which only reads the object, and Delete Child or Write Self, which change it.
+from_file f"{env("TENZIR_INPUTS")}/eid-4662.xml" {
+  read_all
+}
+cases = [
+  {tokens: "%%7687", mask: "0x80"},
+  {tokens: "%%7681", mask: "0x2"},
+  {tokens: "%%7683", mask: "0x8"},
+]
+unroll cases
+windows = data.parse_winlog()
+windows.EventData.AccessList = cases.tokens
+windows.EventData.AccessMask = cases.mask
+microsoft::windows::ocsf::normalize windows, into=ocsf
+select mask = cases.mask, access_list = ocsf.access_list, activity_id = ocsf.activity_id
+sort mask
