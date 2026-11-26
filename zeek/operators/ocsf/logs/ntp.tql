@@ -1,0 +1,82 @@
+---
+description: |
+  Zeek ntp.log → OCSF NTP Activity.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+zeek::ocsf::map_network $event, $ocsf
+
+// --- OCSF: classification attributes ----------
+
+// The NTP activities follow the association modes of RFC 5905 §3, from 1
+// (symmetric active) to 7 (reserved for private use). Mode 0 is reserved.
+$ocsf.activity_id = int($event.mode) if $event.mode? in [1, 2, 3, 4, 5, 6, 7] else 0
+if $ocsf.activity_id != 0 {
+  drop $event.mode
+}
+$ocsf.class_uid = 4013
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "ntp.log"
+$ocsf.version = (move $event.version?).string()
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek analyzes NTP over UDP only.
+$ocsf.connection_info.protocol_name = "udp"
+$ocsf.connection_info.protocol_num = 17
+
+// RFC 5905 §7.3 defines the strata: 0 is unspecified, 1 a primary server, 2
+// to 15 a secondary server, 16 unsynchronized, and higher values reserved.
+// OCSF names no level between 3 and 15, so `stratum` keeps it.
+if $event.stratum? != null {
+  if $event.stratum == 0 {
+    $ocsf.stratum_id = 0
+  } else if $event.stratum == 1 {
+    $ocsf.stratum_id = 1
+  } else if $event.stratum <= 15 {
+    $ocsf.stratum_id = 2
+  } else if $event.stratum == 16 {
+    $ocsf.stratum_id = 16
+  } else {
+    $ocsf.stratum_id = 17
+  }
+  if $event.stratum in [0, 1, 2, 16] {
+    drop $event.stratum
+  }
+}
+
+// Zeek logs the precision as the interval 2^precision. Intervals that a TSV
+// log rounds to zero no longer tell the exponent.
+if type_kind($event.precision?) != "duration" {
+  $event.precision = $event.precision?.seconds()
+}
+if $event.precision? > 0s {
+  $ocsf.precision = log((move $event.precision).count_seconds(), 2).round()
+}
+
+// OCSF counts root delay and dispersion in whole milliseconds. Zeek logs them
+// with sub-millisecond precision, so the exact values stay in `unmapped`.
+if type_kind($event.root_delay?) != "duration" {
+  $event.root_delay = $event.root_delay?.seconds()
+}
+if type_kind($event.root_disp?) != "duration" {
+  $event.root_disp = $event.root_disp?.seconds()
+}
+$ocsf.delay = ($event.root_delay?.count_seconds() * 1000).round()
+$ocsf.dispersion = ($event.root_disp?.count_seconds() * 1000).round()
+
+// An NTP packet reports no outcome.
+$ocsf.status_id = 0
+
+@name = "ocsf.ntp_activity"
