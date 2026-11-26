@@ -1,0 +1,18 @@
+// An input of blank values yields failed results and sends no request, even
+// with prune=true.
+from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+  read_json
+}
+each {
+  from {domain: ""}, {domain: null}
+  harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+    source="tenzir-test-guard", type="domain", value=domain, prune=true,
+    max_prune_share=1.0
+}
+summarize results=collect({value: value, action: action, error: error})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {results: $this.results, requests: this}
+}

@@ -1,0 +1,14 @@
+// The stopped run sent no write, and all 40 IOCs are still active.
+from_http f"{env("HARFANGLAB_URL")}/mock/writes" {
+  read_json
+}
+each {
+  from_http f"{env("HARFANGLAB_URL")}/api/data/threat_intelligence/IOCRule/?limit=100&global_state=alert",
+    headers={Authorization: f"Token {env("HARFANGLAB_TOKEN")}"} {
+    read_json raw=true
+  }
+  unroll results
+  where results.value.starts_with("guard-")
+  summarize active=count()
+  this = {writes: $this.writes, active: active}
+}

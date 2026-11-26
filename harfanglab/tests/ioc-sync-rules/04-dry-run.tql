@@ -1,0 +1,19 @@
+// A dry run reports the actions without writing anything.
+from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+  read_json
+}
+each {
+  from {domain: "a.example.com", gone: true},
+    {domain: "c.example.com", gone: false},
+    {domain: "new.example.com", gone: false}
+  harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+    source="tenzir-test-rules", type="domain", value=domain, revoked=gone,
+    prune=true, dry_run=true
+}
+summarize results=collect({value: value, action: action})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {results: $this.results.sort(), requests: this}
+}

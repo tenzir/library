@@ -1,0 +1,16 @@
+// Another spelling of the same addresses changes nothing and sends no write.
+from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+  read_json
+}
+each {
+  from {ip: "2001:db8:0::1"}, {ip: 192.0.2.10}
+  harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+    source="tenzir-test-values", type="ip", value=ip
+}
+summarize results=collect({value: value, action: action})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {results: $this.results.sort(), requests: this}
+}

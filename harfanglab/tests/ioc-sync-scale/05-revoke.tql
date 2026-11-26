@@ -1,0 +1,23 @@
+// Revoking the first 2,500 domains disables the 2,475 of them that are still
+// active, in three bulk requests of up to 1,000 IOCs each.
+from {}
+repeat 10000
+enumerate n
+where n != floor(n / 100) * 100 + 1
+this = {
+  domain: f"ioc-{n}.example.net",
+  info: "Synthetic feed entry, updated" if n == floor(n / 100) * 100 else "Synthetic feed entry",
+  gone: n < 2500,
+}
+harfanglab::ioc::sync env("HARFANGLAB_URL"), token=env("HARFANGLAB_TOKEN"),
+  source="tenzir-scale", type="domain", value=domain, description=info,
+  revoked=gone, prune=true
+summarize action, indicators=count()
+sort action
+summarize actions=collect({action: action, indicators: indicators})
+each {
+  from_http f"{env("HARFANGLAB_URL")}/mock/requests" {
+    read_json
+  }
+  this = {actions: $this.actions, requests: this}
+}
