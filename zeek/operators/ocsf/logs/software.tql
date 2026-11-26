@@ -1,0 +1,55 @@
+---
+description: |
+  Zeek software.log → OCSF Software Inventory Info.
+args:
+  positional:
+    - name: event
+      description: The field that holds the event to map.
+      type: field
+    - name: ocsf
+      description: The OCSF output field.
+      type: field
+---
+
+// --- OCSF: classification attributes ----------
+
+// Zeek reports the software that a host announces, such as in a User-Agent
+// or Server header, in its log.
+$ocsf.activity_id = 1
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5020
+$ocsf.severity_id = 1
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+
+// --- OCSF: context attributes -----------------
+
+$ocsf.metadata.log_name = "software.log"
+drop $event._path?
+
+// --- OCSF: primary attributes -----------------
+
+// Zeek doesn't tell the kind of device.
+$ocsf.device = {
+  ip: move $event.host?,
+  type_id: 0,
+}
+// Zeek splits the version into numbered parts. The announced text, the
+// software type, such as `HTTP::BROWSER`, and the port keep their original
+// keys.
+$event.version_parts = [
+  $event.version?.major?,
+  $event.version?.minor?,
+  $event.version?.minor2?,
+  $event.version?.minor3?,
+].where(x => x != null).map(x => x.string())
+$ocsf.package = {
+  name: move $event.name?,
+  version: $event.version_parts.join(".") if not $event.version_parts.is_empty() else null,
+}
+if $ocsf.package.version != null {
+  drop $event.version.major?, $event.version.minor?, $event.version.minor2?, $event.version.minor3?
+}
+drop $event.version_parts
+$ocsf.status_id = 0
+
+@name = "ocsf.software_info"
