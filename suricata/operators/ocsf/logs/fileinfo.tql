@@ -102,6 +102,20 @@ match $event.app_proto? {
     drop $event.file_sender
     suricata::ocsf::logs::smb $event, $ocsf
   }
+  // FTP clients store files on the server and retrieve files and listings
+  // from it. The file travels in packet direction.
+  "ftp-data" if $event.ftp_data? != null => {
+    suricata::ocsf::map_connection_info $event, $ocsf
+    $ocsf.app_protocol_name = move $event.app_proto
+    if $event.ftp_data.command? in ["RETR", "LIST", "NLST", "MLSD"] {
+      $ocsf = {
+        ...$ocsf,
+        src_endpoint: $ocsf.dst_endpoint,
+        dst_endpoint: $ocsf.src_endpoint,
+      }
+    }
+    suricata::ocsf::logs::ftp $event, $ocsf
+  }
   // Mail clients send attachments to the server, in packet direction. The
   // SMTP mapping picks Email Activity for messages with an envelope or header
   // addresses.
@@ -151,9 +165,10 @@ if $ocsf.class_uid == 4002 and $event.fileinfo.filename?.starts_with("/") {
 }
 drop $event.file_body?
 
-// HTTP and SMTP log the name of the file, SMB its path within the share. The
-// SMB mapping adds the share path and times.
-if $ocsf.class_uid in [4006, 4009] or ($ocsf.class_uid == 4002 and not $event.fileinfo.filename?.starts_with("/")) {
+// HTTP and SMTP log the name of the file, SMB its path within the share, and
+// FTP the argument of the command. The SMB mapping adds the share path and
+// times.
+if $ocsf.class_uid in [4006, 4008, 4009] or ($ocsf.class_uid == 4002 and not $event.fileinfo.filename?.starts_with("/")) {
   $ocsf.file = {
     // EVE does not tell regular from executable files.
     type_id: 1,
