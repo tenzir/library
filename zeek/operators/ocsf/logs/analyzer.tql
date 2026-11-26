@@ -1,7 +1,7 @@
 ---
 description: |
-  Zeek analyzer.log → OCSF Network Activity, or Base Event without a
-  connection.
+  Zeek analyzer.log, analyzer_debug.log, and dpd.log → OCSF Network
+  Activity, or Base Event without a connection.
 args:
   positional:
     - name: event
@@ -11,6 +11,10 @@ args:
       description: The OCSF output field.
       type: field
 ---
+
+// The analyzer_debug log adds the cause of a violation, and the legacy dpd
+// log names only protocol analyzers in `analyzer`.
+$ocsf.metadata.log_name = ($event._path? else @name).replace_regex("^zeek\\.", "") + ".log"
 
 // Network Activity needs an endpoint, and file analyzers can report
 // violations without a connection.
@@ -33,9 +37,10 @@ if $event.id?.orig_h? == null {
   // Only protocol analyzers name the application protocol of the connection.
   if $event.analyzer_kind? == "protocol" {
     $ocsf.app_protocol_name = (move $event.analyzer_name).to_lower()
+  } else if $event.analyzer? != null {
+    $ocsf.app_protocol_name = (move $event.analyzer).to_lower()
   }
 }
-$ocsf.metadata.log_name = "analyzer.log"
 
 // --- OCSF: primary attributes -----------------
 
