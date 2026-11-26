@@ -21,13 +21,21 @@ $ocsf.category_uid = 6
 $ocsf.class_uid = 6007
 $ocsf.activity_id = $activity_id
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
-// Scan Parameters names the kind of scan, such as `Quick Scan`, `Full Scan`,
-// or `Custom Scan`, which OCSF scan types do not distinguish. Scan Type names
-// the engine, such as `Antimalware`, and the scan trigger stays in unmapped.
+// Scan Parameters names the scan, such as `Quick Scan`, `Full Scan`, or
+// `Custom Scan`. OCSF scan types say what started the scan: Microsoft calls a
+// manually started scan an on-demand scan, which Windows reports with the
+// Scan Trigger `On demand`. Other triggers, Scan Type, which names the engine,
+// such as `Antimalware`, and the scan time of 1001 and 1002, whose format the
+// reference does not state, stay in unmapped.
+// https://learn.microsoft.com/defender-endpoint/troubleshoot-microsoft-defender-antivirus
 $ocsf.scan = {
   uid: move $windows.EventData["Scan ID"]?,
-  type: move $windows.EventData["Scan Parameters"]?,
-  type_id: 99,  // Other
+  name: move $windows.EventData["Scan Parameters"]?,
+  type_id: 0,  // Unknown
+}
+if $windows.EventData["Scan Trigger"]? == "On demand" {
+  $ocsf.scan.type_id = 1  // Manual
+  drop $windows.EventData["Scan Trigger"]
 }
 // The account that started, or for 1002 cancelled, the scan.
 if $windows.EventData.User? != null {
