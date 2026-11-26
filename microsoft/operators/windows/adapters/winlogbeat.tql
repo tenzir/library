@@ -13,62 +13,6 @@ args:
       description: The field that receives the canonical Windows Event Log record.
 ---
 
-$windows = {winlogbeat: $input}
-$windows.canonical = {
-  System: {
-    Provider: {
-      Name: move $windows.winlogbeat.winlog.provider_name,
-      Guid: move $windows.winlogbeat.winlog.provider_guid?,
-    },
-    EventID: move $windows.winlogbeat.winlog.event_id,
-    Version: move $windows.winlogbeat.winlog.version?,
-    Level: move $windows.winlogbeat.log?.level?,
-    Task: move $windows.winlogbeat.winlog.task?,
-    Opcode: move $windows.winlogbeat.winlog.opcode?,
-    Keywords: $windows.winlogbeat.winlog.keywords?,
-    // `parse_json(raw=true)` keeps the time a string.
-    TimeCreated: {
-      SystemTime: time(move $windows.winlogbeat["@timestamp"]),
-    },
-    EventRecordID: move $windows.winlogbeat.winlog.record_id,
-    Correlation: {
-      ActivityID: move $windows.winlogbeat.winlog.activity_id?,
-      RelatedActivityID: move $windows.winlogbeat.winlog.related_activity_id?,
-    },
-    Execution: {
-      ProcessID: move $windows.winlogbeat.winlog.process?.pid?,
-      ThreadID: move $windows.winlogbeat.winlog.process?.thread?.id?,
-    },
-    Channel: $windows.winlogbeat.winlog.channel,
-    Computer: move $windows.winlogbeat.winlog.computer_name,
-    Security: {
-      UserID: move $windows.winlogbeat.winlog.user?.identifier?,
-    },
-  },
-  EventData: move $windows.winlogbeat.winlog.event_data?,
-  UserData: move $windows.winlogbeat.winlog.user_data?,
-  RenderingInfo: {
-    Message: move $windows.winlogbeat.message?,
-  },
-  RawData: move $windows.winlogbeat.event?.original?,
-  Logger: {
-    device: {
-      hostname: move $windows.winlogbeat.host?.name?,
-      type_id: 0,  // Unknown
-    },
-    log_name: move $windows.winlogbeat.winlog.channel,
-    log_provider: "Winlogbeat",
-    // `parse_json(raw=true)` keeps the creation time a string.
-    logged_time: time(move $windows.winlogbeat.event?.created?),
-    name: move $windows.winlogbeat.agent?.name? else "Winlogbeat",
-    product: {
-      name: "Winlogbeat",
-      vendor_name: "Elastic",
-    },
-    uid: move $windows.winlogbeat.agent?.id?,
-    version: move $windows.winlogbeat.agent?.version?,
-  },
-}
 // Windows writes the keywords as a hex mask, such as `0x8010000000000000` for
 // an audit failure. Winlogbeat renders them as a list of names, such as
 // `["Audit Failure"]`, and lists the mask only when it cannot name them. Take
@@ -83,51 +27,141 @@ let $audit_keywords = {
   "Überwachung gescheitert": "0x8010000000000000",
   "Überwachung erfolgreich": "0x8020000000000000",
 }
-if type_kind($windows.winlogbeat.winlog.keywords?) == "list" {
-  _outcomes = $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)
-  $windows.canonical.System.Keywords = (
-    $windows.winlogbeat.winlog.keywords.where(keyword => keyword.starts_with("0x"))[0]?
-      else ("0x8030000000000000"
-        if "0x8010000000000000" in _outcomes and "0x8020000000000000" in _outcomes
-        else null)
-      else _outcomes[0]?
-  )
-  drop _outcomes
-  if $windows.winlogbeat.winlog.keywords.where(keyword => not keyword.starts_with("0x")).is_empty() {
-    drop $windows.winlogbeat.winlog.keywords
+
+$windows = {winlogbeat: $input}
+// With `include_xml: true`, Winlogbeat ships the event XML in
+// `event.original`. Unlike Winlogbeat's fields, the XML holds the event as
+// Windows writes it: message-table tokens instead of their texts in the
+// language of the host, such as `%%1843` instead of `Nein`, numeric levels,
+// tasks, and opcodes, and times in 100-nanosecond precision. Read the event
+// from the XML, so that it matches the natively collected event, and build it
+// from Winlogbeat's fields only when the XML is missing or does not parse,
+// such as when it is truncated.
+if type_kind($windows.winlogbeat.event?.original?) == "string" and $windows.winlogbeat.event.original.match_regex(r"^\s*<Event[\s>][\s\S]*</System>") {
+  microsoft::windows::adapters::xml $windows.winlogbeat.event.original, $windows.canonical
+  if $windows.canonical.System? == null {
+    drop $windows.canonical
   }
+}
+if $windows.canonical? != null {
+  // Winlogbeat renders the message and the level also when the XML lacks
+  // them, such as without `RenderingInfo`.
+  if $windows.canonical.RenderingInfo?.Message? == null and $windows.winlogbeat.message? != null {
+    $windows.canonical.RenderingInfo.Message = $windows.winlogbeat.message
+  }
+  if $windows.canonical.RenderingInfo?.Level? == null and $windows.winlogbeat.log?.level? != null {
+    $windows.canonical.RenderingInfo.Level = $windows.winlogbeat.log.level
+  }
+  // Winlogbeat's fields repeat the values of the XML.
+  drop $windows.winlogbeat["@timestamp"]?, $windows.winlogbeat.message?
+  drop $windows.winlogbeat.winlog.provider_name?, $windows.winlogbeat.winlog.provider_guid?
+  drop $windows.winlogbeat.winlog.event_id?, $windows.winlogbeat.winlog.version?
+  drop $windows.winlogbeat.winlog.task?, $windows.winlogbeat.winlog.opcode?
+  drop $windows.winlogbeat.winlog.keywords?, $windows.winlogbeat.winlog.record_id?
+  drop $windows.winlogbeat.winlog.activity_id?, $windows.winlogbeat.winlog.related_activity_id?
+  drop $windows.winlogbeat.winlog.computer_name?, $windows.winlogbeat.winlog.user?.identifier?
+  drop $windows.winlogbeat.winlog.event_data?, $windows.winlogbeat.winlog.user_data?
 } else {
-  drop $windows.winlogbeat.winlog.keywords?
+  $windows.canonical = {
+    System: {
+      Provider: {
+        Name: move $windows.winlogbeat.winlog.provider_name,
+        Guid: move $windows.winlogbeat.winlog.provider_guid?,
+      },
+      EventID: move $windows.winlogbeat.winlog.event_id,
+      Version: move $windows.winlogbeat.winlog.version?,
+      Level: move $windows.winlogbeat.log?.level?,
+      Task: move $windows.winlogbeat.winlog.task?,
+      Opcode: move $windows.winlogbeat.winlog.opcode?,
+      Keywords: $windows.winlogbeat.winlog.keywords?,
+      // `parse_json(raw=true)` keeps the time a string.
+      TimeCreated: {
+        SystemTime: time(move $windows.winlogbeat["@timestamp"]),
+      },
+      EventRecordID: move $windows.winlogbeat.winlog.record_id,
+      Correlation: {
+        ActivityID: move $windows.winlogbeat.winlog.activity_id?,
+        RelatedActivityID: move $windows.winlogbeat.winlog.related_activity_id?,
+      },
+      Execution: {
+        ProcessID: move $windows.winlogbeat.winlog.process?.pid?,
+        ThreadID: move $windows.winlogbeat.winlog.process?.thread?.id?,
+      },
+      Channel: $windows.winlogbeat.winlog.channel,
+      Computer: move $windows.winlogbeat.winlog.computer_name,
+      Security: {
+        UserID: move $windows.winlogbeat.winlog.user?.identifier?,
+      },
+    },
+    EventData: move $windows.winlogbeat.winlog.event_data?,
+    UserData: move $windows.winlogbeat.winlog.user_data?,
+    RenderingInfo: {
+      Message: move $windows.winlogbeat.message?,
+    },
+  }
+  if type_kind($windows.winlogbeat.winlog.keywords?) == "list" {
+    _outcomes = $windows.winlogbeat.winlog.keywords.map(keyword => $audit_keywords[keyword]?).where(keyword => keyword != null)
+    $windows.canonical.System.Keywords = (
+      $windows.winlogbeat.winlog.keywords.where(keyword => keyword.starts_with("0x"))[0]?
+        else ("0x8030000000000000"
+          if "0x8010000000000000" in _outcomes and "0x8020000000000000" in _outcomes
+          else null)
+        else _outcomes[0]?
+    )
+    drop _outcomes
+    if $windows.winlogbeat.winlog.keywords.where(keyword => not keyword.starts_with("0x")).is_empty() {
+      drop $windows.winlogbeat.winlog.keywords
+    }
+  } else {
+    drop $windows.winlogbeat.winlog.keywords?
+  }
+  // Winlogbeat preserves the UserData section for WMI EID 5861, but flattens
+  // its XML wrapper and records the wrapper name separately.
+  if $windows.canonical.System.Provider.Name == "Microsoft-Windows-WMI-Activity" and $windows.canonical.System.EventID.int() == 5861 {
+    drop $windows.canonical.UserData.xml_name?
+    $windows.canonical.UserData = {
+      Operation_ESStoConsumerBinding: move $windows.canonical.UserData,
+    }
+  }
+  // Winlogbeat flattens the LogFileCleared section of cleared event logs
+  // (Security 1102, Eventlog 104) in the same way.
+  if $windows.canonical.UserData?.xml_name? == "LogFileCleared" {
+    drop $windows.canonical.UserData.xml_name
+    $windows.canonical.UserData = {
+      LogFileCleared: move $windows.canonical.UserData,
+    }
+  }
+  // Winlogbeat preserves Sysmon's uppercase GUID suffix, while Windows Event
+  // XML exposes the same fields with a `Guid` suffix.
+  // Renaming only present fields keeps other events free of null fields.
+  if $windows.canonical.EventData?.SourceProcessGUID? != null {
+    $windows.canonical.EventData.SourceProcessGuid = move $windows.canonical.EventData.SourceProcessGUID
+  }
+  if $windows.canonical.EventData?.TargetProcessGUID? != null {
+    $windows.canonical.EventData.TargetProcessGuid = move $windows.canonical.EventData.TargetProcessGUID
+  }
+}
+$windows.canonical.RawData = $windows.winlogbeat.event?.original?
+$windows.canonical.Logger = {
+  device: {
+    hostname: move $windows.winlogbeat.host?.name?,
+    type_id: 0,  // Unknown
+  },
+  log_name: move $windows.winlogbeat.winlog.channel,
+  log_provider: "Winlogbeat",
+  // `parse_json(raw=true)` keeps the creation time a string.
+  logged_time: time(move $windows.winlogbeat.event?.created?),
+  name: move $windows.winlogbeat.agent?.name? else "Winlogbeat",
+  product: {
+    name: "Winlogbeat",
+    vendor_name: "Elastic",
+  },
+  uid: move $windows.winlogbeat.agent?.id?,
+  version: move $windows.winlogbeat.agent?.version?,
 }
 // Without host metadata, the agent is the one that read the local event log,
 // as the other collector adapters assume.
 $windows.canonical.Logger.device.hostname = $windows.canonical.Logger.device.hostname else $windows.canonical.System.Computer
-// Winlogbeat preserves the UserData section for WMI EID 5861, but flattens
-// its XML wrapper and records the wrapper name separately.
-if $windows.canonical.System.Provider.Name == "Microsoft-Windows-WMI-Activity" and $windows.canonical.System.EventID.int() == 5861 {
-  drop $windows.canonical.UserData.xml_name?
-  $windows.canonical.UserData = {
-    Operation_ESStoConsumerBinding: move $windows.canonical.UserData,
-  }
-}
-// Winlogbeat flattens the LogFileCleared section of cleared event logs
-// (Security 1102, Eventlog 104) in the same way.
-if $windows.canonical.UserData?.xml_name? == "LogFileCleared" {
-  drop $windows.canonical.UserData.xml_name
-  $windows.canonical.UserData = {
-    LogFileCleared: move $windows.canonical.UserData,
-  }
-}
-// Winlogbeat preserves Sysmon's uppercase GUID suffix, while Windows Event
-// XML exposes the same fields with a `Guid` suffix.
-// Renaming only present fields keeps other events free of null fields.
-if $windows.canonical.EventData?.SourceProcessGUID? != null {
-  $windows.canonical.EventData.SourceProcessGuid = move $windows.canonical.EventData.SourceProcessGUID
-}
-if $windows.canonical.EventData?.TargetProcessGUID? != null {
-  $windows.canonical.EventData.TargetProcessGuid = move $windows.canonical.EventData.TargetProcessGUID
-}
-
 // These fields duplicate the canonical Windows envelope or the logger object.
 // Consume them here so `unmapped` retains only collector details for which no
 // OCSF destination exists.
@@ -143,20 +177,3 @@ drop $windows.winlogbeat.event?
 drop $windows.winlogbeat.winlog?.process?
 $windows.canonical.Winlogbeat = move $windows.winlogbeat
 $windows = move $windows.canonical
-// With `include_xml: true`, Winlogbeat ships the event XML in
-// `event.original`. Unlike Winlogbeat's fields, the XML holds the event as
-// Windows writes it: message-table tokens instead of their texts in the
-// language of the host, such as `%%1843` instead of `Nein`, numeric levels,
-// tasks, and opcodes, and times in 100-nanosecond precision. Read the event
-// from the XML, so that it matches the natively collected event, and keep
-// Winlogbeat's collector details.
-if type_kind($windows.RawData?) == "string" and $windows.RawData.match_regex(r"^\s*<Event[\s>][\s\S]*</System>") {
-  microsoft::windows::adapters::xml $windows.RawData, _xml
-  $windows = {
-    ..._xml,
-    RawData: $windows.RawData,
-    Logger: $windows.Logger,
-    Winlogbeat: $windows.Winlogbeat,
-  }
-  drop _xml
-}
