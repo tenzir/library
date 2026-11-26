@@ -1,29 +1,25 @@
 ---
 name: Read HarfangLab events from the S3 export
 description: |
-  Watches the bucket of the HarfangLab S3 export for new objects, returns the
-  OCSF events in them, and moves each object out of the watched prefix after
-  reading it, so that a restart doesn't read it again.
+  Watches the bucket of the HarfangLab S3 export for new objects and returns
+  the OCSF events in them. The export writes a new gzip-compressed NDJSON
+  object about every minute, named after its creation time in milliseconds,
+  plus an empty `test-connection` object that the glob skips.
+
+  `from_s3` keeps no state across restarts and reads every matching object
+  again on start. This example therefore moves each object to `processed/`
+  after reading it, which keeps the bucket as an archive and needs permission
+  to write and delete objects. Alternatives:
+
+  - `remove=true` deletes each object after reading it, if the bucket needs
+    no archive.
+  - `max_age=10min` skips older objects. This bounds what a restart reads
+    again, but objects that arrive while the pipeline is down for longer are
+    never read.
+  - S3 event notifications to an SQS queue, read with `from_amazon_sqs`,
+    deliver each new object once without scanning the bucket.
 ---
 
-// The S3 export writes a new gzip-compressed NDJSON object about every minute,
-// named after its creation time in milliseconds, for example
-// `harfanglab/1767225600000.json.gz`. The export also writes an empty
-// `test-connection` object, which the glob skips.
-//
-// `from_s3` keeps no state across restarts and reads every matching object
-// again on start. Moving read objects to `processed/` keeps them in the bucket
-// as an archive while the watched prefix holds only new ones. This requires
-// permission to write and delete objects in the bucket.
-//
-// Alternatives:
-// - `remove=true` deletes each object after reading it, if the bucket needs
-//   no archive.
-// - `max_age=10min` skips older objects. This bounds what a restart reads
-//   again, but objects that arrive while the pipeline is down for longer are
-//   never read.
-// - S3 event notifications to an SQS queue, read with `from_amazon_sqs`,
-//   deliver each new object once without scanning the bucket.
 from_s3 "s3://example-bucket/harfanglab/*.json.gz",
   watch=1min,
   rename=(path => f"processed/{path}") {
