@@ -1,0 +1,73 @@
+---
+description: |
+  Deduplicates HarfangLab library load documents (`event.category`
+  `library`) into one document per time window, host, and library file.
+  Other documents pass through unchanged.
+
+  Each result stays an ECS library document. `event.start` and `event.end`
+  hold the times of the first and last load, `event.duration` the time
+  between them in nanoseconds, and `@timestamp` equals `event.start`. ECS has
+  no field for the number of events that a document stands for, so
+  `tenzir.count` holds the number of loads and `tenzir.distinct_pids` the
+  number of distinct loading process IDs.
+
+  The result describes the library with its complete `dll` and its
+  `file.size`, so another binary at the same path yields its own result.
+  HarfangLab identifies the loading process mostly by its process ID alone.
+  The result keeps the executable of the loading process only if all loads
+  came from the same one.
+
+  Windows use event time from `@timestamp`, aligned to the Unix epoch, with a
+  separate clock per host, so a host with a skewed clock or a backlog doesn't
+  close the windows of other hosts. A window closes once its host sends a
+  document past the window end plus `tolerance`, after `window` without any
+  document from the host, or when the input ends. The operator drops
+  documents that arrive after their window closed, with a warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 1d
+      description: Width of the deduplication windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late documents of its host.
+---
+
+if event.category?.first() == "library" {
+  // The outer grouping gives every host its own event-time clock and keeps
+  // the host and agent records out of the per-window state.
+  group {host: host, agent: agent, organization: organization?} {
+    window size=$window, on=time(this["@timestamp"]), tolerance=$tolerance,
+           idle_timeout=$window {
+      summarize event.kind, event.type, dll, file.size?,
+        count=count(), start=min(time(this["@timestamp"])),
+        end=max(time(this["@timestamp"])),
+        _pids=count_distinct(process.pid?),
+        _executables=distinct(process.executable?),
+        _executable_count=count(process.executable?)
+      executable = (_executables[0]
+        if _executables.length() == 1 and _executable_count == count else null)
+      this = {
+        "@timestamp": start,
+        agent: $group.agent,
+        dll: dll,
+        event: {
+          category: ["library"],
+          kind: event.kind,
+          type: event.type,
+          start: start,
+          end: end,
+          duration: int((end - start) / 1ns),
+        },
+        file: file,
+        host: $group.host,
+        organization: $group.organization,
+        process: {executable: executable} if executable != null else null,
+        tenzir: {count: count, distinct_pids: _pids},
+      }
+      drop_null_fields
+    }
+  }
+}

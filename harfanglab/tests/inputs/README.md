@@ -7,9 +7,10 @@ returns from its pull exports, with invented values: documentation IP ranges
 - `pull/splunk/`: pages of the Splunk export, JSON arrays of HEC envelopes that
   wrap OCSF 1.6.0 events.
 - `pull/elastic/`: pages of the Elastic export, JSON arrays of ECS documents.
-- `ocsf/`: NDJSON files of single OCSF 1.6.0 events, as `harfanglab::fetch`
-  returns them, for the reduction operators. Their timestamps start at
-  2026-01-01 and place events on both sides of window boundaries.
+- `ocsf/` and `ecs/`: NDJSON files of single OCSF 1.6.0 events and ECS
+  documents, as `harfanglab::fetch` returns them, for the reduction
+  operators. Their timestamps start at 2026-01-01 and place events on both
+  sides of window boundaries.
 
 The `harfanglab_manager` fixture serves one file per request in name order,
 then an empty body, like a drained queue. `03.json` is the `[]` that a

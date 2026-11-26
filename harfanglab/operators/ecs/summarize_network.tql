@@ -1,0 +1,99 @@
+---
+description: |
+  Summarizes HarfangLab network connection documents (`event.category`
+  `network`) into one document per time window, host, process executable,
+  remote IP address, service port, transport, and direction. Other documents
+  pass through unchanged.
+
+  Each summary stays an ECS network document. `event.start` and `event.end`
+  hold the times of the first and last connection, `event.duration` the time
+  between them in nanoseconds, and `@timestamp` equals `event.start`. ECS has
+  no field for the number of events that a document stands for, so
+  `tenzir.count` holds the number of connections.
+
+  HarfangLab's ECS documents name the connecting side in `source` and the
+  accepting side in `destination`, so the service port is
+  `destination.port` in both directions. The remote end is `source` for
+  inbound connections (`network.direction` `in`) and `destination`
+  otherwise. The client port varies between connections and doesn't appear.
+  The local IP address, the destination domain, and the process user appear
+  only if all connections of the summary had the same one.
+
+  Windows use event time from `@timestamp`, aligned to the Unix epoch, with a
+  separate clock per host, so a host with a skewed clock or a backlog doesn't
+  close the windows of other hosts. A window closes once its host sends a
+  document past the window end plus `tolerance`, after `window` without any
+  document from the host, or when the input ends. The operator drops
+  documents that arrive after their window closed, with a warning.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 5min
+      description: Width of the summary windows.
+    - name: tolerance
+      type: duration
+      default: 5min
+      description: How long a window waits for late documents of its host.
+---
+
+if event.category?.first() == "network" {
+  _inbound = network.direction == "in"
+  _remote_ip = source?.ip? if _inbound else destination?.ip?
+  _remote_geo = source?.geo? if _inbound else destination?.geo?
+  _local_ip = destination?.ip? if _inbound else source?.ip?
+  // The outer grouping gives every host its own event-time clock and keeps
+  // the host and agent records out of the per-window state.
+  group {host: host, agent: agent, organization: organization?} {
+    window size=$window, on=time(this["@timestamp"]), tolerance=$tolerance,
+           idle_timeout=$window {
+      summarize event.kind, event.type, process.executable?,
+        network.direction, network.transport?, network.type?,
+        network.iana_number?, _inbound, _remote_ip, _remote_geo,
+        destination?.port?,
+        count=count(), start=min(time(this["@timestamp"])),
+        end=max(time(this["@timestamp"])),
+        _local_ips=distinct(_local_ip), _local_ip_count=count(_local_ip),
+        _domains=distinct(destination?.domain?),
+        _domain_count=count(destination?.domain?),
+        _users=distinct(process.user?.name?),
+        _user_count=count(process.user?.name?)
+      local_ip = (_local_ips[0]
+        if _local_ips.length() == 1 and _local_ip_count == count else null)
+      user = (_users[0]
+        if _users.length() == 1 and _user_count == count else null)
+      this = {
+        "@timestamp": start,
+        agent: $group.agent,
+        destination: {
+          ip: local_ip if _inbound else _remote_ip,
+          geo: null if _inbound else _remote_geo,
+          domain: _domains[0]
+            if _domains.length() == 1 and _domain_count == count else null,
+          port: destination.port,
+        },
+        event: {
+          category: ["network"],
+          kind: event.kind,
+          type: event.type,
+          start: start,
+          end: end,
+          duration: int((end - start) / 1ns),
+        },
+        host: $group.host,
+        network: network,
+        organization: $group.organization,
+        process: {
+          executable: process.executable,
+          user: {name: user} if user != null else null,
+        },
+        source: {
+          ip: _remote_ip if _inbound else local_ip,
+          geo: _remote_geo if _inbound else null,
+        },
+        tenzir: {count: count},
+      }
+      drop_null_fields
+    }
+  }
+}
