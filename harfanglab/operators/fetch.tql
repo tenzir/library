@@ -23,6 +23,15 @@ args:
       description: |
         Export format, either `ocsf` (OCSF 1.6.0 events from the Splunk
         export) or `ecs` (ECS documents from the Elastic export).
+    - name: envelope
+      type: bool
+      default: false
+      description: |
+        With `format="ocsf"`, return the Splunk export's HEC envelopes
+        `{event, sourcetype, time, host}` unchanged instead of the OCSF events
+        alone. The `sourcetype`, such as `harfanglab:dns_resolution`, names
+        HarfangLab's log type, which the OCSF class doesn't always reveal.
+        Has no effect with `format="ecs"`.
 ---
 
 // The OCSF events come from the Splunk export and the ECS documents from the
@@ -43,5 +52,11 @@ from_http $endpoint,
 where data not in ["", "[]"]
 this = {events: data.parse_json()}
 unroll events
-// The Splunk export wraps each OCSF event in a HEC envelope.
-this = events.event if $format == "ocsf" else events
+// The Splunk export wraps each OCSF event in a HEC envelope. Its sourcetype,
+// such as `harfanglab:dns_resolution`, is the only place that names
+// HarfangLab's log type, so `envelope=true` keeps the envelope.
+if $format == "ocsf" and not $envelope {
+  this = events.event
+} else {
+  this = events
+}
