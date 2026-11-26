@@ -1,6 +1,7 @@
 ---
 description: |
-  Fetches events from a HarfangLab Manager through its pull export.
+  Drains the pull export queue of a HarfangLab Manager once and returns its
+  events. Wrap the operator in `every` to poll continuously.
 
   Every pull removes the returned events from the export queue, so events
   that a pipeline drops after this operator are gone. Run only one pipeline
@@ -22,10 +23,6 @@ args:
       description: |
         Export format, either `ocsf` (OCSF 1.6.0 events from the Splunk
         export) or `ecs` (ECS documents from the Elastic export).
-    - name: interval
-      type: duration
-      default: 1min
-      description: Time between two drains of the export queue.
 ---
 
 // The OCSF events come from the Splunk export and the ECS documents from the
@@ -36,14 +33,12 @@ let $connector = {ocsf: "splunk", ecs: "elastic"}[$format]
 let $endpoint = f"{$url}/api/data/connectors/{$connector}/pull/" if $connector != null else null
 
 // Each request returns a JSON array of up to ~4 MB and removes it from the
-// queue. An empty queue answers with an empty body or `[]`. Draining requests
-// pages until the queue is empty, then `every` waits for new events.
-every $interval {
-  from_http $endpoint,
-    headers={Authorization: f"Token {$token}"},
-    paginate=(page => $endpoint if page.data not in ["", "[]"] else null) {
-    read_all
-  }
+// queue. An empty queue answers with an empty body or `[]`, which ends the
+// pagination.
+from_http $endpoint,
+  headers={Authorization: f"Token {$token}"},
+  paginate=(page => $endpoint if page.data not in ["", "[]"] else null) {
+  read_all
 }
 where data not in ["", "[]"]
 this = {events: data.parse_json()}
