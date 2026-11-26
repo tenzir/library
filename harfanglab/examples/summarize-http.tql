@@ -1,0 +1,21 @@
+---
+name: Summarize HarfangLab HTTP activity
+description: |
+  Condenses HarfangLab HTTP Activity into one event per endpoint, destination
+  host, and method every five minutes, with the number of requests and
+  distinct paths.
+---
+
+every 1min {
+  harfanglab::fetch "https://example.hurukai.io:8443",
+    token=secret("harfanglab-api-token")
+}
+where class_uid == 4002
+// HTTP Activity names the requesting endpoint in `src_endpoint`.
+window size=5min {
+  summarize src_endpoint.name, http_request.url.hostname,
+    http_request.http_method,
+    requests=count(), paths=count_distinct(http_request.url.path),
+    first_seen=min(time), last_seen=max(time)
+  window_start = $window.start
+}
