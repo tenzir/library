@@ -40,7 +40,7 @@ let $conn_states = {
   // Connections Zeek couldn't classify.
   OTH: 6,
 }
-$ocsf.activity_id = $conn_states[$event.conn_state]? else 6
+$ocsf.activity_id = $conn_states[$event.conn_state?]? else 6
 $ocsf.class_uid = 4001
 $ocsf.severity_id = 1
 $ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
@@ -77,9 +77,13 @@ if $event.local_orig? != null and $event.local_resp? != null {
 }
 // No connection state is a status that OCSF lists, so the status names the
 // state that Zeek logged.
-$ocsf.status = $event.conn_state
-$ocsf.status_code = move $event.conn_state
-$ocsf.status_id = 99
+if $event.conn_state? != null {
+  $ocsf.status = $event.conn_state
+  $ocsf.status_code = move $event.conn_state
+  $ocsf.status_id = 99
+} else {
+  $ocsf.status_id = 0
+}
 $ocsf.traffic = {
   bytes_in: move $event.resp_bytes?,
   bytes_out: move $event.orig_bytes?,
