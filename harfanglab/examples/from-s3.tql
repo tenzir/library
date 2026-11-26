@@ -7,9 +7,10 @@ description: |
   plus an empty `test-connection` object that the glob skips.
 
   `from_s3` keeps no state across restarts and reads every matching object
-  again on start. This example therefore moves each object to `processed/`
-  after reading it, which keeps the bucket as an archive and needs permission
-  to write and delete objects. Alternatives:
+  again on start. This example therefore moves each object to
+  `processed/harfanglab/` in the same bucket after reading it, which keeps the
+  bucket as an archive and needs permission to write and delete objects.
+  Alternatives:
 
   - `remove=true` deletes each object after reading it, if the bucket needs
     no archive.
@@ -22,7 +23,9 @@ description: |
 
 from_s3 "s3://example-bucket/harfanglab/*.json.gz",
   watch=1min,
-  rename=(path => f"processed/{path}") {
+  // The path starts with the bucket name.
+  rename=(path => path.replace("example-bucket/harfanglab/",
+    "example-bucket/processed/harfanglab/")) {
   decompress_gzip
   read_ndjson
 }

@@ -1,0 +1,11 @@
+// Documents without `@timestamp`, `host`, or `network` still count, without
+// warnings. The two documents without a timestamp share a summary.
+from_file f"{env("TENZIR_INPUTS")}/ecs/edge.ndjson" {
+  read_ndjson
+}
+where event.category.first() == "network" and (
+  source.port? in [51001, 51002, 51003, 51004])
+harfanglab::ecs::summarize_network
+select tenzir, this["@timestamp"]?, host?.hostname?, agent.name, network?,
+  source
+sort source.port?

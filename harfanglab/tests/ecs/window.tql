@@ -1,0 +1,21 @@
+// Narrower windows also narrow the event-time buckets, so the same
+// connections give more summaries.
+from_file f"{env("TENZIR_INPUTS")}/ecs/network.ndjson" {
+  read_ndjson
+}
+fork_merge {
+  harfanglab::ecs::summarize_network
+  summarize summaries=count(), represented=sum(tenzir.count)
+  window = 5min
+}, {
+  harfanglab::ecs::summarize_network window=1min
+  summarize summaries=count(), represented=sum(tenzir.count)
+  window = 1min
+}, {
+  harfanglab::ecs::reduce network_window=1min
+  where event.category.first() == "network"
+  summarize summaries=count(), represented=sum(tenzir.count)
+  window = 1min
+  via = "reduce"
+}
+sort window, via?

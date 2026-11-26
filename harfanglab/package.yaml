@@ -1,6 +1,6 @@
 id: harfanglab
 name: HarfangLab
-version: "0.1.0"
+version: "0.2.0"
 author: Tenzir
 author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
 package_icon: |
@@ -16,6 +16,50 @@ description: |
 
   It also synchronizes indicators of compromise from Tenzir into a Manager IOC
   source, creating, updating, and disabling IOCs to match a feed.
+
+  Reduction operators cut the volume of these events for a SIEM. They
+  summarize network and HTTP activity and deduplicate process starts and
+  module loads into OCSF events of the same class or ECS documents of the
+  same category, and pass all other events through unchanged. The
+  deduplication forwards the first occurrence of every process start and
+  module load at once and unchanged, and summarizes only its repeats.
+
+  A summary carries the number of events it stands for in `count` (OCSF) or
+  `tenzir.count` (ECS), and only summaries have this field. A SIEM that
+  counts events must therefore sum `count` or `tenzir.count` and count every
+  event without it as one.
+
+  Windows follow processing time and close on the wall clock, because
+  HarfangLab delivers events late and out of order, for example process
+  starts from weeks ago when an agent reconnects. Every summary also covers
+  at most one window of event time per host, so no event is dropped as late,
+  and a late event gets its own summary instead of moving a current one into
+  the past. Network and HTTP summaries use windows of 5 minutes, process and
+  module deduplication windows of 1 hour.
+
+  Windows align to the epoch, so the summaries of all hosts leave together
+  at each window boundary, in one burst to the SIEM. A summary arrives up to
+  one window after the events it counts, so a scheduled search over
+  summaries must select them by index time, not by event time. The state of
+  a window lives in memory until the window closes, so stopping or
+  restarting the pipeline loses the summaries of the open windows. The first
+  occurrences have already left at that point.
+
+  Memory grows with the number of summaries in the open windows, not with
+  the number of events. Plan for about 2 KB per network or HTTP summary,
+  3 KB per module summary, and 5 KB per process summary, plus 0.4 KB per
+  distinct process or module key for the first-occurrence check, and
+  multiply by the summaries per window. For example, 20,000 hosts with 50
+  network summaries each per 5 minutes need about 2 GB. `harfanglab::fetch`
+  drains the whole backlog at once, so after an outage of N windows the
+  events of all N windows arrive in one processing window and need about N
+  times the memory. Replaying a large archive at full speed does the same.
+
+  Summaries keep at most 10 URL paths and a query string only if all
+  requests had the same one. They never keep the base address of a module
+  load, and a summary of several process repeats keeps none of their process
+  IDs. Detections on these fields need the full events, for example in a
+  data lake next to the SIEM.
 categories:
 - sources
 - destinations

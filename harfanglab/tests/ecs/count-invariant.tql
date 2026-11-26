@@ -1,0 +1,19 @@
+// Every input document is either forwarded or counted in a summary, so the
+// documents that the output represents equal the input documents of each
+// category.
+from_file f"{env("TENZIR_INPUTS")}/ecs/*.ndjson" {
+  read_ndjson
+}
+fork_merge {
+  _category = event.category.first()
+  summarize _category, input=count()
+}, {
+  harfanglab::ecs::reduce
+  _category = event.category.first()
+  summarize _category, output=count(), summaries=count(tenzir?.count?),
+    represented=sum(tenzir?.count? else 1)
+}
+summarize _category, input=sum(input?), output=sum(output?),
+  summaries=sum(summaries?), represented=sum(represented?)
+holds = represented == input
+sort _category

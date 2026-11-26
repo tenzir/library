@@ -1,0 +1,168 @@
+---
+description: |
+  Deduplicates HarfangLab process launches (`class_uid` 1007, `activity_id` 1)
+  per window, host, executable, command line, user, and parent. Other Process
+  Activity, such as raw socket creation (`activity_id` 99), and events of
+  other classes pass through unchanged.
+
+  The first launch of every key in a window passes through immediately and
+  unchanged, with all its identifiers. Further launches of the key in the same
+  window are repeats: when the window closes, one summary event stands for
+  them, and a key without repeats gets no summary. A summary is a Process
+  Activity event with the OCSF aggregation attributes: `count` holds the
+  number of repeats, which excludes the first launch, `start_time` and
+  `end_time` the times of the first and last repeat, `duration` the time
+  between them, and `time` equals `start_time`. All times are epoch
+  milliseconds, like HarfangLab's. Only summaries have `count`.
+
+  The key covers the name and command line, the whole executable file record
+  with its path, size, hashes, and signature, the user, the integrity level,
+  the actor, and the parent's executable, name, command line, and integrity
+  level. The summary of a single repeat keeps its process ID, UID, and
+  creation time. The lineage and the parent's process ID and UID appear only
+  if all repeats had the same ones. A summary of several repeats therefore
+  lacks all of `pid`, `uid`, and `cpid`, which OCSF requires at least one
+  of, and so does its parent if the repeats had different parents. The
+  parent's parent doesn't appear in a summary.
+
+  The summary takes the device and the metadata from the first event of the
+  host with the same user, integrity levels, and actor in the window.
+
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing, the memory it needs, and how a SIEM counts summaries.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 1h
+      description: Width of the deduplication windows, in processing and event
+        time.
+---
+
+// `$window` names the argument only outside the `window` block.
+if class_uid == 1007 and activity_id == 1 {
+  _host = device?.agent_list?[0]?.uid? else device?.hostname?
+  _bucket = from_epoch(time? * 1ms).floor($window)
+  // Every group key and aggregate costs memory per summary. The summaries
+  // therefore group by digests: `_ids` covers the values that few events of
+  // a host share, and `_file` the executable, which is the same on many
+  // hosts. The values behind the digests come from one context record per
+  // host and `_ids` and one record per `_file`. The device and metadata
+  // belong to the host and come from the first event of the context.
+  _ids = hash_xxh3([device?.hostname?, activity_id?, activity_name?,
+    severity_id?, severity?, type_uid?, actor?, process?.user?,
+    process?.integrity_id?, process?.integrity?,
+    process?.parent_process?.integrity_id?,
+    process?.parent_process?.integrity?,
+    process?.parent_process?.file?.type_id?,
+    process?.parent_process?.file?.type?])
+  _file = hash_md5(process?.file?)
+  // Repeats of a key are distinct processes, so their process IDs and UIDs
+  // differ, while their parent may be the same. One digest tells whether all
+  // repeats had the same lineage and parent, because a list has no `min` and
+  // `max`.
+  _parent = uint(hash_xxh3([process?.lineage?,
+    process?.parent_process?.pid?, process?.parent_process?.uid?]), base=16)
+  window size=$window {
+    // The digest covers the same keys as the summary below. Keep both lists
+    // identical, so that every summary belongs to one first occurrence.
+    _key = hash_md5([_host, _bucket, _ids, _file, process?.name?,
+      process?.cmd_line?, process?.parent_process?.file?.path?,
+      process?.parent_process?.file?.name?, process?.parent_process?.name?,
+      process?.parent_process?.cmd_line?])
+    summarize _key, _seen=count(), options={mode: "cumulative"}
+    if _seen == 1 {
+      drop _key, _host, _bucket, _ids, _file, _parent, _seen
+    } else {
+      fork_merge {
+        summarize _host, _bucket, _ids, _file, process?.name?,
+          process?.cmd_line?, process?.parent_process?.file?.path?,
+          process?.parent_process?.file?.name?,
+          process?.parent_process?.name?, process?.parent_process?.cmd_line?,
+          count=count(), start_time=min(time?), end_time=max(time?),
+          _pid=first(process?.pid?), _uid=first(process?.uid?),
+          _created=first(process?.created_time?),
+          _lineage=first(process?.lineage?),
+          _ppid=first(process?.parent_process?.pid?),
+          _parent_uid=first(process?.parent_process?.uid?),
+          _parent_min=min(_parent), _parent_max=max(_parent)
+      }, {
+        summarize _host, _ids, _context=first({
+          activity_id: activity_id?,
+          activity_name: activity_name?,
+          severity: severity?,
+          severity_id: severity_id?,
+          type_uid: type_uid?,
+          metadata: metadata?,
+          device: device?,
+          actor: actor?,
+          user: process?.user?,
+          integrity: process?.integrity?,
+          integrity_id: process?.integrity_id?,
+          parent_integrity: process?.parent_process?.integrity?,
+          parent_integrity_id: process?.parent_process?.integrity_id?,
+          parent_file_type: process?.parent_process?.file?.type?,
+          parent_file_type_id: process?.parent_process?.file?.type_id?,
+        })
+      }, {
+        summarize _file, _object=first(process?.file?)
+      }
+      // Each context and file record sorts before the summaries that it
+      // belongs to, so a running `first` hands it to each of them.
+      sort _host?, _ids?, _context? == null
+      summarize _host?, _ids?, _ctx=first(_context?),
+        options={mode: "cumulative"}
+      sort _file?, _object? == null
+      summarize _file?, _exe=first(_object?), options={mode: "cumulative"}
+      where _context? == null and _object? == null
+      _single = count == 1
+      _same_parent = _parent_min == _parent_max
+      _parent = process.parent_process
+      this = {
+        activity_id: _ctx.activity_id,
+        activity_name: _ctx.activity_name,
+        actor: _ctx.actor,
+        category_uid: 1,
+        class_uid: 1007,
+        metadata: _ctx.metadata,
+        severity: _ctx.severity,
+        severity_id: _ctx.severity_id,
+        time: start_time,
+        start_time: start_time,
+        end_time: end_time,
+        duration: end_time - start_time,
+        count: count,
+        type_uid: _ctx.type_uid,
+        device: _ctx.device,
+        process: {
+          name: process.name,
+          cmd_line: process.cmd_line,
+          pid: _pid if _single else null,
+          uid: _uid if _single else null,
+          created_time: _created if _single else null,
+          lineage: _lineage if _same_parent else null,
+          user: _ctx.user,
+          integrity: _ctx.integrity,
+          integrity_id: _ctx.integrity_id,
+          file: _exe,
+          parent_process: {
+            name: _parent.name,
+            cmd_line: _parent.cmd_line,
+            pid: _ppid if _same_parent else null,
+            uid: _parent_uid if _same_parent else null,
+            integrity: _ctx.parent_integrity,
+            integrity_id: _ctx.parent_integrity_id,
+            file: {
+              name: _parent.file.name,
+              path: _parent.file.path,
+              type: _ctx.parent_file_type,
+              type_id: _ctx.parent_file_type_id,
+            },
+          },
+        },
+      }
+      drop_null_fields
+    }
+  }
+}

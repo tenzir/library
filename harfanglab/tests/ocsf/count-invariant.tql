@@ -1,0 +1,16 @@
+// Every input event is either forwarded or counted in a summary, so the
+// events that the output represents equal the input events of each class.
+from_file f"{env("TENZIR_INPUTS")}/ocsf/*.ndjson" {
+  read_ndjson
+}
+fork_merge {
+  summarize class_uid, input=count()
+}, {
+  harfanglab::ocsf::reduce
+  summarize class_uid, output=count(), summaries=count(count?),
+    represented=sum(count? else 1)
+}
+summarize class_uid, input=sum(input?), output=sum(output?),
+  summaries=sum(summaries?), represented=sum(represented?)
+holds = represented == input
+sort class_uid

@@ -1,0 +1,123 @@
+---
+description: |
+  Summarizes HarfangLab HTTP Activity (`class_uid` 4002) into one event per
+  window, endpoint, destination, HTTP method, and response code. Events of
+  other classes pass through unchanged.
+
+  Each summary is an HTTP Activity event with the OCSF aggregation
+  attributes: `count` holds the number of requests, `start_time` and
+  `end_time` the times of the first and last one, `duration` the time between
+  them, and `time` equals `start_time`. All times are epoch milliseconds, like
+  HarfangLab's.
+
+  HarfangLab names the requesting endpoint in `src_endpoint` and sends no
+  `device`. The URL path, query string, and full URL appear only if all
+  requests of the summary had the same value, so the summary of a single
+  request keeps them. `unmapped.distinct_url_paths` holds the number of
+  distinct paths and `unmapped.url_paths` the first 10 of them in sorted
+  order. A summary keeps at most 10 paths and a query string only if all
+  requests had the same one, so detections on URL paths and query strings
+  need the full events in a data lake.
+  Without a uniform path, the summary has no `url.path` and no
+  `url.url_string`, which OCSF requires at least one of.
+
+  The summary takes the activity, severity, and status names, the endpoint,
+  and the metadata from the first event of the endpoint with the same IDs in
+  the window.
+
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing, the memory it needs, and how a SIEM counts summaries.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 5min
+      description: Width of the summary windows, in processing and event time.
+---
+
+// `$window` names the argument only outside the `window` block.
+if class_uid == 4002 {
+  _host = src_endpoint?.uid? else src_endpoint?.name?
+  _bucket = from_epoch(time? * 1ms).floor($window)
+  // Every group key and aggregate costs memory per summary. The values in
+  // `_ids` are few per endpoint, so the summaries group by their digest and
+  // take them from one context record per endpoint and digest. The endpoint
+  // and metadata come from the first event of the context.
+  _ids = hash_xxh3([src_endpoint?.name?, src_endpoint?.hostname?,
+    activity_id?, activity_name?, severity_id?, severity?, status_id?,
+    status?, type_uid?])
+  // A string has no `min` and `max`, so the summary compares digests to find
+  // out whether all requests had the same one.
+  _query = uint(hash_xxh3(http_request?.url?.query_string?), base=16)
+  _url = uint(hash_xxh3(http_request?.url?.url_string?), base=16)
+  window size=$window {
+    fork_merge {
+      summarize _host, _bucket, _ids, http_request?.http_method?,
+        http_request?.url?.hostname?, http_request?.url?.scheme?,
+        http_request?.url?.port?, http_response?.code?,
+        dst_endpoint?.ip?, dst_endpoint?.hostname?, dst_endpoint?.port?,
+        count=count(), start_time=min(time?), end_time=max(time?),
+        _paths=distinct(http_request?.url?.path?),
+        _path_count=count(http_request?.url?.path?),
+        _query_first=first(http_request?.url?.query_string?),
+        _query_min=min(_query), _query_max=max(_query),
+        _url_first=first(http_request?.url?.url_string?),
+        _url_min=min(_url), _url_max=max(_url)
+    }, {
+      summarize _host, _ids, _context=first({
+        activity_id: activity_id?,
+        activity_name: activity_name?,
+        severity: severity?,
+        severity_id: severity_id?,
+        status: status?,
+        status_id: status_id?,
+        type_uid: type_uid?,
+        metadata: metadata?,
+        src_endpoint: src_endpoint?,
+      })
+    }
+    // The context of an endpoint and digest sorts before its summaries, so a
+    // running `first` hands it to each of them.
+    sort _host, _ids, _context? == null
+    summarize _host, _ids, _ctx=first(_context?),
+      options={mode: "cumulative"}
+    where _context? == null
+    _same_path = _path_count == 0 or (
+      _paths.length() == 1 and _path_count == count)
+    this = {
+      activity_id: _ctx.activity_id,
+      activity_name: _ctx.activity_name,
+      category_uid: 4,
+      class_uid: 4002,
+      metadata: _ctx.metadata,
+      severity: _ctx.severity,
+      severity_id: _ctx.severity_id,
+      status: _ctx.status,
+      status_id: _ctx.status_id,
+      time: start_time,
+      start_time: start_time,
+      end_time: end_time,
+      duration: end_time - start_time,
+      count: count,
+      type_uid: _ctx.type_uid,
+      http_request: {
+        http_method: http_request.http_method,
+        url: {
+          ...http_request.url,
+          path: _paths[0]? if _same_path else null,
+          query_string: _query_first if _query_min == _query_max else null,
+          url_string: _url_first if _url_min == _url_max else null,
+        },
+      },
+      http_response: http_response,
+      dst_endpoint: dst_endpoint,
+      src_endpoint: _ctx.src_endpoint,
+      unmapped: {
+        distinct_url_paths: _paths.length(),
+        url_paths: _paths.sort().slice(end=10),
+      },
+    }
+    drop_null_fields
+  }
+}

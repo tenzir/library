@@ -1,0 +1,30 @@
+---
+name: Reduce HarfangLab ECS documents for a SIEM
+description: |
+  Drains the Elastic pull export of a HarfangLab Manager every minute, keeps
+  every ECS document in ClickHouse as the data lake, and sends Splunk a
+  reduced stream: network connections and URL requests become summaries,
+  process starts and library loads pass through once with their repeats
+  summarized, and all other documents pass through unchanged.
+
+  Splunk indexes each document at its `@timestamp`, with a sourcetype per
+  ECS category, such as `harfanglab:ecs:network`. Summaries arrive up to one
+  window after the documents that they count, so searches over them should
+  select by index time (`_index_earliest`). Create the ClickHouse table
+  before you start the pipeline, for example with a `JSON` catch-all column.
+---
+
+every 1min {
+  harfanglab::fetch "https://example.hurukai.io:8443",
+    token=secret("harfanglab-api-token"),
+    format="ecs"
+}
+fork {
+  harfanglab::ecs::reduce
+  to_splunk "https://splunk.example.com:8088",
+    hec_token=secret("splunk-hec-token"),
+    time=time(this["@timestamp"]),
+    sourcetype=f"harfanglab:ecs:{event.category.first()}"
+}
+to_clickhouse host="clickhouse.example.com", table="harfanglab_ecs",
+  mode="append"

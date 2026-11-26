@@ -1,0 +1,21 @@
+// Narrower windows also narrow the event-time buckets, so the same
+// connections give more summaries.
+from_file f"{env("TENZIR_INPUTS")}/ocsf/network.ndjson" {
+  read_ndjson
+}
+fork_merge {
+  harfanglab::ocsf::summarize_network
+  summarize summaries=count(), represented=sum(count)
+  window = 5min
+}, {
+  harfanglab::ocsf::summarize_network window=1min
+  summarize summaries=count(), represented=sum(count)
+  window = 1min
+}, {
+  harfanglab::ocsf::reduce network_window=1min
+  where class_uid == 4001
+  summarize summaries=count(), represented=sum(count)
+  window = 1min
+  via = "reduce"
+}
+sort window, via?

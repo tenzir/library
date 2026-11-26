@@ -1,0 +1,56 @@
+---
+description: |
+  Reduces the volume of HarfangLab ECS documents for a SIEM. The operator
+  summarizes network connections and URL requests, and deduplicates process
+  starts and library loads, with `harfanglab::ecs::summarize_network`,
+  `harfanglab::ecs::summarize_http`,
+  `harfanglab::ecs::deduplicate_processes`, and
+  `harfanglab::ecs::deduplicate_modules`. Set `network`, `http`,
+  `processes`, or `modules` to `false` to pass those documents through
+  unchanged. All other documents, such as alerts, audit logs, DNS
+  resolutions, and authentications, pass through unchanged.
+args:
+  named:
+    - name: network_window
+      type: duration
+      default: 5min
+      description: Width of the network connection summary windows.
+    - name: http_window
+      type: duration
+      default: 5min
+      description: Width of the URL request summary windows.
+    - name: process_window
+      type: duration
+      default: 1h
+      description: Width of the process start deduplication windows.
+    - name: module_window
+      type: duration
+      default: 1h
+      description: Width of the library load deduplication windows.
+    - name: network
+      type: bool
+      default: true
+      description: Summarize network connections.
+    - name: http
+      type: bool
+      default: true
+      description: Summarize URL requests.
+    - name: processes
+      type: bool
+      default: true
+      description: Deduplicate process starts.
+    - name: modules
+      type: bool
+      default: true
+      description: Deduplicate library loads.
+---
+
+if $network and event.category?.first() == "network" {
+  harfanglab::ecs::summarize_network window=$network_window
+} else if $http and event.category?.first() == "url" {
+  harfanglab::ecs::summarize_http window=$http_window
+} else if $processes and event.category?.first() == "process" {
+  harfanglab::ecs::deduplicate_processes window=$process_window
+} else if $modules and event.category?.first() == "library" {
+  harfanglab::ecs::deduplicate_modules window=$module_window
+}

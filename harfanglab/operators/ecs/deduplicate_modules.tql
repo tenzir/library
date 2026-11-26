@@ -1,0 +1,114 @@
+---
+description: |
+  Deduplicates HarfangLab library load documents (`event.category`
+  `library`) per window, host, library, and loading process. Other documents
+  pass through unchanged.
+
+  The first load of every library by a process executable in a window passes
+  through immediately and unchanged, with the process ID. Further loads of
+  the library by the same executable in the same window are repeats: when the
+  window closes, one summary document stands for them, and a key without
+  repeats gets no summary. A summary stays an ECS library document.
+  `event.start` and `event.end` hold the times of the first and last repeat,
+  `event.duration` the time between them in nanoseconds, and `@timestamp`
+  equals `event.start`. ECS has no field for the number of events that a
+  document stands for, so `tenzir.count` holds the number of repeats, which
+  excludes the first load. Only summaries have `tenzir.count`.
+
+  The key covers the whole `dll` record, with its path, hashes, code
+  signature, and PE header, and `file.size`, so another binary at the same
+  path gets its own summary. It also covers the loading process by its
+  executable (`process.executable`), so a library that an unusual process
+  loads gets a first occurrence of its own. The process ID of the loading
+  process appears only if all repeats came from the same one.
+
+  The summary takes the host, agent, and organization from the first document
+  of the host with the same event kind and type in the window.
+
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing, the memory it needs, and how a SIEM counts summaries.
+args:
+  named:
+    - name: window
+      type: duration
+      default: 1h
+      description: Width of the deduplication windows, in processing and event
+        time.
+---
+
+// `$window` names the argument only outside the `window` block.
+if event.category?.first() == "library" {
+  _host = host?.id? else agent?.id? else host?.hostname?
+  _time = time(this["@timestamp"]?)
+  _bucket = _time.floor($window)
+  // Every group key and aggregate costs memory per summary. The summaries
+  // therefore group by digests: `_ids` covers the values that few documents
+  // of a host share, and `_library` the library, which is the same on many
+  // hosts. The values behind the digests come from one context record per
+  // host and `_ids` and one record per `_library`. The host, agent, and
+  // organization come from the first document of the context.
+  _ids = hash_xxh3([host?.id?, host?.hostname?, agent?.id?, agent?.name?,
+    event?.kind?, event?.type?])
+  _library = hash_md5([dll?, file?])
+  window size=$window {
+    // The digest covers the same keys as the summary below. Keep both lists
+    // identical, so that every summary belongs to one first occurrence.
+    _key = hash_md5([_host, _bucket, _ids, _library, process?.executable?])
+    summarize _key, _seen=count(), options={mode: "cumulative"}
+    if _seen == 1 {
+      drop _key, _host, _time, _bucket, _ids, _library, _seen
+    } else {
+      fork_merge {
+        summarize _host, _bucket, _ids, _library, process?.executable?,
+          count=count(), start=min(_time), end=max(_time),
+          _pid_min=min(process?.pid?), _pid_max=max(process?.pid?),
+          _pid_count=count(process?.pid?)
+      }, {
+        summarize _host, _ids, _context=first({
+          agent: agent?,
+          ecs: ecs?,
+          kind: event?.kind?,
+          type: event?.type?,
+          host: host?,
+          organization: organization?,
+        })
+      }, {
+        summarize _library, _object=first({dll: dll?, file: file?})
+      }
+      // Each context and library record sorts before the summaries that it
+      // belongs to, so a running `first` hands it to each of them.
+      sort _host?, _ids?, _context? == null
+      summarize _host?, _ids?, _ctx=first(_context?),
+        options={mode: "cumulative"}
+      sort _library?, _object? == null
+      summarize _library?, _lib=first(_object?),
+        options={mode: "cumulative"}
+      where _context? == null and _object? == null
+      this = {
+        "@timestamp": start,
+        agent: _ctx.agent,
+        dll: _lib.dll,
+        ecs: _ctx.ecs,
+        event: {
+          category: ["library"],
+          kind: _ctx.kind,
+          type: _ctx.type,
+          start: start,
+          end: end,
+          duration: int((end - start) / 1ns),
+        },
+        file: _lib.file,
+        host: _ctx.host,
+        organization: _ctx.organization,
+        process: {
+          executable: process.executable,
+          pid: _pid_min
+            if _pid_min == _pid_max and _pid_count == count else null,
+        },
+        tenzir: {count: count},
+      }
+      drop_null_fields
+    }
+  }
+}
