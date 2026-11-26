@@ -1,100 +1,94 @@
 ---
 description: |
   Summarizes HarfangLab HTTP Activity (`class_uid` 4002) into one event per
-  time window, endpoint, destination host, and HTTP method. Events of other
-  classes pass through unchanged.
+  window, endpoint, destination, and HTTP method. Events of other classes pass
+  through unchanged.
 
   Each summary is an HTTP Activity event with the OCSF aggregation
   attributes: `count` holds the number of requests, `start_time` and
-  `end_time` the times of the first and last one, and `time` equals
-  `start_time`. All times are epoch milliseconds, like HarfangLab's.
+  `end_time` the times of the first and last one, `duration` the time between
+  them, and `time` equals `start_time`. All times are epoch milliseconds, like
+  HarfangLab's.
 
   HarfangLab names the requesting endpoint in `src_endpoint` and sends no
   `device`. The URL path, query string, and full URL appear only if all
-  requests of the summary had the same value, and
-  `unmapped.distinct_url_paths` holds the number of distinct paths.
+  requests of the summary had the same value, so the summary of a single
+  request keeps them. `unmapped.distinct_url_paths` holds the number of
+  distinct paths and `unmapped.url_paths` up to 10 of them.
+  Without a uniform path, the summary has no `url.path` and no
+  `url.url_string`, which OCSF requires at least one of.
 
-  Windows follow processing time by default, so every event counts. HarfangLab
-  delivers events late and out of order, for example process starts from weeks
-  ago when an agent reconnects. The window then only decides which events
-  share a result, and the times of the result still come from the events. Set
-  `event_time=true` to window by `time` instead, for example to replay stored
-  events. Event-time windows align to the Unix epoch and keep a separate clock
-  per endpoint, so one endpoint with a skewed clock doesn't close the windows
-  of the others, but they drop events that arrive more than `tolerance` after
-  their window ended, with a warning.
-
-  A window closes once its endpoint sends another event after the window
-  end plus `tolerance`, after `window` without any event from the endpoint,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 5min
-      description: Width of the summary windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late events.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `time` instead of processing time.
+      description: Width of the summary windows, in processing and event time.
 ---
 
 if class_uid == 4002 {
-  // The outer grouping gives every endpoint its own event-time clock and
-  // keeps the endpoint and metadata records out of the per-window state.
-  group {src_endpoint: src_endpoint, metadata: metadata} {
-    window size=$window, on=(from_epoch(time * 1ms) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      // Everything that a summary shows is part of the grouping, except the
-      // parts of the URL that can differ between requests to the same host.
-      summarize activity_id, activity_name?, type_uid, severity_id,
-        severity?, status_id?, status?,
-        http_request.http_method, http_request.url.hostname,
-        http_request.url?.scheme?, http_request.url?.port?,
-        http_response.code?,
-        count=count(), start_time=min(time), end_time=max(time),
-        _paths=distinct(http_request.url?.path?),
-        _path_count=count(http_request.url?.path?),
-        _queries=distinct(http_request.url?.query_string?),
-        _query_count=count(http_request.url?.query_string?),
-        _urls=distinct(http_request.url?.url_string?),
-        _url_count=count(http_request.url?.url_string?)
-      this = {
-        activity_id: activity_id,
-        activity_name: activity_name,
-        category_uid: 4,
-        class_uid: 4002,
-        metadata: $group.metadata,
-        severity: severity,
-        severity_id: severity_id,
-        status: status,
-        status_id: status_id,
-        time: start_time,
-        start_time: start_time,
-        end_time: end_time,
-        count: count,
-        type_uid: type_uid,
-        http_request: {
-          http_method: http_request.http_method,
-          url: {
-            ...http_request.url,
-            path: _paths[0]
-              if _paths.length() == 1 and _path_count == count else null,
-            query_string: _queries[0]
-              if _queries.length() == 1 and _query_count == count else null,
-            url_string: _urls[0]
-              if _urls.length() == 1 and _url_count == count else null,
-          },
+  _host = src_endpoint?.uid? else src_endpoint?.name?
+  _bucket = from_epoch(time? * 1ms).floor($window)
+  window size=$window {
+    // All keys are scalars. The endpoint, metadata, and agent records belong
+    // to the host and come from the first event of a summary.
+    summarize _host, _bucket, activity_id?, activity_name?, type_uid?,
+      severity_id?, severity?, status_id?, status?,
+      http_request?.http_method?, http_request?.url?.hostname?,
+      http_request?.url?.scheme?, http_request?.url?.port?,
+      http_response?.code?,
+      dst_endpoint?.ip?, dst_endpoint?.hostname?, dst_endpoint?.port?,
+      count=count(), start_time=min(time?), end_time=max(time?),
+      _src_endpoint=first(src_endpoint?), _metadata=first(metadata?),
+      // The full URL follows from the keys, the path, and the query string,
+      // so it needs no set of its own.
+      _paths=distinct(http_request?.url?.path?),
+      _path_count=count(http_request?.url?.path?),
+      _queries=distinct(http_request?.url?.query_string?),
+      _query_count=count(http_request?.url?.query_string?),
+      _url=first(http_request?.url?.url_string?),
+      _url_count=count(http_request?.url?.url_string?)
+    _same_path = _path_count == 0 or (
+      _paths.length() == 1 and _path_count == count)
+    _same_query = _query_count == 0 or (
+      _queries.length() == 1 and _query_count == count)
+    this = {
+      activity_id: activity_id,
+      activity_name: activity_name,
+      category_uid: 4,
+      class_uid: 4002,
+      metadata: _metadata,
+      severity: severity,
+      severity_id: severity_id,
+      status: status,
+      status_id: status_id,
+      time: start_time,
+      start_time: start_time,
+      end_time: end_time,
+      duration: end_time - start_time,
+      count: count,
+      type_uid: type_uid,
+      http_request: {
+        http_method: http_request.http_method,
+        url: {
+          ...http_request.url,
+          path: _paths[0]? if _same_path else null,
+          query_string: _queries[0]? if _same_query else null,
+          url_string: (_url
+            if _same_path and _same_query and _url_count == count else null),
         },
-        http_response: http_response,
-        src_endpoint: $group.src_endpoint,
-        unmapped: {distinct_url_paths: _paths.length()},
-      }
-      drop_null_fields
+      },
+      http_response: http_response,
+      dst_endpoint: dst_endpoint,
+      src_endpoint: _src_endpoint,
+      unmapped: {
+        distinct_url_paths: _paths.length(),
+        url_paths: _paths.slice(end=10),
+      },
     }
+    drop_null_fields
   }
 }

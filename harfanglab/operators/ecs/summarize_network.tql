@@ -1,9 +1,9 @@
 ---
 description: |
   Summarizes HarfangLab network connection documents (`event.category`
-  `network`) into one document per time window, host, process executable,
-  remote IP address, service port, transport, and direction. Other documents
-  pass through unchanged.
+  `network`) into one document per window, host, process executable, remote
+  IP address, service port, transport, and direction. Other documents,
+  including `network_listen` documents, pass through unchanged.
 
   Each summary stays an ECS network document. `event.start` and `event.end`
   hold the times of the first and last connection, `event.duration` the time
@@ -15,97 +15,85 @@ description: |
   accepting side in `destination`, so the service port is
   `destination.port` in both directions. The remote end is `source` for
   inbound connections (`network.direction` `in`) and `destination`
-  otherwise. The client port varies between connections and doesn't appear.
-  The local IP address, the destination domain, and the process user appear
-  only if all connections of the summary had the same one.
+  otherwise. The client port, the local IP address, the destination domain,
+  and the process user appear only if all connections of the summary had the
+  same one, so the summary of a single connection keeps them.
 
-  Windows follow processing time by default, so every document counts.
-  HarfangLab delivers documents late and out of order, for example process
-  starts from weeks ago when an agent reconnects. The window then only decides
-  which documents share a result, and the times of the result still come from
-  the documents. Set `event_time=true` to window by `@timestamp` instead, for
-  example to replay stored documents. Event-time windows align to the Unix
-  epoch and keep a separate clock per host, so one host with a skewed clock
-  doesn't close the windows of the others, but they drop documents that arrive
-  more than `tolerance` after their window ended, with a warning.
-
-  A window closes once its host sends another document after the window
-  end plus `tolerance`, after `window` without any document from the host,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 5min
-      description: Width of the summary windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late documents.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `@timestamp` instead of processing time.
+      description: Width of the summary windows, in processing and event time.
 ---
 
 if event.category?.first() == "network" {
-  _inbound = network.direction == "in"
+  _host = host?.id? else agent?.id? else host?.hostname?
+  _time = time(this["@timestamp"]?)
+  _bucket = _time.floor($window)
+  _inbound = network?.direction? == "in"
   _remote_ip = source?.ip? if _inbound else destination?.ip?
-  _remote_geo = source?.geo? if _inbound else destination?.geo?
   _local_ip = destination?.ip? if _inbound else source?.ip?
-  // The outer grouping gives every host its own event-time clock and keeps
-  // the host and agent records out of the per-window state.
-  group {host: host, agent: agent, organization: organization?} {
-    window size=$window,
-           on=(time(this["@timestamp"]) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      summarize event.kind, event.type, process.executable?,
-        network.direction, network.transport?, network.type?,
-        network.iana_number?, _inbound, _remote_ip, _remote_geo,
-        destination?.port?,
-        count=count(), start=min(time(this["@timestamp"])),
-        end=max(time(this["@timestamp"])),
-        _local_ips=distinct(_local_ip), _local_ip_count=count(_local_ip),
-        _domains=distinct(destination?.domain?),
-        _domain_count=count(destination?.domain?),
-        _users=distinct(process.user?.name?),
-        _user_count=count(process.user?.name?)
-      local_ip = (_local_ips[0]
-        if _local_ips.length() == 1 and _local_ip_count == count else null)
-      user = (_users[0]
-        if _users.length() == 1 and _user_count == count else null)
-      this = {
-        "@timestamp": start,
-        agent: $group.agent,
-        destination: {
-          ip: local_ip if _inbound else _remote_ip,
-          geo: null if _inbound else _remote_geo,
-          domain: _domains[0]
-            if _domains.length() == 1 and _domain_count == count else null,
-          port: destination.port,
-        },
-        event: {
-          category: ["network"],
-          kind: event.kind,
-          type: event.type,
-          start: start,
-          end: end,
-          duration: int((end - start) / 1ns),
-        },
-        host: $group.host,
-        network: network,
-        organization: $group.organization,
-        process: {
-          executable: process.executable,
-          user: {name: user} if user != null else null,
-        },
-        source: {
-          ip: _remote_ip if _inbound else local_ip,
-          geo: _remote_geo if _inbound else null,
-        },
-        tenzir: {count: count},
-      }
-      drop_null_fields
+  window size=$window {
+    // All keys are scalars. The host, agent, and organization records belong
+    // to the host and the geo record to the remote IP address, so they come
+    // from the first document of a summary.
+    summarize _host, _bucket, event?.kind?, event?.type?, process?.executable?,
+      network?.direction?, network?.transport?, network?.type?,
+      network?.iana_number?, _inbound, _remote_ip, destination?.port?,
+      count=count(), start=min(_time), end=max(_time),
+      _host_record=first(host?), _agent=first(agent?),
+      _organization=first(organization?), _ecs=first(ecs?),
+      _remote_geo=first(source?.geo? if _inbound else destination?.geo?),
+      _local_ips=distinct(_local_ip), _local_ip_count=count(_local_ip),
+      _client_port_min=min(source?.port?), _client_port_max=max(source?.port?),
+      _client_port_count=count(source?.port?),
+      _domains=distinct(destination?.domain?),
+      _domain_count=count(destination?.domain?),
+      _users=distinct(process?.user?.name?),
+      _user_count=count(process?.user?.name?)
+    _local_ip = (_local_ips[0]
+      if _local_ips.length() == 1 and _local_ip_count == count else null)
+    _client_port = (_client_port_min
+      if _client_port_min == _client_port_max
+        and _client_port_count == count else null)
+    _user = _users[0] if _users.length() == 1 and _user_count == count else null
+    this = {
+      "@timestamp": start,
+      agent: _agent,
+      destination: {
+        ip: _local_ip if _inbound else _remote_ip,
+        geo: null if _inbound else _remote_geo,
+        domain: _domains[0]
+          if _domains.length() == 1 and _domain_count == count else null,
+        port: destination.port,
+      },
+      ecs: _ecs,
+      event: {
+        category: ["network"],
+        kind: event.kind,
+        type: event.type,
+        start: start,
+        end: end,
+        duration: int((end - start) / 1ns),
+      },
+      host: _host_record,
+      network: network,
+      organization: _organization,
+      process: {
+        executable: process.executable,
+        user: {name: _user} if _user != null else null,
+      },
+      source: {
+        ip: _remote_ip if _inbound else _local_ip,
+        geo: _remote_geo if _inbound else null,
+        port: _client_port,
+      },
+      tenzir: {count: count},
     }
+    drop_null_fields
   }
 }

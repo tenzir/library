@@ -1,80 +1,94 @@
 ---
 description: |
   Deduplicates HarfangLab process start documents (`event.category`
-  `process` with `event.type` `start` or `creation`) into one document per
-  time window, host, executable, command line, and parent executable. Other
+  `process` with `event.type` `start` or `creation`) per window, host,
+  executable, command line, users and groups, and parent executable. Other
   documents, including process access documents, pass through unchanged.
 
-  Each result stays an ECS process document. `event.start` and `event.end`
-  hold the times of the first and last start, `event.duration` the time
-  between them in nanoseconds, and `@timestamp` equals `event.start`. ECS has
-  no field for the number of events that a document stands for, so
-  `tenzir.count` holds the number of starts.
+  The first start of every key in a window passes through immediately and
+  unchanged, with all its identifiers. Further starts of the key in the same
+  window are repeats: when the window closes, one summary document stands for
+  them, and a key without repeats gets no summary. A summary stays an ECS
+  process document. `event.start` and `event.end` hold the times of the
+  first and last repeat, `event.duration` the time between them in
+  nanoseconds, and `@timestamp` equals `event.start`. ECS has no field for
+  the number of events that a document stands for, so `tenzir.count` holds
+  the number of repeats, which excludes the first start. Only summaries have
+  `tenzir.count`.
 
-  The result describes the executable by its path, name, hashes, code
-  signature, and PE header, the user, and the parent by its executable.
-  Attributes that differ between starts don't appear: the process ID and
-  entity ID, and the parent's process ID, entity ID, command line, and
-  parent. The working directory appears only if all starts had the same one.
-  The user and the executable's hashes are part of the grouping, so a start
-  by another user or of another binary at the same path yields its own
-  result.
+  The key covers the executable's path, name, hashes, and code signature, the
+  effective, real, and saved user and group, and the parent's executable.
+  Attributes that differ between repeats don't appear in a summary: the
+  entity ID, and the parent's entity ID, command line, and parent. The
+  process ID, the parent's process ID, and the working directory appear only
+  if all repeats had the same one.
 
-  Windows follow processing time by default, so every document counts.
-  HarfangLab delivers documents late and out of order, for example process
-  starts from weeks ago when an agent reconnects. The window then only decides
-  which documents share a result, and the times of the result still come from
-  the documents. Set `event_time=true` to window by `@timestamp` instead, for
-  example to replay stored documents. Event-time windows align to the Unix
-  epoch and keep a separate clock per host, so one host with a skewed clock
-  doesn't close the windows of the others, but they drop documents that arrive
-  more than `tolerance` after their window ended, with a warning.
-
-  A window closes once its host sends another document after the window
-  end plus `tolerance`, after `window` without any document from the host,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 1h
-      description: Width of the deduplication windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late documents.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `@timestamp` instead of processing time.
+      description: Width of the deduplication windows, in processing and event
+        time.
 ---
 
 if event.category?.first() == "process" and (
     "start" in event.type or "creation" in event.type) {
-  // The outer grouping gives every host its own event-time clock and keeps
-  // the host and agent records out of the per-window state.
-  group {host: host, agent: agent, organization: organization?, ecs: ecs?} {
-    window size=$window,
-           on=(time(this["@timestamp"]) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      // Group by the attributes that the result shows instead of keeping
-      // whole documents per group: the parent command lines are the largest
-      // part of a process document.
-      summarize event.kind, event.type,
-        process.executable?, process.name?, process.command_line?,
-        process.user?.id?, process.user?.name?,
-        process.hash?, process.code_signature?, process.pe?,
-        process.parent?.executable?,
-        count=count(), start=min(time(this["@timestamp"])),
-        end=max(time(this["@timestamp"])),
-        _directories=distinct(process.working_directory?),
-        _directory_count=count(process.working_directory?)
-      directory = (_directories[0]
-        if _directories.length() == 1 and _directory_count == count else null)
+  _host = host?.id? else agent?.id? else host?.hostname?
+  _time = time(this["@timestamp"]?)
+  _bucket = _time.floor($window)
+  window size=$window {
+    // A digest of the keys keeps the state of the first-occurrence check
+    // small. The summary below groups by the same keys.
+    _key = hash_md5([_host, _bucket, process?.executable?, process?.name?,
+      process?.command_line?, process?.user?.id?, process?.user?.name?,
+      process?.real_user?.id?, process?.saved_user?.id?,
+      process?.group?.id?, process?.real_group?.id?, process?.saved_group?.id?,
+      process?.hash?.sha256?, process?.hash?.sha1?, process?.hash?.md5?,
+      process?.code_signature?.valid?, process?.code_signature?.subject_name?,
+      process?.parent?.executable?])
+    summarize _key, _seen=count(), options={mode: "cumulative"}
+    if _seen == 1 {
+      drop _key, _host, _time, _bucket, _seen
+    } else {
+      // All keys are scalars. The records come from the first repeat: the
+      // host, agent, and organization belong to the host, the users and
+      // groups to their keyed IDs, and the hash, code signature, and PE
+      // header to the keyed hashes.
+      summarize _host, _bucket, event?.kind?, event?.type?,
+        process?.executable?, process?.name?, process?.command_line?,
+        process?.user?.id?, process?.user?.name?,
+        process?.real_user?.id?, process?.saved_user?.id?,
+        process?.group?.id?, process?.real_group?.id?,
+        process?.saved_group?.id?,
+        process?.hash?.sha256?, process?.hash?.sha1?, process?.hash?.md5?,
+        process?.code_signature?.valid?,
+        process?.code_signature?.subject_name?,
+        process?.parent?.executable?,
+        count=count(), start=min(_time), end=max(_time),
+        _host_record=first(host?), _agent=first(agent?),
+        _organization=first(organization?), _ecs=first(ecs?),
+        _user=first(process?.user?), _real_user=first(process?.real_user?),
+        _saved_user=first(process?.saved_user?),
+        _group=first(process?.group?), _real_group=first(process?.real_group?),
+        _saved_group=first(process?.saved_group?),
+        _hash=first(process?.hash?),
+        _code_signature=first(process?.code_signature?),
+        _pe=first(process?.pe?),
+        _pid_min=min(process?.pid?), _pid_max=max(process?.pid?),
+        _pid_count=count(process?.pid?),
+        _ppid_min=min(process?.parent?.pid?),
+        _ppid_max=max(process?.parent?.pid?),
+        _ppid_count=count(process?.parent?.pid?),
+        _directories=distinct(process?.working_directory?),
+        _directory_count=count(process?.working_directory?)
       this = {
         "@timestamp": start,
-        agent: $group.agent,
-        ecs: $group.ecs,
+        agent: _agent,
+        ecs: _ecs,
         event: {
           category: ["process"],
           kind: event.kind,
@@ -83,11 +97,29 @@ if event.category?.first() == "process" and (
           end: end,
           duration: int((end - start) / 1ns),
         },
-        host: $group.host,
-        organization: $group.organization,
+        host: _host_record,
+        organization: _organization,
         process: {
           ...process,
-          working_directory: directory,
+          pid: _pid_min
+            if _pid_min == _pid_max and _pid_count == count else null,
+          user: _user,
+          real_user: _real_user,
+          saved_user: _saved_user,
+          group: _group,
+          real_group: _real_group,
+          saved_group: _saved_group,
+          hash: _hash,
+          code_signature: _code_signature,
+          pe: _pe,
+          working_directory: _directories[0]
+            if _directories.length() == 1 and _directory_count == count
+            else null,
+          parent: {
+            ...process.parent,
+            pid: _ppid_min
+              if _ppid_min == _ppid_max and _ppid_count == count else null,
+          },
         },
         tenzir: {count: count},
       }

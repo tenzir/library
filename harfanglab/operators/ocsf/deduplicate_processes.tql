@@ -1,99 +1,131 @@
 ---
 description: |
-  Deduplicates HarfangLab Process Activity (`class_uid` 1007) into one event
-  per time window, host, executable, command line, and parent executable.
-  Events of other classes pass through unchanged.
+  Deduplicates HarfangLab process launches (`class_uid` 1007, `activity_id` 1)
+  per window, host, executable, command line, user, and parent executable.
+  Other Process Activity, such as raw socket creation (`activity_id` 99), and
+  events of other classes pass through unchanged.
 
-  Each result is a Process Activity event with the OCSF aggregation
-  attributes: `count` holds the number of process starts, `start_time` and
-  `end_time` the times of the first and last one, and `time` equals
-  `start_time`. All times are epoch milliseconds, like HarfangLab's.
+  The first launch of every key in a window passes through immediately and
+  unchanged, with all its identifiers. Further launches of the key in the same
+  window are repeats: when the window closes, one summary event stands for
+  them, and a key without repeats gets no summary. A summary is a Process
+  Activity event with the OCSF aggregation attributes: `count` holds the
+  number of repeats, which excludes the first launch, `start_time` and
+  `end_time` the times of the first and last repeat, `duration` the time
+  between them, and `time` equals `start_time`. All times are epoch
+  milliseconds, like HarfangLab's. Only summaries have `count`.
 
-  The result describes the executable by its path, name, size, type, and MD5,
-  SHA-1, and SHA-256 hashes, and the parent by its name and executable.
-  Attributes that differ between starts don't appear: the process ID, UID,
-  creation time, and lineage, and the parent's process ID, UID, command line,
-  and parent. The user, the integrity level, and the executable are part of
-  the grouping, so a start by another user or of another binary at the same
-  path yields its own result.
+  The key covers the executable's path, name, size, type, hashes, and
+  signature, the user, the integrity level, and the parent's executable and
+  integrity level. Attributes that differ between repeats don't appear in a
+  summary: the UID and lineage, and the parent's UID, command line, and
+  parent. The process ID, creation time, and parent process ID appear only if
+  all repeats had the same one. A summary without a process ID therefore
+  lacks all of `pid`, `uid`, and `cpid`, which OCSF requires at least one of.
 
-  Windows follow processing time by default, so every event counts. HarfangLab
-  delivers events late and out of order, for example process starts from weeks
-  ago when an agent reconnects. The window then only decides which events
-  share a result, and the times of the result still come from the events. Set
-  `event_time=true` to window by `time` instead, for example to replay stored
-  events. Event-time windows align to the Unix epoch and keep a separate clock
-  per host, so one host with a skewed clock doesn't close the windows of the
-  others, but they drop events that arrive more than `tolerance` after their
-  window ended, with a warning.
-
-  A window closes once its host sends another event after the window
-  end plus `tolerance`, after `window` without any event from the host,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 1h
-      description: Width of the deduplication windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late events.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `time` instead of processing time.
+      description: Width of the deduplication windows, in processing and event
+        time.
 ---
 
-if class_uid == 1007 {
-  _md5 = process.file?.hashes?.where(h => h.algorithm_id == 1).first().value
-  _sha1 = process.file?.hashes?.where(h => h.algorithm_id == 2).first().value
-  _sha256 = process.file?.hashes?.where(h => h.algorithm_id == 3).first().value
-  // The outer grouping gives every host its own event-time clock and keeps
-  // the device and metadata records out of the per-window state.
-  group {device: device, metadata: metadata} {
-    window size=$window, on=(from_epoch(time * 1ms) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      // Group by the scalar attributes that the result shows instead of
-      // keeping whole events or records per group: the parent command lines
-      // and the lineage are the largest part of a process event.
-      summarize activity_id, activity_name?, type_uid, severity_id, severity?,
-        process.name?, process.cmd_line?, process.user?,
-        process.integrity?, process.integrity_id?,
-        process.file?.path?, process.file?.name?, process.file?.size?,
-        process.file?.type?, process.file?.type_id?, _md5, _sha1, _sha256,
-        process.parent_process?.name?, process.parent_process?.file?.path?,
-        process.parent_process?.file?.name?,
-        process.parent_process?.file?.type?,
-        process.parent_process?.file?.type_id?,
-        count=count(), start_time=min(time), end_time=max(time)
+if class_uid == 1007 and activity_id == 1 {
+  _host = device?.agent_list?[0]?.uid? else device?.hostname?
+  _bucket = from_epoch(time? * 1ms).floor($window)
+  _hashes = process?.file?.hashes?
+  _md5 = _hashes.where(h => h.algorithm_id == 1).first().value?
+  _sha1 = _hashes.where(h => h.algorithm_id == 2).first().value?
+  _sha256 = _hashes.where(h => h.algorithm_id == 3).first().value?
+  window size=$window {
+    // A digest of the keys keeps the state of the first-occurrence check
+    // small. The summary below groups by the same keys.
+    _key = hash_md5([_host, _bucket, process?.name?, process?.cmd_line?,
+      process?.user?.name?, process?.user?.uid?,
+      process?.integrity_id?, process?.file?.path?, process?.file?.size?,
+      _sha256, _sha1, _md5, process?.file?.signature?.state_id?,
+      process?.file?.signature?.certificate?.serial_number?,
+      process?.parent_process?.file?.path?, process?.parent_process?.name?,
+      process?.parent_process?.integrity_id?])
+    summarize _key, _seen=count(), options={mode: "cumulative"}
+    if _seen == 1 {
+      drop _key, _host, _bucket, _hashes, _md5, _sha1, _sha256, _seen
+    } else {
+      // All keys are scalars. The records come from the first repeat: the
+      // device and metadata belong to the host, the user and signature to
+      // the keyed user name, UID, hashes, and certificate.
+      summarize _host, _bucket, activity_id?, activity_name?, type_uid?,
+        severity_id?, severity?,
+        process?.name?, process?.cmd_line?,
+        process?.user?.name?, process?.user?.uid?,
+        process?.integrity?, process?.integrity_id?,
+        process?.file?.path?, process?.file?.name?, process?.file?.size?,
+        process?.file?.type?, process?.file?.type_id?, _md5, _sha1, _sha256,
+        process?.file?.signature?.state_id?,
+        process?.file?.signature?.certificate?.serial_number?,
+        process?.parent_process?.name?, process?.parent_process?.file?.path?,
+        process?.parent_process?.file?.name?,
+        process?.parent_process?.file?.type?,
+        process?.parent_process?.file?.type_id?,
+        process?.parent_process?.integrity?,
+        process?.parent_process?.integrity_id?,
+        count=count(), start_time=min(time?), end_time=max(time?),
+        _device=first(device?), _metadata=first(metadata?),
+        _user=first(process?.user?),
+        _signature=first(process?.file?.signature?),
+        _pid_min=min(process?.pid?), _pid_max=max(process?.pid?),
+        _pid_count=count(process?.pid?),
+        _created_min=min(process?.created_time?),
+        _created_max=max(process?.created_time?),
+        _created_count=count(process?.created_time?),
+        _ppid_min=min(process?.parent_process?.pid?),
+        _ppid_max=max(process?.parent_process?.pid?),
+        _ppid_count=count(process?.parent_process?.pid?)
+      _hashes = [
+        {algorithm_id: 2, value: _sha1, algorithm: "SHA-1"}
+          if _sha1 != null else null,
+        {algorithm_id: 3, value: _sha256, algorithm: "SHA-256"}
+          if _sha256 != null else null,
+        {algorithm_id: 1, value: _md5, algorithm: "MD5"}
+          if _md5 != null else null,
+      ].where(h => h != null)
       this = {
         activity_id: activity_id,
         activity_name: activity_name,
         category_uid: 1,
         class_uid: 1007,
-        metadata: $group.metadata,
+        metadata: _metadata,
         severity: severity,
         severity_id: severity_id,
         time: start_time,
         start_time: start_time,
         end_time: end_time,
+        duration: end_time - start_time,
         count: count,
         type_uid: type_uid,
-        device: $group.device,
+        device: _device,
         process: {
           ...process,
+          pid: _pid_min
+            if _pid_min == _pid_max and _pid_count == count else null,
+          created_time: _created_min
+            if _created_min == _created_max and _created_count == count
+            else null,
+          user: _user,
           file: {
             ...process.file,
-            hashes: [
-              {algorithm_id: 2, value: _sha1, algorithm: "SHA-1"}
-                if _sha1 != null else null,
-              {algorithm_id: 3, value: _sha256, algorithm: "SHA-256"}
-                if _sha256 != null else null,
-              {algorithm_id: 1, value: _md5, algorithm: "MD5"}
-                if _md5 != null else null,
-            ].where(h => h != null),
+            signature: _signature,
+            hashes: _hashes if _hashes.length() > 0 else null,
+          },
+          parent_process: {
+            ...process.parent_process,
+            pid: _ppid_min
+              if _ppid_min == _ppid_max and _ppid_count == count else null,
           },
         },
       }

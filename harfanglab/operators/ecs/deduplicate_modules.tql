@@ -1,70 +1,77 @@
 ---
 description: |
   Deduplicates HarfangLab library load documents (`event.category`
-  `library`) into one document per time window, host, and library file.
-  Other documents pass through unchanged.
+  `library`) per window, host, and library file. Other documents pass through
+  unchanged.
 
-  Each result stays an ECS library document. `event.start` and `event.end`
-  hold the times of the first and last load, `event.duration` the time
-  between them in nanoseconds, and `@timestamp` equals `event.start`. ECS has
-  no field for the number of events that a document stands for, so
-  `tenzir.count` holds the number of loads and `tenzir.distinct_pids` the
-  number of distinct loading process IDs.
+  The first load of every library file in a window passes through
+  immediately and unchanged, with the loading process. Further loads of the
+  file in the same window are repeats: when the window closes, one summary
+  document stands for them, and a file without repeats gets no summary. A
+  summary stays an ECS library document. `event.start` and `event.end` hold
+  the times of the first and last repeat, `event.duration` the time between
+  them in nanoseconds, and `@timestamp` equals `event.start`. ECS has no
+  field for the number of events that a document stands for, so
+  `tenzir.count` holds the number of repeats, which excludes the first load,
+  and `tenzir.distinct_pids` the number of distinct loading process IDs. Only
+  summaries have `tenzir.count`.
 
-  The result describes the library with its complete `dll` and its
-  `file.size`, so another binary at the same path yields its own result.
+  The key covers the library's path, hashes, and code signature and its
+  `file.size`, so another binary at the same path gets its own summary.
   HarfangLab identifies the loading process mostly by its process ID alone.
-  The result keeps the executable of the loading process only if all loads
-  came from the same one.
+  A summary keeps the process ID and executable of the loading process only
+  if all repeats came from the same one.
 
-  Windows follow processing time by default, so every document counts.
-  HarfangLab delivers documents late and out of order, for example process
-  starts from weeks ago when an agent reconnects. The window then only decides
-  which documents share a result, and the times of the result still come from
-  the documents. Set `event_time=true` to window by `@timestamp` instead, for
-  example to replay stored documents. Event-time windows align to the Unix
-  epoch and keep a separate clock per host, so one host with a skewed clock
-  doesn't close the windows of the others, but they drop documents that arrive
-  more than `tolerance` after their window ended, with a warning.
-
-  A window closes once its host sends another document after the window
-  end plus `tolerance`, after `window` without any document from the host,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 1d
-      description: Width of the deduplication windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late documents.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `@timestamp` instead of processing time.
+      description: Width of the deduplication windows, in processing and event
+        time.
 ---
 
 if event.category?.first() == "library" {
-  // The outer grouping gives every host its own event-time clock and keeps
-  // the host and agent records out of the per-window state.
-  group {host: host, agent: agent, organization: organization?} {
-    window size=$window,
-           on=(time(this["@timestamp"]) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      summarize event.kind, event.type, dll, file.size?,
-        count=count(), start=min(time(this["@timestamp"])),
-        end=max(time(this["@timestamp"])),
-        _pids=count_distinct(process.pid?),
-        _executables=distinct(process.executable?),
-        _executable_count=count(process.executable?)
-      executable = (_executables[0]
-        if _executables.length() == 1 and _executable_count == count else null)
+  _host = host?.id? else agent?.id? else host?.hostname?
+  _time = time(this["@timestamp"]?)
+  _bucket = _time.floor($window)
+  window size=$window {
+    // A digest of the keys keeps the state of the first-occurrence check
+    // small. The summary below groups by the same keys.
+    _key = hash_md5([_host, _bucket, dll?.path?, dll?.hash?.sha256?,
+      dll?.hash?.sha1?, dll?.hash?.md5?, dll?.code_signature?.valid?,
+      dll?.code_signature?.subject_name?, file?.size?])
+    summarize _key, _seen=count(), options={mode: "cumulative"}
+    if _seen == 1 {
+      drop _key, _host, _time, _bucket, _seen
+    } else {
+      // All keys are scalars. The records come from the first repeat: the
+      // host, agent, and organization belong to the host, the library record
+      // to the keyed path, hashes, and code signature.
+      summarize _host, _bucket, event?.kind?, event?.type?, dll?.path?,
+        dll?.hash?.sha256?, dll?.hash?.sha1?, dll?.hash?.md5?,
+        dll?.code_signature?.valid?, dll?.code_signature?.subject_name?,
+        file?.size?,
+        count=count(), start=min(_time), end=max(_time),
+        _host_record=first(host?), _agent=first(agent?),
+        _organization=first(organization?), _ecs=first(ecs?),
+        _dll=first(dll?),
+        _pids=count_distinct(process?.pid?), _pid=min(process?.pid?),
+        _pid_count=count(process?.pid?),
+        _executables=distinct(process?.executable?),
+        _executable_count=count(process?.executable?)
+      _pid = _pid if _pids == 1 and _pid_count == count else null
+      _executable = (_executables[0]
+        if _executables.length() == 1 and _executable_count == count
+        else null)
       this = {
         "@timestamp": start,
-        agent: $group.agent,
-        dll: dll,
+        agent: _agent,
+        dll: _dll,
+        ecs: _ecs,
         event: {
           category: ["library"],
           kind: event.kind,
@@ -74,9 +81,9 @@ if event.category?.first() == "library" {
           duration: int((end - start) / 1ns),
         },
         file: file,
-        host: $group.host,
-        organization: $group.organization,
-        process: {executable: executable} if executable != null else null,
+        host: _host_record,
+        organization: _organization,
+        process: {executable: _executable, pid: _pid},
         tenzir: {count: count, distinct_pids: _pids},
       }
       drop_null_fields

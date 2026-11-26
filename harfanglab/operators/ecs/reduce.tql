@@ -5,9 +5,10 @@ description: |
   starts and library loads, with `harfanglab::ecs::summarize_network`,
   `harfanglab::ecs::summarize_http`,
   `harfanglab::ecs::deduplicate_processes`, and
-  `harfanglab::ecs::deduplicate_modules`. All other documents, such as
-  alerts, audit logs, DNS resolutions, and authentications, pass through
-  unchanged.
+  `harfanglab::ecs::deduplicate_modules`. Set `network`, `http`,
+  `processes`, or `modules` to `false` to pass those documents through
+  unchanged. All other documents, such as alerts, audit logs, DNS
+  resolutions, and authentications, pass through unchanged.
 args:
   named:
     - name: network_window
@@ -26,21 +27,30 @@ args:
       type: duration
       default: 1d
       description: Width of the library load deduplication windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late documents.
-    - name: event_time
+    - name: network
       type: bool
-      default: false
-      description: Window by `@timestamp` instead of processing time.
+      default: true
+      description: Summarize network connections.
+    - name: http
+      type: bool
+      default: true
+      description: Summarize URL requests.
+    - name: processes
+      type: bool
+      default: true
+      description: Deduplicate process starts.
+    - name: modules
+      type: bool
+      default: true
+      description: Deduplicate library loads.
 ---
 
-harfanglab::ecs::summarize_network window=$network_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ecs::summarize_http window=$http_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ecs::deduplicate_processes window=$process_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ecs::deduplicate_modules window=$module_window,
-  tolerance=$tolerance, event_time=$event_time
+if $network and event.category?.first() == "network" {
+  harfanglab::ecs::summarize_network window=$network_window
+} else if $http and event.category?.first() == "url" {
+  harfanglab::ecs::summarize_http window=$http_window
+} else if $processes and event.category?.first() == "process" {
+  harfanglab::ecs::deduplicate_processes window=$process_window
+} else if $modules and event.category?.first() == "library" {
+  harfanglab::ecs::deduplicate_modules window=$module_window
+}

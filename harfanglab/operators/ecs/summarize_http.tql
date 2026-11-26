@@ -1,100 +1,92 @@
 ---
 description: |
   Summarizes HarfangLab URL request documents (`event.category` `url`) into
-  one document per time window, host, URL domain, and HTTP method. Other
-  documents pass through unchanged.
+  one document per window, host, URL domain, and HTTP method. Other documents
+  pass through unchanged.
 
   Each summary stays an ECS URL document. `event.start` and `event.end` hold
   the times of the first and last request, `event.duration` the time between
   them in nanoseconds, and `@timestamp` equals `event.start`. ECS has no
   field for the number of events that a document stands for, so
-  `tenzir.count` holds the number of requests and
-  `tenzir.distinct_url_paths` the number of distinct URL paths.
+  `tenzir.count` holds the number of requests.
 
   The URL path, query, and full URL, the user agent, and the requesting
-  process appear only if all requests of the summary had the same value.
+  process appear only if all requests of the summary had the same value, so
+  the summary of a single request keeps them. `tenzir.distinct_url_paths`
+  holds the number of distinct paths and `tenzir.url_paths` up to 10 of them.
 
-  Windows follow processing time by default, so every document counts.
-  HarfangLab delivers documents late and out of order, for example process
-  starts from weeks ago when an agent reconnects. The window then only decides
-  which documents share a result, and the times of the result still come from
-  the documents. Set `event_time=true` to window by `@timestamp` instead, for
-  example to replay stored documents. Event-time windows align to the Unix
-  epoch and keep a separate clock per host, so one host with a skewed clock
-  doesn't close the windows of the others, but they drop documents that arrive
-  more than `tolerance` after their window ended, with a warning.
-
-  A window closes once its host sends another document after the window
-  end plus `tolerance`, after `window` without any document from the host,
-  or when the input ends.
+  Windows close on the wall clock every `window`, and every summary covers at
+  most one `window` of event time. The package description explains the
+  windowing and how a SIEM counts summaries.
 args:
   named:
     - name: window
       type: duration
       default: 5min
-      description: Width of the summary windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late documents.
-    - name: event_time
-      type: bool
-      default: false
-      description: Window by `@timestamp` instead of processing time.
+      description: Width of the summary windows, in processing and event time.
 ---
 
 if event.category?.first() == "url" {
-  // The outer grouping gives every host its own event-time clock and keeps
-  // the host and agent records out of the per-window state.
-  group {host: host, agent: agent, organization: organization?} {
-    window size=$window,
-           on=(time(this["@timestamp"]) if $event_time else now()),
-           tolerance=$tolerance, idle_timeout=$window {
-      summarize event.kind, event.type, url.domain, http.request.method,
-        url.scheme?, url.port?,
-        count=count(), start=min(time(this["@timestamp"])),
-        end=max(time(this["@timestamp"])),
-        _paths=distinct(url.path?), _path_count=count(url.path?),
-        _queries=distinct(url.query?), _query_count=count(url.query?),
-        _urls=distinct(url.full?), _url_count=count(url.full?),
-        _agents=distinct(user_agent.original?),
-        _agent_count=count(user_agent.original?),
-        _executables=distinct(process.executable?),
-        _executable_count=count(process.executable?)
-      user_agent = (_agents[0]
-        if _agents.length() == 1 and _agent_count == count else null)
-      executable = (_executables[0]
-        if _executables.length() == 1 and _executable_count == count else null)
-      this = {
-        "@timestamp": start,
-        agent: $group.agent,
-        event: {
-          category: ["url"],
-          kind: event.kind,
-          type: event.type,
-          start: start,
-          end: end,
-          duration: int((end - start) / 1ns),
-        },
-        host: $group.host,
-        http: http,
-        organization: $group.organization,
-        process: {executable: executable} if executable != null else null,
-        url: {
-          domain: url.domain,
-          full: _urls[0]
-            if _urls.length() == 1 and _url_count == count else null,
-          path: _paths[0]
-            if _paths.length() == 1 and _path_count == count else null,
-          port: url.port,
-          query: _queries[0]
-            if _queries.length() == 1 and _query_count == count else null,
-          scheme: url.scheme,
-        },
-        user_agent: {original: user_agent} if user_agent != null else null,
-        tenzir: {count: count, distinct_url_paths: _paths.length()},
-      }
-      drop_null_fields
+  _host = host?.id? else agent?.id? else host?.hostname?
+  _time = time(this["@timestamp"]?)
+  _bucket = _time.floor($window)
+  window size=$window {
+    // All keys are scalars. The host, agent, and organization records belong
+    // to the host and come from the first document of a summary.
+    summarize _host, _bucket, event?.kind?, event?.type?, url?.domain?,
+      http?.request?.method?, url?.scheme?, url?.port?,
+      count=count(), start=min(_time), end=max(_time),
+      _host_record=first(host?), _agent=first(agent?),
+      _organization=first(organization?), _ecs=first(ecs?),
+      // The full URL follows from the keys, the path, and the query, so it
+      // needs no set of its own.
+      _paths=distinct(url?.path?), _path_count=count(url?.path?),
+      _queries=distinct(url?.query?), _query_count=count(url?.query?),
+      _url=first(url?.full?), _url_count=count(url?.full?),
+      _agents=distinct(user_agent?.original?),
+      _agent_count=count(user_agent?.original?),
+      _executables=distinct(process?.executable?),
+      _executable_count=count(process?.executable?)
+    _same_path = _path_count == 0 or (
+      _paths.length() == 1 and _path_count == count)
+    _same_query = _query_count == 0 or (
+      _queries.length() == 1 and _query_count == count)
+    _user_agent = (_agents[0]
+      if _agents.length() == 1 and _agent_count == count else null)
+    _executable = (_executables[0]
+      if _executables.length() == 1 and _executable_count == count else null)
+    this = {
+      "@timestamp": start,
+      agent: _agent,
+      ecs: _ecs,
+      event: {
+        category: ["url"],
+        kind: event.kind,
+        type: event.type,
+        start: start,
+        end: end,
+        duration: int((end - start) / 1ns),
+      },
+      host: _host_record,
+      http: http,
+      organization: _organization,
+      process: {executable: _executable} if _executable != null else null,
+      url: {
+        domain: url.domain,
+        full: (_url
+          if _same_path and _same_query and _url_count == count else null),
+        path: _paths[0]? if _same_path else null,
+        port: url.port,
+        query: _queries[0]? if _same_query else null,
+        scheme: url.scheme,
+      },
+      user_agent: {original: _user_agent} if _user_agent != null else null,
+      tenzir: {
+        count: count,
+        distinct_url_paths: _paths.length(),
+        url_paths: _paths.slice(end=10),
+      },
     }
+    drop_null_fields
   }
 }

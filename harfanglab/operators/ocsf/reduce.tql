@@ -1,13 +1,14 @@
 ---
 description: |
   Reduces the volume of HarfangLab OCSF events for a SIEM. The operator
-  summarizes Network Activity and HTTP Activity, and deduplicates Process
-  Activity and Module Activity, with
-  `harfanglab::ocsf::summarize_network`, `harfanglab::ocsf::summarize_http`,
+  summarizes Network Activity and HTTP Activity, and deduplicates process
+  launches and Module Activity, with `harfanglab::ocsf::summarize_network`,
+  `harfanglab::ocsf::summarize_http`,
   `harfanglab::ocsf::deduplicate_processes`, and
-  `harfanglab::ocsf::deduplicate_modules`. Events of all other classes, such
-  as findings, API activity, DNS activity, and authentications, pass through
-  unchanged.
+  `harfanglab::ocsf::deduplicate_modules`. Set `network`, `http`,
+  `processes`, or `modules` to `false` to pass that class through unchanged.
+  Events of all other classes, such as findings, API activity, DNS activity,
+  and authentications, pass through unchanged.
 args:
   named:
     - name: network_window
@@ -21,26 +22,35 @@ args:
     - name: process_window
       type: duration
       default: 1h
-      description: Width of the Process Activity deduplication windows.
+      description: Width of the process launch deduplication windows.
     - name: module_window
       type: duration
       default: 1d
       description: Width of the Module Activity deduplication windows.
-    - name: tolerance
-      type: duration
-      default: 5min
-      description: How long an event-time window waits for late events.
-    - name: event_time
+    - name: network
       type: bool
-      default: false
-      description: Window by `time` instead of processing time.
+      default: true
+      description: Summarize Network Activity.
+    - name: http
+      type: bool
+      default: true
+      description: Summarize HTTP Activity.
+    - name: processes
+      type: bool
+      default: true
+      description: Deduplicate process launches.
+    - name: modules
+      type: bool
+      default: true
+      description: Deduplicate Module Activity.
 ---
 
-harfanglab::ocsf::summarize_network window=$network_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ocsf::summarize_http window=$http_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ocsf::deduplicate_processes window=$process_window,
-  tolerance=$tolerance, event_time=$event_time
-harfanglab::ocsf::deduplicate_modules window=$module_window,
-  tolerance=$tolerance, event_time=$event_time
+if $network and class_uid == 4001 {
+  harfanglab::ocsf::summarize_network window=$network_window
+} else if $http and class_uid == 4002 {
+  harfanglab::ocsf::summarize_http window=$http_window
+} else if $processes and class_uid == 1007 {
+  harfanglab::ocsf::deduplicate_processes window=$process_window
+} else if $modules and class_uid == 1005 {
+  harfanglab::ocsf::deduplicate_modules window=$module_window
+}
