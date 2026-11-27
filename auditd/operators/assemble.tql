@@ -1,0 +1,77 @@
+---
+description: |
+  Assembles parsed Linux Audit records into audit events.
+
+  The kernel describes one audited system call with several records, such as
+  `SYSCALL`, `EXECVE`, `CWD`, `PATH`, and `PROCTITLE`, that share the stamp
+  `msg=audit(<time>:<serial>)`. The operator expects the output of
+  `auditd::parse` and replaces each group of records with one event:
+
+  ```tql
+  auditd::parse line, record
+  auditd::assemble line, record
+  ```
+
+  The event holds `node`, `time`, and `serial`, the records in arrival order
+  under `records`, and the original lines in `raw_data`. Records group by node,
+  time, and serial. Userspace and daemon records, such as `USER_LOGIN` or
+  `DAEMON_START`, form events of their own and pass through without delay. The
+  end-of-event marker `EOE` carries no data and is not kept.
+
+  Kernel records wait in bounded event-time windows: an event completes once
+  the newest record seen is 30 seconds past its window, or after 10 seconds
+  without input. Records that arrive later than that, for example from files
+  read out of time order, are dropped with a warning. Read rotated files from
+  the oldest to the newest.
+
+  Call it between `auditd::parse` and `auditd::ocsf::map` in a staged
+  pipeline. `auditd::ocsf::normalize` does this implicitly. Leave it out for
+  one OCSF event per record.
+args:
+  positional:
+    - name: line
+      type: field
+      description: The field holding the `audit.log` line.
+    - name: record
+      type: field
+      description: The parsed record to replace with the assembled event.
+---
+
+// Kernel records of one event share their stamp. Userspace programs and the
+// audit daemon submit every record on its own, and daemon records can reuse
+// serial zero, so their stamps never join other records.
+if $record == null {
+  // Lines that are not Linux Audit records pass through.
+} else if $record.type.match_regex(r"^(?:USER|CRED_|ACCT_|ADD_|DEL_|GRP_MGMT|ROLE_|SERVICE_|SYSTEM_|DAEMON_|SOFTWARE_UPDATE|TRUSTED_APP|CRYPTO_|USYS_|LABEL_|AVC_PATH_INVALID)") {
+  $record = {
+    node: $record.node,
+    time: $record.time,
+    serial: $record.serial,
+    records: [{type: $record.type, fields: $record.fields, enriched: $record.enriched}],
+    raw_data: $line,
+  }
+} else {
+  batch 1
+  window size=5s, on=$record.time, tolerance=30s, idle_timeout=10s {
+    summarize \
+      _node=$record.node,
+      _time=$record.time,
+      _serial=$record.serial,
+      _records=collect({type: $record.type, fields: $record.fields, enriched: $record.enriched}),
+      _lines=collect($line)
+  }
+  batch timeout=1s
+  $record = {
+    node: _node,
+    time: _time,
+    serial: _serial,
+    records: _records.where(r => r.type != "EOE"),
+    raw_data: _lines.join("\n"),
+  }
+  drop _node, _time, _serial, _records, _lines
+  where $record.records.length() > 0
+}
+// The `ENRICHED` format and audit daemons without it can mix in one stream.
+if $record != null and $record.records.where(r => r.enriched != null).length() == 0 {
+  $record.records = $record.records.map(r => {type: r.type, fields: r.fields})
+}
