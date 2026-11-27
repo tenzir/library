@@ -1474,10 +1474,13 @@ $paloalto = {
   input: $input,
   columns: $input.replace_regex(r#",\{[^{}"]*\}(,|$)"#, r#",x\1"#).replace_regex(r#""([^"]|"")*""#, "x").split(",").length(),
 }
-// PAN-OS 8.1, 9.1, and 10.0 write fewer columns than later versions, and their
-// columns are a prefix of the later ones. Records with exactly these numbers
-// of columns fill the missing columns with null without a warning; all other
-// short records keep the warning.
+// Older PAN-OS versions write fewer columns than later versions, and their
+// columns are a prefix of the later ones. For most log types, records with
+// exactly the documented numbers of columns fill the missing columns with null
+// without a warning; all other short records keep the warning. Traffic
+// records gained columns in many releases, such as 115 before PAN-OS 11.1
+// added the flow type, so every Traffic record with at least the 65 columns
+// of PAN-OS 8.1 counts as an older layout.
 // Source: https://docs.paloaltonetworks.com/pan-os/8-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions
 // (archived, for example at https://web.archive.org/web/2019/https://docs.paloaltonetworks.com/pan-os/8-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields)
 // Source: https://docs.paloaltonetworks.com/pan-os/9-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions
@@ -1489,7 +1492,7 @@ match $paloalto.input.split(",", max=5)[3]? {
     // spans whole columns, so that it stays one column and the tail keeps its
     // positions. Other values with braces stay as they are.
     $paloalto.input = $paloalto.input.replace_regex(r#",(\{[^{}"]*\})(,|$)"#, r#","\1"\2"#)
-    if $paloalto.columns in [65, 75, 105] {
+    if $paloalto.columns >= 65 {
       $paloalto = $paloalto.input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true, auto_fill=true)
     } else {
       $paloalto = $paloalto.input.parse_csv(header=$traffic_fields, raw=true, list_separator="", quotes="\"", auto_expand=true)
