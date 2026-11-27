@@ -1,0 +1,65 @@
+id: auditd
+name: Linux Audit
+author: Tenzir
+author_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+package_icon: https://raw.githubusercontent.com/tenzir/library/main/.tenzir.svg
+
+description: |
+  The [Linux Audit](https://github.com/linux-audit/audit-userspace) framework
+  records system calls, logins, account changes, and security policy
+  decisions. The kernel and userspace programs emit audit records, and the
+  `auditd` daemon writes them to `/var/log/audit/audit.log`. This package
+  parses those records, assembles them into audit events, and maps the events
+  to OCSF.
+
+  Use `auditd::ocsf::normalize` on a stream of `audit.log` lines:
+
+  ```tql
+  from_file "/var/log/audit/audit.log" {
+    read_lines
+  }
+  auditd::ocsf::normalize
+  ```
+
+  For staged processing, combine `auditd::parse`, `auditd::assemble`, and
+  `auditd::ocsf::map`.
+
+  ## Records and events
+
+  The kernel describes one audited system call with several records that share
+  a stamp: `SYSCALL` with the process and the outcome, `EXECVE` with the
+  arguments, `CWD`, one `PATH` record per file, `SOCKADDR`, `PROCTITLE`, and
+  records of security modules such as `AVC`. `auditd::assemble` groups them by
+  node, time, and serial number in bounded event-time windows and does not
+  depend on the `EOE` marker. Userspace records, such as the PAM records of a
+  login, form events of their own.
+
+  ## OCSF mapping
+
+  The mapping covers process execution and termination, file creation,
+  changes, renames, and deletions, network connections, logins and PAM
+  sessions, sudo commands, user and group management, audit rule and daemon
+  changes, systemd services, package installations, eBPF programs and kernel
+  modules, and SELinux, AppArmor, fapolicyd, and seccomp decisions. System
+  calls without a more specific class become OCSF Kernel Activity. Records
+  without a mapping become OCSF Base Events. The normalizer keeps the original
+  lines in `raw_data` and the fields without an OCSF attribute in `unmapped`.
+
+  ## Inputs and formats
+
+  The package reads the native `RAW` and `ENRICHED` log formats of `auditd`,
+  with or without the `node=` prefix of the `name_format` setting and of
+  forwarded events. Set `name_format` to `hostname` or `fqd` so that every
+  event names its host; without it, the events have no device.
+
+  For records in another envelope, such as Syslog, pass the native record
+  text to `auditd::ocsf::normalize` or `auditd::parse`. The JSON output of
+  other audit collectors has its own layout and is not covered.
+
+  The mapping resolves system call numbers for x86-64, i386, and AArch64.
+  Read rotated log files from the oldest to the newest so that their records
+  arrive in time order.
+
+categories:
+- sources
+- mappings

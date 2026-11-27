@@ -1,0 +1,133 @@
+---
+description: |
+  Parses one Linux Audit record in the native `audit.log` format.
+
+  The first field holds the record line and the second receives the parsed
+  record:
+
+  ```tql
+  auditd::parse line, record
+  ```
+
+  The parser reads the optional `node=` prefix, the record type, and the
+  `msg=audit(<seconds>.<milliseconds>:<serial>)` stamp into `node`, `type`,
+  `time`, and `serial`. The remaining `key=value` pairs land in `fields` as
+  strings, exactly as the record states them. Userspace records nest a second
+  list of pairs in `msg='…'`, which becomes the record `fields.msg`.
+
+  The kernel writes untrusted strings, such as `comm`, `exe`, `name`, `cwd`,
+  `proctitle`, or the `execve` arguments, either in double quotes or, when they
+  contain spaces or control characters, hex-encoded without quotes. The parser
+  decodes these hex values, and only for the fields that the Linux Audit
+  userspace interprets as encoded strings. A decoded value that is not valid
+  UTF-8 keeps its hex form. `fields.proctitle` becomes the list of process
+  arguments, which the kernel separates by NUL bytes.
+
+  A `SOCKADDR` record additionally gets the decoded `saddr_fam`, `laddr`,
+  `lport`, and `path` of the socket address.
+
+  The `ENRICHED` log format appends the values that `auditd` resolved, such as
+  user and system call names, after a `0x1D` separator. The parser keeps them
+  separately in `enriched`.
+
+  The operator writes `null` when the line is not a Linux Audit record.
+args:
+  positional:
+    - name: line
+      type: field
+      description: The field holding the `audit.log` line.
+    - name: record
+      type: field
+      description: The field that receives the parsed record.
+---
+
+let $envelope = r"^(?:(?:node=(?<node>\S+) )?type=(?<type>\S+) msg=audit\((?<seconds>\d+)\.(?<fraction>\d+):(?<serial>\d+)\):\s*(?<body>.*)|.*)$"
+// Fields that the Linux Audit userspace interprets as encoded strings
+// (auparse `typetab.h`). The kernel quotes them, or writes them hex-encoded
+// when they contain characters that need escaping. Mark the unquoted hex
+// values before the key-value parser removes the quotes.
+let $encoded = r"(^|[\s'])(path|comm|exe|file|name|watch|cwd|cmd|acct|dir|key|vm|old-chardev|new-chardev|old-disk|new-disk|old-fs|new-fs|old-net|new-net|device|cgroup|apparmor|operation|denied_mask|info|profile|requested_mask|old-rng|new-rng|ocomm|proctitle|grp|new_group|invalid_context|sw|root_dir|data)=((?:[0-9A-F]{2})+)\b"
+// In EXECVE records, the arguments and their fragments are encoded strings.
+let $arguments = r"(^|\s)(a[0-9]+(?:\[[0-9]+\])?)=((?:[0-9A-F]{2})+)\b"
+// Hex-encoded byte sequences that form valid UTF-8.
+let $utf8 = r"^(?:[0-7][0-9A-F]|(?:C[2-9A-F]|D[0-9A-F])[89AB][0-9A-F]|E0[AB][0-9A-F][89AB][0-9A-F]|E[1-9A-CEF](?:[89AB][0-9A-F]){2}|ED[89][0-9A-F][89AB][0-9A-F]|F0[9AB][0-9A-F](?:[89AB][0-9A-F]){2}|F[1-3](?:[89AB][0-9A-F]){3}|F48[0-9A-F](?:[89AB][0-9A-F]){2})*$"
+let $families = {
+  "0": "unspec",
+  "1": "local",
+  "2": "inet",
+  "10": "inet6",
+  "16": "netlink",
+  "17": "packet",
+}
+
+// The parser uses expressions only. Statements such as `if` would split the
+// stream and give up the order of the records, which `auditd::assemble`
+// relies on.
+$record = $line.split("\x1d")[0].parse_grok($envelope, raw=true)
+$record._enriched = $line.split("\x1d")[1]?
+// An SELinux AVC record starts with the decision and the permissions.
+$record._avc = $record.body.parse_grok(r"^(?:avc:\s+(?<seresult>\S+)\s+\{\s*(?<seperms>.*?)\s*\}\s+for\s+(?<rest>.*)|.*)$", raw=true)
+// Records of kernel subsystems such as NetLabel lead with the subsystem name.
+$record.body = ($record._avc.rest? else $record.body).replace_regex(r"^[a-z]+:\s+", "").replace_regex($encoded, "\\1\\2=\x01\\3")
+$record.body = $record.body.replace_regex($arguments, "\\1\\2=\x01\\3") if $record.type == "EXECVE" else $record.body
+$record.fields = collect_record(entries($record.body.parse_kv(field_split=r"\s+", raw=true)).map(e => [
+  e.key,
+  (e.value if not e.value.starts_with("\x01")
+    else (string(e.value.slice(begin=1).decode_hex()) if e.value.slice(begin=1).match_regex($utf8)
+    else e.value.slice(begin=1))),
+]))
+// Userspace records nest their own key-value pairs, or JSON for trusted
+// applications, in a quoted `msg` field.
+$record._msg = $record.fields.msg?
+$record._json = $record._msg.parse_json(raw=true) if $record._msg.starts_with("{") else null
+$record._kv = collect_record(entries($record._msg.parse_kv(field_split=r"\s+", raw=true)).map(e => [
+  e.key,
+  (e.value if not e.value?.starts_with("\x01")
+    else (string(e.value.slice(begin=1).decode_hex()) if e.value.slice(begin=1).match_regex($utf8)
+    else e.value.slice(begin=1))),
+])) if not $record._msg.starts_with("{") else null
+// A socket address starts with its address family in host byte order. No
+// family exceeds one byte, which tells little-endian from big-endian hosts.
+// Ports and IP addresses follow in network byte order.
+$record._h = $record.fields.saddr? if $record.type == "SOCKADDR" and $record.fields.saddr?.match_regex(r"^(?:[0-9A-F]{2}){2,}$") else null
+$record._family = int($record._h.slice(begin=2, end=4) + $record._h.slice(begin=0, end=2), base=16)
+$record._family = int($record._h.slice(begin=0, end=4), base=16) if $record._family > 255 else $record._family
+$record._inet = $record._h.parse_grok(r"^(?:.{4}(?<port>.{4})(?<a>..)(?<b>..)(?<c>..)(?<d>..).*|.*)$", raw=true) if $record._family == 2 else null
+$record._inet6 = $record._h.parse_grok(r"^(?:.{4}(?<port>.{4}).{8}(?<addr>.{32}).*|.*)$", raw=true) if $record._family == 10 else null
+// A path that starts with a NUL byte names an abstract socket, which the
+// Linux Audit userspace prints with a leading `@`.
+$record._local = $record._h.parse_grok(r"^(?:.{4}(?<abstract>00)?(?<path>(?:[0-9A-F][1-9A-F]|[1-9A-F]0)*).*|.*)$", raw=true) if $record._family == 1 else null
+// The ENRICHED format prints the resolved socket address as a nested list of
+// pairs in braces.
+$record._resolved = $record._enriched.parse_grok(r"^(?:(?<before>.*?)\s*SADDR=\{\s*(?<inner>.*?)\s*\}\s*(?<after>.*)|(?<plain>.*))$", raw=true)
+$record = {
+  node: $record.node,
+  type: $record.type,
+  // Audit stamps carry milliseconds. Integer arithmetic keeps them exact.
+  time: from_epoch($record.seconds.int() * 1s) + $record.fraction.int() * 1ms,
+  serial: $record.serial.int(),
+  fields: drop_null_fields({
+    seresult: $record._avc.seresult?,
+    seperms: $record._avc.seperms?.split_regex(r"\s+"),
+    ...$record.fields,
+    msg: $record._json if $record._json != null else $record._kv,
+    // The kernel separates the arguments in the process title by NUL bytes.
+    proctitle: $record.fields.proctitle?.split("\x00"),
+    saddr_fam: $families[$record._family.string()]? else $record._family.string(),
+    laddr: (
+      [$record._inet.a?, $record._inet.b?, $record._inet.c?, $record._inet.d?].map(x => int(x, base=16).string()).join(".") if $record._inet.a? != null
+      else (ip($record._inet6.addr?.replace_regex(r"(.{4})", "\\1:").trim_end(":")).string() if $record._inet6.addr? != null
+      else null)
+    ),
+    lport: (int($record._inet.port? else $record._inet6.port?, base=16)).string(),
+    path: (
+      ("@" if $record._local.abstract? != null else "") + string($record._local.path.decode_hex())
+        if $record._local.path?.match_regex($utf8) and $record._local.path? != ""
+      else $record.fields.path?
+    ),
+  }),
+  enriched: drop_null_fields({
+    ...((($record._resolved.before? + " " + $record._resolved.after?) else $record._resolved.plain?).trim().parse_kv(field_split=r"\s+", raw=true)),
+    SADDR: $record._resolved.inner?.parse_kv(field_split=r"\s+", raw=true),
+  }) if $record._enriched != null else null,
+} if $record.type != null else null
