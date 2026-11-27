@@ -1,0 +1,41 @@
+---
+description: |
+  Rebuilds the `audit.log` line of a Linux Audit record from a systemd journal
+  entry.
+
+  The journal collects kernel audit records with `_TRANSPORT=audit`. Each entry
+  keeps the record text in `MESSAGE`, led by the record type, and the stamp in
+  `_SOURCE_REALTIME_TIMESTAMP` and `_AUDIT_ID`. The operator writes the line
+  that `auditd::parse` and `auditd::ocsf::normalize` read, with the journal's
+  `_HOSTNAME` as node:
+
+  ```tql
+  from_file "audit.json" {
+    read_ndjson
+  }
+  where _TRANSPORT == "audit"
+  auditd::adapters::journal this, line
+  auditd::ocsf::normalize line
+  ```
+
+  Export the journal with `journalctl _TRANSPORT=audit -o json`. Entries without
+  an audit ID or a timestamp give `null`.
+args:
+  positional:
+    - name: entry
+      type: field
+      description: The journal entry to read.
+    - name: line
+      type: field
+      description: The field that receives the `audit.log` line.
+---
+
+// The journal takes the timestamp from the record stamp, which has
+// milliseconds.
+$line = (
+  ("node=" + $entry._HOSTNAME + " " if $entry._HOSTNAME? != null else "")
+    + "type=" + ($entry._AUDIT_TYPE_NAME? else "UNKNOWN[" + $entry._AUDIT_TYPE + "]")
+    + " msg=audit(" + ($entry._SOURCE_REALTIME_TIMESTAMP.int() / 1000000).floor().int().string()
+    + "." + (1000 + ($entry._SOURCE_REALTIME_TIMESTAMP.int() / 1000).floor().int() - ($entry._SOURCE_REALTIME_TIMESTAMP.int() / 1000000).floor().int() * 1000).string().slice(begin=1)
+    + ":" + $entry._AUDIT_ID + "): " + $entry.MESSAGE.replace_regex(r"^\S+ ", "")
+)
