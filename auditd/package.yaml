@@ -21,8 +21,8 @@ description: |
   auditd::ocsf::normalize
   ```
 
-  For staged processing, combine `auditd::parse`, `auditd::assemble`, and
-  `auditd::ocsf::map`.
+  For staged processing, combine `auditd::parse`, `auditd::assemble`,
+  `auditd::aggregate`, and `auditd::ocsf::map`.
 
   ## Records and events
 
@@ -34,13 +34,20 @@ description: |
   depend on the `EOE` marker. Userspace records, such as the PAM records of a
   login, form events of their own.
 
+  A login through PAM leaves several such events: the credential and account
+  checks, the credentials, the login session, and the session start, and at
+  the end the session close. `auditd::aggregate` combines them into one logon
+  or account switch per login attempt and one logoff per session end. It
+  correlates by node, the process that runs the PAM stack, and the audit
+  session.
+
   ## OCSF mapping
 
   The mapping covers process execution and termination, file creation,
-  changes, renames, and deletions, network connections, logins and PAM
-  sessions, sudo commands, user and group management, audit rule and daemon
-  changes, systemd services, package installations, eBPF programs and kernel
-  modules, and SELinux, AppArmor, fapolicyd, and seccomp decisions. System
+  changes, renames, and deletions, network connections, logins, logouts,
+  account switches, sudo commands, user and group management, audit rule and
+  daemon changes, systemd services, package installations, eBPF programs and
+  kernel modules, and SELinux, AppArmor, fapolicyd, and seccomp decisions. System
   calls without a more specific class become OCSF Kernel Activity. Records
   without a mapping become OCSF Base Events. The normalizer keeps the original
   lines in `raw_data` and the fields without an OCSF attribute in `unmapped`.

@@ -8,8 +8,8 @@ description: |
   `tty`. The operator consumes these fields.
 
   The process user is the real user (`uid`). The login user (`auid`) is the
-  actor user, or the real user if no login set `auid`. The Linux extension of
-  OCSF holds `auid`, `euid`, and `egid`. Unset IDs, which the kernel writes as
+  actor user, or the real user with `login_user=false` or if no login set
+  `auid`. The Linux extension of OCSF holds `auid`, `euid`, and `egid`. Unset IDs, which the kernel writes as
   `4294967295` or `-1`, and the placeholders `?` and `(none)` stay unmapped.
 args:
   positional:
@@ -22,6 +22,11 @@ args:
     - name: actor
       type: field
       description: The field that receives the OCSF actor.
+  named:
+    - name: login_user
+      type: bool
+      default: true
+      description: Use the login user (`auid`) as the actor user instead of the process user.
 ---
 
 let $unset = ["4294967295", "-1", "unset"]
@@ -61,7 +66,7 @@ if $fields.ses? != null and $fields.ses not in $unset {
   }
   $actor.process.session = $actor.session
 }
-if $actor.process.auid != null {
+if $login_user and $actor.process.auid != null {
   $actor.user = {
     uid: $actor.process.auid.string(),
     name: $enriched.AUID? if $enriched.AUID? not in $unset else null,

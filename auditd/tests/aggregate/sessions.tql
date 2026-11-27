@@ -1,0 +1,12 @@
+---
+pre-compare: sort
+---
+
+// One event per login attempt and per logout. The late record at the end is
+// dropped with a warning.
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+auditd::ocsf::normalize
+this = ocsf_cast(this)
+select activity_id, status_id, user=user?.name?, service=service?.name?, session=session?.uid?, count, records=[metadata.event_code, ...unmapped?.merged?.map(m => m.records[0].type) else []].sort()

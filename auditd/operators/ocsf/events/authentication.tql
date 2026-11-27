@@ -13,33 +13,48 @@ args:
 
 // Programs that open a session as another user.
 let $switch_programs = ["su", "sudo", "sudo-rs", "runuser", "doas", "pkexec"]
+let $no_account = ["?", "(invalid user)", "(unknown)"]
 
 @name = "ocsf.authentication"
 $ocsf.category_uid = 3
 $ocsf.class_uid = 3002
 
 $audit._program = file_name($audit.record.exe?) if $audit.record.exe? not in [null, "?"] else null
-// USER_AUTH reports a credential check, USER_LOGIN the login outcome, and
-// USER_START and USER_END the opening and closing of a PAM session. The PAM
-// accounting and credential steps, and the kernel's login ID assignment, have
-// no OCSF activity of their own.
-$ocsf.activity_id = (
-  1 if $audit.type in ["USER_LOGIN", "USER_AUTH", "USER_ERR"]
-  else (2 if $audit.type in ["USER_LOGOUT", "USER_END"]
-  else (7 if $audit.type == "USER_START" and $audit._program in $switch_programs
-  else (1 if $audit.type == "USER_START"
-  else 99)))
-)
-if $ocsf.activity_id == 99 {
-  $ocsf.activity_name = $audit.record.op? else $audit.type
+// The PAM records of the other audit events of a combined login.
+$audit._more = ($audit.merged? else []).map(m => m.records.map(r => r.fields.msg?).where(x => x?.type_kind() == "record").first()).where(x => x != null)
+if $audit.login? != null {
+  // A combined login is one logon or account switch, or one logoff.
+  $ocsf.activity_id = (
+    2 if $audit.login.phase == "logoff"
+    else (7 if $audit._program in $switch_programs
+    else 1)
+  )
+  $ocsf.status_id = 2 if $audit.login.failed else 1
+} else {
+  // USER_AUTH reports a credential check, USER_LOGIN the login outcome, and
+  // USER_START and USER_END the opening and closing of a PAM session. The PAM
+  // accounting and credential steps, and the kernel's login ID assignment,
+  // have no OCSF activity of their own.
+  $ocsf.activity_id = (
+    1 if $audit.type in ["USER_LOGIN", "USER_AUTH", "USER_ERR"]
+    else (2 if $audit.type in ["USER_LOGOUT", "USER_END"]
+    else (7 if $audit.type == "USER_START" and $audit._program in $switch_programs
+    else (1 if $audit.type == "USER_START"
+    else 99)))
+  )
+  if $ocsf.activity_id == 99 {
+    $ocsf.activity_name = $audit.record.op? else $audit.type
+  }
 }
 
+// The actor is the process that runs the PAM stack, with its own user, such
+// as sshd running as root. Its login user stays in `actor.process.auid`.
 if $audit.syscall != null {
-  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor, login_user=false
   $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
   drop $audit.proctitle?
 } else {
-  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor, login_user=false
 }
 if $ocsf.actor.process? != null {
   $ocsf.logon_process = $ocsf.actor.process
@@ -54,36 +69,50 @@ if $audit.type == "LOGIN" {
   }
 } else {
   // The account that authenticates or logs in. sshd names unknown users
-  // `(invalid user)`, which is no account name.
+  // `(invalid user)`, which is no account name. A combined login takes what
+  // its speaking record lacks from the other records.
   $ocsf.user = {
-    uid: $audit.record.id?,
-    name: $audit.record.acct? if $audit.record.acct? not in ["?", "(invalid user)", "(unknown)"] else null,
-  }
-  if $ocsf.user.name == null {
-    $ocsf.user.name = $audit.record_enriched.ID?
+    uid: $audit.record.id? else $audit._more.map(m => m.id?).where(x => x != null).first(),
+    name: (
+      $audit.record.acct? if $audit.record.acct? not in [null, ...$no_account]
+      else ($audit.record_enriched.ID?
+      else $audit._more.map(m => m.acct?).where(x => x not in [null, ...$no_account]).first())
+    ),
   }
   drop $audit.record.id?, $audit.record_enriched.ID?
-  if $ocsf.user.name? != null {
+  if $ocsf.user.name? != null and $audit.record.acct? == $ocsf.user.name {
     drop $audit.record.acct
   }
   if $ocsf.user.name == null and $ocsf.user.uid == null {
     drop $ocsf.user
   }
-  if $audit.record.addr? not in [null, "?"] or $audit.record.hostname? not in [null, "?"] {
+  $audit._addr = $audit.record.addr? else $audit._more.map(m => m.addr?).where(x => x not in [null, "?"]).first()
+  $audit._hostname = $audit.record.hostname? else $audit._more.map(m => m.hostname?).where(x => x not in [null, "?"]).first()
+  if $audit._addr != null or $audit._hostname != null {
     $ocsf.src_endpoint = {
-      ip: ip($audit.record.addr?) if $audit.record.addr? not in [null, "?"] else null,
-      hostname: $audit.record.hostname? if $audit.record.hostname? not in [null, "?"] and $audit.record.hostname? != $audit.record.addr? else null,
+      ip: ip($audit._addr),
+      hostname: $audit._hostname if $audit._hostname != $audit._addr else null,
     }
   }
-  drop $audit.record.addr?, $audit.record.hostname?
-  if $audit.record.terminal? not in [null, "?"] {
-    $ocsf.session = {terminal: move $audit.record.terminal}
+  drop $audit.record.addr?, $audit.record.hostname?, $audit._addr, $audit._hostname
+  $audit._terminal = $audit.record.terminal? else $audit._more.map(m => m.terminal?).where(x => x not in [null, "?"]).first()
+  if $audit._terminal != null {
+    $ocsf.session = {terminal: $audit._terminal}
   }
-  drop $audit.record.terminal?
+  drop $audit.record.terminal?, $audit._terminal
+  // A combined login names the audit session that it opens or closes.
+  if $audit.login? != null and $ocsf.actor.session?.uid? != null {
+    $ocsf.session.uid = $ocsf.actor.session.uid
+  }
   // The program that consumed the PAM stack, such as sshd, sudo, or login.
   if $audit._program != null {
     $ocsf.service = {name: $audit._program}
   }
   $ocsf.is_remote = true if $ocsf.src_endpoint?.ip? != null and not $ocsf.src_endpoint.ip.is_loopback() else null
 }
-drop $audit._program
+if $audit.login? != null and $audit.login.count > 1 {
+  $ocsf.count = $audit.login.count
+  $ocsf.start_time = $audit.login.start_time
+  $ocsf.end_time = $audit.login.end_time
+}
+drop $audit._program, $audit._more, $audit.login?

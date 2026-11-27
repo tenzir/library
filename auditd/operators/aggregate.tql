@@ -1,0 +1,138 @@
+---
+description: |
+  Combines the PAM and login records of one login into one event.
+
+  A login through PAM leaves several audit events: the credential check
+  (`USER_AUTH`), the account check (`USER_ACCT`), the credentials (`CRED_ACQ`,
+  `CRED_REFR`), the login user and session (`LOGIN`), the session start
+  (`USER_START`), and the login outcome (`USER_LOGIN`, `USER_ERR`). At the end
+  of the session, `USER_END`, `CRED_DISP`, and `USER_LOGOUT` follow. The
+  operator expects the output of `auditd::assemble` and combines these events
+  in place:
+
+  ```tql
+  auditd::parse line, event
+  auditd::assemble line, event
+  auditd::aggregate event
+  ```
+
+  Call it between `auditd::assemble` and `auditd::ocsf::map` in a staged
+  pipeline. `auditd::ocsf::normalize` does this implicitly. Leave it out for
+  one OCSF event per audit event.
+
+  The records of a login correlate by node and by the process that ran the PAM
+  stack, such as `sshd` or `sudo`. A credential record of a helper process
+  joins the login with the same audit session (`ses`). A failed record ends a
+  login attempt, so every failed attempt becomes an event of its own. The end of
+  a session becomes a separate event.
+
+  The combined event keeps the event that speaks for the login, such as
+  `USER_START`, and lists the other audit events under `merged`, with their
+  records and lines. `login` names the phase, `logon` or `logoff`, and the
+  number, start, and end of the combined events.
+
+  Records wait in bounded event-time windows of one minute with 40 seconds of
+  tolerance, or 10 seconds without input. A login that spans a window boundary
+  becomes two events. Records that arrive later than the tolerance are dropped
+  with a warning. Other events pass through unchanged.
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The assembled Linux Audit event to update in place.
+---
+
+let $logon = ["USER_AUTH", "USER_ACCT", "CRED_ACQ", "CRED_REFR", "LOGIN", "USER_ROLE_CHANGE", "USER_START", "USER_LOGIN", "USER_ERR"]
+let $logoff = ["USER_END", "CRED_DISP", "USER_LOGOUT"]
+let $unset = ["4294967295", "-1"]
+
+if $audit.records?.where(r => r.type in [...$logon, ...$logoff]).length() > 0 {
+  $audit._pam = $audit.records.where(r => r.type in [...$logon, ...$logoff]).first()
+  // The kernel's LOGIN record reports the new session in `ses` and the
+  // outcome as 1 or 0. PAM records report the outcome in `res`.
+  $audit._pam = {
+    type: $audit._pam.type,
+    pid: $audit._pam.fields.pid?,
+    ses: $audit._pam.fields.ses? if $audit._pam.fields.ses? not in $unset else null,
+    failed: ($audit._pam.fields.msg?.res? == "failed") or ($audit._pam.fields.res? == "0"),
+    phase: "logoff" if $audit._pam.type in $logoff else "logon",
+  }
+  window size=1min, on=$audit.time, tolerance=40s, idle_timeout=10s {
+    // The records of one process, and the session that it opens.
+    summarize \
+      _node=$audit.node,
+      _pid=$audit._pam.pid,
+      _phase=$audit._pam.phase,
+      _items=collect({
+        t: $audit.time,
+        s: $audit.serial,
+        type: $audit._pam.type,
+        failed: $audit._pam.failed,
+        ses: $audit._pam.ses,
+        event: $audit,
+      })
+    _ses = _items.map(i => i.ses).where(x => x != null).first()
+    _credentials = _items.where(i => not i.type.starts_with("CRED_")).length() == 0
+    _start = _items.map(i => i.t).min()
+    // A helper process, such as the unprivileged sshd child, only acquires
+    // credentials. It joins the most recent login of the same session.
+    summarize \
+      _node,
+      _phase,
+      _ses,
+      _groups=collect({t: _start, pid: _pid, credentials: _credentials, items: _items})
+    _full = _groups.where(g => not g.credentials).sort()
+    _groups = _groups.map(g => {
+      key: (
+        (_full.where(f => f.t <= g.t).map(f => f.pid).last() else _full.first().pid?) else g.pid
+      ) if g.credentials and _ses != null else g.pid,
+      items: g.items,
+    })
+    drop _full, _ses
+    unroll _groups
+    _key = _groups.key
+    _items = _groups.items
+    drop _groups
+    unroll _items
+    summarize _node, _phase, _key, _items=collect(_items)
+  }
+  batch timeout=1s
+  _items = _items.sort()
+  // A failed record ends an attempt, unless the failed login outcome of the
+  // same attempt follows. Only logons with a failure need the split.
+  _attempts = [_items]
+  if _phase == "logon" and _items.where(i => i.failed).length() > 0 {
+    _closers = zip(_items, [..._items.slice(begin=1), null]).where(p => p.left.failed
+      and not (p.right?.type? in ["USER_LOGIN", "USER_ERR"] and p.right?.failed? == true)).map(p => {t: p.left.t, s: p.left.s})
+    _attempts = _items.map(i => {
+      n: _closers.where(c => c.t < i.t or (c.t == i.t and c.s < i.s)).length(),
+      item: i,
+    })
+    _attempts = _attempts.map(a => a.n).distinct().map(n => _attempts.where(a => a.n == n).map(a => a.item))
+    drop _closers
+  }
+  unroll _attempts
+  // The event that speaks for the login, in order of preference.
+  _order = ["USER_START", "USER_LOGIN", "USER_AUTH", "USER_ERR", "USER_ACCT", "LOGIN", "CRED_ACQ", "CRED_REFR", "USER_ROLE_CHANGE"] if _phase == "logon" else ["USER_END", "USER_LOGOUT", "CRED_DISP"]
+  _speaker = [
+    ..._attempts.where(i => i.failed and i.type in ["USER_LOGIN", "USER_ERR", "USER_AUTH", "USER_ACCT", "USER_START"]),
+    ..._order.map(o => _attempts.where(i => i.type == o).first()).where(i => i != null),
+  ].first()
+  $audit = {
+    ..._speaker.event,
+    raw_data: _attempts.map(i => i.event.raw_data).join("\n"),
+    login: {
+      phase: _phase,
+      count: _attempts.length(),
+      start_time: _attempts.first().t,
+      end_time: _attempts.last().t,
+      failed: _attempts.where(i => i.failed).length() > 0,
+    },
+    merged: _attempts.where(i => not (i.t == _speaker.t and i.s == _speaker.s)).map(i => {
+      time: i.t,
+      serial: i.s,
+      records: i.event.records,
+    }),
+  }
+  drop $audit._pam, _node, _phase, _key, _items, _attempts, _order, _speaker
+}
