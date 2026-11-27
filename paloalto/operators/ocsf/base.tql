@@ -21,8 +21,6 @@ $ocsf = {
   severity_id: paloalto::$severity_ids[$event.severity?]? else 1,
   type_uid: 0,
   status_id: 0,
-  // PAN-OS counts the identical records that it combined into this one.
-  count: int(move $event.repeat_count?),
   message: move $event.description?,
   metadata: {
     version: "1.9.0",
@@ -41,6 +39,12 @@ $ocsf = {
   },
 }
 
+// PAN-OS counts the identical records that it combined into this one. OCSF
+// sets `count` only for such an aggregate, so a single record keeps its
+// repeat count of 1 in `unmapped`.
+if int($event.repeat_count?) > 1 {
+  $ocsf.count = int(move $event.repeat_count)
+}
 // PAN-OS numbers the records of each log type per device, so the serial
 // number, log type, and sequence number identify a record.
 $ocsf._log_type = $event.type? else $event.threat_content_type?
