@@ -17,7 +17,11 @@ args:
 
 $ocsf.connection_info = {
   direction_id: 0,
-  uid: (move $event.session_id?).string(),
+}
+// Session ID 0 means that PAN-OS created no session, such as for a packet
+// that a policy dropped. It identifies no connection and stays in `unmapped`.
+if $event.session_id?.string() != "0" {
+  $ocsf.connection_info.uid = (move $event.session_id?).string()
 }
 $ocsf._protocol = (move $event.protocol? else move $event.ip_protocol?).string()
 if $ocsf._protocol.match_regex("^[0-9]+$") {
