@@ -83,8 +83,11 @@ if $event.smb?.filename? != null {
 // Evidence needs at least one attribute. Non-IP packet alerts have none.
 $ocsf.evidences = [move $ocsf.evidence].where(x => x.values().map(v => v != null).any())
 
+// Alerts have no identifier of their own, so the finding UID derives from the
+// facts that tell alerts apart: the signature, the flow, the transaction, and
+// the packet that matched.
 $ocsf.finding_info = {
-  uid: $event.alert.signature_id.string(),
+  uid: hash_sha256(f"{$ocsf.time}|{$ocsf.metadata.correlation_uid?}|{$ocsf.metadata.sequence?}|{$event.tx_id?}|{$event.alert.gid}:{$event.alert.signature_id}"),
   title: $event.alert.signature,
   analytic: {
     type: "Rule",

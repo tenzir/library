@@ -15,7 +15,15 @@ zeek::ocsf::map_network $event, $ocsf
 
 // --- OCSF: classification attributes ----------
 
-$ocsf.activity_id = 6
+// Zeek sets the response code only from a response and the query type only
+// from a query. A record that lacks one of them holds the other side alone.
+if $event.rcode? == null {
+  $ocsf.activity_id = 1
+} else if $event.qtype? == null and $event.qtype_name? == null {
+  $ocsf.activity_id = 2
+} else {
+  $ocsf.activity_id = 6
+}
 $ocsf.class_uid = 4003
 $ocsf.opcode_id = 0
 $ocsf.severity_id = 1
@@ -75,13 +83,14 @@ $ocsf.flag_ids = [
 ].collect()
 drop $event.AA?, $event.TC?, $event.RD?, $event.RA?, $event.AD?, $event.CD?
 
-$ocsf.query_time = $ocsf.time
+// Without a query, the record's time is the time of the response.
+$ocsf.query_time = $ocsf.time if $ocsf.activity_id != 2 else null
 // Zeek measures a round-trip time only when it saw a response. Native JSON
 // stores it as seconds instead of a duration.
 if type_kind($event.rtt?) in ["int", "uint", "float"] {
   $event.rtt = $event.rtt.seconds()
 }
-$ocsf.response_time = $ocsf.time + (move $event.rtt?)
+$ocsf.response_time = $ocsf.time if $ocsf.activity_id == 2 else $ocsf.time + (move $event.rtt?)
 // Range bounds are exclusive. OCSF collapses the IANA unassigned and reserved
 // ranges into one identifier each, so the source keeps the original wire code.
 match $event.rcode? {

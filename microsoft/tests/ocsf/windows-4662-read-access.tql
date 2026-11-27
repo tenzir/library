@@ -1,0 +1,59 @@
+// A directory object operation (4662) that only reads the object, such as
+// Read Property or READ_CONTROL, is a Read. Any other access, also next to
+// read accesses, keeps it an Update. Every collector decides the same.
+from {
+  event: "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4662</EventID><Version>0</Version><Level>0</Level><Task>14080</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2025-10-21T13:02:11.5550001Z'/><EventRecordID>91001</EventRecordID><Correlation/><Execution ProcessID='640' ThreadID='1288'/><Channel>Security</Channel><Computer>DC02.example.test</Computer><Security/></System><EventData><Data Name='SubjectUserSid'>S-1-5-21-1111111111-2222222222-3333333333-1133</Data><Data Name='SubjectUserName'>tkovacs</Data><Data Name='SubjectDomainName'>EXAMPLE</Data><Data Name='SubjectLogonId'>0x4c19e2</Data><Data Name='ObjectServer'>DS</Data><Data Name='ObjectType'>%{bf967aba-0de6-11d0-a285-00aa003049e2}</Data><Data Name='ObjectName'>%{6f1e0c55-2a11-4b7e-9d0a-31c2f7e8a401}</Data><Data Name='OperationType'>Object Access</Data><Data Name='HandleId'>0x0</Data><Data Name='AccessList'>%%7684\n\t\t\t\t</Data><Data Name='AccessMask'>0x10</Data><Data Name='Properties'>%%7684 {bf967aba-0de6-11d0-a285-00aa003049e2}</Data><Data Name='AdditionalInfo'>-</Data><Data Name='AdditionalInfo2'></Data></EventData></Event>",
+}, {
+  event: {
+    ProviderName: "Microsoft-Windows-Security-Auditing",
+    EventID: 4662,
+    Version: 0,
+    Level: 0,
+    Keywords: "0x8020000000000000",
+    TimeCreated: "2025-10-21 13:02:12 +0000",
+    EventRecordID: 91002,
+    Channel: "Security",
+    Computer: "DC02.example.test",
+    EventData: {
+      SubjectUserSid: "S-1-5-21-1111111111-2222222222-3333333333-1133",
+      SubjectUserName: "tkovacs",
+      SubjectDomainName: "EXAMPLE",
+      SubjectLogonId: "0x4c19e2",
+      ObjectServer: "DS",
+      ObjectName: "%{6f1e0c55-2a11-4b7e-9d0a-31c2f7e8a401}",
+      AccessList: "%%7682\n\t\t\t\t%%7685\n\t\t\t\t",
+      AccessMask: "0x24",
+    },
+  },
+}, {
+  event: {
+    "@timestamp": 2025-10-21T13:02:13.010Z,
+    log: {level: "information"},
+    winlog: {
+      provider_name: "Microsoft-Windows-Security-Auditing",
+      event_id: "4662",
+      record_id: "91003",
+      channel: "Security",
+      computer_name: "DC02.example.test",
+      keywords: ["Audit Success"],
+      event_data: {
+        SubjectUserSid: "S-1-5-21-1111111111-2222222222-3333333333-1133",
+        SubjectUserName: "tkovacs",
+        SubjectDomainName: "EXAMPLE",
+        SubjectLogonId: "0x4c19e2",
+        ObjectServer: "DS",
+        ObjectName: "%{6f1e0c55-2a11-4b7e-9d0a-31c2f7e8a401}",
+        AccessList: "List Contents\n\t\t\t\tREAD_CONTROL\n\t\t\t\t",
+        AccessMask: "0x20004",
+      },
+    },
+  },
+}
+microsoft::windows::ocsf::normalize event
+this = ocsf_cast(this)
+this = {
+  log_provider: metadata.loggers[0].log_provider,
+  access_list: access_list,
+  activity_id: activity_id,
+  type_uid: type_uid,
+}

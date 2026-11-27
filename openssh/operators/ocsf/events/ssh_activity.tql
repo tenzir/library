@@ -24,17 +24,25 @@ if $openssh.source?.ip? != null {
 if $openssh.source?.port? != null {
   $ocsf.src_endpoint.port = move $openssh.source.port?
 }
-$ocsf.dst_endpoint.hostname = move $openssh.hostname?
+// A denied forward request names the target that sshd would have connected
+// to, not sshd itself, and states no traffic direction.
+if $openssh.template != "forward_denied" {
+  $ocsf.dst_endpoint.hostname = move $openssh.hostname?
+}
 if $openssh.destination?.ip? != null {
   $ocsf.dst_endpoint.ip = move $openssh.destination.ip?
 }
 if $openssh.destination?.port? != null {
   $ocsf.dst_endpoint.port = move $openssh.destination.port?
 }
-$ocsf.dst_endpoint.svc_name = "sshd"
 $ocsf.connection_info.protocol_name = "tcp"
 $ocsf.connection_info.protocol_num = 6
-$ocsf.connection_info.direction_id = 1
+if $openssh.template != "forward_denied" {
+  $ocsf.dst_endpoint.svc_name = "sshd"
+  $ocsf.connection_info.direction_id = 1
+} else {
+  $ocsf.connection_info.direction_id = 0
+}
 
 if $openssh.user?.is_invalid? == false {
   drop $openssh.user

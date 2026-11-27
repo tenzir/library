@@ -65,25 +65,38 @@ if $event.smb.response?.native_os? not in [null, ""] {
 // --- OCSF: primary attributes -----------------
 
 $ocsf.command = move $event.smb.command?
-$ocsf.connection_info.session.uid = (move $event.smb.session_id?).string()
-$ocsf.tree_uid = (move $event.smb.tree_id?).string()
+// Suricata logs ID 0 before the server assigned a session or tree. The value
+// then keeps its original key.
+if $event.smb.session_id? != 0 {
+  $ocsf.connection_info.session.uid = (move $event.smb.session_id?).string()
+}
+if $event.smb.tree_id? != 0 {
+  $ocsf.tree_uid = (move $event.smb.tree_id?).string()
+}
 let $share_type_ids = {
   FILE: 1,
   PIPE: 2,
   PRINT: 3,
 }
 // Tree connects to IPC$ log the share as `named_pipe`. SMB1 logs no share
-// type for them, but the field itself identifies a pipe share.
+// type for them, but the field itself identifies a pipe share. Suricata logs
+// an empty share when it saw no tree connect; it then keeps its original key.
 $ocsf.share_type_id = $share_type_ids[move $event.smb.share_type?]? else (
-  2 if $event.smb.share? == null and $event.smb.named_pipe? != null else null
+  2 if $event.smb.share? in [null, ""] and $event.smb.named_pipe? != null else null
 )
-$ocsf.share = $event.smb.share? else move $event.smb.named_pipe?
+if $event.smb.share? not in [null, ""] {
+  $ocsf.share = $event.smb.share
+} else {
+  $ocsf.share = move $event.smb.named_pipe?
+}
 $ocsf.open_type = move $event.smb.access?
 
 if $event.smb.filename? != null or $event.smb.directory? != null {
   suricata::ocsf::map_smb_file $event, $ocsf
 }
-drop $event.smb.share?
+if $event.smb.share? != "" {
+  drop $event.smb.share?
+}
 
 $ocsf.status_code = move $event.smb.status_code?
 $ocsf.status_detail = move $event.smb.status?

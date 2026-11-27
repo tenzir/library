@@ -1,0 +1,74 @@
+// A script block that AMSI flags (4104) has level 3 (Warning), which
+// Winlogbeat writes by its lowercase name. Every collector maps it to Low and
+// a verbose block to Informational.
+from {
+  event: "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-PowerShell' Guid='{a0c1853b-5c40-4b15-8766-3cf1c58f985a}'/><EventID>4104</EventID><Version>1</Version><Level>3</Level><Task>2</Task><Opcode>15</Opcode><Keywords>0x0</Keywords><TimeCreated SystemTime='2025-11-04T09:41:27.8800002Z'/><EventRecordID>5501</EventRecordID><Correlation ActivityID='{3d8c2f1a-77e4-4c1b-9a52-0e6b1f4d9c21}'/><Execution ProcessID='2716' ThreadID='3390'/><Channel>Microsoft-Windows-PowerShell/Operational</Channel><Computer>WS11.example.test</Computer><Security UserID='S-1-5-21-1111111111-2222222222-3333333333-1140'/></System><EventData><Data Name='MessageNumber'>1</Data><Data Name='MessageTotal'>1</Data><Data Name='ScriptBlockText'>Invoke-Expression $payload</Data><Data Name='ScriptBlockId'>8a2e6f40-1c9b-4d7e-b3a5-5f0d2c7e9b11</Data><Data Name='Path'></Data></EventData></Event>",
+}, {
+  event: {
+    ProviderName: "Microsoft-Windows-PowerShell",
+    EventID: 4104,
+    Version: 1,
+    Level: 3,
+    Keywords: "0x0",
+    TimeCreated: "2025-11-04 09:41:28 +0000",
+    EventRecordID: 5502,
+    ProcessID: 2716,
+    ThreadID: 3392,
+    Channel: "Microsoft-Windows-PowerShell/Operational",
+    Computer: "WS11.example.test",
+    EventData: {
+      MessageNumber: "1",
+      MessageTotal: "1",
+      ScriptBlockText: "Invoke-Expression $payload",
+      ScriptBlockId: "4b7d1e93-6a20-4f8c-a1d5-2e9c0b6f7a32",
+      Path: "",
+    },
+  },
+}, {
+  event: {
+    "@timestamp": 2025-11-04T09:41:29.120Z,
+    log: {level: "warning"},
+    winlog: {
+      provider_name: "Microsoft-Windows-PowerShell",
+      event_id: "4104",
+      record_id: "5503",
+      process: {pid: 2716, thread: {id: 3394}},
+      channel: "Microsoft-Windows-PowerShell/Operational",
+      computer_name: "WS11.example.test",
+      event_data: {
+        MessageNumber: "1",
+        MessageTotal: "1",
+        ScriptBlockText: "Invoke-Expression $payload",
+        ScriptBlockId: "c5e0a7b2-9d14-4e3f-8b61-7a2f4d0c1e53",
+        Path: "",
+      },
+    },
+  },
+}, {
+  event: {
+    "@timestamp": 2025-11-04T09:41:30.250Z,
+    log: {level: "verbose"},
+    winlog: {
+      provider_name: "Microsoft-Windows-PowerShell",
+      event_id: "4104",
+      record_id: "5504",
+      process: {pid: 2716, thread: {id: 3396}},
+      channel: "Microsoft-Windows-PowerShell/Operational",
+      computer_name: "WS11.example.test",
+      event_data: {
+        MessageNumber: "1",
+        MessageTotal: "1",
+        ScriptBlockText: "Get-Date",
+        ScriptBlockId: "e1f3b8c4-2a57-4d90-9c6e-8b4a0d2f5c74",
+        Path: "",
+      },
+    },
+  },
+}
+microsoft::windows::ocsf::normalize event
+this = ocsf_cast(this)
+this = {
+  log_provider: metadata.loggers[0].log_provider,
+  log_level: metadata.log_level,
+  severity_id: severity_id,
+}
