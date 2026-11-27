@@ -1,0 +1,19 @@
+---
+pre-compare: sort
+---
+
+// Synthetic PAN-OS records; every value is invented. The Traffic records follow
+// the layout before PAN-OS 11.1, which ends with `offloaded` (115 columns): one
+// connection that a policy dropped without a session, and one allowed UDP
+// session that aged out. The System records follow the PAN-OS 11.1 System log
+// fields. The firewall's clock is two hours ahead of UTC, which only the
+// high-resolution timestamp states.
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/traffic-log-fields
+// https://docs.paloaltonetworks.com/ngfw/administration/monitoring/use-syslog-for-monitoring/syslog-field-descriptions/system-log-fields
+from_file env("TENZIR_INPUT") {
+  read_lines
+}
+this = line.parse_syslog()
+paloalto::ocsf::normalize
+this = ocsf_cast(ocsf_derive(this))
+select time, metadata.logged_time, class_name, activity_name, status, status_detail?, severity, count?, message?, connection_info?, unmapped
