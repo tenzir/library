@@ -1,0 +1,52 @@
+---
+description: |
+  Builds an OCSF file from a Linux Audit `PATH` record.
+
+  The record names the file as the system call received it. A relative name
+  resolves against the working directory when `cwd` is set. The file type comes
+  from the type bits of `mode`, the owner from `ouid`. The operator consumes the
+  fields that it maps.
+args:
+  positional:
+    - name: path
+      type: field
+      description: The `PATH` record, with `fields` and `enriched`, to read.
+    - name: cwd
+      type: field
+      description: The working directory to resolve a relative name against, or `null`.
+    - name: file
+      type: field
+      description: The field that receives the OCSF file.
+---
+
+// The file type bits of `st_mode`, in octal.
+let $type_ids = {
+  "1": 6,
+  "2": 3,
+  "4": 2,
+  "6": 4,
+  "10": 1,
+  "12": 7,
+  "14": 5,
+}
+
+// Descriptor-based system calls can name no file.
+if $path.fields.name? in ["(null)", ""] {
+  drop $path.fields.name?
+}
+$file = {
+  name: file_name($path.fields.name?),
+  path: $path.fields.name?,
+  type_id: $type_ids[$path.fields.mode?.replace_regex(r"^0*([0-7]+)[0-7]{4}$", "\\1")]? else 0,
+}
+if $file.path != null and not $file.path.starts_with("/") and $cwd != null {
+  $file.path = ($cwd + "/" + $file.path).replace_regex(r"/+", "/").replace_regex(r"/(?:\./)+", "/")
+}
+if $path.fields.ouid? != null {
+  $file.owner = {
+    uid: $path.fields.ouid,
+    name: $path.enriched?.OUID?,
+  }
+  drop $path.fields.ouid, $path.enriched.OUID?
+}
+drop $path.fields.name?

@@ -1,0 +1,67 @@
+---
+description: |
+  Linux Audit socket system calls and remote logging connections → OCSF Network
+  Activity (4001).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.network_activity"
+$ocsf.category_uid = 4
+$ocsf.class_uid = 4001
+
+if $audit.type in ["DAEMON_ACCEPT", "DAEMON_CLOSE"] {
+  // The audit daemon accepts and closes connections of remote audit clients.
+  $ocsf.activity_id = 1 if $audit.type == "DAEMON_ACCEPT" else 2
+  $ocsf.src_endpoint = {
+    ip: ip((move $audit.record.addr).replace_regex(r"^::ffff:([0-9.]+)$", "\\1")),
+    port: (move $audit.record.port).int(),
+  }
+  $ocsf.dst_endpoint = {svc_name: "auditd"}
+  $ocsf.connection_info = {direction_id: 1}
+  $ocsf.initiator_id = 2
+  $ocsf.is_src_dst_assignment_known = true
+} else {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+  // The socket address names the peer for connect and accept, and the local
+  // address for bind and listen.
+  $audit._endpoint = {
+    ip: ip($audit.sockaddr.laddr),
+    port: $audit.sockaddr.lport.int(),
+  }
+  drop $audit.sockaddr.laddr, $audit.sockaddr.lport, $audit.sockaddr.saddr
+  if $audit.name == "connect" {
+    // A refused connection returns ECONNREFUSED. A non-blocking connect that
+    // is still in progress returns EINPROGRESS and has no outcome yet.
+    $ocsf.activity_id = (
+      1 if $ocsf.status_id? == 1
+      else (5 if $ocsf.status_code? == "-111"
+      else (99 if $ocsf.status_code? == "-115"
+      else 4))
+    )
+    $ocsf.activity_name = $audit.name if $ocsf.activity_id == 99 else null
+    $ocsf.dst_endpoint = move $audit._endpoint
+    $ocsf.initiator_id = 1
+    $ocsf.connection_info = {direction_id: 2}
+  } else if $audit.name in ["accept", "accept4"] {
+    $ocsf.activity_id = 1 if $ocsf.status_id? == 1 else 4
+    $ocsf.src_endpoint = move $audit._endpoint
+    $ocsf.initiator_id = 2
+    $ocsf.connection_info = {direction_id: 1}
+  } else {
+    // A listening socket waits for connections.
+    $ocsf.activity_id = 7
+    $ocsf.src_endpoint = move $audit._endpoint
+  }
+  $ocsf.connection_info.protocol_ver_id = 4 if $audit.sockaddr.saddr_fam == "inet" else 6
+  drop $audit.sockaddr.saddr_fam
+  $ocsf.is_src_dst_assignment_known = true
+}

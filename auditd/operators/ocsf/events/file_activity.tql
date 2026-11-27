@@ -1,0 +1,63 @@
+---
+description: |
+  Linux Audit file system calls → OCSF File System Activity (1001).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+  named:
+    - name: activity_id
+      type: int
+      description: The OCSF File System Activity identifier.
+---
+
+@name = "ocsf.file_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1001
+$ocsf.activity_id = $activity_id
+
+auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+$ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+$ocsf.actor.process.working_directory = $audit.cwd
+drop $audit.proctitle?
+
+// A system call ending in `at` names a relative path from the directory
+// descriptor in its first argument. Only the special value AT_FDCWD means the
+// working directory.
+$audit._cwd = $audit.cwd if not $audit.name.ends_with("at") and not $audit.name.ends_with("at2") or $audit.syscall.a0? in ["ffffff9c", "ffffffffffffff9c"] else null
+// An open call that creates the file lists it as CREATE.
+if $activity_id == 14 and $audit.paths.where(p => p.fields.nametype? == "CREATE").length() > 0 {
+  $ocsf.activity_id = 1
+}
+// A rename deletes the old name and creates the new one. Deletions and
+// creations name their object the same way. Other calls name it NORMAL.
+// Directory entries as PARENT only give context.
+$audit._source = $audit.paths.where(p => p.fields.nametype? == "DELETE").first()
+$audit._result = $audit.paths.where(p => p.fields.nametype? == "CREATE").first()
+$audit._other = $audit.paths.where(p => p.fields.nametype? not in ["PARENT", "DELETE", "CREATE"]).first()
+$audit._file = (
+  $audit._source if $ocsf.activity_id in [4, 5]
+  else ($audit._result if $ocsf.activity_id == 1
+  else $audit._other)
+)
+$audit._items = [$audit._file?.fields?.item?]
+if $audit._file != null {
+  auditd::ocsf::file $audit._file, $audit._cwd, $ocsf.file
+}
+$audit._mapped = [$audit._file]
+if $ocsf.activity_id == 5 and $audit._result != null {
+  auditd::ocsf::file $audit._result, $audit._cwd, $ocsf.file_result
+  $audit._items = [...$audit._items, $audit._result?.fields?.item?]
+  $audit._mapped = [$audit._file, $audit._result]
+}
+// The mapped records give up the fields they contributed; the other PATH
+// records stay as they are.
+$audit.paths = [
+  ...$audit.paths.where(p => p.fields.item? not in $audit._items),
+  ...$audit._mapped.where(p => p != null),
+]
+drop $audit._file, $audit._result, $audit._source, $audit._other, $audit._items, $audit._mapped, $audit._cwd

@@ -1,0 +1,37 @@
+---
+description: |
+  Normalizes Linux Audit `audit.log` lines to OCSF.
+
+  ```tql
+  from_file "/var/log/audit/audit.log" {
+    read_lines
+  }
+  auditd::ocsf::normalize
+  ```
+
+  The operator parses each line, assembles the records of one audit event,
+  maps the event to OCSF, and keeps the original lines in `raw_data`. It reads
+  the native `RAW` and `ENRICHED` log formats, with or without the `node=`
+  prefix that the audit daemon adds for `name_format` and that forwarded
+  events carry.
+
+  Use `auditd::parse`, `auditd::assemble`, and `auditd::ocsf::map` instead for
+  a staged pipeline, or to map each record on its own.
+args:
+  positional:
+    - name: line
+      description: The field holding the `audit.log` line.
+      type: field
+      default: line
+  named:
+    - name: into
+      description: The field that receives the OCSF event.
+      type: field
+      default: this
+---
+
+$into._line = $line
+auditd::parse $into._line, $into._audit
+auditd::assemble $into._line, $into._audit
+auditd::ocsf::map $into._audit, $into._ocsf
+$into = $into._ocsf

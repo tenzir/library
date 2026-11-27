@@ -1,0 +1,54 @@
+---
+description: |
+  Linux Audit group records → OCSF Group Management (3006).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.group_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3006
+
+auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+$audit._op = $audit.record.op? else ""
+if $audit.type == "USER_MGMT" {
+  // A membership change names the group in `grp` and the member in `acct`.
+  $ocsf.activity_id = 3 if $audit._op.match_regex(r"^add") else 4
+  $ocsf.group = {name: move $audit.record.grp?}
+  $ocsf.user = {
+    uid: move $audit.record.id?,
+    name: $audit.record.acct? if $audit.record.acct? not in [null, "?"] else null,
+  }
+  drop $audit.record.acct?
+} else {
+  // Group records name the group in `grp`, or in `acct` without `grp`, and
+  // the group ID in `id`.
+  $ocsf.activity_id = (
+    6 if $audit.type == "ADD_GROUP" or $audit._op.match_regex(r"^add")
+    else (5 if $audit.type == "DEL_GROUP" or $audit._op.match_regex(r"^delet")
+    else 9)
+  )
+  $ocsf.group = {
+    uid: move $audit.record.id?,
+    name: $audit.record.grp? else $audit.record.acct?,
+  }
+  if $audit.record.grp? != null {
+    drop $audit.record.grp
+  } else {
+    drop $audit.record.acct?
+  }
+  if $ocsf.group.name == "?" {
+    $ocsf.group.name = null
+  }
+  if $ocsf.group.name == null {
+    $ocsf.group.name = $audit.record_enriched.ID?
+    drop $audit.record_enriched.ID?
+  }
+}
+drop $audit._op

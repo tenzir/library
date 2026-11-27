@@ -1,0 +1,73 @@
+---
+description: |
+  Linux Audit rule and setting changes, and AppArmor and SELinux policy loads →
+  OCSF Entity Management (3004).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.entity_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3004
+
+if $audit.type == "CONFIG_CHANGE" {
+  $audit._op = $audit.record.op?
+  if $audit._op in ["add_rule", "remove_rule"] {
+    // An audit rule change names the rule only by its key, if any.
+    $ocsf.activity_id = 1 if $audit._op == "add_rule" else 4
+    $ocsf.entity = {
+      type_id: 99,
+      type: "Audit Rule",
+      name: $audit.record.key? if $audit.record.key? not in [null, "(null)"] else null,
+    }
+    drop $audit.record.op, $audit.record.key?
+  } else {
+    // A setting change, such as `op=set audit_pid=…`, names the setting and
+    // its new and old values.
+    $ocsf.activity_id = 3
+    $audit._setting = entries($audit.record).where(e => e.key not in ["op", "old", "auid", "ses", "subj", "res", "pid", "uid"]).first()
+    $ocsf.entity = {
+      type_id: 99,
+      type: "Audit Setting",
+      name: $audit._setting.key?,
+    }
+    drop $audit._setting
+  }
+  drop $audit._op
+} else if $audit.type == "AVC" {
+  // AppArmor reports the profile that it loads, replaces, or removes in
+  // `name`.
+  $audit._op = $audit.record.operation?
+  $ocsf.activity_id = 1 if $audit._op == "profile_load" else (4 if $audit._op == "profile_remove" else (3 if $audit._op == "profile_replace" else 99))
+  $ocsf.activity_name = $audit._op if $ocsf.activity_id == 99 else null
+  $ocsf.entity = {
+    type_id: 5,
+    policy: {
+      name: move $audit.record.name?,
+      type: "AppArmor",
+    },
+  }
+  drop $audit._op, $audit.record.operation?, $audit.record.apparmor?
+} else {
+  // MAC_POLICY_LOAD: a security module loaded its policy.
+  $ocsf.activity_id = 3
+  $ocsf.entity = {
+    type_id: 5,
+    policy: {
+      type: move $audit.record.lsm?,
+    },
+  }
+}
+if $audit.syscall != null {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+} else {
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+}

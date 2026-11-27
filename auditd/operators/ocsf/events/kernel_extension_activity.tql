@@ -1,0 +1,47 @@
+---
+description: |
+  Linux Audit `BPF` and `KERN_MODULE` records and kernel module system calls →
+  OCSF Kernel Extension Activity (1002).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.kernel_extension_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1002
+
+if $audit.syscall != null {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+}
+if $audit.type == "BPF" {
+  // An eBPF program extends the kernel the way a driver does. The record
+  // identifies it only by its kernel ID, not by a name.
+  $ocsf.activity_id = 1 if $audit.record.op? == "LOAD" else (2 if $audit.record.op? == "UNLOAD" else 99)
+  $ocsf.activity_name = $audit.record.op? if $ocsf.activity_id == 99 else null
+  drop $audit.record.op?
+  $ocsf.driver = {
+    file: {
+      uid: move $audit.record["prog-id"]?,
+      type_id: 99,
+      type: "eBPF Program",
+    },
+  }
+} else {
+  // KERN_MODULE names the loaded module; the system call tells loading from
+  // unloading.
+  $ocsf.activity_id = 2 if $audit.name == "delete_module" else 1
+  $ocsf.driver = {
+    file: {
+      name: move $audit.record.name?,
+      type_id: 1,
+    },
+  }
+}

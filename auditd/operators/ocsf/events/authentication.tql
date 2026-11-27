@@ -1,0 +1,89 @@
+---
+description: |
+  Linux Audit login, PAM, and credential records → OCSF Authentication (3002).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// Programs that open a session as another user.
+let $switch_programs = ["su", "sudo", "sudo-rs", "runuser", "doas", "pkexec"]
+
+@name = "ocsf.authentication"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3002
+
+$audit._program = file_name($audit.record.exe?) if $audit.record.exe? not in [null, "?"] else null
+// USER_AUTH reports a credential check, USER_LOGIN the login outcome, and
+// USER_START and USER_END the opening and closing of a PAM session. The PAM
+// accounting and credential steps, and the kernel's login ID assignment, have
+// no OCSF activity of their own.
+$ocsf.activity_id = (
+  1 if $audit.type in ["USER_LOGIN", "USER_AUTH", "USER_ERR"]
+  else (2 if $audit.type in ["USER_LOGOUT", "USER_END"]
+  else (7 if $audit.type == "USER_START" and $audit._program in $switch_programs
+  else (1 if $audit.type == "USER_START"
+  else 99)))
+)
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $audit.record.op? else $audit.type
+}
+
+if $audit.syscall != null {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+} else {
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+}
+if $ocsf.actor.process? != null {
+  $ocsf.logon_process = $ocsf.actor.process
+}
+
+if $audit.type == "LOGIN" {
+  // The kernel assigns the login user and session of a new login.
+  $ocsf.user = {uid: $ocsf.actor.process?.auid?.string()}
+  $ocsf.session = {uid: $ocsf.actor.session?.uid?}
+  if $ocsf.actor.process?.file?.name? != null {
+    $ocsf.service = {name: $ocsf.actor.process.file.name}
+  }
+} else {
+  // The account that authenticates or logs in. sshd names unknown users
+  // `(invalid user)`, which is no account name.
+  $ocsf.user = {
+    uid: $audit.record.id?,
+    name: $audit.record.acct? if $audit.record.acct? not in ["?", "(invalid user)", "(unknown)"] else null,
+  }
+  if $ocsf.user.name == null {
+    $ocsf.user.name = $audit.record_enriched.ID?
+  }
+  drop $audit.record.id?, $audit.record_enriched.ID?
+  if $ocsf.user.name? != null {
+    drop $audit.record.acct
+  }
+  if $ocsf.user.name == null and $ocsf.user.uid == null {
+    drop $ocsf.user
+  }
+  if $audit.record.addr? not in [null, "?"] or $audit.record.hostname? not in [null, "?"] {
+    $ocsf.src_endpoint = {
+      ip: ip($audit.record.addr?) if $audit.record.addr? not in [null, "?"] else null,
+      hostname: $audit.record.hostname? if $audit.record.hostname? not in [null, "?"] and $audit.record.hostname? != $audit.record.addr? else null,
+    }
+  }
+  drop $audit.record.addr?, $audit.record.hostname?
+  if $audit.record.terminal? not in [null, "?"] {
+    $ocsf.session = {terminal: move $audit.record.terminal}
+  }
+  drop $audit.record.terminal?
+  // The program that consumed the PAM stack, such as sshd, sudo, or login.
+  if $audit._program != null {
+    $ocsf.service = {name: $audit._program}
+  }
+  $ocsf.is_remote = true if $ocsf.src_endpoint?.ip? != null and not $ocsf.src_endpoint.ip.is_loopback() else null
+}
+drop $audit._program

@@ -1,0 +1,57 @@
+---
+description: |
+  Linux Audit daemon records and changes of the audit state → OCSF Event Log
+  Activity (1008).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.event_log_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1008
+$ocsf.log_provider = "auditd"
+$ocsf.log_type_id = 1
+
+if $audit.type == "CONFIG_CHANGE" {
+  // Setting `audit_enabled` to 0 disables auditing, to 1 enables it, and to 2
+  // locks the configuration.
+  $ocsf.activity_id = 10 if $audit.record.audit_enabled == "0" else 9
+} else if $audit.type == "EVENT_LISTENER" {
+  // A program subscribes to or leaves the audit multicast stream.
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = $audit.record.op?
+  drop $audit.record.op?
+} else {
+  $ocsf.activity_id = {
+    DAEMON_START: 6,
+    DAEMON_END: 7,
+    DAEMON_ABORT: 7,
+    DAEMON_ROTATE: 5,
+  }[$audit.type]? else 99
+  if $ocsf.activity_id == 99 {
+    $ocsf.activity_name = $audit.record.op?
+    drop $audit.record.op?
+  }
+  // The daemon reports its version and the running kernel at start.
+  $ocsf.metadata.product.version = move $audit.record.ver?
+  if $audit.record.kernel? != null and $ocsf.device? != null {
+    $ocsf.device.os = {
+      name: "Linux",
+      type_id: 200,
+      kernel_release: move $audit.record.kernel,
+    }
+  }
+}
+if $audit.syscall != null {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+} else {
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+}

@@ -1,0 +1,29 @@
+---
+description: |
+  Linux Audit service and software records → OCSF Application Lifecycle (6002).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.application_lifecycle"
+$ocsf.category_uid = 6
+$ocsf.class_uid = 6002
+
+auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+if $audit.type == "SOFTWARE_UPDATE" {
+  // Package managers report the package in `sw` and the operation in `op`.
+  $ocsf.activity_id = {install: 1, remove: 2, update: 8}[$audit.record.op?]? else 99
+  $ocsf.activity_name = $audit.record.op? if $ocsf.activity_id == 99 else null
+  drop $audit.record.op?
+  $ocsf.app = {name: move $audit.record.sw?}
+} else {
+  // systemd reports the units that it starts and stops.
+  $ocsf.activity_id = 3 if $audit.type == "SERVICE_START" else 4
+  $ocsf.app = {name: move $audit.record.unit?}
+}

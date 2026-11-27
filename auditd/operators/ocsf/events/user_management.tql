@@ -1,0 +1,37 @@
+---
+description: |
+  Linux Audit account records → OCSF User Management (3007).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.user_management"
+$ocsf.category_uid = 3
+$ocsf.class_uid = 3007
+$ocsf.activity_id = {
+  ADD_USER: 1,
+  DEL_USER: 3,
+  ACCT_LOCK: 6,
+  ACCT_UNLOCK: 7,
+  USER_CHAUTHTOK: 8,
+  ROLE_ASSIGN: 16,
+  ROLE_REMOVE: 17,
+}[$audit.type]? else 99
+// Other account changes, such as creating the home directory, have no OCSF
+// activity of their own.
+if $ocsf.activity_id == 99 {
+  $ocsf.activity_name = $audit.record.op?
+}
+
+auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+$ocsf.user = {
+  uid: move $audit.record.id?,
+  name: $audit.record.acct? if $audit.record.acct? not in [null, "?"] else $audit.record_enriched.ID?,
+}
+drop $audit.record.acct?, $audit.record_enriched.ID?

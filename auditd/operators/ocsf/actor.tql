@@ -1,0 +1,87 @@
+---
+description: |
+  Builds the OCSF actor from the subject fields of a Linux Audit record.
+
+  A `SYSCALL` record and the userspace records describe the process that
+  caused the event with the same fields: `pid`, `ppid`, `comm`, `exe`, the user
+  and group IDs, the login user `auid`, the session `ses`, and the terminal
+  `tty`. The operator consumes these fields.
+
+  The process user is the real user (`uid`). The login user (`auid`) is the
+  actor user, or the real user if no login set `auid`. The Linux extension of
+  OCSF holds `auid`, `euid`, and `egid`. Unset IDs, which the kernel writes as
+  `4294967295` or `-1`, and the placeholders `?` and `(none)` stay unmapped.
+args:
+  positional:
+    - name: fields
+      type: field
+      description: The fields of the record to read.
+    - name: enriched
+      type: field
+      description: The resolved names from the `ENRICHED` log format, if any.
+    - name: actor
+      type: field
+      description: The field that receives the OCSF actor.
+---
+
+let $unset = ["4294967295", "-1", "unset"]
+let $placeholders = ["?", "(none)", "(null)", ""]
+
+$actor = {
+  process: {
+    pid: $fields.pid?.int(),
+    name: $fields.comm? if $fields.comm? not in $placeholders else null,
+    user: {
+      uid: $fields.uid? if $fields.uid? not in $unset else null,
+      name: $enriched.UID? if $enriched.UID? not in $unset else null,
+    },
+    group: {
+      uid: $fields.gid? if $fields.gid? not in $unset else null,
+      name: $enriched.GID? if $enriched.GID? not in $unset else null,
+    },
+    euid: $fields.euid?.int() if $fields.euid? not in $unset else null,
+    egid: $fields.egid?.int() if $fields.egid? not in $unset else null,
+    auid: $fields.auid?.int() if $fields.auid? not in $unset else null,
+  },
+}
+if $fields.exe? != null and $fields.exe not in $placeholders {
+  $actor.process.file = {
+    name: file_name($fields.exe),
+    path: $fields.exe,
+    type_id: 1,
+  }
+}
+if $fields.ppid? != null {
+  $actor.process.parent_process = {pid: $fields.ppid.int()}
+}
+if $fields.ses? != null and $fields.ses not in $unset {
+  $actor.session = {uid: $fields.ses}
+  if $fields.tty? != null and $fields.tty not in $placeholders {
+    $actor.session.terminal = $fields.tty
+  }
+  $actor.process.session = $actor.session
+}
+if $actor.process.auid != null {
+  $actor.user = {
+    uid: $actor.process.auid.string(),
+    name: $enriched.AUID? if $enriched.AUID? not in $unset else null,
+  }
+} else if $actor.process.user.uid != null {
+  $actor.user = $actor.process.user
+}
+if $actor.process.user.uid == null and $actor.process.user.name == null {
+  drop $actor.process.user
+}
+if $actor.process.group?.uid? == null and $actor.process.group?.name? == null {
+  drop $actor.process.group?
+}
+// Records without a process ID, such as some kernel records, name only the
+// user.
+if $actor.process.pid == null {
+  drop $actor.process
+}
+// Placeholders and unset IDs say that the value is unknown or that no login
+// took place, so nothing remains to keep.
+drop $fields.pid?, $fields.ppid?, $fields.comm?, $fields.exe?, $fields.uid?, $fields.gid?
+drop $fields.euid?, $fields.egid?, $fields.auid?, $fields.ses?, $fields.tty?
+drop $enriched.UID?, $enriched.GID?, $enriched.AUID?

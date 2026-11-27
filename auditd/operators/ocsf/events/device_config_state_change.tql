@@ -1,0 +1,28 @@
+---
+description: |
+  Linux Audit `ANOM_PROMISCUOUS` → OCSF Device Config State Change (5019).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.device_config_state_change"
+$ocsf.category_uid = 5
+$ocsf.class_uid = 5019
+$ocsf.activity_id = 1
+// The kernel reports the interface flags; IFF_PROMISC is 0x100.
+$ocsf.state_id = 2 if int($audit.record.prom?) >= 256 else 1
+$ocsf.device.interface_name = move $audit.record.dev?
+$ocsf.device.type_id = $ocsf.device.type_id? else 0
+if $audit.syscall != null {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+} else {
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+}

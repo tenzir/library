@@ -1,0 +1,47 @@
+---
+description: |
+  Linux Audit system calls without a more specific class, `SECCOMP`, and
+  `URINGOP` → OCSF Kernel Activity (1003), Invoke.
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.kernel_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1003
+$ocsf.activity_id = 4
+
+if $audit.type == "SECCOMP" {
+  // A seccomp filter acted on a system call of the process.
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+  $audit.name = $audit.record_enriched.SYSCALL? else auditd::$syscalls[$audit.record.arch?]?[$audit.record.syscall?]?
+  drop $audit.record_enriched.SYSCALL?, $audit.record_enriched.ARCH?
+  // The filter action is the upper half of `code`: SECCOMP_RET_ALLOW and
+  // SECCOMP_RET_LOG let the call pass, SECCOMP_RET_KILL_*, SECCOMP_RET_TRAP,
+  // and SECCOMP_RET_ERRNO stop it, and SECCOMP_RET_TRACE and
+  // SECCOMP_RET_USER_NOTIF hand it to another process.
+  $audit._action = (int($audit.record.code?.replace_regex(r"^0x", ""), base=16) / 65536).floor().int()
+  $ocsf.action_id = (
+    1 if $audit._action in [32767, 32764]
+    else (2 if $audit._action in [0, 32768, 3, 5]
+    else (99 if $audit._action != null
+    else null))
+  )
+  $ocsf.action = {"32752": "Trace", "32704": "User Notification"}[$audit._action.string()]? if $ocsf.action_id == 99 else null
+  drop $audit._action
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
+} else {
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  drop $audit.proctitle?
+}
+$ocsf.kernel = {
+  name: $audit.name,
+  type_id: 2,
+}

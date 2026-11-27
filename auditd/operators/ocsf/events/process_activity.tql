@@ -1,0 +1,81 @@
+---
+description: |
+  Linux Audit process system calls and `USER_CMD` → OCSF Process Activity (1007).
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The prepared Linux Audit event to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+@name = "ocsf.process_activity"
+$ocsf.category_uid = 1
+$ocsf.class_uid = 1007
+
+if $audit.type == "USER_CMD" {
+  // sudo reports the command that it runs for the user.
+  $ocsf.activity_id = 1
+  auditd::ocsf::actor $audit.record, $audit.record_enriched, $ocsf.actor
+  $ocsf.process = {
+    cmd_line: move $audit.record.cmd?,
+    working_directory: move $audit.record.cwd?,
+    parent_process: $ocsf.actor.process,
+  }
+  if $audit.record.terminal? not in [null, "?"] {
+    $ocsf.process.session = {terminal: $audit.record.terminal}
+  }
+  drop $audit.record.terminal?
+} else if $audit.name in ["execve", "execveat"] {
+  $ocsf.activity_id = 1
+  // The task keeps its identity and replaces its image.
+  $ocsf.launch_type_id = 3
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.process = $ocsf.actor.process
+  $ocsf.process.cmd_line = $audit.arguments?.join(" ") else $audit.proctitle?.join(" ")
+  $ocsf.process.working_directory = $audit.cwd
+  // The first PATH record names the file that the call received.
+  $audit._target = $audit.paths.first()
+  $audit.paths = $audit.paths.slice(begin=1)
+  if $ocsf.status_id? == 2 and $audit._target != null {
+    // A failed call leaves the calling image in place: the actor still runs
+    // it, and the process file is the attempted one.
+    auditd::ocsf::file $audit._target, $audit.cwd, $ocsf.process.file
+    drop $ocsf.process.name
+  } else {
+    $ocsf.actor.process = {pid: $ocsf.process.pid}
+  }
+  if $audit._target != null {
+    $audit.paths = [$audit._target, ...$audit.paths]
+  }
+  drop $audit._target, $audit.cwd
+  if $ocsf.status_id? != 2 {
+    // The arguments and the process title describe the new image.
+    drop $audit.proctitle
+  }
+} else if $audit.name in ["exit", "exit_group"] {
+  $ocsf.activity_id = 2
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  $ocsf.process = $ocsf.actor.process
+  // The first argument is the exit status.
+  $ocsf.exit_code = int(move $audit.syscall.a0, base=16)
+} else if $audit.name in ["setuid", "setreuid", "setresuid", "setfsuid", "setuid32", "setreuid32", "setresuid32", "setfsuid32"] {
+  $ocsf.activity_id = 5
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  $ocsf.process = $ocsf.actor.process
+} else {
+  // Group changes have no OCSF activity of their own.
+  $ocsf.activity_id = 99
+  $ocsf.activity_name = $audit.name
+  auditd::ocsf::actor $audit.syscall, $audit.syscall_enriched, $ocsf.actor
+  $ocsf.actor.process.cmd_line = $audit.proctitle?.join(" ")
+  $ocsf.process = $ocsf.actor.process
+}
+drop $audit.arguments?
+if $audit.proctitle? != null and $ocsf.actor.process.cmd_line? != null {
+  drop $audit.proctitle
+}

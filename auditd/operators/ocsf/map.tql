@@ -1,0 +1,337 @@
+---
+description: |
+  Linux Audit events → OCSF.
+
+  Reads a Linux Audit event, as `auditd::assemble` builds it, or a single
+  record from `auditd::parse`, and builds the corresponding OCSF event in the
+  second field:
+
+  ```tql
+  auditd::ocsf::map event, ocsf
+  ```
+
+  The record that defines the event selects the OCSF class. For system call
+  events, the system call does:
+
+  | Linux Audit records | OCSF class |
+  | ------------------- | ---------- |
+  | `execve`, `execveat`, `exit`, `exit_group`, `set*id` system calls, `USER_CMD` | Process Activity (1007) |
+  | File system calls such as `openat`, `renameat`, `unlinkat`, `fchmodat` | File System Activity (1001) |
+  | `connect`, `accept`, `accept4`, `listen`, `DAEMON_ACCEPT`, `DAEMON_CLOSE` | Network Activity (4001) |
+  | Other system calls, `SECCOMP`, `URINGOP` | Kernel Activity (1003), Invoke |
+  | `BPF`, `KERN_MODULE`, module system calls | Kernel Extension Activity (1002) |
+  | `USER_LOGIN`, `USER_LOGOUT`, `USER_AUTH`, `USER_ACCT`, `USER_START`, `USER_END`, `USER_ERR`, `CRED_*`, `LOGIN` | Authentication (3002) |
+  | `ADD_USER`, `DEL_USER`, `USER_MGMT`, `USER_CHAUTHTOK`, `ACCT_LOCK`, `ACCT_UNLOCK`, `ROLE_ASSIGN`, `ROLE_REMOVE` | User Management (3007) |
+  | `ADD_GROUP`, `DEL_GROUP`, `GRP_MGMT`, group membership in `USER_MGMT` | Group Management (3006) |
+  | `DAEMON_START`, `DAEMON_END`, `DAEMON_ABORT`, `DAEMON_ROTATE`, `EVENT_LISTENER`, `CONFIG_CHANGE` of `audit_enabled` | Event Log Activity (1008) |
+  | `CONFIG_CHANGE` of audit rules and settings, `MAC_POLICY_LOAD`, AppArmor profile changes | Entity Management (3004) |
+  | `ANOM_PROMISCUOUS` | Device Config State Change (5019) |
+  | `SERVICE_START`, `SERVICE_STOP`, `SOFTWARE_UPDATE` | Application Lifecycle (6002) |
+
+  SELinux, AppArmor, and fapolicyd decisions in `AVC` and `FANOTIFY` records
+  add the OCSF Security Control profile to the event of their system call.
+  Records of other types, and security module records without a system call,
+  become OCSF Base Events.
+
+  The operator consumes the source event: what it maps becomes OCSF, and what it
+  cannot map becomes `unmapped` inside the OCSF event, with the records that the
+  mapping did not use under `unmapped.records`. `raw_data` carries the original
+  lines when the event holds them.
+
+  ## Semantics
+
+  - The process that a record describes is the actor. Its login user (`auid`)
+    is `actor.user`, or its real user if no login set `auid`. The Linux
+    extension of OCSF holds `auid`, `euid`, and `egid`.
+  - An `execve` replaces the image of the calling task. `process` is the new
+    image, with the arguments from the `EXECVE` records, and the actor keeps
+    the task ID. For a failed `execve`, `process.file` is the attempted file
+    and the actor is the task with its unchanged image.
+  - Relative paths resolve against the working directory of the event, unless
+    a system call names them relative to another directory descriptor.
+  - A system call that fails sets `status_id` to Failure, the return value to
+    `status_code`, and the error name to `status_detail`.
+  - Audit rule keys become `metadata.labels`.
+  - The `ENRICHED` log format resolves user, group, and system call names; the
+    mapping uses them for the user and group names.
+args:
+  positional:
+    - name: audit
+      type: field
+      description: The Linux Audit event or record to read.
+    - name: ocsf
+      type: field
+      description: The OCSF event to build.
+---
+
+// A single record from `auditd::parse` is an event of one record.
+if $audit.records? == null and $audit.type? != null {
+  $audit = {
+    node: $audit.node?,
+    hostname: $audit.hostname?,
+    time: $audit.time,
+    serial: $audit.serial,
+    records: [{type: $audit.type, fields: $audit.fields, enriched: $audit.enriched?}],
+    raw_data: $audit.raw_data?,
+  }
+}
+
+
+// --- Shared attributes ------------------------
+
+$ocsf = {
+  time: $audit.time?,
+  severity_id: 1,
+  metadata: {
+    version: "1.9.0",
+    log_provider: "auditd",
+    profiles: ["host"],
+    product: {
+      name: "Linux Audit",
+    },
+  },
+}
+if $audit.raw_data? != null {
+  $ocsf.raw_data = move $audit.raw_data
+  $ocsf.raw_data_size = $ocsf.raw_data.length_bytes()
+}
+drop $audit.raw_data?
+
+if $audit.records? == null {
+  @name = "ocsf.base_event"
+  $ocsf.category_uid = 0
+  $ocsf.class_uid = 0
+  $ocsf.activity_id = 0
+} else {
+  // The audit event ID is the stamp of its records: seconds, milliseconds,
+  // and serial number.
+  $audit._ms = (since_epoch($audit.time) / 1ms).int()
+  $audit._s = ($audit._ms / 1000).floor().int()
+  $ocsf.metadata.uid = f"{$audit._s}.{(1000 + $audit._ms - $audit._s * 1000).string().slice(begin=1)}:{$audit.serial}"
+  $ocsf.metadata.log_format = "ENRICHED" if $audit.records.where(r => r.enriched? != null).length() > 0 else "RAW"
+  drop $audit._ms, $audit._s, $audit.time, $audit.serial
+
+  // The node name is the host name or the IP address of the host, depending on
+  // the `name_format` of the audit daemon.
+  $audit.hostname = $audit.hostname? else $audit.node?
+  if $audit.hostname != null and $audit.hostname.match_regex(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|:") {
+    $ocsf.device = {ip: ip(move $audit.hostname), type_id: 0}
+  } else if $audit.hostname != null {
+    $ocsf.device = {hostname: move $audit.hostname, type_id: 0}
+  }
+  drop $audit.hostname?, $audit.node?
+
+  // The record that defines the event. Records such as CONFIG_CHANGE describe
+  // what their system call did, so they take precedence over the SYSCALL
+  // record. An AppArmor status record reports a policy change.
+  $audit._types = $audit.records.map(r => r.type)
+  $audit.type = [
+    ...["CONFIG_CHANGE", "BPF", "KERN_MODULE", "ANOM_PROMISCUOUS", "MAC_POLICY_LOAD", "MAC_STATUS", "EVENT_LISTENER", "LOGIN", "SECCOMP"].where(t => t in $audit._types),
+    ...$audit.records.where(r => r.type == "AVC" and r.fields.apparmor? == "STATUS" and r.fields.operation?.starts_with("profile_")).map(r => r.type),
+    ...$audit._types.where(t => t in ["SYSCALL", "URINGOP"]),
+    ...$audit._types.where(t => t not in ["EXECVE", "CWD", "PATH", "PROCTITLE", "SOCKADDR", "BPRM_FCAPS", "OBJ_PID", "FANOTIFY", "AVC", "USER_AVC", "SELINUX_ERR", "MMAP", "CAPSET", "FD_PAIR", "NETFILTER_CFG", "TIME_INJOFFSET", "TIME_ADJNTPVAL"]),
+    ...$audit._types,
+  ].first()
+
+  // The companion records of a system call.
+  $audit.syscall = $audit.records.where(r => r.type in ["SYSCALL", "URINGOP"]).first().fields?
+  $audit.syscall_enriched = $audit.records.where(r => r.type in ["SYSCALL", "URINGOP"]).first().enriched?
+  $audit.record = $audit.records.where(r => r.type == $audit.type and r.type not in ["SYSCALL", "URINGOP"]).first().fields?
+  $audit.record_enriched = $audit.records.where(r => r.type == $audit.type and r.type not in ["SYSCALL", "URINGOP"]).first().enriched?
+  $audit.cwd = $audit.records.where(r => r.type == "CWD").first().fields?.cwd?
+  $audit.proctitle = $audit.records.where(r => r.type == "PROCTITLE").first().fields?.proctitle?
+  $audit.sockaddr = $audit.records.where(r => r.type == "SOCKADDR").first().fields?
+  $audit.paths = $audit.records.where(r => r.type == "PATH").map(r => {item: r.fields.item?.int(), ...r}).sort().map(r => collect_record(entries(r).where(e => e.key in ["fields", "enriched"] and e.value != null)))
+  // Long arguments span several EXECVE records and split into fragments such
+  // as `a1[0]` and `a1[1]`.
+  $audit._execve = ("{" + $audit.records.where(r => r.type == "EXECVE").map(r => r.fields.print_json().replace_regex(r"^\{|\}$", "")).where(x => x.trim() != "").join(",") + "}").parse_json(raw=true)
+  $audit._arguments = entries($audit._execve).where(e => e.key.match_regex(r"^a[0-9]+(?:\[[0-9]+\])?$")).map(e => {
+    index: e.key.replace_regex(r"^a([0-9]+).*$", "\\1").int(),
+    fragment: e.key.replace_regex(r"^a[0-9]+\[([0-9]+)\]$", "\\1").int() if e.key.match_regex(r"\[") else -1,
+    value: e.value,
+  }).sort()
+  if $audit._arguments.length() > 0 {
+    $audit.arguments = $audit._arguments.map(a => a.index).distinct().sort().map(i => $audit._arguments.where(a => a.index == i).map(a => a.value).join(""))
+  }
+  $audit.execve = collect_record(entries($audit._execve).where(e => not e.key.match_regex(r"^a[0-9]+(?:\[[0-9]+\])?$")))
+  // Everything else stays in the residue, including repeated records of the
+  // defining type.
+  $audit.records = [
+    ...$audit.records.where(r => r.type not in ["SYSCALL", "URINGOP", "CWD", "PROCTITLE", "SOCKADDR", "PATH", "EXECVE", $audit.type]),
+    ...$audit.records.where(r => r.type == $audit.type and r.type not in ["SYSCALL", "URINGOP", "CWD", "PROCTITLE", "SOCKADDR", "PATH", "EXECVE"]).slice(begin=1),
+    ...$audit.records.where(r => r.type == "CWD").slice(begin=1),
+    ...$audit.records.where(r => r.type == "PROCTITLE").slice(begin=1),
+    ...$audit.records.where(r => r.type == "SOCKADDR").slice(begin=1),
+  ]
+  drop $audit._types, $audit._arguments, $audit._execve
+
+  // The system call name, from the ENRICHED format or the system call table
+  // of the architecture.
+  if $audit.syscall != null {
+    $audit.name = (
+      $audit.syscall_enriched.SYSCALL? else $audit.syscall_enriched.URING_OP?
+        else auditd::$syscalls[$audit.syscall.arch?]?[$audit.syscall.syscall?]?
+    )
+    // A failed system call returns the negative error number.
+    if $audit.syscall.success? == "no" {
+      $ocsf.status_id = 2
+      $ocsf.status_detail = auditd::$errnos[$audit.syscall.exit?.replace("-", "")]?
+      $ocsf.status_code = move $audit.syscall.exit?
+    } else if $audit.syscall.success? == "yes" {
+      $ocsf.status_id = 1
+    }
+    drop $audit.syscall_enriched.SYSCALL?, $audit.syscall_enriched.URING_OP?, $audit.syscall_enriched.ARCH?
+    // The rule keys that selected the event. Several keys join with 0x01.
+    if $audit.syscall.key? != null and $audit.syscall.key not in ["(null)", ""] {
+      $ocsf.metadata.labels = (move $audit.syscall.key).split("\x01")
+    }
+    drop $audit.syscall.key?
+  }
+  $ocsf.metadata.event_code = $audit.type
+
+  // Userspace programs nest their own fields in `msg`, with the outcome in
+  // `res`.
+  if $audit.record.msg?.type_kind() == "record" {
+    $audit.record = {...$audit.record, ...$audit.record.msg}
+    drop $audit.record.msg
+    // Userspace programs write `?` for values they do not know.
+    $audit.record = collect_record(entries($audit.record).where(e => e.value != "?"))
+  }
+  if $audit.record.res? != null and $audit.syscall == null {
+    $ocsf.status_id = 1 if $audit.record.res in ["success", "yes", "1"] else (2 if $audit.record.res in ["failed", "no", "0"] else 0)
+    drop $audit.record.res
+  }
+}
+
+// --- Classes ----------------------------------
+
+let $file_activity_ids = {
+  open: 14, openat: 14, openat2: 14, creat: 1,
+  read: 2, pread64: 2, readlink: 2, readlinkat: 2,
+  write: 3, pwrite64: 3, truncate: 3, ftruncate: 3, truncate64: 3, ftruncate64: 3,
+  unlink: 4, unlinkat: 4, rmdir: 4,
+  rename: 5, renameat: 5, renameat2: 5,
+  mkdir: 1, mkdirat: 1, mknod: 1, mknodat: 1, link: 1, linkat: 1, symlink: 1, symlinkat: 1,
+  setxattr: 6, lsetxattr: 6, fsetxattr: 6, removexattr: 6, lremovexattr: 6, fremovexattr: 6,
+  utime: 6, utimes: 6, utimensat: 6, futimesat: 6,
+  chmod: 7, fchmod: 7, fchmodat: 7, fchmodat2: 7,
+  chown: 7, fchown: 7, lchown: 7, fchownat: 7, chown32: 7, fchown32: 7, lchown32: 7,
+  getxattr: 8, lgetxattr: 8, fgetxattr: 8, listxattr: 8, llistxattr: 8, flistxattr: 8,
+  mount: 12, umount: 13, umount2: 13,
+}
+let $process_syscalls = [
+  "execve", "execveat", "exit", "exit_group",
+  "setuid", "setreuid", "setresuid", "setfsuid", "setuid32", "setreuid32", "setresuid32", "setfsuid32",
+  "setgid", "setregid", "setresgid", "setfsgid", "setgid32", "setregid32", "setresgid32", "setfsgid32", "setgroups",
+]
+
+if $audit.records? == null {
+  // Not a Linux Audit record; the Base Event above stays.
+} else if $audit.type in ["SYSCALL", "URINGOP"] and $audit.type == "SYSCALL" and $audit.name in $process_syscalls {
+  auditd::ocsf::events::process_activity $audit, $ocsf
+} else if $audit.type == "SYSCALL" and $file_activity_ids[$audit.name]? != null {
+  auditd::ocsf::events::file_activity $audit, $ocsf, activity_id=$file_activity_ids[$audit.name]
+} else if $audit.type == "SYSCALL" and $audit.name in ["connect", "accept", "accept4", "listen"] and $audit.sockaddr?.saddr_fam? in ["inet", "inet6"] and $audit.sockaddr?.laddr? != null {
+  auditd::ocsf::events::network_activity $audit, $ocsf
+} else if $audit.type in ["SYSCALL", "URINGOP"] and $audit.name in ["init_module", "finit_module", "delete_module"] or $audit.type in ["BPF", "KERN_MODULE"] {
+  auditd::ocsf::events::kernel_extension_activity $audit, $ocsf
+} else if $audit.type in ["SYSCALL", "URINGOP", "SECCOMP"] {
+  auditd::ocsf::events::kernel_activity $audit, $ocsf
+} else if $audit.type == "USER_CMD" {
+  auditd::ocsf::events::process_activity $audit, $ocsf
+} else if $audit.type in ["DAEMON_ACCEPT", "DAEMON_CLOSE"] {
+  auditd::ocsf::events::network_activity $audit, $ocsf
+} else if $audit.type in ["USER_LOGIN", "USER_LOGOUT", "USER_AUTH", "USER_ACCT", "USER_START", "USER_END", "USER_ERR", "CRED_ACQ", "CRED_REFR", "CRED_DISP", "LOGIN"] {
+  auditd::ocsf::events::authentication $audit, $ocsf
+} else if $audit.type in ["ADD_GROUP", "DEL_GROUP", "GRP_MGMT"] or ($audit.type == "USER_MGMT" and $audit.record.grp? != null) {
+  auditd::ocsf::events::group_management $audit, $ocsf
+} else if $audit.type in ["ADD_USER", "DEL_USER", "USER_MGMT", "USER_CHAUTHTOK", "ACCT_LOCK", "ACCT_UNLOCK", "ROLE_ASSIGN", "ROLE_REMOVE"] {
+  auditd::ocsf::events::user_management $audit, $ocsf
+} else if $audit.type in ["DAEMON_START", "DAEMON_END", "DAEMON_ABORT", "DAEMON_ROTATE", "EVENT_LISTENER"] or ($audit.type == "CONFIG_CHANGE" and $audit.record.audit_enabled? != null) {
+  auditd::ocsf::events::event_log_activity $audit, $ocsf
+} else if $audit.type in ["CONFIG_CHANGE", "MAC_POLICY_LOAD"] or ($audit.type == "AVC" and $audit.record.apparmor? == "STATUS" and $audit.record.operation?.starts_with("profile_")) {
+  auditd::ocsf::events::entity_management $audit, $ocsf
+} else if $audit.type == "ANOM_PROMISCUOUS" {
+  auditd::ocsf::events::device_config_state_change $audit, $ocsf
+} else if $audit.type in ["SERVICE_START", "SERVICE_STOP", "SOFTWARE_UPDATE"] {
+  auditd::ocsf::events::application_lifecycle $audit, $ocsf
+} else {
+  @name = "ocsf.base_event"
+  $ocsf.category_uid = 0
+  $ocsf.class_uid = 0
+  $ocsf.activity_id = 0
+  // Programs can submit free text to the audit log.
+  if $audit.type == "USER" {
+    $ocsf.message = move $audit.record.text?
+  }
+}
+
+// --- Security decisions -----------------------
+
+// SELinux and AppArmor decisions and fapolicyd verdicts on the system call.
+if $audit.records? != null {
+  $audit._decisions = $audit.records.where(r => r.type in ["AVC", "FANOTIFY"] and r.fields.apparmor? != "STATUS").map(r => (
+    2 if r.fields.seresult? == "denied" and r.fields.permissive? != "1"
+    else (3 if r.fields.seresult? == "denied"
+    else (1 if r.fields.seresult? == "granted"
+    else (2 if r.fields.apparmor? == "DENIED"
+    else (3 if r.fields.apparmor? == "ALLOWED"
+    else (1 if r.fields.apparmor? == "AUDIT"
+    else (1 if r.fields.resp? == "1"
+    else (2 if r.fields.resp? == "2"
+    else 0))))))))
+  )
+  if $audit._decisions.length() > 0 and $ocsf.class_uid != 0 {
+    // The strictest decision wins: Denied, then Observed, then Allowed.
+    $ocsf.action_id = 2 if 2 in $audit._decisions else (3 if 3 in $audit._decisions else (1 if 1 in $audit._decisions else 0))
+    $ocsf.disposition_id = 2 if $ocsf.action_id == 2 else (1 if $ocsf.action_id == 1 else (15 if $ocsf.action_id == 3 else 0))
+    $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "security_control"]
+  }
+  drop $audit._decisions
+}
+
+// --- Finalize ---------------------------------
+
+$ocsf.type_uid = $ocsf.class_uid * 100 + $ocsf.activity_id
+if $ocsf.actor?.process? != null {
+  // The Linux extension holds the audit, effective user, and group IDs.
+  $ocsf.metadata.profiles = [...$ocsf.metadata.profiles, "linux/linux_users"]
+  $ocsf.metadata.extensions = [{name: "linux", uid: "1", version: "1.9.0"}]
+}
+// What the mapping did not use: the fields of the defining and companion
+// records, and the records it did not read.
+$ocsf.unmapped = {}
+if $audit.syscall?.keys().length() > 0 {
+  $ocsf.unmapped.syscall = $audit.syscall
+}
+if $audit.record?.keys().length() > 0 {
+  $ocsf.unmapped.record = $audit.record
+}
+if $audit.syscall_enriched?.keys().length() > 0 {
+  $ocsf.unmapped.enriched.syscall = $audit.syscall_enriched
+}
+if $audit.record_enriched?.keys().length() > 0 {
+  $ocsf.unmapped.enriched.record = $audit.record_enriched
+}
+if $audit.cwd? != null {
+  $ocsf.unmapped.cwd = $audit.cwd
+}
+if $audit.proctitle? != null {
+  $ocsf.unmapped.proctitle = $audit.proctitle
+}
+if $audit.execve?.keys().length() > 0 {
+  $ocsf.unmapped.execve = $audit.execve
+}
+if $audit.sockaddr?.keys().length() > 0 {
+  $ocsf.unmapped.sockaddr = $audit.sockaddr
+}
+if $audit.paths?.length() > 0 {
+  $ocsf.unmapped.paths = $audit.paths
+}
+if $audit.records?.length() > 0 {
+  $ocsf.unmapped.records = $audit.records
+}
+if $ocsf.unmapped.keys().length() == 0 {
+  drop $ocsf.unmapped
+}
+$ocsf = drop_null_fields($ocsf)
