@@ -18,8 +18,10 @@ $ocsf.class_uid = 3004
 
 if $audit.type == "CONFIG_CHANGE" {
   $audit._op = $audit.record.op?
-  if $audit._op in ["add_rule", "remove_rule"] {
-    // An audit rule change names the rule only by its key, if any.
+  if $audit._op.match_regex(r"^(?:add|remove|autoremove)_rule$") {
+    // The operation names an audit rule: auditctl adds or removes it, or the
+    // kernel removes a watch rule whose file disappeared. The record names the
+    // rule only by its key, if any.
     $ocsf.activity_id = 1 if $audit._op == "add_rule" else 4
     $ocsf.entity = {
       type_id: 99,
@@ -27,9 +29,10 @@ if $audit.type == "CONFIG_CHANGE" {
       name: $audit.record.key? if $audit.record.key? not in [null, "(null)"] else null,
     }
     drop $audit.record.op, $audit.record.key?
-  } else {
-    // A setting change, such as `op=set audit_pid=…`, names the setting and
-    // its new and old values.
+  } else if $audit._op == "set" or ($audit._op == null and $audit.record.old? != null) {
+    // `op=set`, or an older kernel's record with the previous value in `old`,
+    // changes a kernel audit setting such as `audit_backlog_limit`. The first
+    // other field names the setting and its new value.
     $ocsf.activity_id = 3
     $audit._setting = entries($audit.record).where(e => e.key not in ["op", "old", "auid", "ses", "subj", "res", "pid", "uid"]).first()
     $ocsf.entity = {
@@ -38,11 +41,16 @@ if $audit.type == "CONFIG_CHANGE" {
       name: $audit._setting.key?,
     }
     drop $audit._setting
+  } else {
+    // Other operations name neither a rule nor a setting.
+    $ocsf.activity_id = 99
+    $ocsf.activity_name = move $audit.record.op?
   }
   drop $audit._op
 } else if $audit.type == "AVC" {
-  // AppArmor reports the profile that it loads, replaces, or removes in
-  // `name`.
+  // The mapping routes only AVC records with `apparmor="STATUS"` and a
+  // profile operation here, so the policy is an AppArmor profile. AppArmor
+  // reports the profile that it loads, replaces, or removes in `name`.
   $audit._op = $audit.record.operation?
   $ocsf.activity_id = 1 if $audit._op == "profile_load" else (4 if $audit._op == "profile_remove" else (3 if $audit._op == "profile_replace" else 99))
   $ocsf.activity_name = $audit._op if $ocsf.activity_id == 99 else null
