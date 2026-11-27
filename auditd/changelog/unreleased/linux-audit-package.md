@@ -17,4 +17,5 @@ auditd::ocsf::normalize
 
 - `auditd::parse` reads the native `RAW` and `ENRICHED` formats and decodes hex-encoded values.
 - `auditd::assemble` groups the records of one system call into one event.
+- `auditd::adapters::journal` rebuilds audit records from systemd journal entries.
 - `auditd::ocsf::map` maps processes, files, network connections, logins, account changes, audit configuration, services, kernel extensions, and security module decisions.
